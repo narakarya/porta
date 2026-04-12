@@ -80,6 +80,33 @@ Goal: Porta works without being watched. Core experience is solid before adding 
 
 ---
 
+### 5. Open in Terminal
+
+**What:** Right-click on any app → open a terminal window in that app's working directory.
+
+**How:**
+- Use `tauri-plugin-shell` (already a dependency) to spawn the user's default terminal (Terminal.app, iTerm2, Warp, etc.)
+- Detect default terminal via `$TERM_PROGRAM` or fallback to `open -a Terminal <path>`
+- Working directory comes from the app's configured `path` field
+
+**UI:** Add "Open in Terminal" to AppContextMenu. No new settings needed.
+
+---
+
+### 6. Port Conflict Detection
+
+**What:** Before starting an app, check if its configured port is already in use — by another Porta app or an external process. Warn instead of silently failing.
+
+**How:**
+- `port_scanner.rs` already exists — extend with a `is_port_in_use(port: u16) -> bool` check
+- Run check in `start_app` command before spawning the process
+- If conflict detected: emit `app:port-conflict` event with details of what's using the port (`lsof -i :<port>`)
+- Also run conflict check when saving app config (add/edit)
+
+**UI:** AppCard shows amber warning badge if port is in use by an external process. Toast notification on start attempt.
+
+---
+
 ## Phase v0.3 — "Powerful"
 
 Goal: Porta becomes a full local dev platform — services, smart orchestration, visibility.
@@ -147,7 +174,32 @@ Goal: Porta becomes a full local dev platform — services, smart orchestration,
 
 ---
 
-### 8. Quick Launch from Menu Bar (Tray)
+### 9. Clone App Config
+
+**What:** Duplicate an existing app's config with one click — useful when two services share similar settings (e.g., `api-v1` and `api-v2`).
+
+**How:**
+- In `commands.rs`, add `clone_app(id)` that reads the app, generates a new UUID, appends " (copy)" to the name, and inserts it
+- Port gets auto-reassigned to next available port (reuse `find_available_port`)
+
+**UI:** "Duplicate" option in AppContextMenu. New app appears in workspace immediately, App Settings Modal opens for user to rename.
+
+---
+
+### 10. HTTP Health Check
+
+**What:** Beyond TCP port detection, allow apps to define an HTTP health endpoint. Porta polls it to determine "ready" state more accurately.
+
+**How:**
+- Add optional `health_check_path: Option<String>` to App model (e.g., `/health`, `/api/status`)
+- If set, `spawn_port_watcher` does HTTP GET after port opens and waits for 2xx response
+- Timeout and retry logic same as existing port watcher
+
+**UI:** Optional field in App Settings: "Health check path" (leave blank to use port-only detection).
+
+---
+
+### 11. Quick Launch from Menu Bar (Tray)
 
 **What:** Tray menu shows per-workspace submenus with start/stop toggles — without opening the main window.
 
@@ -214,6 +266,8 @@ Goal: Porta is ready for public. Config is portable, onboarding is smooth.
 ## Future Vision (No Timeline)
 
 - **n8n-style dependency canvas** — Interactive drag-and-connect node graph for app orchestration. Would position Porta as "n8n for dev environments".
+- **Import from docker-compose** — Parse `docker-compose.yml` and auto-import services into Porta. Killer feature for onboarding existing projects.
+- **Audit log / history** — Track when apps were started, stopped, or crashed with timestamps. Useful for debugging "why did this die at 3am".
 - **Custom Caddy rules per app** — UI for headers, redirects, rate limiting per app.
 - **Team sharing** — Share workspace config with teammates via invite link.
 - **Plugin system** — Community service presets, custom auto-detect rules.
@@ -233,6 +287,6 @@ Goal: Porta is ready for public. Config is portable, onboarding is smooth.
 
 | Phase | Ship when... |
 |-------|-------------|
-| v0.2 | Auto-restart, env vars, notifications, log search all working on personal machine |
-| v0.3 | Services can run Postgres + Redis reliably; dependency chain works for 3+ app workspace |
+| v0.2 | Auto-restart, env vars, notifications, log search, open in terminal, port conflict detection all working on personal machine |
+| v0.3 | Services can run Postgres + Redis reliably; dependency chain works for 3+ app workspace; clone and HTTP health check working |
 | v0.4 | Config round-trips cleanly between two machines; templates cover 80% of common stacks |
