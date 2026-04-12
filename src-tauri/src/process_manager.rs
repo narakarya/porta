@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -27,6 +27,9 @@ impl ProcessManager {
     /// Start an app process, streaming its stdout+stderr via `on_log` and
     /// notifying when it exits via `on_exit(exit_code, intentional_stop)`.
     /// `extra_env` vars are injected before the process spawns (PORT still wins over everything).
+    /// `truncate_log`: if true the log file is wiped clean before this run (manual start/restart);
+    ///   if false, a separator is appended so history from the previous run is preserved
+    ///   (used when Porta auto-starts apps on boot).
     pub fn start(
         &self,
         app_id: &str,
@@ -35,6 +38,7 @@ impl ProcessManager {
         port: u16,
         env_file: Option<&str>,
         extra_env: &HashMap<String, String>,
+        truncate_log: bool,
         on_log: impl Fn(String) + Send + Sync + 'static,
         on_exit: impl Fn(i32, bool) + Send + 'static,
     ) -> Result<u32> {
@@ -80,6 +84,26 @@ impl ProcessManager {
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
 
+        // Prepare the per-app log file.
+        let log_path = log_file_path(app_id);
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if truncate_log {
+            // Manual start/restart — clear so this run starts fresh.
+            let _ = std::fs::write(&log_path, "");
+        } else {
+            // Auto-start (Porta boot) — append separator so history is preserved.
+            use std::io::Write as _;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = writeln!(f, "\n── Porta restarted (t={ts}) ──");
+            }
+        }
+
         let on_log = Arc::new(on_log);
         let pids = Arc::clone(&self.pids);
         let stopping = Arc::clone(&self.stopping);
@@ -87,17 +111,51 @@ impl ProcessManager {
 
         // stdout reader
         let on_log_out = Arc::clone(&on_log);
+        let log_path_out = log_path.clone();
         thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().flatten() {
-                on_log_out(line);
+            use std::io::{BufRead as _, Write as _};
+            let mut reader = BufReader::new(stdout);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if buf.ends_with(b"\n") { buf.pop(); }
+                        if buf.ends_with(b"\r") { buf.pop(); }
+                        let line = String::from_utf8_lossy(&buf).into_owned();
+                        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&log_path_out) {
+                            let _ = writeln!(f, "{}", line);
+                        }
+                        on_log_out(line);
+                    }
+                    Err(_) => break,
+                }
             }
         });
 
         // stderr reader
         let on_log_err = Arc::clone(&on_log);
+        let log_path_err = log_path.clone();
         thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().flatten() {
-                on_log_err(line);
+            use std::io::{BufRead as _, Write as _};
+            let mut reader = BufReader::new(stderr);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if buf.ends_with(b"\n") { buf.pop(); }
+                        if buf.ends_with(b"\r") { buf.pop(); }
+                        let line = String::from_utf8_lossy(&buf).into_owned();
+                        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&log_path_err) {
+                            let _ = writeln!(f, "{}", line);
+                        }
+                        on_log_err(line);
+                    }
+                    Err(_) => break,
+                }
             }
         });
 
@@ -142,6 +200,44 @@ impl ProcessManager {
         Ok(())
     }
 
+    /// Stop the process and **block** until it is confirmed dead or the timeout
+    /// expires (falls back to SIGKILL). Used by restart_app so the port is
+    /// guaranteed free before the new process starts.
+    pub fn stop_and_wait(&self, app_id: &str, timeout_ms: u64) -> Result<()> {
+        self.stopping.lock().unwrap().insert(app_id.to_string());
+
+        let pid_opt = {
+            let pids = self.pids.lock().unwrap();
+            pids.get(app_id).copied()
+        };
+
+        let Some(pid) = pid_opt else { return Ok(()) };
+
+        // Graceful SIGTERM first
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+
+        // Poll until dead, falling back to SIGKILL after timeout
+        let steps = (timeout_ms / 50).max(1);
+        for i in 0..steps {
+            thread::sleep(Duration::from_millis(50));
+            if kill(Pid::from_raw(pid as i32), None).is_err() {
+                // Confirmed dead
+                self.pids.lock().unwrap().remove(app_id);
+                return Ok(());
+            }
+            // Halfway through timeout — escalate to SIGKILL
+            if i == steps / 2 {
+                let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+            }
+        }
+
+        // Final SIGKILL and a short grace period for the OS to reclaim the port
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+        thread::sleep(Duration::from_millis(150));
+        self.pids.lock().unwrap().remove(app_id);
+        Ok(())
+    }
+
     /// Force-kill a process with SIGKILL (no cleanup, immediate termination).
     pub fn kill(&self, app_id: &str) -> Result<()> {
         self.stopping.lock().unwrap().insert(app_id.to_string());
@@ -169,6 +265,15 @@ impl ProcessManager {
     pub fn is_running(&self, app_id: &str) -> bool {
         self.pids.lock().unwrap().contains_key(app_id)
     }
+}
+
+/// Returns the path to the per-app log file: ~/.porta/logs/{app_id}.log
+pub fn log_file_path(app_id: &str) -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    std::path::PathBuf::from(home)
+        .join(".porta")
+        .join("logs")
+        .join(format!("{}.log", app_id))
 }
 
 /// Parse a .env file into key=value pairs.

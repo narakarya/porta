@@ -5,14 +5,21 @@ import LogViewer from "./LogViewer";
 import AppContextMenu from "./AppContextMenu";
 import AppSettingsModal from "./AppSettingsModal";
 import { openInEditor, openInTerminal, killPid, killPortHolder } from "../lib/commands";
+import Tooltip from "./Tooltip";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /[\x1b\x9b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
 function stripAnsi(s: string) { return s.replace(ANSI_RE, ""); }
+const NOISE_RE = /cloudflare\.com\/(website-terms|terms)|Thank you for trying Cloudflare Tunnel|Doing so, you agree/i;
+function filterLog(lines: string[]) { return lines.filter((l) => !NOISE_RE.test(stripAnsi(l))); }
 
 interface Props {
   app: App;
   workspace: Workspace | null;
+  startOrder?: number;
+  onOpenDetail?: () => void;
+  onOpenTerminal?: () => void;
+  onOpenDeploy?: () => void;
 }
 
 // ── Log Toast ─────────────────────────────────────────────────────────────────
@@ -26,13 +33,14 @@ interface LogToastProps {
   isRunning?: boolean;
   isStarting?: boolean;
   crashed?: boolean;
+  stackIndex?: number;
   onExpand: () => void;
   onClose: () => void;
 }
 
-function LogToast({ appName, logs, isRunning, isStarting, crashed, onExpand, onClose }: LogToastProps) {
+function LogToast({ appName, logs, isRunning, isStarting, crashed, stackIndex = 0, onExpand, onClose }: LogToastProps) {
   const [killedPid, setKilledPid] = useState<number | null>(null);
-  const preview = logs.slice(-4).map(stripAnsi);
+  const preview = filterLog(logs).slice(-4).map(stripAnsi);
 
   // Scan recent logs for a lock-holder PID
   const lockPid = (() => {
@@ -59,10 +67,15 @@ function LogToast({ appName, logs, isRunning, isStarting, crashed, onExpand, onC
     } catch {}
   }
 
+  const bottomOffset = 16 + stackIndex * 152; // 152px = max toast height + 8px gap
+
   return (
-    <div className={`fixed bottom-4 right-4 z-50 w-[320px] bg-[#1c1c1e] border rounded-xl shadow-2xl overflow-hidden ${
-      crashed ? "border-red-500/20" : "border-white/[0.10]"
-    }`}>
+    <div
+      className={`fixed right-4 z-50 w-[320px] bg-[#1c1c1e] border rounded-xl shadow-2xl overflow-hidden transition-all ${
+        crashed ? "border-red-500/20" : "border-white/[0.10]"
+      }`}
+      style={{ bottom: bottomOffset }}
+    >
       {/* Header */}
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${crashed ? "border-red-500/10" : "border-white/[0.06]"}`}>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
@@ -83,8 +96,8 @@ function LogToast({ appName, logs, isRunning, isStarting, crashed, onExpand, onC
           <p className="text-[11px] text-zinc-600 select-none">Starting…</p>
         ) : (
           preview.map((line, i) => (
-            <p key={i} className={`text-[11px] leading-5 whitespace-pre-wrap break-all ${crashed ? "text-red-300/70" : "text-zinc-400"}`}>
-              {line}
+            <p key={i} className={`text-[11px] leading-[21px] truncate ${crashed ? "text-red-300/70" : "text-zinc-400"}`}>
+              {line || "\u00A0"}
             </p>
           ))
         )}
@@ -118,25 +131,44 @@ function resolvedHost(app: App, workspace: Workspace | null): string {
   return sub === "*" ? `*.${domain}` : `${sub}.${domain}`;
 }
 
-export default function AppCard({ app, workspace }: Props) {
-  const { startApp, stopApp, killApp, setupStatus, appLogs, appExitCode, appRetryCount, portConflicts, clearAppLogs, dismissPortConflict } =
+function allHosts(app: App, workspace: Workspace | null): string[] {
+  const domain = workspace?.domain ?? "narakarya.test";
+  const primary = resolvedHost(app, workspace);
+  const extras = (app.extra_subdomains ?? []).map((s) => `${s}.${domain}`);
+  return [primary, ...extras];
+}
+
+export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOpenTerminal, onOpenDeploy }: Props) {
+  const { startApp, stopApp, restartApp, killApp, setupStatus, appLogs, appExitCode, appRetryCount, portConflicts, appRestarting, appTunnelErrors, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex } =
     usePortaStore();
 
   const host = resolvedHost(app, workspace);
+  const hosts = allHosts(app, workspace);
   const scheme = setupStatus?.certs_generated ? "https" : "http";
   const isStarting = app.status === "starting";
   const isRunning = app.status === "running";
   const isActive = isRunning || isStarting; // process is alive
   const isWildcard = (app.subdomain ?? app.name) === "*";
+  const extraCount = (app.extra_subdomains ?? []).length;
   const logs = appLogs[app.id] ?? [];
   const exitCode = appExitCode[app.id] ?? null;
   const crashed = exitCode !== null && exitCode !== 0;
   const hasLogs = logs.length > 0;
+  const showLogIcon = isActive || hasLogs; // keep icon visible while running even after clear
   const retryCount = appRetryCount[app.id] ?? 0;
   const hasPortConflict = portConflicts[app.id] ?? false;
+  const isRestarting = appRestarting[app.id] ?? false;
+  const tunnelError = appTunnelErrors[app.id] ?? null;
+
+  // Ref set synchronously on click — guards visibility across any intermediate Zustand renders
+  const restartClickedRef = useRef(false);
+  useEffect(() => { if (isRunning) restartClickedRef.current = false; }, [isRunning]);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hostsMenuOpen, setHostsMenuOpen] = useState(false);
+  const [tunnelMenuOpen, setTunnelMenuOpen] = useState(false);
+  const [tunnelUrlCopied, setTunnelUrlCopied] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [killConfirm, setKillConfirm] = useState(false);
   const [portKillFeedback, setPortKillFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -147,13 +179,18 @@ export default function AppCard({ app, workspace }: Props) {
   }
 
   const [logToastOpen, setLogToastOpen] = useState(false);
+  function openToast() { setLogToastOpen(true); registerToast(app.id); }
+  function closeToast() { setLogToastOpen(false); unregisterToast(app.id); }
+  // Clean up stack slot if the card unmounts while toast is open
+  useEffect(() => () => { unregisterToast(app.id); }, []);
+
   // Initialize to current active state so mounting already-running apps don't trigger auto-open
   const prevActive = useRef(isActive);
 
   // Show log toast the moment app process starts (stopped → starting)
   useEffect(() => {
     if (isActive && !prevActive.current) {
-      setLogToastOpen(true);
+      openToast();
       setBannerDismissed(false);
     }
     if (!isActive) setKillConfirm(false); // dismiss confirm if process already stopped
@@ -201,9 +238,25 @@ export default function AppCard({ app, workspace }: Props) {
                        "bg-zinc-600"
         }`} />
 
-        <div className="flex-1 min-w-0">
+        <div
+          className={`flex-1 min-w-0 ${onOpenDetail ? "cursor-pointer" : ""}`}
+          onClick={onOpenDetail}
+        >
           <div className="flex items-center gap-1.5">
             <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
+            {startOrder !== undefined && (
+              <span className="text-[9px] font-medium text-zinc-600 bg-white/[0.04] border border-white/[0.06] px-1 py-0.5 rounded leading-none">
+                {startOrder}
+              </span>
+            )}
+            {onOpenDetail && (
+              <svg
+                width="10" height="10" viewBox="0 0 10 10" fill="none"
+                className="text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+              >
+                <path d="M3.5 2l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
             {retryCount > 0 && (
               <span className="text-[10px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full leading-none">
                 ↻{retryCount}
@@ -219,81 +272,273 @@ export default function AppCard({ app, workspace }: Props) {
               </button>
             )}
           </div>
-          <p className="text-[11px] text-zinc-600 mt-0.5">port {app.port}</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <p className="text-[11px] text-zinc-600">port {app.port}</p>
+            {extraCount > 0 && (
+              <span className="text-[10px] font-medium text-zinc-500 bg-white/[0.05] border border-white/[0.08] px-1 py-0.5 rounded leading-none" title={(app.extra_subdomains ?? []).join(", ")}>
+                +{extraCount}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Log icon — always visible when there are logs */}
-        {hasLogs && (
+        {/* Deploy button — only if app.deploy_config_path */}
+        {app.deploy_config_path && (
+          <Tooltip label="Deploy">
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenDeploy?.(); }}
+              className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M6.5 1.5C6.5 1.5 9.5 2 10.5 5c.5 1.5.5 3 0 4L9 8.5l-1.5 3-1.5-3L4.5 9.5c-.5-1-.5-2.5 0-4C5.5 2 6.5 1.5 6.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                <circle cx="6.5" cy="5.5" r="1" stroke="currentColor" strokeWidth="1.2"/>
+              </svg>
+            </button>
+          </Tooltip>
+        )}
+
+        {/* Terminal button — always shown */}
+        <Tooltip label="Open terminal">
           <button
-            onClick={() => setLogViewerOpen(true)}
-            className={`p-1 rounded-md transition-colors ${
-              crashed
-                ? "text-red-400 hover:bg-red-500/10"
-                : "text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06]"
-            }`}
-            title="View logs"
+            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(); }}
+            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
           >
-            {/* Page / document icon */}
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <rect x="2" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-              <path d="M4.5 4.5h4M4.5 6.5h4M4.5 8.5h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <rect x="1" y="2" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M3 5.5l2 1.5-2 1.5M6.5 8.5H9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-        )}
+        </Tooltip>
 
-        {/* Open icon — only when fully running and not wildcard */}
-        {isRunning && !isWildcard && (
-          <a
-            href={`${scheme}://${host}`}
-            target="_blank"
-            rel="noreferrer"
-            className="p-1 text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
-            title={`Open ${scheme}://${host}`}
-          >
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </a>
-        )}
-
-        {/* Start / Stop */}
-        <div className="flex items-center">
-          {isActive ? (
+        {/* Log icon — always visible when there are logs */}
+        {showLogIcon && (
+          <Tooltip label={crashed ? "View crash logs" : "View logs"}>
             <button
-              onClick={() => stopApp(app.id)}
-              className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
+              onClick={() => setLogViewerOpen(true)}
+              className={`p-1 rounded-md transition-colors ${
+                crashed
+                  ? "text-red-400 hover:bg-red-500/10"
+                  : "text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06]"
+              }`}
             >
-              Stop
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <rect x="2" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M4.5 4.5h4M4.5 6.5h4M4.5 8.5h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
             </button>
+          </Tooltip>
+        )}
+
+        {/* Open browser — only when fully running and not wildcard */}
+        {isRunning && !isWildcard && (
+          <div className="relative">
+            {extraCount === 0 ? (
+              // Single subdomain — plain link
+              <Tooltip label={`Open ${scheme}://${host}`}>
+                <a
+                  href={`${scheme}://${host}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors flex items-center"
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </a>
+              </Tooltip>
+            ) : (
+              // Multiple subdomains — dropdown button
+              <>
+                <Tooltip label="Open in browser">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setHostsMenuOpen((v) => !v); }}
+                    className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </Tooltip>
+                {hostsMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setHostsMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
+                      {hosts.map((h) => (
+                        <a
+                          key={h}
+                          href={`${scheme}://${h}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => setHostsMenuOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-[12px] font-mono text-zinc-300 hover:bg-white/[0.07] transition-colors"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-600 shrink-0">
+                            <path d="M4 1.5H2a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h6a.5.5 0 00.5-.5V6M5.5 1.5H8.5M8.5 1.5V4.5M8.5 1.5L5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          {h}
+                        </a>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Tunnel quick menu — only shown when app is active, tunnel is connected, or there's an error */}
+        {(isActive || app.tunnel_active || tunnelError) && <div className="relative">
+          <Tooltip
+            label={tunnelError ? "Tunnel failed" : app.tunnel_active && app.tunnel_url ? "Tunnel connected" : app.tunnel_active ? "Connecting…" : "Quick Tunnel"}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); setTunnelMenuOpen((v) => !v); }}
+              className={`p-1 rounded-md transition-colors ${
+                tunnelError
+                  ? "text-red-400 hover:bg-red-500/10"
+                  : app.tunnel_active && app.tunnel_url
+                  ? "text-sky-400 hover:bg-sky-500/10"
+                  : app.tunnel_active
+                  ? "text-amber-400 hover:bg-amber-500/10"
+                  : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
+              }`}
+            >
+              {app.tunnel_active && !app.tunnel_url ? (
+                <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <path d="M6.5 1.5A5 5 0 1 1 1.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <path d="M4 5.5a3.5 3.5 0 0 1 5 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <path d="M2.5 4a5.5 5.5 0 0 1 8 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <circle cx="6.5" cy="8" r="1" fill="currentColor"/>
+                  <path d="M6.5 9v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+              )}
+            </button>
+          </Tooltip>
+
+          {tunnelMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setTunnelMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-1 z-50 w-[220px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
+                {app.tunnel_active && app.tunnel_url ? (
+                  <>
+                    <div className="px-3 py-2 border-b border-white/[0.06]">
+                      <p className="text-[10px] text-zinc-500 mb-1">Tunnel URL</p>
+                      <p className="text-[11px] font-mono text-sky-300 truncate">{app.tunnel_url}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(app.tunnel_url!).then(() => {
+                          setTunnelUrlCopied(true);
+                          setTimeout(() => { setTunnelUrlCopied(false); setTunnelMenuOpen(false); }, 1000);
+                        });
+                      }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-zinc-300 hover:bg-white/[0.07] transition-colors"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3.5" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 3.5V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                      {tunnelUrlCopied ? "Copied!" : "Copy URL"}
+                    </button>
+                    <a
+                      href={app.tunnel_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => setTunnelMenuOpen(false)}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-zinc-300 hover:bg-white/[0.07] transition-colors"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M4.5 2H3a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h5a.5.5 0 00.5-.5V7M6.5 2H9M9 2v2.5M9 2L5.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      Open in browser
+                    </a>
+                    <div className="border-t border-white/[0.06]">
+                      <button
+                        onClick={() => { stopTunnel(app.id); setTunnelMenuOpen(false); }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/></svg>
+                        Disconnect
+                      </button>
+                    </div>
+                  </>
+                ) : app.tunnel_active ? (
+                  <div className="px-3 py-3 flex items-center gap-2">
+                    <svg className="animate-spin text-amber-400 shrink-0" width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path d="M5.5 1A4.5 4.5 0 1 1 1 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    </svg>
+                    <span className="text-[12px] text-amber-400">Establishing tunnel…</span>
+                  </div>
+                ) : tunnelError ? (
+                  <>
+                    <div className="px-3 py-2 border-b border-white/[0.06]">
+                      <p className="text-[10px] text-red-400 font-medium mb-0.5">Tunnel failed</p>
+                      <p className="text-[11px] text-red-300/70 leading-snug break-words">{tunnelError}</p>
+                    </div>
+                    <button
+                      onClick={() => { startTunnel(app.id); setTunnelMenuOpen(false); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-sky-400 hover:bg-sky-500/10 transition-colors"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5a3.5 3.5 0 0 1 7 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 7v2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="4" r="0.8" fill="currentColor"/></svg>
+                      Retry Tunnel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => { startTunnel(app.id); setTunnelMenuOpen(false); }}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-sky-400 hover:bg-sky-500/10 transition-colors"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C5.5 1.5 7.5 2.5 8.5 4.5c.5 1 .5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 1.5C5.5 1.5 3.5 2.5 2.5 4.5c-.5 1-.5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M1.5 5.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                    Start Quick Tunnel
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>}
+
+        {/* Start / Stop / Restart */}
+        <div className="flex items-center gap-1">
+          {isActive || isRestarting || restartClickedRef.current ? (
+            <>
+              <button
+                onClick={() => { restartClickedRef.current = true; openToast(); setBannerDismissed(false); restartApp(app.id); }}
+                disabled={isRestarting || isStarting || restartClickedRef.current}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
+                  text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
+                  disabled:text-amber-400/70 disabled:bg-amber-500/10"
+                title="Restart"
+              >
+                {isRestarting || restartClickedRef.current ? (
+                  <>
+                    <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                    </svg>
+                    Restarting
+                  </>
+                ) : "Restart"}
+              </button>
+              <button
+                onClick={() => stopApp(app.id)}
+                disabled={isRestarting}
+                className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Stop
+              </button>
+            </>
           ) : (
             <button
               onClick={handleStart}
               disabled={!app.start_command}
-              className="px-2.5 py-1 text-[11px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md disabled:opacity-30 transition-colors"
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-md disabled:opacity-30 transition-colors ${
+                crashed
+                  ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
+                  : "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+              }`}
             >
               {crashed ? "Restart" : "Start"}
             </button>
           )}
         </div>
       </div>
-
-      {/* ── URL preview bar ── */}
-      {(isRunning || isStarting) && !isWildcard && (
-        <button
-          onClick={copyUrl}
-          className="mx-3 mb-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.06] hover:border-white/[0.09] transition-colors group/url w-[calc(100%-1.5rem)] text-left"
-          title="Click to copy URL"
-        >
-          <span className="text-[10px] text-zinc-600 shrink-0 font-medium">URL</span>
-          <span className={`text-[11px] font-mono truncate flex-1 ${isStarting ? "text-zinc-600" : "text-zinc-400"}`}>
-            {isStarting ? "starting…" : `${scheme}://${host}`}
-          </span>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-700 shrink-0 opacity-0 group-hover/url:opacity-100 transition-opacity">
-            <rect x="1" y="3" width="5.5" height="6.5" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-            <path d="M3.5 3V2a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v4.5a.5.5 0 01-.5.5H7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-          </svg>
-        </button>
-      )}
 
       {/* ── Port kill feedback ── */}
       {portKillFeedback && (
@@ -367,8 +612,9 @@ export default function AppCard({ app, workspace }: Props) {
           isRunning={isRunning}
           isStarting={isStarting}
           crashed={crashed}
-          onExpand={() => { setLogToastOpen(false); setLogViewerOpen(true); }}
-          onClose={() => setLogToastOpen(false)}
+          stackIndex={getToastIndex(app.id)}
+          onExpand={() => { closeToast(); setLogViewerOpen(true); }}
+          onClose={closeToast}
         />
       )}
 
@@ -379,21 +625,11 @@ export default function AppCard({ app, workspace }: Props) {
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           items={[
-            ...(!isWildcard ? [{
-              label: "Open in browser",
-              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M4.5 2H2a.5.5 0 00-.5.5v7A.5.5 0 002 10h7a.5.5 0 00.5-.5V7M6.5 1.5H9.5M9.5 1.5V4.5M9.5 1.5L5.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-              onClick: () => window.open(`${scheme}://${host}`, "_blank"),
-            }] : []),
             {
               label: "Copy URL",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3.5" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 3.5V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
               onClick: copyUrl,
               disabled: isWildcard,
-            },
-            {
-              label: "View Logs",
-              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1.5" y="1" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 4h4M3.5 6h4M3.5 8h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
-              onClick: () => setLogViewerOpen(true),
             },
             {
               label: "Open in Editor",
@@ -432,6 +668,7 @@ export default function AppCard({ app, workspace }: Props) {
 
       {logViewerOpen && (
         <LogViewer
+          appId={app.id}
           appName={app.name}
           logs={logs}
           crashed={crashed}

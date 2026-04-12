@@ -1,8 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { detectStartCommand, nextAvailablePort } from "../lib/commands";
+import { detectStartCommand, nextAvailablePort, listAvailableCommands } from "../lib/commands";
+import type { CommandSuggestion } from "../lib/commands";
 import { usePortaStore } from "../store";
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+async function pickDirectory(): Promise<string | null> {
+  if (isTauri) {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === "string" ? selected : null;
+  }
+  // Browser mock: prompt for a path
+  return window.prompt("Enter project folder path:", "/Users/dev/my-project");
+}
 
 const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
 const labelCls = "text-[11px] font-medium text-zinc-500 uppercase tracking-wide";
@@ -15,6 +27,7 @@ function validateSubdomain(s: string): string | null {
   if (!SUBDOMAIN_RE.test(s)) return "Use letters, numbers, hyphens — or * for wildcard";
   return null;
 }
+
 
 interface Props {
   workspaceId: string | null;
@@ -33,27 +46,35 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
   const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [wsId, setWsId] = useState<string | null>(workspaceId);
   const [submitting, setSubmitting] = useState(false);
+  const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const cmdInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     nextAvailablePort().then(setPort);
   }, []);
 
   async function pickFolder() {
-    const selected = await open({ directory: true, multiple: false });
-    if (!selected || typeof selected !== "string") return;
+    const selected = await pickDirectory();
+    if (!selected) return;
     setRootDir(selected);
     const parts = selected.split("/");
     setName(parts[parts.length - 1] ?? "");
-    const result = await detectStartCommand(selected);
+    // Auto-detect primary start command and load full suggestion list in parallel
+    const [result, cmds] = await Promise.all([
+      detectStartCommand(selected),
+      listAvailableCommands(selected).catch(() => [] as CommandSuggestion[]),
+    ]);
     if (result.command) {
       setCommand(result.command);
       setCommandSource(result.source as "auto" | "manual");
     }
+    setSuggestions(cmds);
   }
 
   const workspace = workspaces.find((w) => w.id === wsId) ?? null;
   const domain = workspace?.domain ?? "narakarya.test";
-  const preview = `${subdomain || name || "…"}.${domain}`;
+  const preview = `${subdomain || name || "..."}.${domain}`;
 
   function handleSubdomainChange(val: string) {
     // Allow * but otherwise force lowercase
@@ -88,7 +109,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50">
       <form
         onSubmit={submit}
-        className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 w-[400px] flex flex-col gap-4 shadow-2xl"
+        className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 w-[400px] flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto"
       >
         <div>
           <h2 className="text-[15px] font-semibold text-zinc-100">Add App</h2>
@@ -99,7 +120,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
         <label className="flex flex-col gap-1.5">
           <span className={labelCls}>Project Folder</span>
           <div className="flex gap-2">
-            <input value={rootDir} readOnly placeholder="Select a folder…"
+            <input value={rootDir} readOnly placeholder="Select a folder..."
               className={`${inputCls} flex-1 cursor-default`} />
             <button type="button" onClick={pickFolder}
               className="px-3 py-2 bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.08] rounded-lg text-[13px] text-zinc-300 transition-colors shrink-0">
@@ -116,7 +137,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
         </label>
 
         {/* Start command */}
-        <label className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <span className={`${labelCls} flex items-center gap-2`}>
             Start Command
             {commandSource === "auto" && (
@@ -125,10 +146,39 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
               </span>
             )}
           </span>
-          <input value={command}
-            onChange={(e) => { setCommand(e.target.value); setCommandSource("manual"); }}
-            placeholder="npm run dev" className={inputCls} autoComplete="off" spellCheck={false} />
-        </label>
+          <div className="relative">
+            <input
+              ref={cmdInputRef}
+              value={command}
+              onChange={(e) => { setCommand(e.target.value); setCommandSource("manual"); }}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              placeholder="npm run dev"
+              className={inputCls}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onMouseDown={() => {
+                      setCommand(s.label);
+                      setCommandSource("auto");
+                      setShowSuggestions(false);
+                    }}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/[0.07] text-left transition-colors"
+                  >
+                    <code className="text-[12px] text-zinc-200 font-mono truncate flex-1">{s.label}</code>
+                    <span className="text-[10px] text-zinc-600 shrink-0">{s.source}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Port + subdomain */}
         <div className="flex gap-3">
@@ -181,7 +231,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
           <button type="submit" disabled={submitting || !!subdomainError}
             className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
             {submitting && <span className="spinner text-white/70" />}
-            {submitting ? "Adding…" : "Add App"}
+            {submitting ? "Adding..." : "Add App"}
           </button>
         </div>
       </form>

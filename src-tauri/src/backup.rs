@@ -25,6 +25,8 @@ pub struct AppExport {
     pub subdomain: Option<String>,
     pub start_command: String,
     pub start_command_source: String,
+    #[serde(default)]
+    pub extra_subdomains: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,6 +46,7 @@ impl From<&App> for AppExport {
             subdomain: a.subdomain.clone(),
             start_command: a.start_command.clone(),
             start_command_source: a.start_command_source.clone(),
+            extra_subdomains: a.extra_subdomains.clone(),
         }
     }
 }
@@ -118,9 +121,7 @@ mod tests {
             pid: None,
             env_file: None,
             auto_start: false,
-            env_vars: std::collections::HashMap::new(),
-            restart_policy: "on-failure".into(),
-            max_retries: 3,
+            deploy_config_path: None,
         }
     }
 

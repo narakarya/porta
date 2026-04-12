@@ -170,7 +170,7 @@ export default function CommandPalette({ onOpenSettings }: CommandPaletteProps) 
         {/* Search input */}
         <div className="flex items-center px-3 border-b border-white/[0.08]">
           <span className="text-zinc-500 mr-2 text-sm">⌕</span>
-          <input
+          <input spellCheck={false}
             ref={inputRef}
             type="text"
             value={query}

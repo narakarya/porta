@@ -15,6 +15,7 @@ interface Props {
 export default function AppSettingsModal({ app, workspace, onClose }: Props) {
   const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus } = usePortaStore();
   const [section, setSection] = useState<Section>("general");
+  const [tunnelUrlCopied, setTunnelUrlCopied] = useState(false);
 
   const [name, setName] = useState(app.name);
   const [port, setPort] = useState(String(app.port));
@@ -598,6 +599,15 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   </div>
                 </div>
 
+                {app.tunnel_active && !app.tunnel_url && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <svg className="animate-spin shrink-0 text-amber-400" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    <span className="text-[11px] text-amber-400">Establishing tunnel…</span>
+                  </div>
+                )}
+
                 {app.tunnel_active && app.tunnel_url && (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-purple-400 shrink-0">
@@ -609,26 +619,33 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                       {app.tunnel_url}
                     </span>
                     <button
-                      onClick={() => navigator.clipboard.writeText(app.tunnel_url!)}
-                      className="text-[10px] text-purple-400 hover:text-purple-300 transition-colors shrink-0"
+                      onClick={() => {
+                        navigator.clipboard.writeText(app.tunnel_url!).then(() => {
+                          setTunnelUrlCopied(true);
+                          setTimeout(() => setTunnelUrlCopied(false), 1500);
+                        });
+                      }}
+                      className="text-[10px] font-medium shrink-0 transition-colors"
+                      style={{ color: tunnelUrlCopied ? "#a3e635" : undefined }}
                     >
-                      Copy
+                      {tunnelUrlCopied ? "Copied!" : "Copy"}
                     </button>
                   </div>
                 )}
 
-                <Field label="Public Hostname (optional)">
-                  <input spellCheck={false}
-                    value={tunnelHostname}
-                    onChange={(e) => setTunnelHostname(e.target.value)}
-                    className="input-base font-mono text-[12px]"
-                    placeholder="myapp.example.com"
-                    disabled={app.tunnel_active}
-                  />
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    Leave empty for a random <code className="text-zinc-500">*.trycloudflare.com</code> URL (no account needed).
-                  </p>
-                </Field>
+                {!app.tunnel_active && (
+                  <Field label="Public Hostname (optional)">
+                    <input spellCheck={false}
+                      value={tunnelHostname}
+                      onChange={(e) => setTunnelHostname(e.target.value)}
+                      className="input-base font-mono text-[12px]"
+                      placeholder="myapp.example.com"
+                    />
+                    <p className="text-[10px] text-zinc-600 mt-1">
+                      Leave empty for a random <code className="text-zinc-500">*.trycloudflare.com</code> URL.
+                    </p>
+                  </Field>
+                )}
 
                 <div className="flex gap-2">
                   {app.tunnel_active ? (
