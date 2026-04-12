@@ -19,30 +19,54 @@ pub fn check() -> SetupStatus {
     }
 }
 
+/// Homebrew prefix — /opt/homebrew on Apple Silicon, /usr/local on Intel.
+fn brew_path() -> &'static str {
+    if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
+        "/opt/homebrew/bin/brew"
+    } else {
+        "/usr/local/bin/brew"
+    }
+}
+
 fn is_installed(bin: &str) -> bool {
-    Command::new("which")
-        .arg(bin)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    // Check common Homebrew prefix locations directly, not just $PATH
+    let candidates = [
+        format!("/opt/homebrew/bin/{}", bin),
+        format!("/usr/local/bin/{}", bin),
+        format!("/usr/bin/{}", bin),
+    ];
+    candidates.iter().any(|p| std::path::Path::new(p).exists())
 }
 
 pub fn brew_install(package: &str) -> Result<()> {
+    let brew = brew_path();
     let script = format!(
-        "do shell script \"brew install {}\" with administrator privileges",
-        package
+        "do shell script \"{} install {}\" with administrator privileges",
+        brew, package
     );
-    let status = Command::new("osascript").arg("-e").arg(&script).status()?;
-    if !status.success() {
-        return Err(anyhow::anyhow!("brew install {} failed", package));
+    let out = Command::new("osascript").arg("-e").arg(&script).output()?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        return Err(anyhow::anyhow!(
+            "brew install {} failed: {}{}",
+            package,
+            stderr.trim(),
+            stdout.trim()
+        ));
     }
     Ok(())
 }
 
 pub fn start_caddy() -> Result<()> {
-    Command::new("brew")
+    let brew = brew_path();
+    let out = Command::new(brew)
         .args(["services", "start", "caddy"])
-        .status()?;
+        .output()?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(anyhow::anyhow!("brew services start caddy failed: {}", stderr.trim()));
+    }
     Ok(())
 }
 
