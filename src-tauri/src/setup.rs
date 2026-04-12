@@ -64,12 +64,19 @@ pub fn brew_install(package: &str) -> Result<()> {
 
 pub fn start_caddy() -> Result<()> {
     let brew = brew_path();
+    // Use `restart` so it works whether Caddy is already registered or not.
+    // launchctl exit 5 (Bootstrap failed: already loaded) is treated as success.
     let out = Command::new(brew)
-        .args(["services", "start", "caddy"])
+        .args(["services", "restart", "caddy"])
         .output()?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow::anyhow!("brew services start caddy failed: {}", stderr.trim()));
+        let msg = stderr.trim().to_string();
+        // exit 5 = service already bootstrapped — that's fine, Caddy is up
+        if msg.contains("Bootstrap failed: 5") || msg.contains("already") {
+            return Ok(());
+        }
+        return Err(anyhow::anyhow!("Failed to start Caddy: {}", msg));
     }
     Ok(())
 }

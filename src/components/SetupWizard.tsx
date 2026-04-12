@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { runSetup } from "../lib/commands";
 import { usePortaStore } from "../store";
 
@@ -29,6 +29,8 @@ export default function SetupWizard() {
   const { setupStatus, checkSetup } = usePortaStore();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Prevent wizard from disappearing mid-setup due to polling flicker
+  const setupStarted = useRef(false);
 
   if (!setupStatus) return null;
 
@@ -38,7 +40,8 @@ export default function SetupWizard() {
     setupStatus.test_resolver_exists &&
     setupStatus.caddy_running;
 
-  if (allGood) return null;
+  // Only hide when fully done AND we're not in the middle of a run
+  if (allGood && !running && !setupStarted.current) return null;
 
   function stepState(ok: boolean): StepState {
     if (ok) return "done";
@@ -55,13 +58,14 @@ export default function SetupWizard() {
   ];
 
   async function handleRunSetup() {
+    setupStarted.current = true;
     setRunning(true);
     setError(null);
 
-    // Poll every 900ms so the UI updates as each step finishes
+    // Poll every 1.2s so the UI reflects each step as it finishes
     const poll = setInterval(async () => {
       try { await checkSetup(); } catch {}
-    }, 900);
+    }, 1200);
 
     try {
       await runSetup();
@@ -71,6 +75,8 @@ export default function SetupWizard() {
     } finally {
       clearInterval(poll);
       setRunning(false);
+      // Small delay before allowing wizard to close — avoids flicker
+      if (!error) setTimeout(() => { setupStarted.current = false; }, 800);
     }
   }
 
