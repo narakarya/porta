@@ -1,0 +1,135 @@
+<h2>Tunneling Architecture — 3 Approaches</h2>
+<p class="subtitle">Pilih struktur yang paling masuk akal untuk bagaimana config dibagi antara Global Settings dan App Settings</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Global-light, App decides mode</h3>
+      <p>Global hanya simpan cloudflared status + Cloudflare token (opsional). Di level app, user pilih mode (quick vs named), masukkan subdomains. Paling fleksibel per-app.</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>App A bisa quick tunnel, App B bisa named tunnel</li>
+          <li>Sedikit global config</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>User harus set mode di tiap app</li>
+          <li>Token tampil di tiap app yang pakai named tunnel</li>
+        </ul></div>
+      </div>
+      <div class="split" style="margin-top:16px;gap:8px">
+        <div class="mockup" style="flex:1">
+          <div class="mockup-header">⚙️ Global Settings → Tunneling</div>
+          <div class="mockup-body" style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+              <span>cloudflared installed</span>
+            </div>
+            <div class="mock-input" style="font-size:10px">Cloudflare API Token (optional)</div>
+          </div>
+        </div>
+        <div class="mockup" style="flex:1">
+          <div class="mockup-header">📱 App Settings → Tunneling</div>
+          <div class="mockup-body" style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;gap:4px">
+              <span style="padding:2px 8px;border-radius:4px;background:#7c3aed22;border:1px solid #7c3aed44;font-size:10px">Quick</span>
+              <span style="padding:2px 8px;border-radius:4px;background:#1a1a1c;border:1px solid #ffffff11;font-size:10px">Named</span>
+            </div>
+            <div class="mock-input" style="font-size:10px">Subdomains: api, admin</div>
+            <div class="mock-button" style="font-size:10px;width:fit-content">Connect</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Global defines provider + default domain, App hanya routing</h3>
+      <p>Global set cloudflared, mode (quick/named), token, dan default domain. App tinggal set subdomain list dan toggle on/off. Mode diwarisi dari global.</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>App settings sangat bersih — hanya subdomain + toggle</li>
+          <li>Token & mode diatur sekali di global</li>
+          <li>Mudah dipahami user baru</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Semua app pakai mode yang sama</li>
+          <li>Kurang fleksibel (tapi bisa di-override nanti)</li>
+        </ul></div>
+      </div>
+      <div class="split" style="margin-top:16px;gap:8px">
+        <div class="mockup" style="flex:1">
+          <div class="mockup-header">⚙️ Global Settings → Tunneling</div>
+          <div class="mockup-body" style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+              <span>cloudflared installed</span>
+            </div>
+            <div style="display:flex;gap:4px">
+              <span style="padding:2px 8px;border-radius:4px;background:#7c3aed22;border:1px solid #7c3aed44;font-size:10px">Quick Tunnel</span>
+              <span style="padding:2px 8px;border-radius:4px;background:#1a1a1c;border:1px solid #ffffff11;font-size:10px">Named Tunnel</span>
+            </div>
+            <div class="mock-input" style="font-size:10px">Default domain: example.com</div>
+            <div class="mock-input" style="font-size:10px">API Token</div>
+          </div>
+        </div>
+        <div class="mockup" style="flex:1">
+          <div class="mockup-header">📱 App Settings → Tunneling</div>
+          <div class="mockup-body" style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span>Enable Tunnel</span>
+              <span style="padding:2px 6px;border-radius:8px;background:#7c3aed33;font-size:10px">●</span>
+            </div>
+            <div class="mock-input" style="font-size:10px">Subdomains: api, admin + Add</div>
+            <div style="font-size:10px;color:#6b7280">→ api.example.com, admin.example.com</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Layered — Global default, App bisa override</h3>
+      <p>Global set default mode + domain. App bisa ikut global atau override mode/domain sendiri. Paling fleksibel, tapi UI paling kompleks.</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Mendukung per-workspace domain secara natural</li>
+          <li>Bisa mix quick dan named tunnel per-app</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>UI lebih complex (inherit vs override)</li>
+          <li>Over-engineered untuk kebutuhan sekarang</li>
+        </ul></div>
+      </div>
+      <div class="split" style="margin-top:16px;gap:8px">
+        <div class="mockup" style="flex:1">
+          <div class="mockup-header">⚙️ Global Settings → Tunneling</div>
+          <div class="mockup-body" style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div class="mock-input" style="font-size:10px">Default mode: Quick / Named</div>
+            <div class="mock-input" style="font-size:10px">Default domain: example.com</div>
+            <div class="mock-input" style="font-size:10px">API Token</div>
+          </div>
+        </div>
+        <div class="mockup" style="flex:1">
+          <div class="mockup-header">📱 App Settings → Tunneling</div>
+          <div class="mockup-body" style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;gap:4px">
+              <span style="padding:2px 8px;border-radius:4px;background:#1a1a1c;border:1px solid #ffffff11;font-size:10px">Inherit global</span>
+              <span style="padding:2px 8px;border-radius:4px;background:#1a1a1c;border:1px solid #ffffff11;font-size:10px">Override</span>
+            </div>
+            <div class="mock-input" style="font-size:10px">Subdomains</div>
+            <div style="font-size:10px;color:#6b7280;font-style:italic">Override: mode, domain</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">💡 Rekomendasi saya: <strong>B</strong> — bersih, konsisten, dan model data-nya tetap bisa diperluas ke per-workspace nanti tanpa UI jadi rumit sekarang.</p>
