@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use models::{App, Workspace};
 
 pub struct Database {
-    pub conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Database {
@@ -67,7 +67,7 @@ impl Database {
                 domain: row.get(2)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
     }
 
     pub fn delete_workspace(&self, id: &str) -> Result<()> {
@@ -75,8 +75,9 @@ impl Database {
         Ok(())
     }
 
-    pub fn insert_app(&self, a: &App) -> Result<()> {
-        self.conn.execute(
+    pub fn insert_app(&mut self, a: &App) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
             "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain, start_command, start_command_source, status, pid)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
@@ -85,10 +86,11 @@ impl Database {
                 a.status, a.pid
             ],
         )?;
-        self.conn.execute(
+        tx.execute(
             "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
             params![a.port, a.id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -112,7 +114,7 @@ impl Database {
                 pid: row.get(9)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
     }
 
     pub fn update_app_status(&self, id: &str, status: &str, pid: Option<u32>) -> Result<()> {
@@ -166,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_insert_app_registers_port() {
-        let db = in_memory_db();
+        let mut db = in_memory_db();
         let a = App {
             id: "a1".into(), workspace_id: None, name: "api".into(),
             root_dir: "/tmp".into(), port: 4001, subdomain: None,
