@@ -1,15 +1,39 @@
 import { useState } from "react";
+import type { FormEvent } from "react";
 import { usePortaStore } from "../store";
 
 const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
+
+function toSlug(str: string): string {
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 
 export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
   const { addWorkspace } = usePortaStore();
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
+  const [domainEdited, setDomainEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  async function submit(e: React.FormEvent) {
+  function handleNameChange(val: string) {
+    setName(val);
+    // Auto-generate domain from name unless user has manually edited it
+    if (!domainEdited) {
+      const slug = toSlug(val);
+      setDomain(slug ? `${slug}.test` : "");
+    }
+  }
+
+  function handleDomainChange(val: string) {
+    setDomain(val.toLowerCase());
+    setDomainEdited(val !== "");
+  }
+
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name || !domain) return;
     setSubmitting(true);
@@ -35,14 +59,29 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">Name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} required
-              placeholder="My Project" className={inputCls} autoFocus />
+            <input
+              value={name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              required
+              placeholder="My Project"
+              className={inputCls}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+            />
           </label>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">Domain</span>
-            <input value={domain} onChange={(e) => setDomain(e.target.value)} required
-              placeholder="myproject.test" className={inputCls} />
+            <input
+              value={domain}
+              onChange={(e) => handleDomainChange(e.target.value)}
+              required
+              placeholder="myproject.test"
+              className={inputCls}
+              autoComplete="off"
+              spellCheck={false}
+            />
           </label>
         </div>
 

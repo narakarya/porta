@@ -92,7 +92,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
         <label className="flex flex-col gap-1.5">
           <span className={labelCls}>Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} required
-            placeholder="my-app" className={inputCls} />
+            placeholder="my-app" className={inputCls} autoComplete="off" spellCheck={false} />
         </label>
 
         {/* Start command */}
@@ -107,7 +107,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
           </span>
           <input value={command}
             onChange={(e) => { setCommand(e.target.value); setCommandSource("manual"); }}
-            placeholder="npm run dev" className={inputCls} />
+            placeholder="npm run dev" className={inputCls} autoComplete="off" spellCheck={false} />
         </label>
 
         {/* Port + subdomain */}
@@ -120,8 +120,8 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
           </label>
           <label className="flex flex-col gap-1.5 flex-1">
             <span className={labelCls}>Subdomain Override</span>
-            <input value={subdomain} onChange={(e) => setSubdomain(e.target.value)}
-              placeholder="optional" className={inputCls} />
+            <input value={subdomain} onChange={(e) => setSubdomain(e.target.value.toLowerCase())}
+              placeholder="optional" className={inputCls} autoComplete="off" spellCheck={false} />
           </label>
         </div>
 
