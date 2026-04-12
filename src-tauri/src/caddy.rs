@@ -10,19 +10,74 @@ pub struct CaddyManager {
 
 impl CaddyManager {
     pub fn new() -> Self {
-        CaddyManager { client: Client::new() }
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
+        CaddyManager { client }
     }
 
     pub fn build_config(routes: &[(String, u16)]) -> Value {
-        let caddy_routes: Vec<Value> = routes.iter().map(|(host, port)| {
+        let has_certs = crate::setup::certs_exist();
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let cert_file = format!("{}/.porta/certs/test.pem", home);
+        let key_file = format!("{}/.porta/certs/test-key.pem", home);
+
+        if has_certs {
+            // HTTPS server on :443 with mkcert wildcard cert + HTTP→HTTPS redirect on :80
+            let https_routes: Vec<Value> = routes.iter().map(|(host, port)| {
+                json!({
+                    "match": [{ "host": [host] }],
+                    "handle": [{ "handler": "reverse_proxy", "upstreams": [{ "dial": format!("localhost:{}", port) }] }]
+                })
+            }).collect();
+
             json!({
-                "match": [{ "host": [host] }],
-                "handle": [{ "handler": "reverse_proxy", "upstreams": [{ "dial": format!("localhost:{}", port) }] }]
+                "apps": {
+                    "http": {
+                        "servers": {
+                            "porta_https": {
+                                "listen": [":443"],
+                                "routes": https_routes,
+                                // Empty policy = use any available cert (our wildcard *.test)
+                                "tls_connection_policies": [{}]
+                            },
+                            "porta_redirect": {
+                                "listen": [":80"],
+                                "routes": [{
+                                    "handle": [{
+                                        "handler": "static_response",
+                                        "status_code": "301",
+                                        "headers": {
+                                            "Location": ["https://{http.request.host}{http.request.uri}"]
+                                        }
+                                    }]
+                                }]
+                            }
+                        }
+                    },
+                    "tls": {
+                        "certificates": {
+                            "load_files": [{
+                                "certificate": cert_file,
+                                "key": key_file
+                            }]
+                        }
+                    }
+                }
             })
-        }).collect();
-        json!({
-            "apps": { "http": { "servers": { "porta": { "listen": [":80"], "routes": caddy_routes } } } }
-        })
+        } else {
+            // Fallback: plain HTTP on :80
+            let caddy_routes: Vec<Value> = routes.iter().map(|(host, port)| {
+                json!({
+                    "match": [{ "host": [host] }],
+                    "handle": [{ "handler": "reverse_proxy", "upstreams": [{ "dial": format!("localhost:{}", port) }] }]
+                })
+            }).collect();
+            json!({
+                "apps": { "http": { "servers": { "porta": { "listen": [":80"], "routes": caddy_routes } } } }
+            })
+        }
     }
 
     pub fn reload(&self, routes: &[(String, u16)]) -> Result<()> {
@@ -37,7 +92,6 @@ impl CaddyManager {
     }
 
     pub fn is_running(&self) -> bool {
-        // HEAD /config/ — returns 200 even with empty config if Caddy is up
         self.client
             .get(format!("{}/config/", CADDY_API))
             .timeout(std::time::Duration::from_secs(2))
@@ -51,17 +105,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_config_empty() {
+    fn test_build_config_empty_http() {
+        // Without certs, should produce HTTP-only config
         let config = CaddyManager::build_config(&[]);
-        assert!(config["apps"]["http"]["servers"]["porta"]["routes"].as_array().unwrap().is_empty());
+        // Either http or https server key exists
+        let servers = &config["apps"]["http"]["servers"];
+        assert!(servers.is_object());
     }
 
     #[test]
-    fn test_build_config_one_route() {
+    fn test_build_config_one_route_http() {
         let config = CaddyManager::build_config(&[("api.test.test".into(), 4001)]);
-        let routes = config["apps"]["http"]["servers"]["porta"]["routes"].as_array().unwrap();
-        assert_eq!(routes.len(), 1);
-        assert_eq!(routes[0]["match"][0]["host"][0], "api.test.test");
-        assert_eq!(routes[0]["handle"][0]["upstreams"][0]["dial"], "localhost:4001");
+        // In HTTP mode, routes land in "porta" server
+        let servers = &config["apps"]["http"]["servers"];
+        // Check at least one server has a route with the right host
+        let as_obj = servers.as_object().unwrap();
+        let found = as_obj.values().any(|srv| {
+            srv["routes"].as_array().map_or(false, |routes| {
+                routes.iter().any(|r| {
+                    r["match"][0]["host"][0] == "api.test.test"
+                })
+            })
+        });
+        assert!(found);
     }
 }

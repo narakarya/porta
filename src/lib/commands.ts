@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   App,
   AddAppParams,
+  UpdateAppParams,
   DetectResult,
   SetupStatus,
   Workspace,
@@ -15,6 +16,9 @@ export const checkSetup = (): Promise<SetupStatus> =>
 export const runSetup = (): Promise<void> =>
   invoke("run_setup");
 
+export const reloadCaddy = (): Promise<void> =>
+  invoke("reload_caddy");
+
 // ── Workspaces ───────────────────────────────────────────────────────────────
 
 export const listWorkspaces = (): Promise<Workspace[]> =>
@@ -22,6 +26,9 @@ export const listWorkspaces = (): Promise<Workspace[]> =>
 
 export const addWorkspace = (name: string, domain: string): Promise<Workspace> =>
   invoke("add_workspace", { name, domain });
+
+export const updateWorkspace = (id: string, name: string, domain: string): Promise<Workspace> =>
+  invoke("update_workspace", { id, name, domain });
 
 export const deleteWorkspace = (id: string): Promise<void> =>
   invoke("delete_workspace", { id });
@@ -48,14 +55,43 @@ export const addApp = (params: AddAppParams): Promise<App> =>
     startCommandSource: params.start_command_source,
   });
 
+export const updateApp = (params: UpdateAppParams): Promise<App> =>
+  invoke("update_app", {
+    id: params.id,
+    name: params.name,
+    port: params.port,
+    subdomain: params.subdomain,
+    startCommand: params.start_command,
+    envFile: params.env_file,
+    autoStart: params.auto_start,
+  });
+
 export const deleteApp = (id: string): Promise<void> =>
   invoke("delete_app", { id });
+
+export const openInEditor = (rootDir: string): Promise<void> =>
+  invoke("open_in_editor", { rootDir });
 
 export const startApp = (id: string): Promise<void> =>
   invoke("start_app", { id });
 
 export const stopApp = (id: string): Promise<void> =>
   invoke("stop_app", { id });
+
+export const killApp = (id: string): Promise<void> =>
+  invoke("kill_app", { id });
+
+export const killPortHolder = (port: number): Promise<number> =>
+  invoke("kill_port_holder", { port });
+
+export const killPid = (pid: number): Promise<void> =>
+  invoke("kill_pid", { pid });
+
+export const markAppStopped = (id: string): Promise<void> =>
+  invoke("mark_app_stopped", { id });
+
+export const markAppReady = (id: string): Promise<void> =>
+  invoke("mark_app_ready", { id });
 
 // ── Backup / Export / Import ─────────────────────────────────────────────────
 

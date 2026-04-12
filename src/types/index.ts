@@ -15,6 +15,8 @@ export interface App {
   start_command_source: string;
   status: "stopped" | "running";
   pid: number | null;
+  env_file: string | null;
+  auto_start: boolean;
 }
 
 export interface DetectResult {
@@ -27,6 +29,8 @@ export interface SetupStatus {
   dnsmasq_installed: boolean;
   test_resolver_exists: boolean;
   caddy_running: boolean;
+  mkcert_installed: boolean;
+  certs_generated: boolean;
 }
 
 export type AddAppParams = {
@@ -37,4 +41,14 @@ export type AddAppParams = {
   subdomain: string | null;
   start_command: string;
   start_command_source: string;
+};
+
+export type UpdateAppParams = {
+  id: string;
+  name: string;
+  port: number;
+  subdomain: string | null;
+  start_command: string;
+  env_file: string | null;
+  auto_start: boolean;
 };

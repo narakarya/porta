@@ -45,6 +45,11 @@ impl Database {
                 app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE
             );
         ")?;
+
+        // Non-destructive additions for existing databases (errors = column already exists)
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_file TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 0", []);
+
         Ok(())
     }
 
@@ -56,9 +61,17 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_workspace(&self, id: &str, name: &str, domain: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE workspaces SET name = ?1, domain = ?2 WHERE id = ?3",
+            params![name, domain, id],
+        )?;
+        Ok(())
+    }
+
     pub fn list_workspaces(&self) -> Result<Vec<Workspace>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, domain FROM workspaces ORDER BY name"
+            "SELECT id, name, domain FROM workspaces ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Workspace {
@@ -78,12 +91,14 @@ impl Database {
     pub fn insert_app(&mut self, a: &App) -> Result<()> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain, start_command, start_command_source, status, pid)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain,
+                               start_command, start_command_source, status, pid,
+                               env_file, auto_start)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
-                a.status, a.pid
+                a.status, a.pid, a.env_file, a.auto_start as i32
             ],
         )?;
         tx.execute(
@@ -97,8 +112,9 @@ impl Database {
     pub fn list_apps(&self) -> Result<Vec<App>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, workspace_id, name, root_dir, port, subdomain,
-                    start_command, start_command_source, status, pid
-             FROM apps ORDER BY name"
+                    start_command, start_command_source, status, pid,
+                    env_file, auto_start
+             FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(App {
@@ -112,15 +128,60 @@ impl Database {
                 start_command_source: row.get(7)?,
                 status: row.get(8)?,
                 pid: row.get(9)?,
+                env_file: row.get(10)?,
+                auto_start: row.get::<_, i32>(11).map(|v| v != 0)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
+    }
+
+    /// Update editable app fields. Handles port_registry update if port changes.
+    pub fn update_app(
+        &self,
+        id: &str,
+        name: &str,
+        port: u16,
+        subdomain: Option<&str>,
+        start_command: &str,
+        env_file: Option<&str>,
+        auto_start: bool,
+    ) -> Result<()> {
+        let old_port: u16 = self.conn.query_row(
+            "SELECT port FROM apps WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+
+        self.conn.execute(
+            "UPDATE apps SET name=?1, port=?2, subdomain=?3, start_command=?4,
+                             env_file=?5, auto_start=?6
+             WHERE id=?7",
+            params![name, port, subdomain, start_command, env_file, auto_start as i32, id],
+        )?;
+
+        if old_port != port {
+            self.conn.execute("DELETE FROM port_registry WHERE app_id = ?1", params![id])?;
+            self.conn.execute(
+                "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
+                params![port, id],
+            )?;
+        }
+        Ok(())
     }
 
     pub fn update_app_status(&self, id: &str, status: &str, pid: Option<u32>) -> Result<()> {
         self.conn.execute(
             "UPDATE apps SET status = ?1, pid = ?2 WHERE id = ?3",
             params![status, pid, id],
+        )?;
+        Ok(())
+    }
+
+    /// Update status only, leaving pid unchanged (used when transitioning starting → running).
+    pub fn update_app_status_only(&self, id: &str, status: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE apps SET status = ?1 WHERE id = ?2",
+            params![status, id],
         )?;
         Ok(())
     }
@@ -175,6 +236,7 @@ mod tests {
             start_command: "mix phx.server".into(),
             start_command_source: "auto".into(),
             status: "stopped".into(), pid: None,
+            env_file: None, auto_start: false,
         };
         db.insert_app(&a).unwrap();
         let ports = db.used_ports().unwrap();

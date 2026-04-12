@@ -19,6 +19,8 @@ pub struct App {
     pub start_command_source: String,
     pub status: String,
     pub pid: Option<u32>,
+    pub env_file: Option<String>,
+    pub auto_start: bool,
 }
 
 impl App {
@@ -30,6 +32,10 @@ impl App {
             .map(|w| w.domain.as_str())
             .unwrap_or("narakarya.test");
         let sub = self.subdomain.as_deref().unwrap_or(&self.name);
-        format!("{}.{}", sub, domain)
+        if sub == "*" {
+            format!("*.{}", domain)
+        } else {
+            format!("{}.{}", sub, domain)
+        }
     }
 }

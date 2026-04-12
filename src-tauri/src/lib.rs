@@ -9,11 +9,13 @@ pub mod process_manager;
 pub mod setup;
 
 use std::sync::Mutex;
+use nix::sys::signal::kill;
+use nix::unistd::Pid;
 
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 
 use caddy::CaddyManager;
@@ -33,6 +35,20 @@ pub fn run() {
     }
 
     let db = Database::open(db_path.clone()).expect("failed to open database");
+
+    // Mark apps as stopped if their recorded PID is no longer alive.
+    // This fixes stale "running" state after Porta crashes or is force-quit.
+    if let Ok(apps) = db.list_apps() {
+        for app in apps.iter().filter(|a| a.status == "running") {
+            let alive = app.pid.map_or(false, |pid| {
+                // kill(pid, 0) = existence check — Ok if process is alive
+                kill(Pid::from_raw(pid as i32), None).is_ok()
+            });
+            if !alive {
+                db.update_app_status(&app.id, "stopped", None).ok();
+            }
+        }
+    }
 
     let state = AppState {
         db: Mutex::new(db),
@@ -82,21 +98,82 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Auto-start apps flagged with auto_start = true
+            let auto_start_apps = {
+                let state = app.state::<AppState>();
+                let db = state.db.lock().unwrap();
+                db.list_apps()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|a| a.auto_start && !a.start_command.is_empty())
+                    .collect::<Vec<_>>()
+            };
+
+            for app_data in auto_start_apps {
+                let handle = app.handle().clone();
+                let state = app.state::<AppState>();
+
+                let log_id = app_data.id.clone();
+                let log_handle = handle.clone();
+                let on_log = move |line: String| {
+                    log_handle.emit(&format!("app:log:{}", log_id), line).ok();
+                };
+
+                let exit_id = app_data.id.clone();
+                let exit_handle = handle.clone();
+                let on_exit = move |code: i32| {
+                    exit_handle.emit(&format!("app:exit:{}", exit_id), code).ok();
+                };
+
+                match state.processes.start(
+                    &app_data.id,
+                    &app_data.start_command,
+                    std::path::Path::new(&app_data.root_dir),
+                    app_data.port,
+                    app_data.env_file.as_deref(),
+                    on_log,
+                    on_exit,
+                ) {
+                    Ok(pid) => {
+                        state
+                            .db
+                            .lock()
+                            .unwrap()
+                            .update_app_status(&app_data.id, "starting", Some(pid))
+                            .ok();
+                        commands::spawn_port_watcher(handle.clone(), app_data.id.clone(), app_data.port);
+                    }
+                    Err(e) => {
+                        eprintln!("auto-start failed for {}: {}", app_data.name, e);
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::check_setup,
             commands::run_setup,
+            commands::reload_caddy,
             commands::list_workspaces,
             commands::add_workspace,
+            commands::update_workspace,
             commands::delete_workspace,
             commands::list_apps,
             commands::detect_start_command,
             commands::next_available_port,
             commands::add_app,
+            commands::update_app,
             commands::delete_app,
+            commands::open_in_editor,
             commands::start_app,
             commands::stop_app,
+            commands::kill_app,
+            commands::kill_port_holder,
+            commands::kill_pid,
+            commands::mark_app_stopped,
+            commands::mark_app_ready,
             commands::export_data,
             commands::import_data,
             commands::list_backups,

@@ -22,6 +22,13 @@
 .drag-region { -webkit-app-region: drag; }
 .no-drag { -webkit-app-region: no-drag; }
 
+@layer components {
+  .input-base {
+    @apply w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100
+           placeholder:text-zinc-700 outline-none focus:border-blue-500/50 transition-colors;
+  }
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

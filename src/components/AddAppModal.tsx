@@ -7,19 +7,30 @@ import { usePortaStore } from "../store";
 const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
 const labelCls = "text-[11px] font-medium text-zinc-500 uppercase tracking-wide";
 
+// Valid subdomain: letters/digits/hyphens, or "*" for wildcard
+const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^\*$/;
+
+function validateSubdomain(s: string): string | null {
+  if (!s) return null; // empty = use app name (valid)
+  if (!SUBDOMAIN_RE.test(s)) return "Use letters, numbers, hyphens — or * for wildcard";
+  return null;
+}
+
 interface Props {
   workspaceId: string | null;
   onClose: () => void;
 }
 
 export default function AddAppModal({ workspaceId, onClose }: Props) {
-  const { workspaces, addApp } = usePortaStore();
+  const { workspaces, addApp, setupStatus } = usePortaStore();
+  const scheme = setupStatus?.certs_generated ? "https" : "http";
   const [name, setName] = useState("");
   const [rootDir, setRootDir] = useState("");
   const [command, setCommand] = useState("");
   const [commandSource, setCommandSource] = useState<"auto" | "manual">("manual");
   const [port, setPort] = useState<number>(3000);
   const [subdomain, setSubdomain] = useState("");
+  const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [wsId, setWsId] = useState<string | null>(workspaceId);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,8 +55,17 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
   const domain = workspace?.domain ?? "narakarya.test";
   const preview = `${subdomain || name || "…"}.${domain}`;
 
+  function handleSubdomainChange(val: string) {
+    // Allow * but otherwise force lowercase
+    const normalized = val === "*" ? "*" : val.toLowerCase();
+    setSubdomain(normalized);
+    setSubdomainError(validateSubdomain(normalized));
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const err = validateSubdomain(subdomain);
+    if (err) { setSubdomainError(err); return; }
     if (!name || !rootDir) return;
     setSubmitting(true);
     try {
@@ -119,16 +139,24 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
               className={inputCls} />
           </label>
           <label className="flex flex-col gap-1.5 flex-1">
-            <span className={labelCls}>Subdomain Override</span>
-            <input value={subdomain} onChange={(e) => setSubdomain(e.target.value.toLowerCase())}
-              placeholder="optional" className={inputCls} autoComplete="off" spellCheck={false} />
+            <span className={`${labelCls} flex items-center gap-1.5`}>
+              Subdomain
+              <span className="text-[10px] normal-case text-zinc-600 tracking-normal">* for wildcard</span>
+            </span>
+            <input value={subdomain} onChange={(e) => handleSubdomainChange(e.target.value)}
+              placeholder="optional"
+              className={`${inputCls} ${subdomainError ? "border-red-500/60" : ""}`}
+              autoComplete="off" spellCheck={false} />
+            {subdomainError && (
+              <span className="text-[11px] text-red-400">{subdomainError}</span>
+            )}
           </label>
         </div>
 
         {/* Preview URL */}
         <div className="px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
           <span className="text-[11px] text-zinc-600">URL preview  </span>
-          <span className="text-[12px] text-zinc-400 font-mono">http://{preview}</span>
+          <span className="text-[12px] text-zinc-400 font-mono">{scheme}://{preview}</span>
         </div>
 
         {/* Workspace */}
@@ -150,7 +178,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
             className="px-4 py-1.5 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors">
             Cancel
           </button>
-          <button type="submit" disabled={submitting}
+          <button type="submit" disabled={submitting || !!subdomainError}
             className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
             {submitting && <span className="spinner text-white/70" />}
             {submitting ? "Adding…" : "Add App"}
