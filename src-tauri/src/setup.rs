@@ -29,10 +29,12 @@ fn brew_path() -> &'static str {
 }
 
 fn is_installed(bin: &str) -> bool {
-    // Check common Homebrew prefix locations directly, not just $PATH
+    // Check both bin/ and sbin/ — dnsmasq lives in sbin, caddy in bin
     let candidates = [
         format!("/opt/homebrew/bin/{}", bin),
+        format!("/opt/homebrew/sbin/{}", bin),
         format!("/usr/local/bin/{}", bin),
+        format!("/usr/local/sbin/{}", bin),
         format!("/usr/bin/{}", bin),
     ];
     candidates.iter().any(|p| std::path::Path::new(p).exists())
@@ -40,16 +42,18 @@ fn is_installed(bin: &str) -> bool {
 
 pub fn brew_install(package: &str) -> Result<()> {
     let brew = brew_path();
-    let script = format!(
-        "do shell script \"{} install {}\" with administrator privileges",
-        brew, package
-    );
-    let out = Command::new("osascript").arg("-e").arg(&script).output()?;
+    // Run brew as the current user — brew refuses to run as root,
+    // so we must NOT use osascript "with administrator privileges".
+    // brew install to /opt/homebrew does not need root on Apple Silicon.
+    let out = Command::new(brew)
+        .arg("install")
+        .arg(package)
+        .output()?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let stdout = String::from_utf8_lossy(&out.stdout);
         return Err(anyhow::anyhow!(
-            "brew install {} failed: {}{}",
+            "brew install {} failed:\n{}{}",
             package,
             stderr.trim(),
             stdout.trim()
