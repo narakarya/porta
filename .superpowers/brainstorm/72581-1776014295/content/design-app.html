@@ -1,0 +1,108 @@
+<h2>Design: App Settings → Tunneling Tab</h2>
+<p class="subtitle">Disederhanakan — provider config sudah di Global, app tinggal routing</p>
+
+<div class="split" style="gap:16px;align-items:flex-start">
+
+  <!-- Quick Tunnel Mode -->
+  <div style="flex:1">
+    <div class="label" style="margin-bottom:8px">Mode: Quick Tunnel (global default)</div>
+    <div class="mockup">
+      <div class="mockup-header">📱 App Settings → Tunneling</div>
+      <div class="mockup-body" style="display:flex;flex-direction:column;gap:14px">
+
+        <!-- Status + toggle in one row -->
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:13px;color:#e4e4e7;font-weight:500">Tunnel</div>
+            <div style="font-size:10px;color:#6b7280;margin-top:1px">via Quick Tunnel · trycloudflare.com</div>
+          </div>
+          <!-- Toggle OFF -->
+          <div style="width:36px;height:20px;border-radius:10px;background:#3f3f46;position:relative;cursor:pointer">
+            <div style="width:16px;height:16px;border-radius:50%;background:white;position:absolute;top:2px;left:2px;box-shadow:0 1px 3px #0005"></div>
+          </div>
+        </div>
+
+        <!-- Disconnected state - minimal -->
+        <div style="display:flex;align-items:center;gap:6px;padding:10px 12px;border-radius:8px;background:#1a1a1c;border:1px solid #ffffff08">
+          <span style="width:6px;height:6px;border-radius:50%;background:#52525b;flex-shrink:0"></span>
+          <span style="font-size:11px;color:#71717a">Disconnected — toggle to start a quick tunnel</span>
+        </div>
+
+        <div style="font-size:10px;color:#4b5563;font-style:italic">Note: Quick tunnel URL akan random tiap kali connect. Tidak support custom subdomain.</div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Named Tunnel Mode -->
+  <div style="flex:1">
+    <div class="label" style="margin-bottom:8px">Mode: Named Tunnel (global default)</div>
+    <div class="mockup">
+      <div class="mockup-header">📱 App Settings → Tunneling</div>
+      <div class="mockup-body" style="display:flex;flex-direction:column;gap:14px">
+
+        <!-- Status + toggle -->
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:13px;color:#e4e4e7;font-weight:500">Tunnel</div>
+            <div style="font-size:10px;color:#6b7280;margin-top:1px">via Named Tunnel · example.com</div>
+          </div>
+          <!-- Toggle ON -->
+          <div style="width:36px;height:20px;border-radius:10px;background:#7c3aed;position:relative;cursor:pointer">
+            <div style="width:16px;height:16px;border-radius:50%;background:white;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px #0005"></div>
+          </div>
+        </div>
+
+        <!-- Connected URLs -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:6px;background:#7c3aed12;border:1px solid #7c3aed30">
+            <span style="width:6px;height:6px;border-radius:50%;background:#a78bfa;flex-shrink:0"></span>
+            <span style="font-size:11px;font-family:monospace;color:#c4b5fd;flex:1">api.example.com</span>
+            <span style="font-size:9px;color:#7c3aed">Copy</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:6px;background:#7c3aed12;border:1px solid #7c3aed30">
+            <span style="width:6px;height:6px;border-radius:50%;background:#a78bfa;flex-shrink:0"></span>
+            <span style="font-size:11px;font-family:monospace;color:#c4b5fd;flex:1">admin.example.com</span>
+            <span style="font-size:9px;color:#7c3aed">Copy</span>
+          </div>
+        </div>
+
+        <!-- Subdomains tag input -->
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:11px;color:#9ca3af;font-weight:500">Subdomains</div>
+          <!-- tags -->
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <span style="display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;background:#ffffff0d;border:1px solid #ffffff14;font-size:11px;font-family:monospace;color:#d4d4d8">
+              api <span style="color:#52525b;cursor:pointer;margin-left:2px">×</span>
+            </span>
+            <span style="display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;background:#ffffff0d;border:1px solid #ffffff14;font-size:11px;font-family:monospace;color:#d4d4d8">
+              admin <span style="color:#52525b;cursor:pointer;margin-left:2px">×</span>
+            </span>
+          </div>
+          <!-- add input -->
+          <div style="display:flex;gap:6px">
+            <div class="mock-input" style="font-size:11px;flex:1;font-family:monospace">staging, docs, ...</div>
+            <div class="mock-button" style="font-size:11px;padding:6px 12px">Add</div>
+          </div>
+          <div style="font-size:10px;color:#4b5563">Semua subdomain ngarah ke port <strong style="color:#6b7280">:3000</strong> · domain dari global (example.com)</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:16px;padding:12px 14px;border-radius:8px;background:#1a1a1c;border:1px solid #ffffff08">
+  <div class="label" style="margin-bottom:8px">Data model changes</div>
+  <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;font-family:monospace;color:#9ca3af">
+    <div><span style="color:#f87171">- tunnel_provider: Option&lt;String&gt;</span> <span style="color:#4b5563">// removed from App</span></div>
+    <div><span style="color:#f87171">- tunnel_url: Option&lt;String&gt;</span> <span style="color:#4b5563">// single URL → multiple</span></div>
+    <div><span style="color:#4ade80">+ tunnel_subdomains: Vec&lt;String&gt;</span> <span style="color:#4b5563">// like extra_subdomains</span></div>
+    <div><span style="color:#4ade80">+ tunnel_urls: Vec&lt;String&gt;</span> <span style="color:#4b5563">// active URLs (runtime only)</span></div>
+    <div><span style="color:#4ade80">+ TunnelConfig (global)</span> <span style="color:#4b5563">// mode, token, default_domain</span></div>
+    <div><span style="color:#4ade80">+ tunnel_domain: Option&lt;String&gt; (Workspace)</span> <span style="color:#4b5563">// override global domain</span></div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:12px">Bagaimana dengan design ini? Oke untuk dituangkan ke spec?</p>

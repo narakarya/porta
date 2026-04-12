@@ -123,6 +123,68 @@ pub fn detect_gdrive_path() -> Option<String> {
 
 // ── Port watcher ──────────────────────────────────────────────────────────────
 
+/// Block the calling thread until `port` accepts a TCP connection or `timeout_ms` elapses.
+/// Used to wait for a dependency app to be ready before starting dependents.
+pub(crate) fn wait_for_port(port: u16, timeout_ms: u64) {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let steps = timeout_ms / 500;
+    for _ in 0..steps {
+        thread::sleep(Duration::from_millis(500));
+        if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
+            return;
+        }
+    }
+}
+
+/// Start a single app process without dependency resolution.
+/// Can be called from any thread via `handle.state::<AppState>()`.
+pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_log: bool) -> Result<(), String> {
+    let state: State<AppState> = handle.state();
+    let id = &app_data.id;
+
+    let log_id = id.clone();
+    let log_handle = handle.clone();
+    let on_log = move |line: String| {
+        log_handle.emit(&format!("app:log:{}", log_id), line).ok();
+    };
+
+    let exit_id = id.clone();
+    let exit_handle = handle.clone();
+    let exit_name = app_data.name.clone();
+    let on_exit = move |exit_code: i32, is_stop: bool| {
+        let reported = if is_stop { 0 } else { exit_code };
+        exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
+        if exit_code != 0 && !is_stop {
+            notify(&exit_handle, &format!("{} crashed", exit_name), &format!("Exit code: {exit_code}"));
+        }
+    };
+
+    let pid = state
+        .processes
+        .start(
+            id,
+            &app_data.start_command,
+            Path::new(&app_data.root_dir),
+            app_data.port,
+            app_data.env_file.as_deref(),
+            &app_data.env_vars,
+            truncate_log,
+            on_log,
+            on_exit,
+        )
+        .map_err(|e| e.to_string())?;
+
+    state
+        .db
+        .lock()
+        .unwrap()
+        .update_app_status(id, "starting", Some(pid))
+        .map_err(|e| e.to_string())?;
+
+    spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+    Ok(())
+}
+
 /// Spawns a background thread that polls `port` via TCP until it accepts a connection,
 /// then emits `app:ready:{id}` and sends a macOS notification if enabled.
 /// Times out after 60 s and emits anyway (non-HTTP apps).
@@ -299,6 +361,7 @@ pub fn next_available_port(state: State<AppState>) -> Result<u16, String> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn add_app(
     state: State<AppState>,
     workspace_id: Option<String>,
@@ -346,6 +409,7 @@ pub fn add_app(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_app(
     state: State<AppState>,
     id: String,
@@ -444,54 +508,41 @@ pub fn start_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> R
         .clone();
     drop(db);
 
-    let log_id = id.clone();
-    let log_handle = app.clone();
-    let on_log = move |line: String| {
-        log_handle.emit(&format!("app:log:{}", log_id), line).ok();
-    };
+    // Collect dependencies that are not already running or starting
+    let unstarted_deps: Vec<App> = app_data
+        .depends_on
+        .iter()
+        .filter_map(|dep_id| apps.iter().find(|a| a.id == *dep_id).cloned())
+        .filter(|dep| dep.status != "running" && dep.status != "starting")
+        .collect();
 
-    let exit_id = id.clone();
-    let exit_handle = app.clone();
-    let exit_name = app_data.name.clone();
-    let on_exit = move |exit_code: i32, is_stop: bool| {
-        // Report 0 for intentional stops so the frontend doesn't treat them as crashes
-        let reported = if is_stop { 0 } else { exit_code };
-        exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
-        if exit_code != 0 && !is_stop {
-            notify(&exit_handle, &format!("{} crashed", exit_name), &format!("Exit code: {exit_code}"));
-        }
-    };
-
-    let pid = state
-        .processes
-        .start(
-            &id,
-            &app_data.start_command,
-            std::path::Path::new(&app_data.root_dir),
-            app_data.port,
-            app_data.env_file.as_deref(),
-            &app_data.env_vars,
-            true, // truncate_log: manual start — always start with a fresh log
-            on_log,
-            on_exit,
-        )
-        .map_err(|e| e.to_string())?;
-
-    state
-        .db
-        .lock()
-        .unwrap()
-        .update_app_status(&id, "starting", Some(pid))
-        .map_err(|e| e.to_string())?;
-
-    spawn_port_watcher(app.clone(), id.clone(), app_data.port, app_data.name);
-
-    let tray_handle = app.clone();
     let tray_db_path = state.db_path.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(200));
-        rebuild_tray_menu(&tray_handle, &tray_db_path);
-    });
+
+    if unstarted_deps.is_empty() {
+        // Fast path: all dependencies already up
+        start_single(&app, &app_data, true)?;
+        let tray_handle = app.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            rebuild_tray_menu(&tray_handle, &tray_db_path);
+        });
+    } else {
+        // Slow path: start each unstarted dependency, wait for its port to open,
+        // then start the requested app. Runs in a background thread so start_app
+        // returns immediately and the frontend sees the "starting" state.
+        let handle = app.clone();
+        thread::spawn(move || {
+            for dep in &unstarted_deps {
+                if start_single(&handle, dep, true).is_ok() {
+                    // Wait up to 30 s for the dependency to be TCP-ready
+                    wait_for_port(dep.port, 30_000);
+                }
+            }
+            start_single(&handle, &app_data, true).ok();
+            thread::sleep(Duration::from_millis(200));
+            rebuild_tray_menu(&handle, &tray_db_path);
+        });
+    }
 
     Ok(())
 }
@@ -683,7 +734,7 @@ pub fn list_backups() -> Vec<String> {
         .map(|entries| {
             let mut names: Vec<String> = entries
                 .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map_or(false, |x| x == "db"))
+                .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
                 .map(|e| e.file_name().to_string_lossy().to_string())
                 .collect();
             names.sort();
@@ -734,9 +785,7 @@ pub fn check_kamal() -> serde_json::Value {
     serde_json::json!({ "installed": false, "version": null })
 }
 
-/// Detect Google Drive Desktop mount path on macOS.
 // ── Google Drive OAuth ────────────────────────────────────────────────────────
-//
 // Uses the "installed app" OAuth 2.0 flow.
 // Client credentials are stored at runtime in ~/.porta/config.json
 // (set via `set_gdrive_credentials`).
@@ -987,6 +1036,7 @@ pub fn list_services(state: State<AppState>) -> Result<Vec<crate::db::models::Se
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn add_service(
     name: String, image: String, tag: String, port: u16,
     env_vars: HashMap<String, String>, volumes: Vec<String>, scope: String,
@@ -1003,6 +1053,7 @@ pub fn add_service(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_service(
     id: String, name: String, image: String, tag: String, port: u16,
     env_vars: HashMap<String, String>, volumes: Vec<String>, scope: String,
@@ -1879,7 +1930,7 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
     if let Some(file_id) = existing_id {
         // Overwrite existing file
         client
-            .patch(&format!(
+            .patch(format!(
                 "https://www.googleapis.com/upload/drive/v3/files/{}?uploadType=media",
                 file_id
             ))
@@ -1919,10 +1970,10 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Rebuild the system tray menu to reflect current app status.
 /// Opens a fresh DB connection to avoid holding locks.
-pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &PathBuf) {
+pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &Path) {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 
-    let Ok(db) = Database::open(db_path.clone()) else { return };
+    let Ok(db) = Database::open(db_path.to_path_buf()) else { return };
     let Ok(workspaces) = db.list_workspaces() else { return };
     let Ok(apps) = db.list_apps() else { return };
     let Some(tray) = app.tray_by_id("porta-main") else { return };

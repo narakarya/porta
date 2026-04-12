@@ -1,0 +1,87 @@
+<h2>Full Codebase Restructure — 3 Approaches</h2>
+<p class="subtitle">Pilih pendekatan yang paling cocok untuk Porta</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Domain-Driven Split</h3>
+      <p><strong>Konsep:</strong> Reorganisasi berdasarkan domain bisnis — setiap domain (app, workspace, service, deploy, tunnel, terminal, gdrive) jadi module mandiri yang punya commands, DB repo, dan frontend components sendiri.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Navigasi sangat intuitif — cari "deploy"? buka folder deploy/</li>
+            <li>Ownership jelas per domain</li>
+            <li>Scaling natural — domain baru = folder baru</li>
+            <li>Backend & frontend aligned by domain</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Cross-domain dependencies perlu careful wiring (app lifecycle depends on caddy, tray, db)</li>
+            <li>Shared utilities perlu dedicated shared/ layer</li>
+            <li>Biggest diff — paling banyak file moves</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Layer-Based Split</h3>
+      <p><strong>Konsep:</strong> Reorganisasi berdasarkan layer teknis — commands/, db/, services/ (business logic), dan frontend: components/, hooks/, lib/, store/. Tiap layer di-split internal by domain tapi boundary utama adalah layer.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Familiar pattern — kebanyakan Tauri/React apps pakai ini</li>
+            <li>Tauri command registration tetap straightforward</li>
+            <li>Lebih kecil diff-nya dibanding Domain-Driven</li>
+            <li>Rust module system naturally fits layers</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Related code scattered across layers (deploy command di satu folder, deploy UI di folder lain)</li>
+            <li>Kurang natural untuk reasoning about a feature end-to-end</li>
+            <li>Masih bisa jadi "big bucket" di tiap layer</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Layer Backend + Domain Frontend</h3>
+      <p><strong>Konsep:</strong> Backend pakai layer-based (commands/, db/ sub-modules) karena Rust module system cocok. Frontend pakai domain-based grouping (features/ atau domain folders) + shared primitives. Best of both worlds.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Backend tetap idiomatic Rust — commands/mod.rs re-exports, db/repos terpisah</li>
+            <li>Frontend components grouped by feature — easy to find related UI</li>
+            <li>Shared UI primitives + hooks extracted ke common layer</li>
+            <li>Pragmatic — follows how each stack naturally organizes</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Dua mental models — perlu tahu backend = by layer, frontend = by domain</li>
+            <li>Slightly more planning needed for the boundary</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top:12px;padding:8px 12px;background:rgba(99,179,237,0.1);border-radius:6px;font-size:14px;">
+        <strong>Rekomendasi gue.</strong> Rust module system works best with layer separation (commands/, db/). React components work best grouped by feature. Ini approach paling natural untuk Tauri app.
+      </p>
+    </div>
+  </div>
+</div>

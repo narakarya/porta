@@ -60,7 +60,7 @@ pub fn list_commands(root: &Path) -> Vec<CommandSuggestion> {
     // ── Procfile ──────────────────────────────────────────────────────────────
     if let Ok(content) = fs::read_to_string(root.join("Procfile")) {
         for line in content.lines() {
-            if let Some(cmd) = line.splitn(2, ':').nth(1) {
+            if let Some((_, cmd)) = line.split_once(':') {
                 let cmd = cmd.trim().to_string();
                 if !cmd.is_empty() {
                     out.push(CommandSuggestion { label: cmd, source: "Procfile".to_string() });
@@ -106,7 +106,7 @@ pub fn detect(root: &Path) -> DetectResult {
     if root.join("Procfile").exists() {
         if let Ok(content) = fs::read_to_string(root.join("Procfile")) {
             if let Some(line) = content.lines().next() {
-                let cmd = line.splitn(2, ':').nth(1).unwrap_or("").trim().to_string();
+                let cmd = line.split_once(':').map(|(_, v)| v.trim()).unwrap_or("").to_string();
                 if !cmd.is_empty() {
                     return DetectResult { command: cmd, source: "auto".into() };
                 }

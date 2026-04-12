@@ -120,25 +120,35 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
   const searchRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isFirstScroll = useRef(true);
-  // Track how many Zustand lines existed when we opened, so we can detect newly
-  // appended lines and splice them onto the end of our full disk snapshot.
-  const logsLenAtMount = useRef(logs.length);
 
-  // Load full log file from disk on mount
+  // Load full log file from disk on mount.
   useEffect(() => {
-    getAppLogs(appId).then((lines) => setDiskLogs(lines));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    getAppLogs(appId)
+      .then((lines) => setDiskLogs(lines))
+      .catch(() => setDiskLogs([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Merge: disk snapshot + any new Zustand lines that arrived after we opened.
-  // If disk returned empty (file missing / first run), fall back to the Zustand buffer.
+  // Poll disk every 2s so new lines always appear — this is simpler and more
+  // reliable than the slice-by-index approach, which breaks when the Zustand
+  // buffer is full (trimming keeps length fixed, so slice always returns []).
+  useEffect(() => {
+    const id = setInterval(() => {
+      getAppLogs(appId)
+        .then((lines) => {
+          setDiskLogs((prev) => (prev !== null && prev.length === lines.length ? prev : lines));
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Disk is the source of truth for full history. Zustand buffer is the fallback
+  // while the initial disk load is still in flight (diskLogs === null).
   const allLogs = useMemo(() => {
-    if (diskLogs === null) return logs; // still loading
-    if (diskLogs.length > 0) {
-      const newLines = logs.slice(logsLenAtMount.current);
-      return newLines.length > 0 ? [...diskLogs, ...newLines] : diskLogs;
-    }
-    return logs; // disk empty — use Zustand buffer (may be capped but better than blank)
+    if (diskLogs === null) return logs; // still loading initial snapshot
+    return diskLogs.length > 0 ? diskLogs : logs; // disk empty → Zustand fallback
   }, [diskLogs, logs]);
 
   const cleanLogs = useMemo(() => filterNoise(allLogs).map(stripAnsi), [allLogs]);
@@ -327,7 +337,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         <button
           onClick={() => {
             setDiskLogs([]);
-            logsLenAtMount.current = 0;
             onClear();
           }}
           className="px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-600 hover:text-zinc-300 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.07] transition-colors"

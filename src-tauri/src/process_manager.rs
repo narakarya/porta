@@ -16,6 +16,12 @@ pub struct ProcessManager {
     pub stopping: Arc<Mutex<HashSet<String>>>,
 }
 
+impl Default for ProcessManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessManager {
     pub fn new() -> Self {
         ProcessManager {
@@ -30,6 +36,7 @@ impl ProcessManager {
     /// `truncate_log`: if true the log file is wiped clean before this run (manual start/restart);
     ///   if false, a separator is appended so history from the previous run is preserved
     ///   (used when Porta auto-starts apps on boot).
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &self,
         app_id: &str,
