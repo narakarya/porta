@@ -36,13 +36,13 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">Name</span>
             <input value={name} onChange={(e) => setName(e.target.value)} required
-              placeholder="Mediapress" className={inputCls} autoFocus />
+              placeholder="My Project" className={inputCls} autoFocus />
           </label>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">Domain</span>
             <input value={domain} onChange={(e) => setDomain(e.target.value)} required
-              placeholder="mediapress.test" className={inputCls} />
+              placeholder="myproject.test" className={inputCls} />
           </label>
         </div>
 
