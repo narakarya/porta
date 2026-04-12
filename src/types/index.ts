@@ -17,6 +17,10 @@ export interface App {
   pid: number | null;
   env_file: string | null;
   auto_start: boolean;
+  // v0.2 additions
+  env_vars: Record<string, string>;
+  restart_policy: "never" | "always" | "on-failure";
+  max_retries: number;
 }
 
 export interface DetectResult {
@@ -51,4 +55,8 @@ export type UpdateAppParams = {
   start_command: string;
   env_file: string | null;
   auto_start: boolean;
+  // v0.2 additions
+  env_vars: Record<string, string>;
+  restart_policy: "never" | "always" | "on-failure";
+  max_retries: number;
 };

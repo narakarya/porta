@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { listen } from "@tauri-apps/api/event";
 import type { App, SetupStatus, Workspace } from "../types";
 import * as cmd from "../lib/commands";
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const MAX_LOG_LINES = 200;
 
@@ -15,6 +16,11 @@ interface PortaState {
   // ── Per-app logs & exit info ──────────────────────────────────────────────
   appLogs: Record<string, string[]>;
   appExitCode: Record<string, number | null>; // null = running / clean stop
+  appRetryCount: Record<string, number>; // auto-restart attempt count
+  portConflicts: Record<string, boolean>; // app IDs with active port conflicts
+
+  // ── Global settings ───────────────────────────────────────────────────────
+  notificationsEnabled: boolean;
 
   // ── Async status ─────────────────────────────────────────────────────────
   loading: boolean;
@@ -23,6 +29,7 @@ interface PortaState {
   // ── Actions ──────────────────────────────────────────────────────────────
   load: () => Promise<void>;
   checkSetup: () => Promise<void>;
+  loadSettings: () => Promise<void>;
   selectWorkspace: (id: string | null) => void;
 
   addWorkspace: (name: string, domain: string) => Promise<void>;
@@ -36,6 +43,8 @@ interface PortaState {
   stopApp: (id: string) => Promise<void>;
   killApp: (id: string) => Promise<void>;
   clearAppLogs: (id: string) => void;
+  dismissPortConflict: (id: string) => void;
+  setNotificationsEnabled: (enabled: boolean) => Promise<void>;
 
   // ── Derived helpers ───────────────────────────────────────────────────────
   visibleApps: () => App[];
@@ -51,12 +60,22 @@ export const usePortaStore = create<PortaState>((set, get) => ({
   setupStatus: null,
   appLogs: {},
   appExitCode: {},
+  appRetryCount: {},
+  portConflicts: {},
+  notificationsEnabled: true,
   loading: false,
   error: null,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
     set({ setupStatus });
+  },
+
+  loadSettings: async () => {
+    try {
+      const enabled = await cmd.getNotificationsEnabled();
+      set({ notificationsEnabled: enabled });
+    } catch {}
   },
 
   load: async () => {
@@ -66,7 +85,15 @@ export const usePortaStore = create<PortaState>((set, get) => ({
         cmd.listWorkspaces(),
         cmd.listApps(),
       ]);
-      set({ workspaces, apps, loading: false });
+      // Auto-select first workspace if nothing is selected yet
+      const currentId = get().selectedWorkspaceId;
+      const selectedWorkspaceId =
+        currentId !== null
+          ? currentId
+          : workspaces.length > 0
+          ? workspaces[0].id
+          : null;
+      set({ workspaces, apps, selectedWorkspaceId, loading: false });
     } catch (e) {
       set({ error: String(e), loading: false });
     }
@@ -113,6 +140,8 @@ export const usePortaStore = create<PortaState>((set, get) => ({
       apps: s.apps.filter((a) => a.id !== id),
       appLogs: Object.fromEntries(Object.entries(s.appLogs).filter(([k]) => k !== id)),
       appExitCode: Object.fromEntries(Object.entries(s.appExitCode).filter(([k]) => k !== id)),
+      appRetryCount: Object.fromEntries(Object.entries(s.appRetryCount).filter(([k]) => k !== id)),
+      portConflicts: Object.fromEntries(Object.entries(s.portConflicts).filter(([k]) => k !== id)),
     }));
   },
 
@@ -120,6 +149,8 @@ export const usePortaStore = create<PortaState>((set, get) => ({
     set((s) => ({
       appLogs: { ...s.appLogs, [id]: [] },
       appExitCode: { ...s.appExitCode, [id]: null },
+      appRetryCount: { ...s.appRetryCount, [id]: 0 },
+      portConflicts: { ...s.portConflicts, [id]: false },
     }));
     await cmd.startApp(id);
     set((s) => ({
@@ -135,6 +166,7 @@ export const usePortaStore = create<PortaState>((set, get) => ({
       apps: s.apps.map((a) =>
         a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
       ),
+      appRetryCount: { ...s.appRetryCount, [id]: 0 },
     }));
   },
 
@@ -144,11 +176,20 @@ export const usePortaStore = create<PortaState>((set, get) => ({
       apps: s.apps.map((a) =>
         a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
       ),
+      appRetryCount: { ...s.appRetryCount, [id]: 0 },
     }));
   },
 
   clearAppLogs: (id) =>
     set((s) => ({ appLogs: { ...s.appLogs, [id]: [] } })),
+
+  dismissPortConflict: (id) =>
+    set((s) => ({ portConflicts: { ...s.portConflicts, [id]: false } })),
+
+  setNotificationsEnabled: async (enabled) => {
+    await cmd.setNotificationsEnabled(enabled);
+    set({ notificationsEnabled: enabled });
+  },
 
   visibleApps: () => {
     const { apps, selectedWorkspaceId } = get();
@@ -157,11 +198,15 @@ export const usePortaStore = create<PortaState>((set, get) => ({
   },
 
   _subscribeToAppEvents: () => {
+    // In browser-only mode, Tauri events are unavailable — skip entirely.
+    if (!isTauri) return () => {};
+
     const unlisteners: Array<() => void> = [];
     // Cancels any still-pending listen() promises from the previous subscribeForApps call
     let cancelPending = () => {};
 
-    const subscribeForApps = (apps: App[]) => {
+    const subscribeForApps = async (apps: App[]) => {
+      const { listen } = await import("@tauri-apps/api/event");
       // Cancel any promises that haven't resolved yet from the last call
       cancelPending();
       // Remove already-resolved listeners
@@ -202,6 +247,30 @@ export const usePortaStore = create<PortaState>((set, get) => ({
             ),
           }));
           cmd.markAppReady(app.id).catch(() => {});
+        }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+        // Auto-restart: crashed and retrying
+        listen<{ exit_code: number; attempt: number; max: number }>(`app:crashed:${app.id}`, (e) => {
+          set((s) => ({
+            appRetryCount: { ...s.appRetryCount, [app.id]: e.payload.attempt },
+            apps: s.apps.map((a) =>
+              a.id === app.id ? { ...a, status: "starting" as const } : a
+            ),
+          }));
+        }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+        // Auto-restart: gave up after max retries
+        listen(`app:max-retries:${app.id}`, () => {
+          set((s) => ({
+            appRetryCount: { ...s.appRetryCount, [app.id]: 0 },
+          }));
+        }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+        // Port conflict detected before start
+        listen<number>(`app:port-conflict:${app.id}`, () => {
+          set((s) => ({
+            portConflicts: { ...s.portConflicts, [app.id]: true },
+          }));
         }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
       });
     };

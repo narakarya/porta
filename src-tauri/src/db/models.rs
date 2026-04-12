@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +22,10 @@ pub struct App {
     pub pid: Option<u32>,
     pub env_file: Option<String>,
     pub auto_start: bool,
+    // v0.2 additions
+    pub env_vars: HashMap<String, String>,
+    pub restart_policy: String,
+    pub max_retries: u8,
 }
 
 impl App {

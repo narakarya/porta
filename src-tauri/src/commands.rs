@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread;
@@ -7,7 +8,8 @@ use nix::unistd::Pid;
 use tauri::State;
 use uuid::Uuid;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::auto_detect::DetectResult;
 use crate::backup::{self, PortaFile};
@@ -16,8 +18,9 @@ use crate::db::{
     models::{App, Workspace},
     Database,
 };
-use crate::port_scanner::find_available_port;
+use crate::port_scanner::{find_available_port, is_port_free};
 use crate::process_manager::ProcessManager;
+use crate::settings::Settings;
 use crate::setup::SetupStatus;
 
 pub struct AppState {
@@ -25,6 +28,8 @@ pub struct AppState {
     pub processes: ProcessManager,
     pub caddy: CaddyManager,
     pub db_path: PathBuf,
+    pub settings: Mutex<Settings>,
+    pub settings_path: PathBuf,
 }
 
 /// Spawns a background thread that polls `port` via TCP until it accepts a connection,
@@ -39,12 +44,130 @@ pub fn spawn_port_watcher(handle: tauri::AppHandle, id: String, port: u16) {
                 return;
             }
         }
-        // Timeout — emit anyway so the dot doesn't stay amber forever
         handle.emit(&format!("app:ready:{}", id), ()).ok();
     });
 }
 
-/// Public Tauri command — lets the frontend trigger a Caddy config reload.
+/// Send a macOS notification if notifications are enabled in settings.
+fn notify_if_enabled(handle: &tauri::AppHandle, title: &str, body: &str) {
+    let state = handle.state::<AppState>();
+    let enabled = state.settings.lock().map(|s| s.notifications_enabled).unwrap_or(true);
+    if enabled {
+        handle.notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+            .ok();
+    }
+}
+
+/// Core app-start logic, shared by `start_app` command and auto-restart.
+/// `retry_count` = 0 for a fresh manual start, ≥ 1 for auto-restart attempts.
+pub fn start_app_internal(handle: tauri::AppHandle, id: String, retry_count: u32) -> Result<(), String> {
+    let state = handle.state::<AppState>();
+
+    let app_data = {
+        let db = state.db.lock().unwrap();
+        let apps = db.list_apps().map_err(|e: anyhow::Error| e.to_string())?;
+        apps.into_iter().find(|a| a.id == id)
+            .ok_or_else(|| format!("app {} not found", id))?
+    };
+
+    // Port conflict check — only on fresh start, not on auto-restart attempts
+    if retry_count == 0 && !is_port_free(app_data.port) {
+        handle.emit(&format!("app:port-conflict:{}", id), app_data.port).ok();
+        return Err(format!("Port {} is already in use", app_data.port));
+    }
+
+    let restart_policy = app_data.restart_policy.clone();
+    let max_retries = app_data.max_retries;
+    let app_name = app_data.name.clone();
+
+    let log_id = id.clone();
+    let log_handle = handle.clone();
+    let on_log = move |line: String| {
+        log_handle.emit(&format!("app:log:{}", log_id), line).ok();
+    };
+
+    let exit_id = id.clone();
+    let exit_handle = handle.clone();
+    let on_exit = move |exit_code: i32, intentional: bool| {
+        exit_handle.emit(&format!("app:exit:{}", exit_id), exit_code).ok();
+
+        if intentional {
+            return;
+        }
+
+        let should_restart = match restart_policy.as_str() {
+            "always" => true,
+            "on-failure" => exit_code != 0,
+            _ => false, // "never"
+        };
+
+        if !should_restart {
+            return;
+        }
+
+        if retry_count < max_retries as u32 {
+            let new_attempt = retry_count + 1;
+            exit_handle.emit(
+                &format!("app:crashed:{}", exit_id),
+                serde_json::json!({ "exit_code": exit_code, "attempt": new_attempt, "max": max_retries }),
+            ).ok();
+            notify_if_enabled(
+                &exit_handle,
+                "Porta",
+                &format!("✗ {} crashed — restarting ({}/{})", app_name, new_attempt, max_retries),
+            );
+            // Exponential backoff: 1s, 2s, 4s…
+            let delay = Duration::from_secs(2u64.pow(retry_count));
+            let restart_handle = exit_handle.clone();
+            let restart_id = exit_id.clone();
+            thread::spawn(move || {
+                thread::sleep(delay);
+                start_app_internal(restart_handle, restart_id, new_attempt).ok();
+            });
+        } else {
+            exit_handle.emit(&format!("app:max-retries:{}", exit_id), exit_code).ok();
+            notify_if_enabled(
+                &exit_handle,
+                "Porta",
+                &format!("✗ {} stopped after {} retries", app_name, max_retries),
+            );
+        }
+    };
+
+    let pid = state.processes.start(
+        &id,
+        &app_data.start_command,
+        std::path::Path::new(&app_data.root_dir),
+        app_data.port,
+        app_data.env_file.as_deref(),
+        &app_data.env_vars,
+        on_log,
+        on_exit,
+    ).map_err(|e: anyhow::Error| e.to_string())?;
+
+    state.db.lock().unwrap()
+        .update_app_status(&id, "starting", Some(pid))
+        .map_err(|e: anyhow::Error| e.to_string())?;
+
+    if retry_count > 0 {
+        handle.emit(&format!("app:restarted:{}", id), retry_count).ok();
+    }
+
+    spawn_port_watcher(handle.clone(), id.clone(), app_data.port);
+
+    Ok(())
+}
+
+// ── Setup ─────────────────────────────────────────────────────────────────────
+
+pub fn reload_caddy_internal(state: &AppState) -> Result<(), String> {
+    sync_caddy(state)
+}
+
 #[tauri::command]
 pub fn reload_caddy(state: State<AppState>) -> Result<(), String> {
     sync_caddy(&state)
@@ -75,15 +198,11 @@ fn sync_caddy(state: &AppState) -> Result<(), String> {
     state.caddy.reload(&routes).map_err(|e| e.to_string())
 }
 
-// ── Setup ─────────────────────────────────────────────────────────────────────
-
 #[tauri::command]
 pub fn check_setup() -> SetupStatus {
     crate::setup::check()
 }
 
-/// Silently try to start Caddy without running the full wizard.
-/// Used for auto-recovery on launch. Will show macOS admin prompt if certs exist.
 #[tauri::command]
 pub fn start_caddy(state: State<AppState>) -> Result<(), String> {
     crate::setup::start_caddy(&|_| {}).map_err(|e| e.to_string())?;
@@ -120,10 +239,9 @@ pub fn add_workspace(
     let w = Workspace { id: Uuid::new_v4().to_string(), name, domain };
     state.db.lock().unwrap().insert_workspace(&w).map_err(|e| e.to_string())?;
 
-    // Regenerate certs so the new workspace domain gets its own wildcard
     if crate::setup::certs_exist() {
         let domains = workspace_domains(&state)?;
-        crate::setup::generate_certs(&domains).ok(); // best-effort
+        crate::setup::generate_certs(&domains).ok();
         sync_caddy(&state).ok();
     }
 
@@ -199,6 +317,9 @@ pub fn add_app(
         pid: None,
         env_file: None,
         auto_start: false,
+        env_vars: HashMap::new(),
+        restart_policy: "on-failure".into(),
+        max_retries: 3,
     };
     state
         .db
@@ -221,6 +342,9 @@ pub fn update_app(
     start_command: String,
     env_file: Option<String>,
     auto_start: bool,
+    env_vars: HashMap<String, String>,
+    restart_policy: String,
+    max_retries: u8,
 ) -> Result<App, String> {
     state
         .db
@@ -232,6 +356,9 @@ pub fn update_app(
             &start_command,
             env_file.as_deref(),
             auto_start,
+            &env_vars,
+            &restart_policy,
+            max_retries,
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
@@ -241,13 +368,11 @@ pub fn update_app(
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
-/// Write `contents` to `path` on disk (used for export-to-chosen-location).
 #[tauri::command]
 pub fn save_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
-/// Reveal a file or folder in Finder (macOS `open -R`).
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
     std::process::Command::new("open")
@@ -259,7 +384,6 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_in_editor(root_dir: String) -> Result<(), String> {
-    // Try editors in order: cursor, code, zed, then fall back to Finder
     let editors = ["cursor", "code", "zed"];
     for editor in &editors {
         if std::process::Command::new(editor)
@@ -270,11 +394,40 @@ pub fn open_in_editor(root_dir: String) -> Result<(), String> {
             return Ok(());
         }
     }
-    // Fallback: open in Finder
     std::process::Command::new("open")
         .arg(&root_dir)
         .spawn()
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_in_terminal(root_dir: String) -> Result<(), String> {
+    // Use TERM_PROGRAM to detect the currently active terminal emulator
+    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let opened = match term_program.as_str() {
+        "iTerm.app" => std::process::Command::new("open")
+            .args(["-a", "iTerm", &root_dir])
+            .spawn()
+            .is_ok(),
+        "WarpTerminal" => std::process::Command::new("open")
+            .args(["-a", "Warp", &root_dir])
+            .spawn()
+            .is_ok(),
+        "Alacritty" => std::process::Command::new("open")
+            .args(["-a", "Alacritty", &root_dir])
+            .spawn()
+            .is_ok(),
+        _ => false,
+    };
+
+    if !opened {
+        // Fallback: Terminal.app
+        std::process::Command::new("open")
+            .args(["-a", "Terminal", &root_dir])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -289,60 +442,29 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn start_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let apps = db.list_apps().map_err(|e| e.to_string())?;
-    let app_data = apps
-        .iter()
-        .find(|a| a.id == id)
-        .ok_or_else(|| format!("app {} not found", id))?
-        .clone();
-    drop(db);
-
-    let log_id = id.clone();
-    let log_handle = app.clone();
-    let on_log = move |line: String| {
-        log_handle.emit(&format!("app:log:{}", log_id), line).ok();
-    };
-
-    let exit_id = id.clone();
-    let exit_handle = app.clone();
-    let on_exit = move |exit_code: i32| {
-        exit_handle.emit(&format!("app:exit:{}", exit_id), exit_code).ok();
-    };
-
-    let pid = state
-        .processes
-        .start(
-            &id,
-            &app_data.start_command,
-            std::path::Path::new(&app_data.root_dir),
-            app_data.port,
-            app_data.env_file.as_deref(),
-            on_log,
-            on_exit,
-        )
-        .map_err(|e| e.to_string())?;
-
-    state
-        .db
-        .lock()
-        .unwrap()
-        .update_app_status(&id, "starting", Some(pid))
-        .map_err(|e| e.to_string())?;
-
-    spawn_port_watcher(app, id, app_data.port);
-    Ok(())
+    // Ensure we're not in the stopping set before attempting start
+    state.processes.stopping.lock().unwrap().remove(&id);
+    start_app_internal(app, id, 0)
 }
 
 /// Called by the frontend when `app:ready:{id}` fires — transitions starting → running.
 #[tauri::command]
-pub fn mark_app_ready(state: State<AppState>, id: String) -> Result<(), String> {
+pub fn mark_app_ready(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let app_name = {
+        let db = state.db.lock().unwrap();
+        db.list_apps().ok()
+            .and_then(|apps| apps.into_iter().find(|a| a.id == id))
+            .map(|a| a.name)
+            .unwrap_or_default()
+    };
     state
         .db
         .lock()
         .unwrap()
         .update_app_status_only(&id, "running")
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    notify_if_enabled(&app, "Porta", &format!("✓ {} is ready", app_name));
+    Ok(())
 }
 
 /// Called by the frontend when it receives an app:exit event, to sync DB status.
@@ -368,14 +490,11 @@ pub fn stop_app(state: State<AppState>, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Kill an arbitrary PID with SIGKILL (e.g. a build-lock holder found in logs).
 #[tauri::command]
 pub fn kill_pid(pid: u32) -> Result<(), String> {
     kill(Pid::from_raw(pid as i32), Signal::SIGKILL).map_err(|e| e.to_string())
 }
 
-/// Kill whatever process is currently holding `port` (e.g. a leftover dev server).
-/// Uses `lsof -ti tcp:{port}` to find the PID, then sends SIGKILL.
 #[tauri::command]
 pub fn kill_port_holder(port: u16) -> Result<u32, String> {
     let output = std::process::Command::new("lsof")
@@ -403,6 +522,20 @@ pub fn kill_app(state: State<AppState>, id: String) -> Result<(), String> {
         .update_app_status(&id, "stopped", None)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_notifications_enabled(state: State<AppState>) -> bool {
+    state.settings.lock().map(|s| s.notifications_enabled).unwrap_or(true)
+}
+
+#[tauri::command]
+pub fn set_notifications_enabled(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    let mut settings = state.settings.lock().unwrap();
+    settings.notifications_enabled = enabled;
+    settings.save(&state.settings_path).map_err(|e| e.to_string())
 }
 
 // ── Backup / Export / Import ──────────────────────────────────────────────────
@@ -461,6 +594,9 @@ pub fn import_data(
                 pid: None,
                 env_file: None,
                 auto_start: false,
+                env_vars: HashMap::new(),
+                restart_policy: "on-failure".into(),
+                max_retries: 3,
             };
             db.insert_app(&app).ok();
         }
@@ -492,6 +628,5 @@ pub fn list_backups() -> Vec<String> {
 pub fn restore_backup(state: State<AppState>, filename: String) -> Result<(), String> {
     let backup_path = backup::backup_dir().join(&filename);
     std::fs::copy(&backup_path, &state.db_path).map_err(|e| e.to_string())?;
-    // DB will be reloaded from restored file on next Porta launch
     Ok(())
 }

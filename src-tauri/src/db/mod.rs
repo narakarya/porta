@@ -2,6 +2,7 @@ pub mod models;
 
 use anyhow::Result;
 use rusqlite::{Connection, params};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use models::{App, Workspace};
 
@@ -49,6 +50,10 @@ impl Database {
         // Non-destructive additions for existing databases (errors = column already exists)
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_file TEXT", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 0", []);
+        // v0.2 additions
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_vars TEXT NOT NULL DEFAULT '{}'", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN restart_policy TEXT NOT NULL DEFAULT 'on-failure'", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 3", []);
 
         Ok(())
     }
@@ -89,16 +94,18 @@ impl Database {
     }
 
     pub fn insert_app(&mut self, a: &App) -> Result<()> {
+        let env_vars_json = serde_json::to_string(&a.env_vars).unwrap_or_else(|_| "{}".into());
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain,
                                start_command, start_command_source, status, pid,
-                               env_file, auto_start)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                               env_file, auto_start, env_vars, restart_policy, max_retries)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
-                a.status, a.pid, a.env_file, a.auto_start as i32
+                a.status, a.pid, a.env_file, a.auto_start as i32,
+                env_vars_json, a.restart_policy, a.max_retries as i32
             ],
         )?;
         tx.execute(
@@ -113,10 +120,16 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, workspace_id, name, root_dir, port, subdomain,
                     start_command, start_command_source, status, pid,
-                    env_file, auto_start
+                    env_file, auto_start, env_vars, restart_policy, max_retries
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
+            let env_vars_str: String = row.get::<_, Option<String>>(12)?.unwrap_or_else(|| "{}".into());
+            let env_vars: HashMap<String, String> = serde_json::from_str(&env_vars_str)
+                .unwrap_or_default();
+            let restart_policy: String = row.get::<_, Option<String>>(13)?
+                .unwrap_or_else(|| "on-failure".into());
+            let max_retries: u8 = row.get::<_, Option<i32>>(14)?.unwrap_or(3) as u8;
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -130,6 +143,9 @@ impl Database {
                 pid: row.get(9)?,
                 env_file: row.get(10)?,
                 auto_start: row.get::<_, i32>(11).map(|v| v != 0)?,
+                env_vars,
+                restart_policy,
+                max_retries,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -145,6 +161,9 @@ impl Database {
         start_command: &str,
         env_file: Option<&str>,
         auto_start: bool,
+        env_vars: &HashMap<String, String>,
+        restart_policy: &str,
+        max_retries: u8,
     ) -> Result<()> {
         let old_port: u16 = self.conn.query_row(
             "SELECT port FROM apps WHERE id = ?1",
@@ -152,11 +171,18 @@ impl Database {
             |r| r.get(0),
         )?;
 
+        let env_vars_json = serde_json::to_string(env_vars).unwrap_or_else(|_| "{}".into());
+
         self.conn.execute(
             "UPDATE apps SET name=?1, port=?2, subdomain=?3, start_command=?4,
-                             env_file=?5, auto_start=?6
-             WHERE id=?7",
-            params![name, port, subdomain, start_command, env_file, auto_start as i32, id],
+                             env_file=?5, auto_start=?6, env_vars=?7,
+                             restart_policy=?8, max_retries=?9
+             WHERE id=?10",
+            params![
+                name, port, subdomain, start_command, env_file,
+                auto_start as i32, env_vars_json, restart_policy,
+                max_retries as i32, id
+            ],
         )?;
 
         if old_port != port {
@@ -237,9 +263,34 @@ mod tests {
             start_command_source: "auto".into(),
             status: "stopped".into(), pid: None,
             env_file: None, auto_start: false,
+            env_vars: HashMap::new(),
+            restart_policy: "on-failure".into(),
+            max_retries: 3,
         };
         db.insert_app(&a).unwrap();
         let ports = db.used_ports().unwrap();
         assert_eq!(ports, vec![4001]);
+    }
+
+    #[test]
+    fn test_env_vars_round_trip() {
+        let mut db = in_memory_db();
+        let mut env_vars = HashMap::new();
+        env_vars.insert("FOO".into(), "bar".into());
+        env_vars.insert("SECRET".into(), "1234".into());
+        let a = App {
+            id: "a2".into(), workspace_id: None, name: "web".into(),
+            root_dir: "/tmp".into(), port: 4002, subdomain: None,
+            start_command: "npm run dev".into(),
+            start_command_source: "auto".into(),
+            status: "stopped".into(), pid: None,
+            env_file: None, auto_start: false,
+            env_vars: env_vars.clone(),
+            restart_policy: "on-failure".into(),
+            max_retries: 3,
+        };
+        db.insert_app(&a).unwrap();
+        let list = db.list_apps().unwrap();
+        assert_eq!(list[0].env_vars, env_vars);
     }
 }

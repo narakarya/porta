@@ -22,6 +22,14 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
 
   const [envFile, setEnvFile] = useState(app.env_file ?? "");
   const [autoStart, setAutoStart] = useState(app.auto_start);
+  // Inline env vars: stored as array of [key, value] pairs for easy editing
+  const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>(
+    Object.entries(app.env_vars ?? {}).map(([key, value]) => ({ key, value }))
+  );
+  const [restartPolicy, setRestartPolicy] = useState<"never" | "always" | "on-failure">(
+    app.restart_policy ?? "on-failure"
+  );
+  const [maxRetries, setMaxRetries] = useState(String(app.max_retries ?? 3));
 
   const [deleteTyped, setDeleteTyped] = useState("");
   const deleteInputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +47,11 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
+      // Convert env vars array back to Record, skipping empty keys
+      const env_vars: Record<string, string> = {};
+      for (const { key, value } of envVars) {
+        if (key.trim()) env_vars[key.trim()] = value;
+      }
       await updateApp({
         id: app.id,
         name: name.trim(),
@@ -47,6 +60,9 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
         start_command: startCommand.trim(),
         env_file: envFile.trim() || null,
         auto_start: autoStart,
+        env_vars,
+        restart_policy: restartPolicy,
+        max_retries: parseInt(maxRetries, 10) || 3,
       });
       onClose();
     } catch (e) {
@@ -228,6 +244,53 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
 
                 <div className="h-px bg-white/[0.05]" />
 
+                {/* Inline env vars editor */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[12px] font-medium text-zinc-300">Inline Variables</p>
+                    <button
+                      onClick={() => setEnvVars((v) => [...v, { key: "", value: "" }])}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    Key-value pairs injected at start. <code className="text-zinc-400">PORT</code> is always managed by Porta.
+                  </p>
+                  {envVars.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      {envVars.map((row, i) => (
+                        <div key={i} className="flex gap-1.5 items-center">
+                          <input
+                            value={row.key}
+                            onChange={(e) => setEnvVars((v) => v.map((r, idx) => idx === i ? { ...r, key: e.target.value } : r))}
+                            className="input-base flex-1 font-mono text-[12px] uppercase"
+                            placeholder="KEY"
+                          />
+                          <span className="text-zinc-600 text-[12px]">=</span>
+                          <input
+                            value={row.value}
+                            onChange={(e) => setEnvVars((v) => v.map((r, idx) => idx === i ? { ...r, value: e.target.value } : r))}
+                            className="input-base flex-[2] font-mono text-[12px]"
+                            placeholder="value"
+                          />
+                          <button
+                            onClick={() => setEnvVars((v) => v.filter((_, idx) => idx !== i))}
+                            className="text-zinc-600 hover:text-red-400 transition-colors p-1 shrink-0"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                              <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-px bg-white/[0.05]" />
+
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[13px] font-medium text-zinc-200">Auto-start on launch</p>
@@ -245,6 +308,46 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                       autoStart ? "left-[18px]" : "left-0.5"
                     }`} />
                   </button>
+                </div>
+
+                <div className="h-px bg-white/[0.05]" />
+
+                {/* Restart policy */}
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <p className="text-[12px] font-medium text-zinc-300">Restart Policy</p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                      What to do when this app exits unexpectedly.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {(["never", "on-failure", "always"] as const).map((policy) => (
+                      <button
+                        key={policy}
+                        onClick={() => setRestartPolicy(policy)}
+                        className={`flex-1 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
+                          restartPolicy === policy
+                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/30"
+                            : "bg-white/[0.04] text-zinc-400 border border-white/[0.07] hover:bg-white/[0.07]"
+                        }`}
+                      >
+                        {policy === "never" ? "Never" : policy === "on-failure" ? "On Failure" : "Always"}
+                      </button>
+                    ))}
+                  </div>
+                  {restartPolicy !== "never" && (
+                    <div className="flex items-center gap-3">
+                      <label className="text-[12px] text-zinc-400 flex-1">Max retries</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={maxRetries}
+                        onChange={(e) => setMaxRetries(e.target.value)}
+                        className="input-base w-20 text-center"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

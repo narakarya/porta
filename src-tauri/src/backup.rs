@@ -116,6 +116,11 @@ mod tests {
             start_command_source: "auto".into(),
             status: "stopped".into(),
             pid: None,
+            env_file: None,
+            auto_start: false,
+            env_vars: std::collections::HashMap::new(),
+            restart_policy: "on-failure".into(),
+            max_retries: 3,
         }
     }
 

@@ -6,6 +6,7 @@ pub mod db;
 pub mod dns;
 pub mod port_scanner;
 pub mod process_manager;
+pub mod settings;
 pub mod setup;
 
 use std::sync::Mutex;
@@ -15,13 +16,14 @@ use nix::unistd::Pid;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Manager,
 };
 
 use caddy::CaddyManager;
 use commands::AppState;
 use db::Database;
 use process_manager::ProcessManager;
+use settings::Settings;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,14 +36,15 @@ pub fn run() {
         std::fs::create_dir_all(parent).expect("failed to create ~/.porta");
     }
 
+    let settings_path = db_path.parent().unwrap().join("settings.json");
+    let loaded_settings = Settings::load(&settings_path);
+
     let db = Database::open(db_path.clone()).expect("failed to open database");
 
     // Mark apps as stopped if their recorded PID is no longer alive.
-    // This fixes stale "running" state after Porta crashes or is force-quit.
     if let Ok(apps) = db.list_apps() {
         for app in apps.iter().filter(|a| a.status == "running") {
             let alive = app.pid.map_or(false, |pid| {
-                // kill(pid, 0) = existence check — Ok if process is alive
                 kill(Pid::from_raw(pid as i32), None).is_ok()
             });
             if !alive {
@@ -55,9 +58,12 @@ pub fn run() {
         processes: ProcessManager::new(),
         caddy: CaddyManager::new(),
         db_path: db_path.clone(),
+        settings: Mutex::new(loaded_settings),
+        settings_path,
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
@@ -100,53 +106,23 @@ pub fn run() {
                 .build(app)?;
 
             // Auto-start apps flagged with auto_start = true
-            let auto_start_apps = {
+            let auto_start_ids: Vec<String> = {
                 let state = app.state::<AppState>();
                 let db = state.db.lock().unwrap();
                 db.list_apps()
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|a| a.auto_start && !a.start_command.is_empty())
-                    .collect::<Vec<_>>()
+                    .map(|a| a.id)
+                    .collect()
             };
 
-            for app_data in auto_start_apps {
+            for id in auto_start_ids {
                 let handle = app.handle().clone();
-                let state = app.state::<AppState>();
-
-                let log_id = app_data.id.clone();
-                let log_handle = handle.clone();
-                let on_log = move |line: String| {
-                    log_handle.emit(&format!("app:log:{}", log_id), line).ok();
-                };
-
-                let exit_id = app_data.id.clone();
-                let exit_handle = handle.clone();
-                let on_exit = move |code: i32| {
-                    exit_handle.emit(&format!("app:exit:{}", exit_id), code).ok();
-                };
-
-                match state.processes.start(
-                    &app_data.id,
-                    &app_data.start_command,
-                    std::path::Path::new(&app_data.root_dir),
-                    app_data.port,
-                    app_data.env_file.as_deref(),
-                    on_log,
-                    on_exit,
-                ) {
-                    Ok(pid) => {
-                        state
-                            .db
-                            .lock()
-                            .unwrap()
-                            .update_app_status(&app_data.id, "starting", Some(pid))
-                            .ok();
-                        commands::spawn_port_watcher(handle.clone(), app_data.id.clone(), app_data.port);
-                    }
-                    Err(e) => {
-                        eprintln!("auto-start failed for {}: {}", app_data.name, e);
-                    }
+                // Remove from stopping set in case of stale state
+                app.state::<AppState>().processes.stopping.lock().unwrap().remove(&id);
+                if let Err(e) = commands::start_app_internal(handle, id.clone(), 0) {
+                    eprintln!("auto-start failed for {}: {}", id, e);
                 }
             }
 
@@ -170,6 +146,7 @@ pub fn run() {
             commands::save_file,
             commands::reveal_in_finder,
             commands::open_in_editor,
+            commands::open_in_terminal,
             commands::start_app,
             commands::stop_app,
             commands::kill_app,
@@ -177,6 +154,8 @@ pub fn run() {
             commands::kill_pid,
             commands::mark_app_stopped,
             commands::mark_app_ready,
+            commands::get_notifications_enabled,
+            commands::set_notifications_enabled,
             commands::export_data,
             commands::import_data,
             commands::list_backups,
@@ -184,7 +163,6 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Hide instead of quit — tray keeps the app alive
                 api.prevent_close();
                 let _ = window.hide();
             }

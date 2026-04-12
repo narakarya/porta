@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -11,17 +11,22 @@ use std::time::Duration;
 
 pub struct ProcessManager {
     pids: Arc<Mutex<HashMap<String, u32>>>,
+    /// Tracks app IDs that are being intentionally stopped (SIGTERM/SIGKILL by user).
+    /// The on_exit closure checks this to avoid triggering auto-restart on manual stops.
+    pub stopping: Arc<Mutex<HashSet<String>>>,
 }
 
 impl ProcessManager {
     pub fn new() -> Self {
         ProcessManager {
             pids: Arc::new(Mutex::new(HashMap::new())),
+            stopping: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
     /// Start an app process, streaming its stdout+stderr via `on_log` and
-    /// notifying when it exits via `on_exit(exit_code)`.
+    /// notifying when it exits via `on_exit(exit_code, intentional_stop)`.
+    /// `extra_env` vars are injected before the process spawns (PORT still wins over everything).
     pub fn start(
         &self,
         app_id: &str,
@@ -29,8 +34,9 @@ impl ProcessManager {
         root_dir: &Path,
         port: u16,
         env_file: Option<&str>,
+        extra_env: &HashMap<String, String>,
         on_log: impl Fn(String) + Send + Sync + 'static,
-        on_exit: impl Fn(i32) + Send + 'static,
+        on_exit: impl Fn(i32, bool) + Send + 'static,
     ) -> Result<u32> {
         if command.trim().is_empty() {
             return Err(anyhow!("empty command"));
@@ -44,19 +50,25 @@ impl ProcessManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Inject .env file variables (if set). PORT always wins over .env.
-        // Relative paths are resolved against the app's root_dir (e.g. ".env" → "<root>/.env").
+        // Inject .env file variables (PORT always wins over .env).
         if let Some(path) = env_file {
             let resolved = if std::path::Path::new(path).is_absolute() {
                 path.to_string()
             } else {
                 root_dir.join(path).to_string_lossy().to_string()
             };
-            let path = resolved.as_str();
-            for (key, val) in parse_env_file(path) {
+            for (key, val) in parse_env_file(&resolved) {
                 if key != "PORT" {
                     cmd.env(key, val);
                 }
+            }
+        }
+
+        // Inject inline env vars (PORT still wins — set after file vars so they take precedence,
+        // but PORT is excluded since it's already set by the env("PORT", ...) call above).
+        for (key, val) in extra_env {
+            if key != "PORT" {
+                cmd.env(key, val);
             }
         }
 
@@ -70,6 +82,7 @@ impl ProcessManager {
 
         let on_log = Arc::new(on_log);
         let pids = Arc::clone(&self.pids);
+        let stopping = Arc::clone(&self.stopping);
         let app_id_str = app_id.to_string();
 
         // stdout reader
@@ -88,19 +101,24 @@ impl ProcessManager {
             }
         });
 
-        // exit watcher — waits for process and fires on_exit
+        // exit watcher — waits for process and fires on_exit(code, intentional)
         thread::spawn(move || {
             let code = child.wait()
                 .map(|s| s.code().unwrap_or(-1))
                 .unwrap_or(-1);
             pids.lock().unwrap().remove(&app_id_str);
-            on_exit(code);
+            // Remove from stopping set and report whether this was intentional
+            let intentional = stopping.lock().unwrap().remove(&app_id_str);
+            on_exit(code, intentional);
         });
 
         Ok(pid)
     }
 
     pub fn stop(&self, app_id: &str) -> Result<()> {
+        // Mark as intentionally stopping before sending signal
+        self.stopping.lock().unwrap().insert(app_id.to_string());
+
         let pid_opt = {
             let pids = self.pids.lock().unwrap();
             pids.get(app_id).copied()
@@ -110,17 +128,13 @@ impl ProcessManager {
             let pids = Arc::clone(&self.pids);
             let app_id = app_id.to_string();
             thread::spawn(move || {
-                // Poll every 100ms for up to 5s (50 iterations)
                 for _ in 0..50 {
                     thread::sleep(Duration::from_millis(100));
-                    // kill with None (signal 0) checks existence without signaling
                     if kill(Pid::from_raw(pid as i32), None).is_err() {
-                        // Process is gone — clean up PID map and return
                         pids.lock().unwrap().remove(&app_id);
                         return;
                     }
                 }
-                // Still alive after 5s — force kill
                 let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
                 pids.lock().unwrap().remove(&app_id);
             });
@@ -130,6 +144,7 @@ impl ProcessManager {
 
     /// Force-kill a process with SIGKILL (no cleanup, immediate termination).
     pub fn kill(&self, app_id: &str) -> Result<()> {
+        self.stopping.lock().unwrap().insert(app_id.to_string());
         let mut pids = self.pids.lock().unwrap();
         if let Some(pid) = pids.remove(app_id) {
             let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
@@ -139,6 +154,12 @@ impl ProcessManager {
 
     pub fn stop_all(&self) {
         let mut pids = self.pids.lock().unwrap();
+        // Mark all as intentionally stopping so on_exit doesn't trigger auto-restart
+        let mut stopping = self.stopping.lock().unwrap();
+        for app_id in pids.keys() {
+            stopping.insert(app_id.clone());
+        }
+        drop(stopping);
         for pid in pids.values() {
             let _ = kill(Pid::from_raw(*pid as i32), Signal::SIGTERM);
         }
@@ -151,7 +172,6 @@ impl ProcessManager {
 }
 
 /// Parse a .env file into key=value pairs.
-/// Skips blank lines and comments (#). Strips surrounding quotes from values.
 fn parse_env_file(path: &str) -> Vec<(String, String)> {
     let Ok(content) = std::fs::read_to_string(path) else { return vec![] };
     content
@@ -164,7 +184,6 @@ fn parse_env_file(path: &str) -> Vec<(String, String)> {
             let (key, val) = line.split_once('=')?;
             let key = key.trim().to_string();
             let val = val.trim();
-            // Strip surrounding single or double quotes
             let val = if (val.starts_with('"') && val.ends_with('"'))
                 || (val.starts_with('\'') && val.ends_with('\''))
             {

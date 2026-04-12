@@ -10,7 +10,7 @@ import CommandPalette from "./components/CommandPalette";
 type Page = "main" | "settings";
 
 export default function App() {
-  const { load, checkSetup, setupStatus } = usePortaStore();
+  const { load, checkSetup, loadSettings, setupStatus } = usePortaStore();
   const [page, setPage] = useState<Page>("main");
   const [caddyStarting, setCaddyStarting] = useState(false);
   const [caddyError, setCaddyError] = useState<string | null>(null);
@@ -18,6 +18,7 @@ export default function App() {
   useEffect(() => {
     checkSetup();
     load();
+    loadSettings();
     reloadCaddy().catch(() => {});
   }, []);
 

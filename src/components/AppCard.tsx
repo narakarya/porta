@@ -4,7 +4,7 @@ import type { App, Workspace } from "../types";
 import LogViewer from "./LogViewer";
 import AppContextMenu from "./AppContextMenu";
 import AppSettingsModal from "./AppSettingsModal";
-import { openInEditor, killPid, killPortHolder } from "../lib/commands";
+import { openInEditor, openInTerminal, killPid, killPortHolder } from "../lib/commands";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /[\x1b\x9b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
@@ -23,13 +23,14 @@ const LOCK_RE = /held by process (\d+)/i;
 interface LogToastProps {
   appName: string;
   logs: string[];
+  isRunning?: boolean;
   isStarting?: boolean;
   crashed?: boolean;
   onExpand: () => void;
   onClose: () => void;
 }
 
-function LogToast({ appName, logs, isStarting, crashed, onExpand, onClose }: LogToastProps) {
+function LogToast({ appName, logs, isRunning, isStarting, crashed, onExpand, onClose }: LogToastProps) {
   const [killedPid, setKilledPid] = useState<number | null>(null);
   const preview = logs.slice(-4).map(stripAnsi);
 
@@ -46,7 +47,9 @@ function LogToast({ appName, logs, isStarting, crashed, onExpand, onClose }: Log
     ? "bg-red-400"
     : isStarting
     ? "bg-amber-400 pulse-dot"
-    : "bg-emerald-400 pulse-dot";
+    : isRunning
+    ? "bg-emerald-400 pulse-dot"
+    : "bg-zinc-600";
 
   async function handleKillLock() {
     if (!lockPid) return;
@@ -116,7 +119,7 @@ function resolvedHost(app: App, workspace: Workspace | null): string {
 }
 
 export default function AppCard({ app, workspace }: Props) {
-  const { startApp, stopApp, killApp, setupStatus, appLogs, appExitCode, clearAppLogs } =
+  const { startApp, stopApp, killApp, setupStatus, appLogs, appExitCode, appRetryCount, portConflicts, clearAppLogs, dismissPortConflict } =
     usePortaStore();
 
   const host = resolvedHost(app, workspace);
@@ -129,6 +132,8 @@ export default function AppCard({ app, workspace }: Props) {
   const exitCode = appExitCode[app.id] ?? null;
   const crashed = exitCode !== null && exitCode !== 0;
   const hasLogs = logs.length > 0;
+  const retryCount = appRetryCount[app.id] ?? 0;
+  const hasPortConflict = portConflicts[app.id] ?? false;
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -197,8 +202,24 @@ export default function AppCard({ app, workspace }: Props) {
         }`} />
 
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
-          <p className="text-[11px] text-zinc-600 mt-0.5">:{app.port}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
+            {retryCount > 0 && (
+              <span className="text-[10px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full leading-none">
+                ↻{retryCount}
+              </span>
+            )}
+            {hasPortConflict && (
+              <button
+                onClick={() => dismissPortConflict(app.id)}
+                className="text-[10px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-1.5 py-0.5 rounded-full leading-none transition-colors"
+                title={`Port ${app.port} is in use — click to dismiss`}
+              >
+                ⚠ :{app.port}
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-zinc-600 mt-0.5">port {app.port}</p>
         </div>
 
         {/* Log icon — always visible when there are logs */}
@@ -236,9 +257,7 @@ export default function AppCard({ app, workspace }: Props) {
         )}
 
         {/* Start / Stop */}
-        <div className={`flex items-center transition-opacity duration-150 ${
-          isActive || crashed ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}>
+        <div className="flex items-center">
           {isActive ? (
             <button
               onClick={() => stopApp(app.id)}
@@ -345,6 +364,7 @@ export default function AppCard({ app, workspace }: Props) {
         <LogToast
           appName={app.name}
           logs={logs}
+          isRunning={isRunning}
           isStarting={isStarting}
           crashed={crashed}
           onExpand={() => { setLogToastOpen(false); setLogViewerOpen(true); }}
@@ -379,6 +399,11 @@ export default function AppCard({ app, workspace }: Props) {
               label: "Open in Editor",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 4l1.5 1.5L3.5 7M6 7h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
               onClick: () => openInEditor(app.root_dir),
+            },
+            {
+              label: "Open in Terminal",
+              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M2.5 4.5l2 1.5-2 1.5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+              onClick: () => openInTerminal(app.root_dir),
             },
             ...(isActive ? [{
               label: "Force Kill",
