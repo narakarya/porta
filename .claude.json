@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "tidewave": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tidewave", "mcp"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

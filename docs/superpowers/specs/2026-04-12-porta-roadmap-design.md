@@ -109,7 +109,7 @@ Goal: Porta works without being watched. Core experience is solid before adding 
 
 ## Phase v0.3 — "Powerful"
 
-Goal: Porta becomes a full local dev platform — services, smart orchestration, visibility.
+Goal: Porta becomes a full local dev platform — services, smart orchestration, visibility, and public exposure.
 
 ### 5. Services (Docker-based)
 
@@ -174,6 +174,44 @@ Goal: Porta becomes a full local dev platform — services, smart orchestration,
 
 ---
 
+### 8. Public Expose (Tunneling)
+
+**What:** Expose any local app to the public internet via a secure tunnel. Supports custom domains.
+
+**Provider:** Cloudflare Tunnel (`cloudflared`) as default — free, no credit card, custom domain supported via Cloudflare DNS.
+
+**Two modes:**
+- **Quick tunnel** (no account): random URL per session (`abc.trycloudflare.com`) — for one-off sharing
+- **Named tunnel** (with CF account): persistent custom domain (`myapp.mydomain.com`) — survives restarts
+
+**How:**
+- New `tunnel_manager.rs`: manages tunnel process lifecycle (spawn, monitor stdout for URL, stop)
+- Trait-based design for future providers:
+  ```rust
+  trait TunnelProvider {
+      fn is_authenticated(&self) -> bool;
+      fn create_tunnel(&self, name: &str, port: u16, hostname: Option<&str>) -> Result<TunnelInfo>;
+      fn start(&self, tunnel_id: &str) -> Result<Child>;
+      fn stop(&self, tunnel_id: &str) -> Result<()>;
+  }
+  ```
+- Parse public URL from `cloudflared` stdout and emit `tunnel:url-ready` event to frontend
+- Add fields to App model:
+  - `tunnel_provider: Option<String>` — `"cloudflare"` | `"ngrok"` (future)
+  - `tunnel_name: Option<String>` — named tunnel identifier
+  - `public_hostname: Option<String>` — custom domain or null for quick tunnel
+  - `tunnel_id: Option<String>` — Cloudflare tunnel UUID
+- One-time auth: `cloudflared tunnel login` → Porta detects `~/.cloudflared/cert.pem`
+
+**UI:**
+- In App Settings: "Tunneling" section with provider dropdown, domain input, Connect button
+- AppCard: shows public URL badge when tunnel is active, click to copy
+- Quick tunnel option requires no config — just "Expose (temporary)" button
+
+**Scope boundary:** Only Cloudflare Tunnel in v0.3. ngrok (paid custom domain) is a future provider.
+
+---
+
 ### 9. Clone App Config
 
 **What:** Duplicate an existing app's config with one click — useful when two services share similar settings (e.g., `api-v1` and `api-v2`).
@@ -214,9 +252,90 @@ Goal: Porta becomes a full local dev platform — services, smart orchestration,
 
 ## Phase v0.4 — "Shareable"
 
-Goal: Porta is ready for public. Config is portable, onboarding is smooth.
+Goal: Porta is ready for public. Config is portable, onboarding is smooth, and deployments are visible.
 
-### 9. Config Sync (Multi-machine)
+### 9. Deployment Section (Kamal)
+
+**What:** A dedicated Deploy tab per workspace that surfaces deployment state and lets you trigger Kamal deploys without leaving Porta.
+
+**Scope:** Workspace-level. One `config/deploy.yml` maps to one workspace. Individual apps can be tagged with their Kamal role (web, job, etc.).
+
+**Auto-detect:** On workspace open, check for `config/deploy.yml` — if found, unlock the Deploy tab automatically.
+
+**Data model:**
+```rust
+struct DeploymentConfig {
+    provider: DeploymentProvider,     // "kamal" (extensible later)
+    config_path: String,              // "config/deploy.yml"
+    environments: Vec<Environment>,
+}
+
+struct Environment {
+    name: String,                     // "staging" | "production"
+    last_deployed_at: Option<DateTime>,
+    deployed_version: Option<String>, // git SHA
+    status: DeployStatus,             // Unknown | Deploying | Live | Stale | Failed
+}
+```
+
+- Add `kamal_role: Option<String>` to App model — maps app to Kamal role (e.g., `"web"`, `"job"`)
+- New `deployment_manager.rs`: wraps `kamal` CLI — detect binary, run commands, stream output
+- Tauri commands: `get_deploy_status`, `trigger_deploy`, `rollback_deploy`, `get_deploy_logs`
+
+**Kamal commands surfaced:**
+- `kamal deploy` → trigger full deploy
+- `kamal rollback` → rollback to previous version
+- `kamal app logs` → stream logs per role
+- `kamal app exec` → open remote console (terminal window)
+
+**UI — Deploy Tab in WorkspaceView:**
+```
+[staging ▼]   Last deployed: 2h ago · abc1234
+
+  web    ✓ Live    3 instances    abc1234
+  job    ✗ Stale   1 instance     abc0000  ← behind current
+  redis  ✓ Live    (accessory)
+
+[Deploy to staging]  [Rollback]  [View logs]
+```
+
+- Environment selector (staging / production)
+- Per-role status rows: version, instance count, health
+- Output panel (log stream) when deploy is running
+
+**Scope boundary:** Kamal only in v0.4. Fly.io / Railway / Render as future providers. Auth (SSH keys) configured outside Porta — Porta assumes `kamal` CLI is already authenticated.
+
+---
+
+### 10. Visual Orchestration & Deploy Canvas
+
+**What:** A unified canvas that visualizes both local app dependencies and deployment targets in one view. Convergence of the n8n-style dependency graph (Future Vision) and the Deploy section.
+
+**Canvas nodes:**
+- Each app/service in the workspace = one node
+- Node shows: name, local status (running/stopped), deploy status (live/stale/failed) per environment
+
+**Canvas edges:**
+- **Local dependency edges** (blue): App B starts after App A — from `depends_on` config
+- **Deploy target edges** (green): App → Environment (staging, production) — from Kamal role mapping
+
+**Interactions:**
+- Drag to reorder (updates `start_order`)
+- Click node → App Settings or Deploy detail
+- Right-click → quick actions (start, stop, deploy, expose)
+
+**How:**
+- Frontend only — reads from Zustand store (app states + deploy states already there)
+- Use `@xyflow/react` (React Flow) — battle-tested canvas library, minimal bundle impact
+- Canvas is a new view mode toggle in WorkspaceView: `[List | Canvas]`
+
+**Why this matters:** Same canvas serves two mental models — "how do my local services relate?" and "what's running in production?" — without needing two separate UIs.
+
+**Scope boundary:** Read-only dependency visualization in v0.4. Full drag-to-connect dependency editing in a future release.
+
+---
+
+### 12. Config Sync (Multi-machine)
 
 **What:** Sync Porta workspace + app config across machines via a Git repo or iCloud Drive.
 
@@ -234,7 +353,7 @@ Goal: Porta is ready for public. Config is portable, onboarding is smooth.
 
 ---
 
-### 10. App Templates
+### 13. App Templates
 
 **What:** Pre-configured app presets for common stacks to speed up adding new apps.
 
@@ -250,7 +369,7 @@ Goal: Porta is ready for public. Config is portable, onboarding is smooth.
 
 ---
 
-### 11. Startup on Login + Auto-start Apps
+### 14. Startup on Login + Auto-start Apps
 
 **What:** Launch Porta on macOS login. Mark apps to auto-start when Porta launches.
 
@@ -265,12 +384,13 @@ Goal: Porta is ready for public. Config is portable, onboarding is smooth.
 
 ## Future Vision (No Timeline)
 
-- **n8n-style dependency canvas** — Interactive drag-and-connect node graph for app orchestration. Would position Porta as "n8n for dev environments".
+- **Canvas: full drag-to-connect dependency editing** — Currently v0.4 canvas is read-only. Full interactive editing of dependency graph is post-v0.4.
 - **Import from docker-compose** — Parse `docker-compose.yml` and auto-import services into Porta. Killer feature for onboarding existing projects.
 - **Audit log / history** — Track when apps were started, stopped, or crashed with timestamps. Useful for debugging "why did this die at 3am".
 - **Custom Caddy rules per app** — UI for headers, redirects, rate limiting per app.
 - **Team sharing** — Share workspace config with teammates via invite link.
-- **Plugin system** — Community service presets, custom auto-detect rules.
+- **Plugin system** — Community service presets, custom tunnel providers (ngrok, bore), custom deployment providers (Fly.io, Railway, Render), custom auto-detect rules.
+- **ngrok tunnel provider** — Custom domain via ngrok paid plan. Implement as second `TunnelProvider` after plugin system is in place.
 
 ---
 
@@ -288,5 +408,5 @@ Goal: Porta is ready for public. Config is portable, onboarding is smooth.
 | Phase | Ship when... |
 |-------|-------------|
 | v0.2 | Auto-restart, env vars, notifications, log search, open in terminal, port conflict detection all working on personal machine |
-| v0.3 | Services can run Postgres + Redis reliably; dependency chain works for 3+ app workspace; clone and HTTP health check working |
-| v0.4 | Config round-trips cleanly between two machines; templates cover 80% of common stacks |
+| v0.3 | Services can run Postgres + Redis reliably; dependency chain works for 3+ app workspace; clone and HTTP health check working; cloudflared quick tunnel and custom domain both working |
+| v0.4 | Kamal deploy status visible and triggerable from Porta; canvas shows local + deploy state in one view; config round-trips cleanly between two machines; templates cover 80% of common stacks |
