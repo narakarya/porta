@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub struct ProcessManager {
     pids: Arc<Mutex<HashMap<String, u32>>>,
@@ -31,12 +32,13 @@ impl ProcessManager {
         on_log: impl Fn(String) + Send + Sync + 'static,
         on_exit: impl Fn(i32) + Send + 'static,
     ) -> Result<u32> {
-        let mut parts = command.split_whitespace();
-        let bin = parts.next().ok_or_else(|| anyhow!("empty command"))?;
-        let args: Vec<&str> = parts.collect();
+        if command.trim().is_empty() {
+            return Err(anyhow!("empty command"));
+        }
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
-        let mut cmd = Command::new(bin);
-        cmd.args(&args)
+        let mut cmd = Command::new(&shell);
+        cmd.args(["-l", "-c", command])
             .current_dir(root_dir)
             .env("PORT", port.to_string())
             .stdout(Stdio::piped())
@@ -99,9 +101,29 @@ impl ProcessManager {
     }
 
     pub fn stop(&self, app_id: &str) -> Result<()> {
-        let mut pids = self.pids.lock().unwrap();
-        if let Some(pid) = pids.remove(app_id) {
+        let pid_opt = {
+            let pids = self.pids.lock().unwrap();
+            pids.get(app_id).copied()
+        };
+        if let Some(pid) = pid_opt {
             let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+            let pids = Arc::clone(&self.pids);
+            let app_id = app_id.to_string();
+            thread::spawn(move || {
+                // Poll every 100ms for up to 5s (50 iterations)
+                for _ in 0..50 {
+                    thread::sleep(Duration::from_millis(100));
+                    // kill with None (signal 0) checks existence without signaling
+                    if kill(Pid::from_raw(pid as i32), None).is_err() {
+                        // Process is gone — clean up PID map and return
+                        pids.lock().unwrap().remove(&app_id);
+                        return;
+                    }
+                }
+                // Still alive after 5s — force kill
+                let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+                pids.lock().unwrap().remove(&app_id);
+            });
         }
         Ok(())
     }

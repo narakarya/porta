@@ -16,6 +16,9 @@ export const checkSetup = (): Promise<SetupStatus> =>
 export const runSetup = (): Promise<void> =>
   invoke("run_setup");
 
+export const startCaddy = (): Promise<void> =>
+  invoke("start_caddy");
+
 export const reloadCaddy = (): Promise<void> =>
   invoke("reload_caddy");
 

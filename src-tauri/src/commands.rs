@@ -82,6 +82,15 @@ pub fn check_setup() -> SetupStatus {
     crate::setup::check()
 }
 
+/// Silently try to start Caddy without running the full wizard.
+/// Used for auto-recovery on launch. Will show macOS admin prompt if certs exist.
+#[tauri::command]
+pub fn start_caddy(state: State<AppState>) -> Result<(), String> {
+    crate::setup::start_caddy(&|_| {}).map_err(|e| e.to_string())?;
+    sync_caddy(&state).ok();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn run_setup(state: State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let domains = workspace_domains(&state)?;

@@ -88,11 +88,13 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
 
   if (!setupStatus) return null;
 
+  // caddy_running is intentionally excluded — it's runtime state, not setup state.
+  // Porta handles a stopped Caddy separately (auto-start banner) so the wizard
+  // doesn't pop up on every launch after a reboot.
   const allGood =
     setupStatus.caddy_installed &&
     setupStatus.dnsmasq_installed &&
     setupStatus.test_resolver_exists &&
-    setupStatus.caddy_running &&
     setupStatus.mkcert_installed &&
     setupStatus.certs_generated;
 

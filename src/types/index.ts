@@ -13,7 +13,7 @@ export interface App {
   subdomain: string | null;
   start_command: string;
   start_command_source: string;
-  status: "stopped" | "running";
+  status: "stopped" | "running" | "starting";
   pid: number | null;
   env_file: string | null;
   auto_start: boolean;

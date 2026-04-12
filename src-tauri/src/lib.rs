@@ -155,6 +155,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::check_setup,
             commands::run_setup,
+            commands::start_caddy,
             commands::reload_caddy,
             commands::list_workspaces,
             commands::add_workspace,

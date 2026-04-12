@@ -158,10 +158,18 @@ export const usePortaStore = create<PortaState>((set, get) => ({
 
   _subscribeToAppEvents: () => {
     const unlisteners: Array<() => void> = [];
+    // Cancels any still-pending listen() promises from the previous subscribeForApps call
+    let cancelPending = () => {};
 
     const subscribeForApps = (apps: App[]) => {
+      // Cancel any promises that haven't resolved yet from the last call
+      cancelPending();
+      // Remove already-resolved listeners
       unlisteners.forEach((fn) => fn());
       unlisteners.length = 0;
+
+      let cancelled = false;
+      cancelPending = () => { cancelled = true; };
 
       apps.forEach((app) => {
         listen<string>(`app:log:${app.id}`, (e) => {
@@ -175,7 +183,7 @@ export const usePortaStore = create<PortaState>((set, get) => ({
               },
             };
           });
-        }).then((fn) => unlisteners.push(fn));
+        }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
         listen<number>(`app:exit:${app.id}`, (e) => {
           set((s) => ({
@@ -185,7 +193,7 @@ export const usePortaStore = create<PortaState>((set, get) => ({
             appExitCode: { ...s.appExitCode, [app.id]: e.payload },
           }));
           cmd.markAppStopped(app.id).catch(() => {});
-        }).then((fn) => unlisteners.push(fn));
+        }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
         listen(`app:ready:${app.id}`, () => {
           set((s) => ({
@@ -194,19 +202,27 @@ export const usePortaStore = create<PortaState>((set, get) => ({
             ),
           }));
           cmd.markAppReady(app.id).catch(() => {});
-        }).then((fn) => unlisteners.push(fn));
+        }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
       });
     };
 
     subscribeForApps(get().apps);
 
-    const unsub = usePortaStore.subscribe((state, prev) => {
-      if (state.apps !== prev.apps) {
+    // Only re-subscribe when the apps list itself changes (added/removed),
+    // not on every status update — avoids thrashing listeners on start/stop.
+    const subscribedIds = () => get().apps.map((a) => a.id).join(",");
+    let lastIds = subscribedIds();
+
+    const unsub = usePortaStore.subscribe((state) => {
+      const ids = state.apps.map((a) => a.id).join(",");
+      if (ids !== lastIds) {
+        lastIds = ids;
         subscribeForApps(state.apps);
       }
     });
 
     return () => {
+      cancelPending();
       unlisteners.forEach((fn) => fn());
       unsub();
     };
