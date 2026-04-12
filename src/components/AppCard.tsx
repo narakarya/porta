@@ -15,33 +15,34 @@ function resolvedHost(app: App, workspace: Workspace | null): string {
 export default function AppCard({ app, workspace }: Props) {
   const { startApp, stopApp, deleteApp } = usePortaStore();
   const host = resolvedHost(app, workspace);
-
-  const statusDot: Record<string, string> = {
-    running: "bg-green-400",
-    stopped: "bg-gray-500",
-    error: "bg-red-400",
-  };
+  const isRunning = app.status === "running";
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex items-center gap-4">
+    <div className="group flex items-center gap-3 px-3 py-2.5 rounded-lg bg-[#1c1c1e] border border-white/[0.06] hover:border-white/[0.10] transition-all duration-150">
+      {/* Status dot */}
       <span
-        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-          statusDot[app.status] ?? "bg-gray-500"
+        className={`w-2 h-2 rounded-full shrink-0 transition-colors ${
+          isRunning ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
         }`}
       />
 
+      {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-sm text-gray-100">{app.name}</p>
-        <p className="text-xs text-gray-400 truncate">
-          {host} <span className="text-gray-600">:{app.port}</span>
+        <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
+        <p className="text-[11px] text-zinc-500 truncate mt-0.5">
+          {host}
+          <span className="text-zinc-700 ml-1">:{app.port}</span>
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        {app.status === "running" ? (
+      {/* Actions — always visible on running, hover-only when stopped */}
+      <div className={`flex items-center gap-1 transition-opacity duration-150 ${
+        isRunning ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      }`}>
+        {isRunning ? (
           <button
             onClick={() => stopApp(app.id)}
-            className="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+            className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
           >
             Stop
           </button>
@@ -49,7 +50,7 @@ export default function AppCard({ app, workspace }: Props) {
           <button
             onClick={() => startApp(app.id)}
             disabled={!app.start_command}
-            className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-md transition-colors"
+            className="px-2.5 py-1 text-[11px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md disabled:opacity-30 transition-colors"
           >
             Start
           </button>
@@ -58,15 +59,18 @@ export default function AppCard({ app, workspace }: Props) {
           href={`http://${host}`}
           target="_blank"
           rel="noreferrer"
-          className="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+          className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
         >
-          Open
+          Open ↗
         </a>
         <button
           onClick={() => deleteApp(app.id)}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-red-400 rounded-md transition-colors"
+          className="p-1 text-zinc-600 hover:text-red-400 rounded-md transition-colors"
+          title="Remove"
         >
-          ✕
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
         </button>
       </div>
     </div>
