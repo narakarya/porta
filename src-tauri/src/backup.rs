@@ -66,7 +66,7 @@ pub fn auto_backup(db_path: &Path) -> Result<()> {
     // Keep newest 10 snapshots
     let mut entries: Vec<_> = fs::read_dir(&dir)?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |x| x == "db"))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
     entries.reverse();

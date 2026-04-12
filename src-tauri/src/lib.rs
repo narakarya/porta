@@ -24,6 +24,56 @@ use commands::AppState;
 use db::Database;
 use process_manager::ProcessManager;
 
+/// Topological sort: returns `auto_start` apps in dependency order (deps first).
+/// Apps that are not `auto_start` are excluded from the result.
+/// If a dep is not in the `auto_start` set it is skipped (not started automatically).
+fn topo_sort_auto_start(all_apps: Vec<db::models::App>) -> Vec<db::models::App> {
+    use std::collections::{HashMap, HashSet};
+
+    let auto_ids: HashSet<String> = all_apps
+        .iter()
+        .filter(|a| a.auto_start && !a.start_command.is_empty())
+        .map(|a| a.id.clone())
+        .collect();
+
+    let app_map: HashMap<String, db::models::App> = all_apps
+        .into_iter()
+        .filter(|a| auto_ids.contains(&a.id))
+        .map(|a| (a.id.clone(), a))
+        .collect();
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut result: Vec<db::models::App> = Vec::new();
+
+    fn visit(
+        id: &str,
+        app_map: &HashMap<String, db::models::App>,
+        auto_ids: &HashSet<String>,
+        visited: &mut HashSet<String>,
+        result: &mut Vec<db::models::App>,
+    ) {
+        if !visited.insert(id.to_string()) {
+            return;
+        }
+        if let Some(app) = app_map.get(id) {
+            for dep_id in &app.depends_on {
+                if auto_ids.contains(dep_id) {
+                    visit(dep_id, app_map, auto_ids, visited, result);
+                }
+            }
+            result.push(app.clone());
+        }
+    }
+
+    let ids: Vec<String> = app_map.keys().cloned().collect();
+    for id in &ids {
+        if !visited.contains(id) {
+            visit(id, &app_map, &auto_ids, &mut visited, &mut result);
+        }
+    }
+    result
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db_path = {
@@ -41,7 +91,7 @@ pub fn run() {
     // This fixes stale "running" state after Porta crashes or is force-quit.
     if let Ok(apps) = db.list_apps() {
         for app in apps.iter().filter(|a| a.status == "running") {
-            let alive = app.pid.map_or(false, |pid| {
+            let alive = app.pid.is_some_and(|pid| {
                 // kill(pid, 0) = existence check — Ok if process is alive
                 kill(Pid::from_raw(pid as i32), None).is_ok()
             });
@@ -127,70 +177,30 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Auto-start apps flagged with auto_start = true
+            // Auto-start apps flagged with auto_start = true, in dependency order.
+            // Runs in a background thread so Porta finishes setup immediately.
             let auto_start_apps = {
                 let state = app.state::<AppState>();
                 let db = state.db.lock().unwrap();
-                db.list_apps()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|a| a.auto_start && !a.start_command.is_empty())
-                    .collect::<Vec<_>>()
+                let all = db.list_apps().unwrap_or_default();
+                topo_sort_auto_start(all)
             };
 
-            for app_data in auto_start_apps {
-                let handle = app.handle().clone();
-                let state = app.state::<AppState>();
-
-                let log_id = app_data.id.clone();
-                let log_handle = handle.clone();
-                let on_log = move |line: String| {
-                    log_handle.emit(&format!("app:log:{}", log_id), line).ok();
-                };
-
-                let exit_id = app_data.id.clone();
-                let exit_handle = handle.clone();
-                let exit_name = app_data.name.clone();
-                let on_exit = move |code: i32, is_stop: bool| {
-                    let reported = if is_stop { 0 } else { code };
-                    exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
-                    if code != 0 && !is_stop {
-                        commands::notify_crash(&exit_handle, &exit_name, code);
-                    }
-                };
-
-                match state.processes.start(
-                    &app_data.id,
-                    &app_data.start_command,
-                    std::path::Path::new(&app_data.root_dir),
-                    app_data.port,
-                    app_data.env_file.as_deref(),
-                    &app_data.env_vars,
-                    false, // truncate_log: Porta boot — preserve previous run logs
-                    on_log,
-                    on_exit,
-                ) {
-                    Ok(pid) => {
-                        state
-                            .db
-                            .lock()
-                            .unwrap()
-                            .update_app_status(&app_data.id, "starting", Some(pid))
-                            .ok();
-                        commands::spawn_port_watcher(handle.clone(), app_data.id.clone(), app_data.port, app_data.name.clone());
-                    }
-                    Err(e) => {
+            let tray_db_path = app.state::<AppState>().db_path.clone();
+            let auto_start_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                for app_data in &auto_start_apps {
+                    if let Err(e) = commands::start_single(&auto_start_handle, app_data, false) {
                         eprintln!("auto-start failed for {}: {}", app_data.name, e);
+                        continue;
+                    }
+                    // Wait for this app to be TCP-ready before starting apps that depend on it
+                    if auto_start_apps.iter().any(|a| a.depends_on.contains(&app_data.id)) {
+                        commands::wait_for_port(app_data.port, 30_000);
                     }
                 }
-            }
-
-            // Rebuild tray after auto-starting all apps
-            let tray_db_path = app.state::<AppState>().db_path.clone();
-            let tray_handle = app.handle().clone();
-            std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                commands::rebuild_tray_menu(&tray_handle, &tray_db_path);
+                commands::rebuild_tray_menu(&auto_start_handle, &tray_db_path);
             });
 
             Ok(())

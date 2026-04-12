@@ -8,6 +8,12 @@ pub struct CaddyManager {
     client: Client,
 }
 
+impl Default for CaddyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CaddyManager {
     pub fn new() -> Self {
         let client = Client::builder()

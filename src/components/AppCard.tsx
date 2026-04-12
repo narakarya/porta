@@ -297,95 +297,6 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </Tooltip>
         )}
 
-        {/* Terminal button — always shown */}
-        <Tooltip label="Open terminal">
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(); }}
-            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
-          >
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <rect x="1" y="2" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-              <path d="M3 5.5l2 1.5-2 1.5M6.5 8.5H9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </Tooltip>
-
-        {/* Log icon — always visible when there are logs */}
-        {showLogIcon && (
-          <Tooltip label={crashed ? "View crash logs" : "View logs"}>
-            <button
-              onClick={() => setLogViewerOpen(true)}
-              className={`p-1 rounded-md transition-colors ${
-                crashed
-                  ? "text-red-400 hover:bg-red-500/10"
-                  : "text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06]"
-              }`}
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <rect x="2" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-                <path d="M4.5 4.5h4M4.5 6.5h4M4.5 8.5h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              </svg>
-            </button>
-          </Tooltip>
-        )}
-
-        {/* Open browser — only when fully running and not wildcard */}
-        {isRunning && !isWildcard && (
-          <div className="relative">
-            {extraCount === 0 ? (
-              // Single subdomain — plain link
-              <Tooltip label={`Open ${scheme}://${host}`}>
-                <a
-                  href={`${scheme}://${host}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors flex items-center"
-                >
-                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                    <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </a>
-              </Tooltip>
-            ) : (
-              // Multiple subdomains — dropdown button
-              <>
-                <Tooltip label="Open in browser">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setHostsMenuOpen((v) => !v); }}
-                    className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                      <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                </Tooltip>
-                {hostsMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setHostsMenuOpen(false)} />
-                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
-                      {hosts.map((h) => (
-                        <a
-                          key={h}
-                          href={`${scheme}://${h}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={() => setHostsMenuOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 text-[12px] font-mono text-zinc-300 hover:bg-white/[0.07] transition-colors"
-                        >
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-600 shrink-0">
-                            <path d="M4 1.5H2a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h6a.5.5 0 00.5-.5V6M5.5 1.5H8.5M8.5 1.5V4.5M8.5 1.5L5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                          {h}
-                        </a>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         {/* Tunnel quick menu — only shown when app is active, tunnel is connected, or there's an error */}
         {(isActive || app.tunnel_active || tunnelError) && <div className="relative">
           <Tooltip
@@ -494,6 +405,95 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
             </>
           )}
         </div>}
+
+        {/* Terminal button — always shown */}
+        <Tooltip label="Open terminal">
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(); }}
+            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <rect x="1" y="2" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M3 5.5l2 1.5-2 1.5M6.5 8.5H9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </Tooltip>
+
+        {/* Log icon — always visible when there are logs */}
+        {showLogIcon && (
+          <Tooltip label={crashed ? "View crash logs" : "View logs"}>
+            <button
+              onClick={() => setLogViewerOpen(true)}
+              className={`p-1 rounded-md transition-colors ${
+                crashed
+                  ? "text-red-400 hover:bg-red-500/10"
+                  : "text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06]"
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <rect x="2" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M4.5 4.5h4M4.5 6.5h4M4.5 8.5h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </Tooltip>
+        )}
+
+        {/* Open browser — only when fully running and not wildcard */}
+        {isRunning && !isWildcard && (
+          <div className="relative">
+            {extraCount === 0 ? (
+              // Single subdomain — plain link
+              <Tooltip label={`Open ${scheme}://${host}`}>
+                <a
+                  href={`${scheme}://${host}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors flex items-center"
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </a>
+              </Tooltip>
+            ) : (
+              // Multiple subdomains — dropdown button
+              <>
+                <Tooltip label="Open in browser">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setHostsMenuOpen((v) => !v); }}
+                    className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </Tooltip>
+                {hostsMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setHostsMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
+                      {hosts.map((h) => (
+                        <a
+                          key={h}
+                          href={`${scheme}://${h}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => setHostsMenuOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-[12px] font-mono text-zinc-300 hover:bg-white/[0.07] transition-colors"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-600 shrink-0">
+                            <path d="M4 1.5H2a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h6a.5.5 0 00.5-.5V6M5.5 1.5H8.5M8.5 1.5V4.5M8.5 1.5L5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          {h}
+                        </a>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Start / Stop / Restart */}
         <div className="flex items-center gap-1">

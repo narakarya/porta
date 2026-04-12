@@ -63,7 +63,7 @@ pub fn brew_install(package: &str, on_log: &dyn Fn(&str)) -> Result<()> {
     let tx_err = tx.clone();
     let stderr = child.stderr.take().unwrap();
     let t_err = thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().flatten() {
+        for line in BufReader::new(stderr).lines().map_while(|l| l.ok()) {
             tx_err.send(line).ok();
         }
     });
@@ -71,7 +71,7 @@ pub fn brew_install(package: &str, on_log: &dyn Fn(&str)) -> Result<()> {
     let tx_out = tx.clone();
     let stdout = child.stdout.take().unwrap();
     let t_out = thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().flatten() {
+        for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
             tx_out.send(line).ok();
         }
     });
@@ -91,16 +91,16 @@ pub fn brew_install(package: &str, on_log: &dyn Fn(&str)) -> Result<()> {
 }
 
 pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
+    // Fast path: already running — skip everything, no password dialog needed
+    if crate::caddy::CaddyManager::new().is_running() {
+        on_log("Caddy is already running.");
+        return Ok(());
+    }
+
     let caddy = caddy_path();
 
     if certs_exist() {
-        // Force-kill any running Caddy (user-owned or root-owned) before restarting
-        on_log("Stopping any running Caddy processes…");
-        let _ = Command::new(caddy).arg("stop").output();
-        let _ = Command::new("pkill").args(["-9", "caddy"]).output();
-        std::thread::sleep(std::time::Duration::from_millis(600));
-
-        // macOS password dialog will appear here
+        // HTTPS mode: Caddy must bind :443 — requires root via osascript
         on_log("Requesting admin permission to start Caddy on port 443…");
         on_log("(macOS will ask for your password)");
 
@@ -114,18 +114,15 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
 
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            // User cancelled the password dialog
             if stderr.contains("User canceled") || stderr.contains("cancelled") {
                 return Err(anyhow::anyhow!("Admin permission was cancelled. HTTPS requires Caddy to run with admin privileges."));
             }
-            // Some errors are OK (already running, etc.)
             if !stderr.contains("already") && !stderr.contains("pid file") {
                 on_log(&format!("osascript warning: {}", stderr.trim()));
             }
         }
 
         on_log("Waiting for Caddy to come up…");
-        // Poll admin API — up to 12 seconds
         for i in 0..12 {
             std::thread::sleep(std::time::Duration::from_secs(1));
             if crate::caddy::CaddyManager::new().is_running() {
@@ -142,7 +139,7 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
         ));
     }
 
-    // Plain start — HTTP-only, no admin needed
+    // HTTP-only mode — no admin needed
     on_log("Starting Caddy (HTTP mode)…");
     let out = Command::new(caddy).arg("start").output()?;
     if out.status.success() { return Ok(()); }

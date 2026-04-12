@@ -210,6 +210,7 @@ impl Database {
     }
 
     /// Update editable app fields. Handles port_registry update if port changes.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_app(
         &self,
         id: &str,
@@ -359,6 +360,7 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_service(
         &self, id: &str, name: &str, image: &str, tag: &str,
         port: u16, env_vars: &HashMap<String, String>, volumes: &[String], scope: &str,
