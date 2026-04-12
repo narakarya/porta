@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { App, Workspace } from "../types";
+import type { App, SetupStatus, Workspace } from "../types";
 import * as cmd from "../lib/commands";
 
 interface PortaState {
@@ -7,6 +7,7 @@ interface PortaState {
   workspaces: Workspace[];
   apps: App[];
   selectedWorkspaceId: string | null; // null = "All"
+  setupStatus: SetupStatus | null;
 
   // ── Async status ─────────────────────────────────────────────────────────
   loading: boolean;
@@ -14,6 +15,7 @@ interface PortaState {
 
   // ── Actions ──────────────────────────────────────────────────────────────
   load: () => Promise<void>;
+  checkSetup: () => Promise<void>;
   selectWorkspace: (id: string | null) => void;
 
   addWorkspace: (name: string, domain: string) => Promise<void>;
@@ -32,8 +34,14 @@ export const usePortaStore = create<PortaState>((set, get) => ({
   workspaces: [],
   apps: [],
   selectedWorkspaceId: null,
+  setupStatus: null,
   loading: false,
   error: null,
+
+  checkSetup: async () => {
+    const setupStatus = await cmd.checkSetup();
+    set({ setupStatus });
+  },
 
   load: async () => {
     set({ loading: true, error: null });
