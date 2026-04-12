@@ -4,7 +4,7 @@ import { exportData, importData, listBackups, restoreBackup, saveFile, revealInF
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 import { usePortaStore } from "../store";
 
-type Section = "setup" | "domains" | "notifications" | "backup" | "sync";
+type Section = "setup" | "notifications" | "backup" | "sync";
 
 const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -13,16 +13,6 @@ const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
         <path d="M10 2L3 6v4c0 3.5 3 6.7 7 8 4-1.3 7-4.5 7-8V6l-7-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-      </svg>
-    ),
-  },
-  {
-    id: "domains",
-    label: "Domains",
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"/>
-        <path d="M10 3c-2 2-3 4.5-3 7s1 5 3 7M10 3c2 2 3 4.5 3 7s-1 5-3 7M3 10h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     ),
   },
@@ -121,7 +111,6 @@ export default function SettingsPage({ onBack }: Props) {
         {activeSection === "setup" && (
           <SetupSection onOpenWizard={() => setShowSetupWizard(true)} />
         )}
-        {activeSection === "domains" && <DomainsSection />}
         {activeSection === "notifications" && <NotificationsSection />}
         {activeSection === "backup" && <BackupSection />}
         {activeSection === "sync" && <SyncSection />}
@@ -928,136 +917,6 @@ function SyncSection() {
           {syncStatus === "syncing" ? "Syncing..." : "Sync Now"}
         </button>
       )}
-    </div>
-  );
-}
-
-function DomainsSection() {
-  const { workspaces, updateWorkspace } = usePortaStore();
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editDomain, setEditDomain] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [reloadLoading, setReloadLoading] = useState(false);
-  const [reloadStatus, setReloadStatus] = useState<"idle" | "success" | "error">("idle");
-
-  function startEdit(ws: { id: string; domain: string }) {
-    setEditId(ws.id);
-    setEditDomain(ws.domain);
-    setSaveError(null);
-  }
-
-  async function handleSave(ws: { id: string; name: string }) {
-    if (!editDomain.trim()) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await updateWorkspace(ws.id, ws.name, editDomain.trim());
-      setEditId(null);
-    } catch (e: unknown) {
-      setSaveError(String(e).replace(/^Error: /, ""));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleReloadCaddy() {
-    setReloadLoading(true);
-    setReloadStatus("idle");
-    try {
-      await reloadCaddy();
-      setReloadStatus("success");
-    } catch {
-      setReloadStatus("error");
-    } finally {
-      setReloadLoading(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-[16px] font-semibold text-zinc-100">Domains</h1>
-        <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
-          Manage the local domain for each workspace. Changes require a Caddy reload to take effect.
-        </p>
-      </div>
-
-      {workspaces.length === 0 ? (
-        <p className="text-[13px] text-zinc-500">No workspaces yet.</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {workspaces.map((ws) => (
-            <div key={ws.id} className="flex flex-col gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/[0.07]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-zinc-200 truncate">{ws.name}</p>
-                </div>
-                {editId !== ws.id && (
-                  <button
-                    onClick={() => startEdit(ws)}
-                    className="text-[11px] text-zinc-500 hover:text-zinc-200 transition-colors shrink-0"
-                  >
-                    Edit
-                  </button>
-                )}
-              </div>
-
-              {editId === ws.id ? (
-                <div className="flex flex-col gap-2">
-                  <input
-                    value={editDomain}
-                    onChange={(e) => setEditDomain(e.target.value)}
-                    className="input-base font-mono text-[12px]"
-                    placeholder="narakarya.test"
-                    autoFocus
-                  />
-                  {saveError && <p className="text-[11px] text-red-400">{saveError}</p>}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleSave(ws)}
-                      disabled={!editDomain.trim() || saving}
-                      className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
-                    >
-                      {saving ? "Saving…" : "Save"}
-                    </button>
-                    <button
-                      onClick={() => setEditId(null)}
-                      className="px-3 py-1.5 text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-[12px] font-mono text-zinc-400">{ws.domain}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-col gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/[0.07]">
-        <div>
-          <p className="text-[13px] font-medium text-zinc-200">Apply Changes</p>
-          <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
-            After editing a domain, reload Caddy to update routing.
-          </p>
-        </div>
-        {reloadStatus === "success" && (
-          <p className="text-[12px] text-emerald-400">Caddy reloaded successfully.</p>
-        )}
-        {reloadStatus === "error" && (
-          <p className="text-[12px] text-red-400">Failed to reload Caddy.</p>
-        )}
-        <button
-          onClick={handleReloadCaddy}
-          disabled={reloadLoading}
-          className="self-start px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors"
-        >
-          {reloadLoading ? "Reloading…" : "Reload Caddy"}
-        </button>
-      </div>
     </div>
   );
 }
