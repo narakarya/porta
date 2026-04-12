@@ -4,7 +4,7 @@ use anyhow::Result;
 use rusqlite::{Connection, params};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use models::{App, Workspace};
+use models::{App, Service, Workspace};
 
 pub struct Database {
     pub(crate) conn: Connection,
@@ -47,6 +47,25 @@ impl Database {
             );
         ")?;
 
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS services (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                image TEXT NOT NULL,
+                tag TEXT NOT NULL DEFAULT 'latest',
+                port INTEGER NOT NULL,
+                env_vars TEXT NOT NULL DEFAULT '{}',
+                scope TEXT NOT NULL DEFAULT 'global',
+                status TEXT NOT NULL DEFAULT 'stopped',
+                container_id TEXT
+            );
+        ")?;
+
+        // Non-destructive additions
+        let _ = self.conn.execute("ALTER TABLE services ADD COLUMN volumes TEXT NOT NULL DEFAULT '[]'", []);
+        let _ = self.conn.execute("ALTER TABLE workspaces ADD COLUMN position INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE services ADD COLUMN position INTEGER NOT NULL DEFAULT 0", []);
+
         // Non-destructive additions for existing databases (errors = column already exists)
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_file TEXT", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 0", []);
@@ -54,6 +73,13 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_vars TEXT NOT NULL DEFAULT '{}'", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN restart_policy TEXT NOT NULL DEFAULT 'on-failure'", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 3", []);
+        // dependency graph
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN health_check_path TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'", []);
+        // multiple subdomains per app
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN extra_subdomains TEXT NOT NULL DEFAULT '[]'", []);
+        // deploy custom commands
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN deploy_custom_commands TEXT NOT NULL DEFAULT '[]'", []);
 
         Ok(())
     }
@@ -74,15 +100,26 @@ impl Database {
         Ok(())
     }
 
+    pub fn reorder_workspaces(&self, ids: &[String]) -> Result<()> {
+        for (i, id) in ids.iter().enumerate() {
+            self.conn.execute(
+                "UPDATE workspaces SET position = ?1 WHERE id = ?2",
+                params![i as i64, id],
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn list_workspaces(&self) -> Result<Vec<Workspace>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, domain FROM workspaces ORDER BY rowid"
+            "SELECT id, name, domain FROM workspaces ORDER BY position, rowid"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Workspace {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 domain: row.get(2)?,
+                deployment: None,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -95,17 +132,21 @@ impl Database {
 
     pub fn insert_app(&mut self, a: &App) -> Result<()> {
         let env_vars_json = serde_json::to_string(&a.env_vars).unwrap_or_else(|_| "{}".into());
+        let depends_on_json = serde_json::to_string(&a.depends_on).unwrap_or_else(|_| "[]".into());
+        let extra_subdomains_json = serde_json::to_string(&a.extra_subdomains).unwrap_or_else(|_| "[]".into());
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain,
                                start_command, start_command_source, status, pid,
-                               env_file, auto_start, env_vars, restart_policy, max_retries)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                               env_file, auto_start, env_vars, restart_policy, max_retries,
+                               health_check_path, depends_on, extra_subdomains)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
                 a.status, a.pid, a.env_file, a.auto_start as i32,
-                env_vars_json, a.restart_policy, a.max_retries as i32
+                env_vars_json, a.restart_policy, a.max_retries as i32,
+                a.health_check_path, depends_on_json, extra_subdomains_json
             ],
         )?;
         tx.execute(
@@ -120,7 +161,9 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, workspace_id, name, root_dir, port, subdomain,
                     start_command, start_command_source, status, pid,
-                    env_file, auto_start, env_vars, restart_policy, max_retries
+                    env_file, auto_start, env_vars, restart_policy, max_retries,
+                    health_check_path, depends_on, extra_subdomains,
+                    COALESCE(deploy_custom_commands, '[]')
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -130,6 +173,13 @@ impl Database {
             let restart_policy: String = row.get::<_, Option<String>>(13)?
                 .unwrap_or_else(|| "on-failure".into());
             let max_retries: u8 = row.get::<_, Option<i32>>(14)?.unwrap_or(3) as u8;
+            let health_check_path: Option<String> = row.get(15)?;
+            let depends_on_str: String = row.get::<_, Option<String>>(16)?.unwrap_or_else(|| "[]".into());
+            let depends_on: Vec<String> = serde_json::from_str(&depends_on_str).unwrap_or_default();
+            let extra_subdomains_str: String = row.get::<_, Option<String>>(17)?.unwrap_or_else(|| "[]".into());
+            let extra_subdomains: Vec<String> = serde_json::from_str(&extra_subdomains_str).unwrap_or_default();
+            let custom_cmds_str: String = row.get::<_, Option<String>>(18)?.unwrap_or_else(|| "[]".into());
+            let deploy_custom_commands: Vec<models::CustomDeployCmd> = serde_json::from_str(&custom_cmds_str).unwrap_or_default();
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -146,6 +196,14 @@ impl Database {
                 env_vars,
                 restart_policy,
                 max_retries,
+                health_check_path,
+                depends_on,
+                extra_subdomains,
+                tunnel_provider: None,
+                tunnel_url: None,
+                tunnel_active: false,
+                deploy_config_path: None,
+                deploy_custom_commands,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -164,6 +222,9 @@ impl Database {
         env_vars: &HashMap<String, String>,
         restart_policy: &str,
         max_retries: u8,
+        health_check_path: Option<&str>,
+        depends_on: &[String],
+        extra_subdomains: &[String],
     ) -> Result<()> {
         let old_port: u16 = self.conn.query_row(
             "SELECT port FROM apps WHERE id = ?1",
@@ -172,16 +233,20 @@ impl Database {
         )?;
 
         let env_vars_json = serde_json::to_string(env_vars).unwrap_or_else(|_| "{}".into());
+        let depends_on_json = serde_json::to_string(depends_on).unwrap_or_else(|_| "[]".into());
+        let extra_subdomains_json = serde_json::to_string(extra_subdomains).unwrap_or_else(|_| "[]".into());
 
         self.conn.execute(
             "UPDATE apps SET name=?1, port=?2, subdomain=?3, start_command=?4,
                              env_file=?5, auto_start=?6, env_vars=?7,
-                             restart_policy=?8, max_retries=?9
-             WHERE id=?10",
+                             restart_policy=?8, max_retries=?9,
+                             health_check_path=?10, depends_on=?11, extra_subdomains=?12
+             WHERE id=?13",
             params![
                 name, port, subdomain, start_command, env_file,
                 auto_start as i32, env_vars_json, restart_policy,
-                max_retries as i32, id
+                max_retries as i32, health_check_path, depends_on_json,
+                extra_subdomains_json, id
             ],
         )?;
 
@@ -192,6 +257,28 @@ impl Database {
                 params![port, id],
             )?;
         }
+        Ok(())
+    }
+
+    pub fn get_deploy_custom_cmds(&self, app_id: &str) -> Result<Vec<models::CustomDeployCmd>> {
+        let raw: String = self.conn.query_row(
+            "SELECT COALESCE(deploy_custom_commands, '[]') FROM apps WHERE id = ?1",
+            params![app_id],
+            |r| r.get(0),
+        )?;
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
+    }
+
+    pub fn set_deploy_custom_cmds(
+        &self,
+        app_id: &str,
+        cmds: &[models::CustomDeployCmd],
+    ) -> Result<()> {
+        let json = serde_json::to_string(cmds).unwrap_or_else(|_| "[]".into());
+        self.conn.execute(
+            "UPDATE apps SET deploy_custom_commands = ?1 WHERE id = ?2",
+            params![json, app_id],
+        )?;
         Ok(())
     }
 
@@ -222,6 +309,81 @@ impl Database {
         let ports = stmt.query_map([], |row| row.get::<_, u16>(0))?;
         Ok(ports.filter_map(|r| r.ok()).collect())
     }
+
+    // ── Services ──────────────────────────────────────────────────────────────
+
+    pub fn insert_service(&self, s: &Service) -> Result<()> {
+        let env_json = serde_json::to_string(&s.env_vars).unwrap_or_else(|_| "{}".into());
+        let vol_json = serde_json::to_string(&s.volumes).unwrap_or_else(|_| "[]".into());
+        self.conn.execute(
+            "INSERT INTO services (id, name, image, tag, port, env_vars, volumes, scope, status, container_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![s.id, s.name, s.image, s.tag, s.port, env_json, vol_json, s.scope, s.status, s.container_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn reorder_services(&self, ids: &[String]) -> Result<()> {
+        for (i, id) in ids.iter().enumerate() {
+            self.conn.execute(
+                "UPDATE services SET position = ?1 WHERE id = ?2",
+                params![i as i64, id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn list_services(&self) -> Result<Vec<Service>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, image, tag, port, env_vars, volumes, scope, status, container_id
+             FROM services ORDER BY position, rowid"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let env_str: String = row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "{}".into());
+            let env_vars: HashMap<String, String> = serde_json::from_str(&env_str).unwrap_or_default();
+            let vol_str: String = row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "[]".into());
+            let volumes: Vec<String> = serde_json::from_str(&vol_str).unwrap_or_default();
+            Ok(Service {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                image: row.get(2)?,
+                tag: row.get(3)?,
+                port: row.get(4)?,
+                env_vars,
+                volumes,
+                scope: row.get(7)?,
+                status: row.get(8)?,
+                container_id: row.get(9)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
+    }
+
+    pub fn update_service(
+        &self, id: &str, name: &str, image: &str, tag: &str,
+        port: u16, env_vars: &HashMap<String, String>, volumes: &[String], scope: &str,
+    ) -> Result<()> {
+        let env_json = serde_json::to_string(env_vars).unwrap_or_else(|_| "{}".into());
+        let vol_json = serde_json::to_string(volumes).unwrap_or_else(|_| "[]".into());
+        self.conn.execute(
+            "UPDATE services SET name=?1, image=?2, tag=?3, port=?4, env_vars=?5, volumes=?6, scope=?7 WHERE id=?8",
+            params![name, image, tag, port, env_json, vol_json, scope, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_service_status(&self, id: &str, status: &str, container_id: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE services SET status=?1, container_id=?2 WHERE id=?3",
+            params![status, container_id, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_service(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM services WHERE id=?1", params![id])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -246,7 +408,7 @@ mod tests {
     #[test]
     fn test_insert_and_list_workspace() {
         let db = in_memory_db();
-        let w = Workspace { id: "w1".into(), name: "Test".into(), domain: "test.test".into() };
+        let w = Workspace { id: "w1".into(), name: "Test".into(), domain: "test.test".into(), deployment: None };
         db.insert_workspace(&w).unwrap();
         let list = db.list_workspaces().unwrap();
         assert_eq!(list.len(), 1);
@@ -266,6 +428,13 @@ mod tests {
             env_vars: HashMap::new(),
             restart_policy: "on-failure".into(),
             max_retries: 3,
+            health_check_path: None,
+            depends_on: vec![],
+            extra_subdomains: vec![],
+            tunnel_provider: None,
+            tunnel_url: None,
+            tunnel_active: false,
+            deploy_config_path: None,
         };
         db.insert_app(&a).unwrap();
         let ports = db.used_ports().unwrap();
@@ -288,6 +457,13 @@ mod tests {
             env_vars: env_vars.clone(),
             restart_policy: "on-failure".into(),
             max_retries: 3,
+            health_check_path: None,
+            depends_on: vec![],
+            extra_subdomains: vec![],
+            tunnel_provider: None,
+            tunnel_url: None,
+            tunnel_active: false,
+            deploy_config_path: None,
         };
         db.insert_app(&a).unwrap();
         let list = db.list_apps().unwrap();
