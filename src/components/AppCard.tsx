@@ -136,22 +136,6 @@ export default function AppCard({ app, workspace }: Props) {
   const [killConfirm, setKillConfirm] = useState(false);
   const [portKillFeedback, setPortKillFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [healthStatus, setHealthStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
-
-  function handleHealthCheck() {
-    if (healthStatus === "checking") return;
-    setHealthStatus("checking");
-    fetch(`${scheme}://${host}`, { signal: AbortSignal.timeout(3000), mode: "no-cors" })
-      .then(() => {
-        setHealthStatus("ok");
-        setTimeout(() => setHealthStatus("idle"), 4000);
-      })
-      .catch(() => {
-        setHealthStatus("error");
-        setTimeout(() => setHealthStatus("idle"), 4000);
-      });
-  }
-
   function showPortFeedback(ok: boolean, msg: string) {
     setPortKillFeedback({ ok, msg });
     setTimeout(() => setPortKillFeedback(null), 3000);
@@ -254,48 +238,6 @@ export default function AppCard({ app, workspace }: Props) {
               <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </a>
-        )}
-
-        {/* Health check button — only when fully running and not wildcard; hidden when idle */}
-        {isRunning && !isWildcard && (
-          <button
-            onClick={handleHealthCheck}
-            className={`p-1 rounded-md transition-all hover:bg-white/[0.06] ${
-              healthStatus === "ok"       ? "text-emerald-400 opacity-100" :
-              healthStatus === "error"    ? "text-red-400 opacity-100"     :
-              healthStatus === "checking" ? "text-amber-400 opacity-100"   :
-                                           "text-zinc-500 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-zinc-200"
-            }`}
-            title={
-              healthStatus === "ok"       ? "Reachable" :
-              healthStatus === "error"    ? "Unreachable" :
-              healthStatus === "checking" ? "Checking…"  :
-                                           "Check reachability"
-            }
-          >
-            {healthStatus === "ok" ? (
-              /* Checkmark */
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M2.5 6.5l3 3 5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            ) : healthStatus === "error" ? (
-              /* X */
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M3.5 3.5l6 6M9.5 3.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            ) : healthStatus === "checking" ? (
-              /* Spinning circle */
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="animate-spin">
-                <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="14 8" strokeLinecap="round"/>
-              </svg>
-            ) : (
-              /* Magnifying glass / pulse (idle) */
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
-                <path d="M8.5 8.5L11 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            )}
-          </button>
         )}
 
         {/* Start / Stop */}
