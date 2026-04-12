@@ -1,0 +1,1038 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import type { App, Workspace } from "../types";
+import { checkKamal, kamalRun, installKamal, isTauri, terminalOpen, terminalWrite, terminalResize, terminalClose, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../lib/commands";
+import { usePortaStore } from "../store";
+
+// ── ANSI + log utils (shared with LogViewer) ──────────────────────────────────
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /[\x1b\x9b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
+const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
+
+type LogLevel = "error" | "warn" | "info" | "debug" | "trace" | "success" | null;
+type LevelFilter = NonNullable<LogLevel> | "all";
+
+const LEVEL_PATTERNS: [LogLevel, RegExp][] = [
+  ["error",   /\b(error|err|fatal|exception|crash|failed|failure)\b/i],
+  ["warn",    /\b(warn(?:ing)?|deprecated|caution)\b/i],
+  ["success", /\b(compiled|generated|ok|done|started|ready|success(?:ful)?|listening)\b/i],
+  ["info",    /\b(info(?:rmation)?|notice|log)\b/i],
+  ["debug",   /\b(debug|verbose)\b/i],
+  ["trace",   /\b(trace)\b/i],
+];
+
+function detectLevel(line: string): LogLevel {
+  const b = line.match(/\[(error|err|fatal|warn(?:ing)?|info|debug|trace|notice)\]/i);
+  if (b) {
+    const l = b[1].toLowerCase();
+    if (l === "error" || l === "err" || l === "fatal") return "error";
+    if (l.startsWith("warn")) return "warn";
+    if (l === "info" || l === "notice") return "info";
+    if (l === "debug") return "debug";
+    if (l === "trace") return "trace";
+  }
+  const p = line.match(/(?:^|\s)(ERROR|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE|SUCCESS)[\s:]/);
+  if (p) {
+    const l = p[1].toLowerCase();
+    if (l === "error" || l === "fatal") return "error";
+    if (l.startsWith("warn")) return "warn";
+    if (l === "info") return "info";
+    if (l === "debug") return "debug";
+    if (l === "trace") return "trace";
+    if (l === "success") return "success";
+  }
+  for (const [level, re] of LEVEL_PATTERNS) if (re.test(line)) return level;
+  return null;
+}
+
+const LEVEL_CLS: Record<NonNullable<LogLevel>, string> = {
+  error: "text-red-400", warn: "text-amber-400", info: "text-blue-400",
+  debug: "text-zinc-500", trace: "text-zinc-600", success: "text-emerald-400",
+};
+const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
+  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
+  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
+  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
+  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
+  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
+  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
+};
+const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; cls: string }[] = [
+  { key: "error",   label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/25" },
+  { key: "warn",    label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/25" },
+  { key: "success", label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
+  { key: "info",    label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
+  { key: "debug",   label: "DBG",  cls: "bg-zinc-700/50 text-zinc-400 border-zinc-600/40" },
+];
+
+function highlightLine(line: string, query: string): React.ReactNode {
+  if (!query) return line;
+  const parts = line.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"));
+  return parts.map((p, i) =>
+    p.toLowerCase() === query.toLowerCase()
+      ? <mark key={i} style={{ background: "rgba(250,204,21,0.25)", color: "#fef08a", borderRadius: 2, padding: "0 1px" }}>{p}</mark>
+      : p
+  );
+}
+
+// ── Kamal cache ───────────────────────────────────────────────────────────────
+let _kamalCache: { installed: boolean; version: string | null; ts: number } | null = null;
+const KAMAL_CACHE_TTL = 30_000;
+
+// ── Command definitions ───────────────────────────────────────────────────────
+type CommandDef = {
+  id: string;
+  label: string;
+  args: string[];
+  group: "Deploy" | "App" | "Console" | "Server" | "Debug" | "Accessories" | "Custom";
+  confirm?: boolean;
+  safe?: boolean;
+  // interactive = opens a full terminal pane instead of the log viewer
+  interactive?: boolean;
+};
+
+const FIXED_COMMANDS: CommandDef[] = [
+  { id: "deploy",        label: "Deploy",        args: ["deploy"],                               group: "Deploy",  confirm: true },
+  { id: "rollback",      label: "Rollback",       args: ["rollback"],                             group: "Deploy",  confirm: true },
+  { id: "lock-release",  label: "Release Lock",   args: ["lock", "release"],                      group: "Deploy",  confirm: true },
+  { id: "app-logs",      label: "App Logs",       args: ["app", "logs", "-f"],                    group: "App",     safe: true },
+  { id: "app-details",   label: "Details",        args: ["app", "details"],                       group: "App",     safe: true },
+  { id: "app-start",     label: "Start",          args: ["app", "start"],                         group: "App" },
+  { id: "app-stop",      label: "Stop",           args: ["app", "stop"],                          group: "App" },
+  { id: "app-restart",   label: "Restart",        args: ["app", "restart"],                       group: "App",     confirm: true },
+  { id: "exec-bash",     label: "Bash Shell",     args: ["app", "exec", "--reuse", "-i", "bash"], group: "Console", interactive: true },
+  { id: "server-reboot", label: "Server Reboot",  args: ["server", "reboot"],                     group: "Server",  confirm: true },
+  { id: "server-exec",   label: "Server Info",    args: ["server", "exec", "hostname && uname -a"], group: "Server", safe: true },
+  { id: "audit",         label: "Audit",          args: ["audit"],                                group: "Debug",   safe: true },
+  { id: "version",       label: "Version",        args: ["version"],                              group: "Debug",   safe: true },
+];
+
+// Mirrors the Rust kamal_work_dir() logic
+function kamalWorkDir(configPath: string): string {
+  if (configPath.endsWith("/config/deploy.yml")) {
+    return configPath.split("/").slice(0, -2).join("/") || "/";
+  }
+  return configPath.split("/").slice(0, -1).join("/") || "/";
+}
+
+type CmdState = {
+  logs: string[];
+  running: boolean;
+  exitCode: number | null;
+  startedAt: number | null;
+};
+
+const emptyCmdState = (): CmdState => ({ logs: [], running: false, exitCode: null, startedAt: null });
+
+// ── Inline terminal pane for interactive kamal commands ───────────────────────
+// Embeds an xterm.js terminal connected to a real PTY shell at workDir,
+// then types the kamal command for the user.
+function KamalConsolePane({ termId, workDir, initialCmd }: { termId: string; workDir: string; initialCmd: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    let mounted = true;
+    let unlistenData: (() => void) | undefined;
+    let unlistenExit: (() => void) | undefined;
+
+    import("@xterm/xterm").then(({ Terminal }) =>
+      import("@xterm/addon-fit").then(({ FitAddon }) => {
+        if (!mounted || !containerRef.current) return;
+
+        const term = new Terminal({
+          theme: {
+            background: "#0d0d0f", foreground: "#d4d4d4", cursor: "#a0a0a0",
+            black: "#1e1e20", red: "#f87171", green: "#4ade80", yellow: "#fbbf24",
+            blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#d4d4d4",
+            brightBlack: "#52525b", brightRed: "#fca5a5", brightGreen: "#86efac",
+            brightYellow: "#fde68a", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe",
+            brightCyan: "#67e8f9", brightWhite: "#f4f4f5", selectionBackground: "#3f3f46",
+          },
+          fontFamily: '"JetBrains Mono", "Fira Code", Menlo, monospace',
+          fontSize: 12, lineHeight: 1.4, cursorBlink: true, cursorStyle: "block",
+          scrollback: 5000, allowProposedApi: true,
+        });
+        const fit = new FitAddon();
+        term.loadAddon(fit);
+        term.open(containerRef.current!);
+
+        requestAnimationFrame(async () => {
+          fit.fit();
+          const d = fit.proposeDimensions();
+          if (!d) return;
+          await terminalOpen(termId, workDir, d.rows, d.cols);
+          // Type the kamal command into the shell after a short pause
+          setTimeout(() => {
+            const enc = new TextEncoder();
+            terminalWrite(termId, Array.from(enc.encode(initialCmd + "\r"))).catch(() => {});
+          }, 300);
+        });
+
+        term.onData((data) => {
+          terminalWrite(termId, Array.from(new TextEncoder().encode(data))).catch(() => {});
+        });
+
+        if (isTauri) {
+          Promise.all([
+            listen<number[]>(`terminal:data:${termId}`, (e) => {
+              if (mounted) term.write(new Uint8Array(e.payload));
+            }),
+            listen<void>(`terminal:exit:${termId}`, () => {
+              if (mounted) term.writeln("\r\n\x1b[90m— shell exited —\x1b[0m");
+            }),
+          ]).then(([d, x]) => {
+            if (!mounted) { d(); x(); return; }
+            unlistenData = d; unlistenExit = x;
+          });
+        }
+
+        const ro = new ResizeObserver(() => {
+          if (!containerRef.current) return;
+          const { width, height } = containerRef.current.getBoundingClientRect();
+          if (width === 0 || height === 0) return;
+          fit.fit();
+          const dd = fit.proposeDimensions();
+          if (dd && dd.rows > 0 && dd.cols > 0)
+            terminalResize(termId, dd.rows, dd.cols).catch(() => {});
+        });
+        ro.observe(containerRef.current!);
+
+        // Cleanup
+        const origUnmount = () => {
+          mounted = false;
+          ro.disconnect();
+          unlistenData?.(); unlistenExit?.();
+          term.dispose();
+          terminalClose(termId).catch(() => {});
+        };
+        // Store cleanup on the container for the outer cleanup to call
+        (containerRef.current as HTMLDivElement & { _cleanup?: () => void })._cleanup = origUnmount;
+      })
+    );
+
+    return () => {
+      mounted = false;
+      const el = containerRef.current as (HTMLDivElement & { _cleanup?: () => void }) | null;
+      el?._cleanup?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termId]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 min-h-0 bg-[#0d0d0f]"
+      onKeyDown={(e) => e.stopPropagation()} // prevent modal Esc from leaking
+    />
+  );
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+interface Props { app: App; workspace: Workspace | null; onClose: () => void; }
+
+export default function DeployModal({ app, workspace, onClose }: Props) {
+  const configPath = app.deploy_config_path ?? "";
+
+  // ── Kamal installation ────────────────────────────────────────────────────
+  const [kamalStatus, setKamalStatus] = useState<{ checking: boolean; installed: boolean; version: string | null }>
+    ({ checking: true, installed: false, version: null });
+
+  // ── Sidebar search ────────────────────────────────────────────────────────
+  const [cmdSearch, setCmdSearch] = useState("");
+
+  // ── Accessories ───────────────────────────────────────────────────────────
+  const [accessories, setAccessories] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!configPath) return;
+    parseKamalAccessories(configPath).then(setAccessories).catch(() => {});
+  }, [configPath]);
+
+  const accessoryCommands: CommandDef[] = accessories.flatMap((name) => [
+    {
+      id: `acc-bash-${name}`,
+      label: `${name}: bash`,
+      args: ["accessory", "exec", name, "bash"],
+      group: "Accessories" as const,
+      interactive: true,
+    },
+    {
+      id: `acc-logs-${name}`,
+      label: `${name}: logs`,
+      args: ["accessory", "logs", name, "-f"],
+      group: "Accessories" as const,
+      safe: true,
+    },
+  ]);
+
+  const customCommands: CommandDef[] = (app.deploy_custom_commands ?? []).map((c) => ({
+    id: `custom-${c.id}`,
+    label: c.label,
+    args: c.args,
+    group: "Custom" as const,
+    interactive: c.interactive,
+  }));
+
+  const allCommands = [...FIXED_COMMANDS, ...accessoryCommands, ...customCommands];
+
+  // ── Custom command form ────────────────────────────────────────────────────
+  type CustomForm = { id: string; label: string; rawArgs: string; interactive: boolean };
+  const emptyForm = (): CustomForm => ({ id: "", label: "", rawArgs: "", interactive: false });
+  const [customForm, setCustomForm] = useState<CustomForm | null>(null);
+  const [customFormError, setCustomFormError] = useState("");
+
+  // ── Per-command isolated state (Zustand) ─────────────────────────────────
+  const { deploySessions, updateDeployCmdState, appendDeployLog, setDeploySelectedCmd } = usePortaStore();
+  const session = deploySessions[app.id] ?? { cmdStates: {}, selectedCmdId: FIXED_COMMANDS[0].id };
+  const cmdStates = session.cmdStates as Record<string, CmdState>;
+  const selectedCmdId = session.selectedCmdId || (allCommands[0]?.id ?? "deploy");
+  const setSelectedCmdId = (id: string) => setDeploySelectedCmd(app.id, id);
+  const [pendingCmdId, setPendingCmdId] = useState<string | null>(null);
+  // consoleKey: unique key per console session (forces KamalConsolePane remount on re-run)
+  const [consoleKey, setConsoleKey] = useState<number>(0);
+
+  // ── Log panel state (resets when switching commands) ──────────────────────
+  const [logQuery, setLogQuery]       = useState("");
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
+  const [followTail, setFollowTail]   = useState(true);
+  const [copiedLine, setCopiedLine]   = useState<number | null>(null);
+  const [copiedToast, setCopiedToast] = useState(false);
+
+  const logEndRef    = useRef<HTMLDivElement>(null);
+  const logBodyRef   = useRef<HTMLDivElement>(null);
+  const searchRef    = useRef<HTMLInputElement>(null);
+  const toastTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstScroll = useRef(true);
+
+  // Reset log panel and console key when switching selected command
+  useEffect(() => {
+    setLogQuery("");
+    setLevelFilter("all");
+    setFollowTail(true);
+    setConsoleKey(0);
+    isFirstScroll.current = true;
+  }, [selectedCmdId]);
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (logQuery) { setLogQuery(""); return; }
+        if (pendingCmdId) { setPendingCmdId(null); return; }
+        onClose();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, logQuery, pendingCmdId]);
+
+
+  // ── Auto-scroll ───────────────────────────────────────────────────────────
+  const selectedLogs = cmdStates[selectedCmdId]?.logs ?? [];
+
+  useEffect(() => {
+    if (!followTail) return;
+    if (isFirstScroll.current) {
+      isFirstScroll.current = false;
+      logEndRef.current?.scrollIntoView({ behavior: "instant" });
+      return;
+    }
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedLogs, followTail]);
+
+  function handleLogScroll() {
+    const el = logBodyRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (!atBottom && followTail) setFollowTail(false);
+    if (atBottom && !followTail) setFollowTail(true);
+  }
+
+  // ── Kamal check ───────────────────────────────────────────────────────────
+  async function doCheckKamal() {
+    if (_kamalCache && Date.now() - _kamalCache.ts < KAMAL_CACHE_TTL) {
+      setKamalStatus({ checking: false, installed: _kamalCache.installed, version: _kamalCache.version });
+      return;
+    }
+    setKamalStatus({ checking: true, installed: false, version: null });
+    try {
+      const r = await checkKamal();
+      _kamalCache = { installed: r.installed, version: r.version, ts: Date.now() };
+      setKamalStatus({ checking: false, installed: r.installed, version: r.version });
+    } catch { setKamalStatus({ checking: false, installed: false, version: null }); }
+  }
+  useEffect(() => { doCheckKamal(); }, []);
+
+  // Re-attach Tauri event listeners for commands still running when modal was last closed
+  useEffect(() => {
+    if (!isTauri) return;
+    const currentSession = deploySessions[app.id];
+    if (!currentSession) return;
+    const cleanups: Array<() => void> = [];
+
+    for (const [cmdId, state] of Object.entries(currentSession.cmdStates)) {
+      if (!state.running || !state.runId) continue;
+      const runId = state.runId;
+      Promise.all([
+        listen<string>(`kamal:log:${runId}`, (e) => {
+          const raw = e.payload.startsWith("[err]") ? e.payload.slice(5).trimStart() : e.payload;
+          appendDeployLog(app.id, cmdId, raw);
+        }),
+        listen<number>(`kamal:exit:${runId}`, (e) => {
+          updateDeployCmdState(app.id, cmdId, { running: false, exitCode: e.payload });
+        }),
+      ]).then(([ul, ux]) => { cleanups.push(ul, ux); });
+    }
+
+    return () => cleanups.forEach(fn => fn());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app.id]);
+
+  // ── Run a command (per-run isolated channel) ──────────────────────────────
+  async function execCommand(cmd: CommandDef) {
+    setPendingCmdId(null);
+    setSelectedCmdId(cmd.id);
+
+    if (cmd.interactive) {
+      setConsoleKey(k => k + 1);
+      return;
+    }
+    const runId = `run-${cmd.id}-${Date.now()}`;
+    updateDeployCmdState(app.id, cmd.id, {
+      logs: [], running: true, exitCode: null, startedAt: Date.now(), runId,
+    });
+
+    if (isTauri) {
+      let unlistenLog: (() => void) | undefined;
+      let unlistenExit: (() => void) | undefined;
+
+      [unlistenLog, unlistenExit] = await Promise.all([
+        listen<string>(`kamal:log:${runId}`, (e) => {
+          const raw = e.payload.startsWith("[err]") ? e.payload.slice(5).trimStart() : e.payload;
+          appendDeployLog(app.id, cmd.id, raw);
+        }),
+        listen<number>(`kamal:exit:${runId}`, (e) => {
+          updateDeployCmdState(app.id, cmd.id, { running: false, exitCode: e.payload });
+          unlistenLog?.();
+          unlistenExit?.();
+          if (e.payload === 0) doCheckKamal();
+        }),
+      ]);
+
+      try {
+        await kamalRun(app.id, configPath, cmd.args, runId);
+      } catch (e) {
+        unlistenLog?.(); unlistenExit?.();
+        updateDeployCmdState(app.id, cmd.id, {
+          running: false,
+          exitCode: -1,
+        });
+      }
+    }
+  }
+
+  // ── Handle sidebar action ─────────────────────────────────────────────────
+  function handleSidebarRun(cmd: CommandDef) {
+    if (!kamalStatus.installed || kamalStatus.checking) return;
+    if (cmd.confirm) {
+      // Toggle confirmation state
+      setPendingCmdId(prev => prev === cmd.id ? null : cmd.id);
+      setSelectedCmdId(cmd.id);
+    } else {
+      execCommand(cmd);
+    }
+  }
+
+  function handleConfirm() {
+    const cmd = allCommands.find(c => c.id === pendingCmdId);
+    if (cmd) execCommand(cmd);
+  }
+
+  // ── Install kamal ─────────────────────────────────────────────────────────
+  async function handleInstallKamal() {
+    const runId = `run-__install__-${Date.now()}`;
+    updateDeployCmdState(app.id, "__install__", { logs: [], running: true, exitCode: null, startedAt: Date.now(), runId });
+    setSelectedCmdId("__install__" as string);
+    if (isTauri) {
+      let unlistenLog: (() => void) | undefined;
+      let unlistenExit: (() => void) | undefined;
+      [unlistenLog, unlistenExit] = await Promise.all([
+        listen<string>(`kamal:log:${runId}`, (e) => {
+          const raw = e.payload.startsWith("[err]") ? e.payload.slice(5).trimStart() : e.payload;
+          appendDeployLog(app.id, "__install__", raw);
+        }),
+        listen<number>(`kamal:exit:${runId}`, (e) => {
+          updateDeployCmdState(app.id, "__install__", { running: false, exitCode: e.payload });
+          unlistenLog?.(); unlistenExit?.();
+          if (e.payload === 0) doCheckKamal();
+        }),
+      ]);
+      try { await installKamal(app.id, runId); }
+      catch (e) {
+        unlistenLog?.(); unlistenExit?.();
+        updateDeployCmdState(app.id, "__install__", { logs: [`Error: ${String(e)}`], running: false, exitCode: 1 });
+      }
+    } else {
+      const lines = ["Fetching gem metadata…", "Installing kamal…", "Successfully installed kamal-2.10.0"];
+      let i = 0;
+      function next() {
+        if (i >= lines.length) {
+          _kamalCache = { installed: true, version: "2.10.0 (mock)", ts: Date.now() };
+          setKamalStatus({ checking: false, installed: true, version: "2.10.0 (mock)" });
+          updateDeployCmdState(app.id, "__install__", { running: false, exitCode: 0 });
+          return;
+        }
+        appendDeployLog(app.id, "__install__", lines[i++]);
+        setTimeout(next, 400);
+      }
+      setTimeout(next, 200);
+    }
+  }
+
+  // ── Copy helpers ──────────────────────────────────────────────────────────
+  function showCopiedToast() {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setCopiedToast(true);
+    toastTimer.current = setTimeout(() => setCopiedToast(false), 1500);
+  }
+  function copyLine(line: string, idx: number) {
+    navigator.clipboard.writeText(line).then(() => {
+      setCopiedLine(idx); showCopiedToast();
+      setTimeout(() => setCopiedLine(null), 1200);
+    });
+  }
+  function handleMouseUp() {
+    const sel = window.getSelection();
+    if (sel?.toString().length) navigator.clipboard.writeText(sel.toString()).then(() => showCopiedToast()).catch(() => {});
+  }
+
+  // ── Filtered log lines ────────────────────────────────────────────────────
+  const cleanLogs = useMemo(() => selectedLogs.map(stripAnsi), [selectedLogs]);
+  const filteredLines = useMemo(() => {
+    const lower = logQuery.toLowerCase();
+    return cleanLogs.map((line, i) => ({ line, i })).filter(({ line }) => {
+      if (logQuery && !line.toLowerCase().includes(lower)) return false;
+      if (levelFilter !== "all" && detectLevel(line) !== levelFilter) return false;
+      return true;
+    });
+  }, [cleanLogs, logQuery, levelFilter]);
+
+  // ── Sidebar filtered commands ─────────────────────────────────────────────
+  const sidebarCmds = useMemo(() => {
+    const q = cmdSearch.toLowerCase();
+    return q ? allCommands.filter(c => c.label.toLowerCase().includes(q)) : allCommands;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cmdSearch, allCommands.length, accessories.length, app.deploy_custom_commands?.length]);
+
+  const groups = useMemo(() => {
+    const map = new Map<string, CommandDef[]>();
+    for (const cmd of sidebarCmds) {
+      if (!map.has(cmd.group)) map.set(cmd.group, []);
+      map.get(cmd.group)!.push(cmd);
+    }
+    return map;
+  }, [sidebarCmds]);
+
+  // ── Selected command meta ─────────────────────────────────────────────────
+  const selectedCmd  = allCommands.find(c => c.id === selectedCmdId) ?? allCommands[0];
+  const isInteractive = selectedCmd.interactive ?? false;
+  const consoleTermId = `kamal-console-${app.id}-${selectedCmdId}`;
+  const selectedState = cmdStates[selectedCmdId] ?? emptyCmdState();
+  const isSelectedRunning = selectedState.running;
+
+  // ── Custom command handlers ───────────────────────────────────────────────
+  async function handleSaveCustomCmd() {
+    if (!customForm) return;
+    const label = customForm.label.trim();
+    const rawArgs = customForm.rawArgs.trim();
+    if (!label) { setCustomFormError("Label is required"); return; }
+    if (!rawArgs) { setCustomFormError("Args are required"); return; }
+    const args = rawArgs.split(/\s+/);
+    const isEdit = !!customForm.id;
+    const id = isEdit ? customForm.id : crypto.randomUUID();
+    const customCmd = { id, label, args, interactive: customForm.interactive };
+    try {
+      if (isEdit) {
+        await updateDeployCustomCmd(app.id, customCmd);
+      } else {
+        await addDeployCustomCmd(app.id, customCmd);
+      }
+      usePortaStore.getState().load();
+      setCustomForm(null);
+      setCustomFormError("");
+    } catch (e) {
+      setCustomFormError(String(e));
+    }
+  }
+
+  async function handleDeleteCustomCmd(rawCmdId: string) {
+    try {
+      await deleteDeployCustomCmd(app.id, rawCmdId);
+      usePortaStore.getState().load();
+    } catch {}
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div className="fixed inset-0 z-50 bg-[#111113] flex flex-col">
+
+      {/* Copied toast */}
+      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-[11px] text-emerald-400 shadow-lg transition-all duration-200 pointer-events-none ${copiedToast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}>
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        Copied
+      </div>
+
+      {/* ── Global header ─────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.08] shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-[14px] font-semibold text-zinc-100 truncate">{app.name}</span>
+          {workspace && <>
+            <span className="text-zinc-700 text-[12px]">·</span>
+            <span className="text-[12px] text-zinc-500 truncate">{workspace.name}</span>
+          </>}
+        </div>
+
+        {kamalStatus.checking ? (
+          <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-800/60 border border-white/[0.07] px-2.5 py-1 rounded-full shrink-0">
+            <span className="w-3 h-3 border border-zinc-500 border-t-transparent rounded-full animate-spin" />
+            checking…
+          </span>
+        ) : kamalStatus.installed ? (
+          <span className="text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full font-mono shrink-0">
+            kamal {kamalStatus.version ?? "detected"}
+          </span>
+        ) : (
+          <span className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-full shrink-0">
+            kamal not found
+          </span>
+        )}
+
+        <span className="text-[11px] text-zinc-400 bg-white/[0.05] border border-white/[0.07] px-2.5 py-1 rounded-full font-mono shrink-0">
+          production
+        </span>
+
+        <button onClick={onClose} className="shrink-0 p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors" title="Close (Esc)">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <path d="M2 2l9 9M11 2L2 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* ── Body: sidebar + log panel ──────────────────────────────────────── */}
+      <div className="flex flex-1 min-h-0">
+
+        {/* ── Sidebar ───────────────────────────────────────────────────────── */}
+        <div className="w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col bg-[#0f0f11]">
+
+          {/* Sidebar search */}
+          <div className="px-3 py-2.5 border-b border-white/[0.05]">
+            <div className="relative">
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
+                <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              <input spellCheck={false}
+                value={cmdSearch}
+                onChange={e => setCmdSearch(e.target.value)}
+                placeholder="Filter commands…"
+                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-md pl-6 pr-2 py-1.5 text-[11px] text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-blue-500/40 transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Command groups */}
+          <div className="flex-1 overflow-y-auto py-1">
+            {Array.from(groups.entries()).map(([group, cmds]) => (
+              <div key={group} className="mb-1">
+                <div className="px-3 py-1.5 text-[9px] font-semibold text-zinc-600 uppercase tracking-wider select-none">
+                  {group}
+                </div>
+                {cmds.map(cmd => {
+                  const st = cmdStates[cmd.id];
+                  const isSelected = selectedCmdId === cmd.id;
+                  const isRunning  = st?.running ?? false;
+                  const isPending  = pendingCmdId === cmd.id;
+                  const notInstalled = !kamalStatus.installed || kamalStatus.checking;
+
+                  return (
+                    <div key={cmd.id} className="group relative flex items-center">
+                      <button
+                        onClick={() => {
+                          setSelectedCmdId(cmd.id);
+                          if (!isSelected) return; // first click = select only
+                          handleSidebarRun(cmd);   // second click on already-selected = run
+                        }}
+                        disabled={notInstalled}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors ${
+                          isSelected
+                            ? "bg-white/[0.07] text-zinc-100"
+                            : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                        } ${notInstalled ? "opacity-40 cursor-not-allowed" : ""}`}
+                      >
+                        {/* Status dot */}
+                        <span className="shrink-0 w-3.5 flex items-center justify-center">
+                          {isRunning ? (
+                            <span className="w-2.5 h-2.5 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+                          ) : st?.exitCode === 0 ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          ) : st?.exitCode != null ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                          ) : (
+                            <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                          )}
+                        </span>
+
+                        <span className="flex-1 truncate">{cmd.label}</span>
+
+                        {/* Pending or action hint */}
+                        {isPending && (
+                          <span className="shrink-0 text-[9px] text-amber-400 font-medium">?</span>
+                        )}
+                        {!isPending && isSelected && !isRunning && (
+                          <span className="shrink-0 text-[9px] text-zinc-600 opacity-0 group-hover:opacity-100">↵</span>
+                        )}
+                      </button>
+                      {cmd.group === "Custom" && (
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rawId = cmd.id.replace(/^custom-/, "");
+                              const raw = app.deploy_custom_commands?.find(c => c.id === rawId);
+                              if (raw) setCustomForm({ id: raw.id, label: raw.label, rawArgs: raw.args.join(" "), interactive: raw.interactive });
+                            }}
+                            className="text-zinc-500 hover:text-zinc-300 px-1 py-0.5 text-xs rounded"
+                            title="Edit"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCustomCmd(cmd.id.replace(/^custom-/, ""));
+                            }}
+                            className="text-zinc-500 hover:text-red-400 px-1 py-0.5 text-xs rounded"
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* ── Custom command form ────────────────────────────────── */}
+          {customForm && (
+            <div className="border-t border-white/5 p-3 space-y-2">
+              <p className="text-xs font-medium text-zinc-400">
+                {customForm.id ? "Edit command" : "New command"}
+              </p>
+              <input
+                type="text"
+                placeholder="Label"
+                value={customForm.label}
+                onChange={(e) => setCustomForm({ ...customForm, label: e.target.value })}
+                className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/25"
+              />
+              <input
+                type="text"
+                placeholder="Args (e.g. app exec -i bin/console)"
+                value={customForm.rawArgs}
+                onChange={(e) => setCustomForm({ ...customForm, rawArgs: e.target.value })}
+                className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/25"
+              />
+              <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={customForm.interactive}
+                  onChange={(e) => setCustomForm({ ...customForm, interactive: e.target.checked })}
+                  className="rounded"
+                />
+                Interactive (opens terminal pane)
+              </label>
+              {customFormError && (
+                <p className="text-xs text-red-400">{customFormError}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveCustomCmd}
+                  className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1.5"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => { setCustomForm(null); setCustomFormError(""); }}
+                  className="flex-1 text-xs bg-white/5 hover:bg-white/10 text-zinc-400 rounded px-2 py-1.5"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {!customForm && (
+            <div className="border-t border-white/5 p-2">
+              <button
+                onClick={() => setCustomForm(emptyForm())}
+                className="w-full text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/5 rounded px-2 py-1.5 text-left transition-colors"
+              >
+                + Add command
+              </button>
+            </div>
+          )}
+
+          {/* Sidebar footer: config path + install */}
+          <div className="border-t border-white/[0.05] px-3 py-2 space-y-2">
+            <div className="flex items-start gap-1.5">
+              <span className="text-[9px] text-zinc-700 uppercase tracking-wide shrink-0 mt-[1px]">cfg</span>
+              <code className="text-[10px] text-zinc-600 font-mono break-all leading-tight">{configPath || "—"}</code>
+            </div>
+            {!kamalStatus.checking && !kamalStatus.installed && (
+              <button
+                onClick={handleInstallKamal}
+                className="w-full px-2 py-1.5 rounded-md text-[11px] font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors"
+              >
+                Install Kamal
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ── Log panel ─────────────────────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col min-w-0">
+
+          {/* Panel header: command name + run button */}
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-white/[0.06] shrink-0">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {isSelectedRunning && (
+                <span className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+              )}
+              <span className="text-[13px] font-medium text-zinc-200 truncate">
+                kamal {selectedCmd.args.join(" ")}
+              </span>
+              {selectedState.exitCode !== null && !isSelectedRunning && (
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                  selectedState.exitCode === 0
+                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                    : "bg-red-500/15 text-red-400 border border-red-500/20"
+                }`}>
+                  exit {selectedState.exitCode}
+                </span>
+              )}
+            </div>
+
+            {/* Search + filters — log commands only */}
+            {!isInteractive && <>
+              <div className="relative w-48 shrink-0">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
+                  <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
+                  <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                <input spellCheck={false}
+                  ref={searchRef}
+                  value={logQuery}
+                  onChange={e => setLogQuery(e.target.value)}
+                  placeholder="Search… (⌘F)"
+                  className="w-full bg-white/[0.05] border border-white/[0.07] rounded-lg pl-6 pr-2 py-1.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500/50 transition-all"
+                />
+                {logQuery && (
+                  <button onClick={() => setLogQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300">
+                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                      <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {logQuery && (
+                <span className="text-[11px] text-zinc-500 shrink-0">
+                  {filteredLines.length === 0 ? "no matches" : `${filteredLines.length} match${filteredLines.length === 1 ? "" : "es"}`}
+                </span>
+              )}
+              <div className="flex items-center gap-1 shrink-0">
+                {FILTER_PILLS.map(({ key, label, cls }) => (
+                  <button
+                    key={key}
+                    onClick={() => setLevelFilter(levelFilter === key ? "all" : key)}
+                    className={`px-1.5 py-1 rounded text-[10px] font-medium border transition-colors ${
+                      levelFilter === key ? cls : "bg-white/[0.03] text-zinc-600 border-white/[0.05] hover:text-zinc-400"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                {levelFilter !== "all" && (
+                  <button onClick={() => setLevelFilter("all")} className="px-1 py-1 rounded text-[10px] text-zinc-600 border border-white/[0.05] hover:text-zinc-300 transition-colors">×</button>
+                )}
+              </div>
+              <button
+                onClick={() => { setFollowTail(v => !v); if (!followTail) logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-colors shrink-0 ${
+                  followTail ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : "bg-white/[0.03] text-zinc-500 border-white/[0.05] hover:text-zinc-300"
+                }`}
+              >
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                  <path d="M5 1v6M2.5 4.5L5 7l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 9h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                {followTail ? "Following" : "Follow"}
+              </button>
+            </>}
+
+            {/* Run / New Session button */}
+            <button
+              onClick={() => handleSidebarRun(selectedCmd)}
+              disabled={!kamalStatus.installed || kamalStatus.checking}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors shrink-0 disabled:opacity-40 ${
+                pendingCmdId === selectedCmdId
+                  ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
+                  : isInteractive
+                  ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+                  : "bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
+              }`}
+            >
+              {isSelectedRunning ? (
+                <span className="w-2.5 h-2.5 border border-blue-400/60 border-t-transparent rounded-full animate-spin" />
+              ) : isInteractive ? (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="1" y="1" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                  <path d="M3 4l1.5 1.5L3 7M5.5 7H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2.5 1.5l6 3.5-6 3.5V1.5z" fill="currentColor"/>
+                </svg>
+              )}
+              {pendingCmdId === selectedCmdId ? "Confirm?" : isInteractive ? (consoleKey > 0 ? "New Session" : "Open Console") : "Run"}
+            </button>
+
+            {/* Clear */}
+            <button
+              onClick={() => updateDeployCmdState(app.id, selectedCmdId, { logs: [], exitCode: null })}
+              className="px-2 py-1.5 rounded-md text-[11px] text-zinc-600 hover:text-zinc-300 bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.07] transition-colors shrink-0"
+            >
+              Clear
+            </button>
+          </div>
+
+          {/* Confirmation bar */}
+          {pendingCmdId === selectedCmdId && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-amber-500/[0.07] border-b border-amber-500/20 shrink-0">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="text-amber-400 shrink-0">
+                <path d="M7 1L13 12H1L7 1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                <path d="M7 5.5V8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                <circle cx="7" cy="10" r="0.6" fill="currentColor"/>
+              </svg>
+              <span className="flex-1 text-[12px] text-amber-300">
+                Run <code className="font-mono text-amber-200">kamal {selectedCmd.args.join(" ")}</code> on production?
+              </span>
+              <button onClick={() => setPendingCmdId(null)} className="px-2.5 py-1 rounded-md text-[12px] text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleConfirm} className="px-3 py-1 rounded-md text-[12px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors">
+                Confirm
+              </button>
+            </div>
+          )}
+
+          {/* Terminal pane — shown for interactive commands once Run is clicked */}
+          {isInteractive && consoleKey > 0 && (
+            <KamalConsolePane
+              key={`${consoleTermId}-${consoleKey}`}
+              termId={`${consoleTermId}-${consoleKey}`}
+              workDir={kamalWorkDir(configPath)}
+              initialCmd={`kamal ${selectedCmd.args.join(" ")}`}
+            />
+          )}
+          {isInteractive && consoleKey === 0 && (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-[12px] text-zinc-600">Press Run to open an interactive shell.</p>
+            </div>
+          )}
+
+          {/* Log body — shown for non-interactive commands */}
+          {!isInteractive && <div
+            ref={logBodyRef}
+            onScroll={handleLogScroll}
+            onMouseUp={handleMouseUp}
+            className="flex-1 overflow-y-auto px-4 py-3 font-mono select-text"
+          >
+            {selectedState.startedAt === null ? (
+              <div className="flex flex-col items-center justify-center h-full text-center gap-2">
+                <p className="text-[12px] text-zinc-600">
+                  {kamalStatus.checking ? "Checking kamal…" : !kamalStatus.installed ? "Install kamal to get started." : "Select a command and press Run."}
+                </p>
+              </div>
+            ) : filteredLines.length === 0 ? (
+              <p className="text-[12px] text-zinc-600 mt-8 text-center select-none">
+                {logQuery || levelFilter !== "all" ? "No lines match your filter." : isSelectedRunning ? "Waiting for output…" : "No output."}
+              </p>
+            ) : (
+              <div className="flex flex-col">
+                {filteredLines.map(({ line, i }) => {
+                  const level = detectLevel(line);
+                  const textCls = level ? LEVEL_CLS[level] : "text-zinc-300";
+                  const badge = level ? LEVEL_BADGE[level] : null;
+                  return (
+                    <div key={i} className="flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start">
+                      {/* Line number */}
+                      <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">{i + 1}</span>
+                      {/* Badge */}
+                      <span className="w-8 shrink-0 pt-[1px] select-none">
+                        {badge && <span className={`text-[9px] font-medium px-1 py-px rounded border ${badge.cls}`}>{badge.label}</span>}
+                      </span>
+                      {/* Text */}
+                      <span className={`flex-1 text-[11px] leading-5 whitespace-pre-wrap break-all ${textCls}`}>
+                        {highlightLine(line, logQuery)}
+                      </span>
+                      {/* Copy */}
+                      <button
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => copyLine(line, i)}
+                        className={`shrink-0 pt-[2px] transition-opacity select-none ${copiedLine === i ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}
+                      >
+                        {copiedLine === i
+                          ? <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400"><path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          : <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-zinc-600"><rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/><path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+                        }
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div ref={logEndRef} />
+          </div>}
+
+          {/* Panel footer — log commands only */}
+          {!isInteractive && (
+            <div className="flex items-center gap-3 px-4 py-2 border-t border-white/[0.05] shrink-0 select-none">
+              <span className="text-[10px] text-zinc-700 font-mono">
+                {logQuery || levelFilter !== "all"
+                  ? `Showing ${filteredLines.length} of ${selectedLogs.length} lines`
+                  : `${selectedLogs.length} lines`}
+              </span>
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-red-400/50">● ERR</span>
+                <span className="text-amber-400/50">● WARN</span>
+                <span className="text-emerald-400/50">● OK</span>
+                <span className="text-blue-400/50">● INFO</span>
+              </div>
+              <div className="flex-1" />
+              <span className="text-[10px] text-zinc-700">⌘F search · Esc close</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

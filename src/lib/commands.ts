@@ -5,6 +5,9 @@ import type {
   DetectResult,
   SetupStatus,
   Workspace,
+  Service,
+  AddServiceParams,
+  CustomDeployCmd,
 } from "../types";
 import {
   getMockState,
@@ -15,11 +18,14 @@ import {
   mockDeleteApp,
   mockDeleteWorkspace,
   mockNextPort,
+  mockServices,
+  startMockService,
+  stopMockService,
 } from "./mock-data";
 
 // ── Tauri detection ──────────────────────────────────────────────────────────
 
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri) {
@@ -57,11 +63,14 @@ export const updateWorkspace = (id: string, name: string, domain: string): Promi
     : Promise.resolve((() => {
         const ws = getMockState().workspaces.find((w) => w.id === id);
         if (ws) { ws.name = name; ws.domain = domain; }
-        return ws ?? { id, name, domain };
+        return ws ?? { id, name, domain, deployment: null };
       })());
 
 export const deleteWorkspace = (id: string): Promise<void> =>
   isTauri ? invoke("delete_workspace", { id }) : Promise.resolve(mockDeleteWorkspace(id));
+
+export const reorderWorkspaces = (ids: string[]): Promise<void> =>
+  isTauri ? invoke("reorder_workspaces", { ids }) : Promise.resolve();
 
 // ── Apps ─────────────────────────────────────────────────────────────────────
 
@@ -100,11 +109,14 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
         envVars: params.env_vars,
         restartPolicy: params.restart_policy,
         maxRetries: params.max_retries,
+        healthCheckPath: params.health_check_path,
+        dependsOn: params.depends_on,
+        extraSubdomains: params.extra_subdomains,
       })
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped", pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure", max_retries: 3 } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [] } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>
@@ -128,6 +140,9 @@ export const startApp = (id: string): Promise<void> =>
 export const stopApp = (id: string): Promise<void> =>
   isTauri ? invoke("stop_app", { id }) : Promise.resolve();
 
+export const restartApp = (id: string): Promise<void> =>
+  isTauri ? invoke("restart_app", { id }) : Promise.resolve();
+
 export const killApp = (id: string): Promise<void> =>
   isTauri ? invoke("kill_app", { id }) : Promise.resolve();
 
@@ -142,6 +157,9 @@ export const markAppStopped = (id: string): Promise<void> =>
 
 export const markAppReady = (id: string): Promise<void> =>
   isTauri ? invoke("mark_app_ready", { id }) : Promise.resolve();
+
+export const getAppLogs = (id: string): Promise<string[]> =>
+  isTauri ? invoke("get_app_logs", { id }) : Promise.resolve([]);
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -164,3 +182,232 @@ export const listBackups = (): Promise<string[]> =>
 
 export const restoreBackup = (filename: string): Promise<void> =>
   isTauri ? invoke("restore_backup", { filename }) : Promise.resolve();
+
+// ── Clone App ─────────────────────────────────────────────────────────────────
+
+export const cloneApp = (id: string): Promise<App> =>
+  isTauri
+    ? invoke("clone_app", { id })
+    : Promise.reject(new Error("clone_app not available in browser mode"));
+
+// ── Services (Docker-backed via Tauri) ────────────────────────────────────────
+
+// Browser fallback: in-memory mock store
+let _mockServiceStore = [...mockServices];
+let _mockCancelMap = new Map<string, () => void>();
+
+export const listServices = (): Promise<Service[]> =>
+  isTauri
+    ? invoke("list_services")
+    : Promise.resolve([..._mockServiceStore]);
+
+export const addService = (params: AddServiceParams): Promise<Service> =>
+  isTauri
+    ? invoke("add_service", {
+        name: params.name,
+        image: params.image,
+        tag: params.tag,
+        port: params.port,
+        envVars: params.env_vars,
+        volumes: params.volumes,
+        scope: params.scope,
+      })
+    : Promise.resolve((() => {
+        const svc: Service = {
+          id: `svc-${Date.now().toString(36)}`,
+          name: params.name, image: params.image, tag: params.tag,
+          port: params.port, env_vars: params.env_vars, volumes: params.volumes,
+          scope: params.scope, status: "stopped", container_id: null,
+        };
+        _mockServiceStore.push(svc);
+        return svc;
+      })());
+
+export const updateService = (id: string, params: Partial<AddServiceParams>): Promise<Service> => {
+  if (isTauri) {
+    const idx = _mockServiceStore.findIndex((s) => s.id === id);
+    const base = idx !== -1 ? _mockServiceStore[idx] : {} as Service;
+    return invoke("update_service", {
+      id,
+      name: params.name ?? base.name,
+      image: params.image ?? base.image,
+      tag: params.tag ?? base.tag,
+      port: params.port ?? base.port,
+      envVars: params.env_vars ?? base.env_vars ?? {},
+      volumes: params.volumes ?? base.volumes ?? [],
+      scope: params.scope ?? base.scope,
+    });
+  }
+  const idx = _mockServiceStore.findIndex((s) => s.id === id);
+  if (idx === -1) return Promise.reject(new Error(`Service ${id} not found`));
+  _mockServiceStore[idx] = { ..._mockServiceStore[idx], ...params };
+  return Promise.resolve({ ..._mockServiceStore[idx] });
+};
+
+export const deleteService = (id: string): Promise<void> => {
+  if (isTauri) return invoke("delete_service", { id });
+  _mockCancelMap.get(id)?.();
+  _mockCancelMap.delete(id);
+  _mockServiceStore = _mockServiceStore.filter((s) => s.id !== id);
+  return Promise.resolve();
+};
+
+export const reorderServices = (ids: string[]): Promise<void> =>
+  isTauri ? invoke("reorder_services", { ids }) : Promise.resolve();
+
+/**
+ * Start a Docker service.
+ * In Tauri mode: fires `start_service` invoke (returns immediately) and
+ *   updates arrive via `service:status:{id}` / `service:log:{id}` events.
+ * In browser mode: uses the mock callback path for demo purposes.
+ */
+export const startService = (
+  id: string,
+  onStatusChange?: (status: Service["status"], containerId: string | null) => void
+): Promise<void> => {
+  if (isTauri) return invoke("start_service", { id });
+  // Browser mock path
+  _mockCancelMap.get(id)?.();
+  const cancel = startMockService(id, (status, containerId) => {
+    const idx = _mockServiceStore.findIndex((s) => s.id === id);
+    if (idx !== -1) _mockServiceStore[idx] = { ..._mockServiceStore[idx], status, container_id: containerId };
+    onStatusChange?.(status, containerId);
+  });
+  _mockCancelMap.set(id, cancel);
+  return Promise.resolve();
+};
+
+export const stopService = (id: string): Promise<void> => {
+  if (isTauri) return invoke("stop_service", { id });
+  _mockCancelMap.get(id)?.();
+  _mockCancelMap.delete(id);
+  stopMockService((status, containerId) => {
+    const idx = _mockServiceStore.findIndex((s) => s.id === id);
+    if (idx !== -1) _mockServiceStore[idx] = { ..._mockServiceStore[idx], status, container_id: containerId };
+  });
+  return Promise.resolve();
+};
+
+// ── Google Drive OAuth ────────────────────────────────────────────────────────
+
+export const setGdriveCredentials = (clientId: string, clientSecret: string): Promise<void> =>
+  isTauri ? invoke("set_gdrive_credentials", { clientId, clientSecret }) : Promise.resolve();
+
+export const getGdriveCredentials = (): Promise<{ client_id: string; client_secret: string }> =>
+  isTauri
+    ? invoke("get_gdrive_credentials")
+    : Promise.resolve({ client_id: "", client_secret: "" });
+
+/** Opens a browser consent page and awaits the redirect. Resolves with `{ email }` on success. */
+export const gdriveConnect = (): Promise<{ email: string }> =>
+  isTauri
+    ? invoke("gdrive_connect")
+    : Promise.reject(new Error("Google Drive auth requires the desktop app"));
+
+export const gdriveStatus = (): Promise<{ connected: boolean; email: string | null }> =>
+  isTauri
+    ? invoke("gdrive_status")
+    : Promise.resolve({ connected: false, email: null });
+
+export const gdriveDisconnect = (): Promise<void> =>
+  isTauri ? invoke("gdrive_disconnect") : Promise.resolve();
+
+/** Upload current config to Google Drive. Returns ISO timestamp of sync. */
+export const gdriveSync = (): Promise<string> =>
+  isTauri
+    ? invoke("gdrive_sync")
+    : Promise.reject(new Error("Google Drive sync requires the desktop app"));
+
+// ── Tunneling (cloudflared) ───────────────────────────────────────────────────
+
+export const checkCloudflared = (): Promise<boolean> =>
+  isTauri ? invoke("check_cloudflared") : Promise.resolve(false);
+
+export const startTunnel = (id: string, port: number): Promise<void> =>
+  isTauri ? invoke("start_tunnel", { id, port }) : Promise.resolve();
+
+export const stopTunnel = (id: string): Promise<void> =>
+  isTauri ? invoke("stop_tunnel", { id }) : Promise.resolve();
+
+// ── Launch at Login ───────────────────────────────────────────────────────────
+
+export const getLaunchAtLogin = (): Promise<boolean> =>
+  isTauri ? invoke("get_launch_at_login") : Promise.resolve(false);
+
+export const setLaunchAtLogin = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_launch_at_login", { enabled }) : Promise.resolve();
+
+// ── Script detection ──────────────────────────────────────────────────────────
+
+export interface CommandSuggestion { label: string; source: string; }
+
+export const listAvailableCommands = (rootDir: string): Promise<CommandSuggestion[]> =>
+  isTauri
+    ? invoke("list_available_commands", { rootDir })
+    : Promise.resolve([]);
+
+// ── Caddy ─────────────────────────────────────────────────────────────────────
+
+export const caddyStatusCheck = (): Promise<boolean> =>
+  isTauri ? invoke("caddy_status") : Promise.resolve(false);
+
+// ── In-app terminal ───────────────────────────────────────────────────────────
+
+export const terminalOpen = (appId: string, rootDir: string, rows: number, cols: number): Promise<void> =>
+  isTauri ? invoke("terminal_open", { appId, rootDir, rows, cols }) : Promise.resolve();
+
+export const terminalWrite = (appId: string, data: number[]): Promise<void> =>
+  isTauri ? invoke("terminal_write", { appId, data }) : Promise.resolve();
+
+export const terminalResize = (appId: string, rows: number, cols: number): Promise<void> =>
+  isTauri ? invoke("terminal_resize", { appId, rows, cols }) : Promise.resolve();
+
+export const terminalClose = (appId: string): Promise<void> =>
+  isTauri ? invoke("terminal_close", { appId }) : Promise.resolve();
+
+// ── Certificate management ────────────────────────────────────────────────────
+
+export const regenerateCerts = (): Promise<void> =>
+  isTauri ? invoke("regenerate_certs") : Promise.resolve();
+
+// ── Kamal deployment ──────────────────────────────────────────────────────────
+
+export const checkKamal = (): Promise<{ installed: boolean; version: string | null }> =>
+  isTauri
+    ? invoke("check_kamal")
+    : Promise.resolve({ installed: false, version: null });
+
+export const kamalRun = (
+  appId: string,
+  configPath: string,
+  args: string[],
+  runId: string,
+): Promise<void> =>
+  isTauri
+    ? invoke("kamal_run", { appId, configPath, args, runId })
+    : Promise.reject(new Error("kamal_run not available in browser mode"));
+
+export const installKamal = (appId: string, runId: string): Promise<void> =>
+  isTauri
+    ? invoke("install_kamal", { appId, runId })
+    : Promise.reject(new Error("install_kamal not available in browser mode"));
+
+export const parseKamalAccessories = (configPath: string): Promise<string[]> =>
+  isTauri
+    ? invoke("parse_kamal_accessories", { configPath })
+    : Promise.resolve([]);
+
+export const addDeployCustomCmd = (appId: string, cmd: CustomDeployCmd): Promise<void> =>
+  isTauri
+    ? invoke("add_deploy_custom_cmd", { appId, cmd })
+    : Promise.reject(new Error("add_deploy_custom_cmd not available in browser mode"));
+
+export const updateDeployCustomCmd = (appId: string, cmd: CustomDeployCmd): Promise<void> =>
+  isTauri
+    ? invoke("update_deploy_custom_cmd", { appId, cmd })
+    : Promise.reject(new Error("update_deploy_custom_cmd not available in browser mode"));
+
+export const deleteDeployCustomCmd = (appId: string, cmdId: string): Promise<void> =>
+  isTauri
+    ? invoke("delete_deploy_custom_cmd", { appId, cmdId })
+    : Promise.reject(new Error("delete_deploy_custom_cmd not available in browser mode"));
