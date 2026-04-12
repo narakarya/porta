@@ -63,22 +63,27 @@ pub fn brew_install(package: &str) -> Result<()> {
 }
 
 pub fn start_caddy() -> Result<()> {
-    let brew = brew_path();
-    // Use `restart` so it works whether Caddy is already registered or not.
-    // launchctl exit 5 (Bootstrap failed: already loaded) is treated as success.
-    let out = Command::new(brew)
-        .args(["services", "restart", "caddy"])
-        .output()?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let msg = stderr.trim().to_string();
-        // exit 5 = service already bootstrapped — that's fine, Caddy is up
-        if msg.contains("Bootstrap failed: 5") || msg.contains("already") {
-            return Ok(());
-        }
-        return Err(anyhow::anyhow!("Failed to start Caddy: {}", msg));
+    // Use `caddy start` (caddy's own background daemon) instead of
+    // `brew services` which has launchctl plist conflicts on some setups.
+    let caddy = caddy_path();
+    let out = Command::new(caddy).arg("start").output()?;
+    if out.status.success() {
+        return Ok(());
     }
-    Ok(())
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // "already running" is fine
+    if stderr.contains("already") || stderr.contains("pid file") {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!("Failed to start Caddy: {}", stderr.trim()))
+}
+
+fn caddy_path() -> &'static str {
+    if std::path::Path::new("/opt/homebrew/bin/caddy").exists() {
+        "/opt/homebrew/bin/caddy"
+    } else {
+        "/usr/local/bin/caddy"
+    }
 }
 
 pub fn run_full_setup() -> Result<()> {

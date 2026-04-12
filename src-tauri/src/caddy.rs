@@ -37,8 +37,12 @@ impl CaddyManager {
     }
 
     pub fn is_running(&self) -> bool {
-        self.client.get(format!("{}/config/", CADDY_API)).send()
-            .map(|r| r.status().is_success()).unwrap_or(false)
+        // HEAD /config/ — returns 200 even with empty config if Caddy is up
+        self.client
+            .get(format!("{}/config/", CADDY_API))
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .is_ok()
     }
 }
 
