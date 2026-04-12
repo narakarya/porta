@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import SetupWizard from "./SetupWizard";
-import { exportData, importData, listBackups, restoreBackup } from "../lib/commands";
+import { exportData, importData, listBackups, restoreBackup, saveFile, revealInFinder } from "../lib/commands";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 type Section = "setup" | "backup";
 
@@ -154,6 +155,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function BackupSection() {
   const [exportStatus, setExportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [exportError, setExportError] = useState<string>("");
+  const [exportedPath, setExportedPath] = useState<string | null>(null);
 
   const [backups, setBackups] = useState<string[]>([]);
   const [backupsLoading, setBackupsLoading] = useState(true);
@@ -170,26 +172,25 @@ function BackupSection() {
       .finally(() => setBackupsLoading(false));
   }, []);
 
-  function handleExport() {
+  async function handleExport() {
     setExportStatus("loading");
     setExportError("");
-    exportData()
-      .then((json) => {
-        const date = new Date().toISOString().slice(0, 10);
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `porta-backup-${date}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setExportStatus("success");
-        setTimeout(() => setExportStatus("idle"), 3000);
-      })
-      .catch((err: unknown) => {
-        setExportStatus("error");
-        setExportError(err instanceof Error ? err.message : String(err));
+    setExportedPath(null);
+    try {
+      const json = await exportData();
+      const date = new Date().toISOString().slice(0, 10);
+      const savePath = await saveDialog({
+        defaultPath: `porta-backup-${date}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
       });
+      if (!savePath) { setExportStatus("idle"); return; } // user cancelled
+      await saveFile(savePath, json);
+      setExportedPath(savePath);
+      setExportStatus("success");
+    } catch (err: unknown) {
+      setExportStatus("error");
+      setExportError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   function handleRestore(filename: string) {
@@ -269,8 +270,21 @@ function BackupSection() {
           >
             {exportStatus === "loading" ? "Exporting…" : "Export JSON"}
           </button>
-          {exportStatus === "success" && (
-            <span className="text-[12px] text-emerald-400">Downloaded!</span>
+          {exportStatus === "success" && exportedPath && (
+            <div className="flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-emerald-400 shrink-0">
+                <path d="M2 6l2.5 2.5 5.5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="text-[12px] text-emerald-400 font-mono truncate max-w-[220px]" title={exportedPath}>
+                {exportedPath.split("/").pop()}
+              </span>
+              <button
+                onClick={() => revealInFinder(exportedPath)}
+                className="text-[11px] text-zinc-500 hover:text-zinc-200 underline underline-offset-2 transition-colors shrink-0"
+              >
+                Show in Finder
+              </button>
+            </div>
           )}
           {exportStatus === "error" && (
             <span className="text-[12px] text-red-400">{exportError || "Export failed."}</span>

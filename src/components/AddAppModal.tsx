@@ -154,9 +154,9 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
         </div>
 
         {/* Preview URL */}
-        <div className="px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-          <span className="text-[11px] text-zinc-600">URL preview  </span>
-          <span className="text-[12px] text-zinc-400 font-mono">{scheme}://{preview}</span>
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/[0.03] rounded-lg border border-white/[0.05]">
+          <span className="text-[10px] text-zinc-600 font-medium shrink-0">URL</span>
+          <span className="text-[11px] text-zinc-400 font-mono truncate">{scheme}://{preview}</span>
         </div>
 
         {/* Workspace */}

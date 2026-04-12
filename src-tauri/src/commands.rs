@@ -241,6 +241,22 @@ pub fn update_app(
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
+/// Write `contents` to `path` on disk (used for export-to-chosen-location).
+#[tauri::command]
+pub fn save_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
+/// Reveal a file or folder in Finder (macOS `open -R`).
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .args(["-R", &path])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn open_in_editor(root_dir: String) -> Result<(), String> {
     // Try editors in order: cursor, code, zed, then fall back to Finder

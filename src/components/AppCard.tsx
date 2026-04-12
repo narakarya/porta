@@ -198,12 +198,7 @@ export default function AppCard({ app, workspace }: Props) {
 
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
-          <p className="text-[11px] text-zinc-500 truncate mt-0.5">
-            {isWildcard
-              ? <span className="italic text-zinc-600">wildcard · {workspace?.domain ?? "narakarya.test"}</span>
-              : host}
-            <span className="text-zinc-700 ml-1">:{app.port}</span>
-          </p>
+          <p className="text-[11px] text-zinc-600 mt-0.5">:{app.port}</p>
         </div>
 
         {/* Log icon — always visible when there are logs */}
@@ -262,6 +257,24 @@ export default function AppCard({ app, workspace }: Props) {
           )}
         </div>
       </div>
+
+      {/* ── URL preview bar ── */}
+      {(isRunning || isStarting) && !isWildcard && (
+        <button
+          onClick={copyUrl}
+          className="mx-3 mb-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.06] hover:border-white/[0.09] transition-colors group/url w-[calc(100%-1.5rem)] text-left"
+          title="Click to copy URL"
+        >
+          <span className="text-[10px] text-zinc-600 shrink-0 font-medium">URL</span>
+          <span className={`text-[11px] font-mono truncate flex-1 ${isStarting ? "text-zinc-600" : "text-zinc-400"}`}>
+            {isStarting ? "starting…" : `${scheme}://${host}`}
+          </span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-700 shrink-0 opacity-0 group-hover/url:opacity-100 transition-opacity">
+            <rect x="1" y="3" width="5.5" height="6.5" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M3.5 3V2a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v4.5a.5.5 0 01-.5.5H7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+          </svg>
+        </button>
+      )}
 
       {/* ── Port kill feedback ── */}
       {portKillFeedback && (

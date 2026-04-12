@@ -72,6 +72,12 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
 export const deleteApp = (id: string): Promise<void> =>
   invoke("delete_app", { id });
 
+export const saveFile = (path: string, contents: string): Promise<void> =>
+  invoke("save_file", { path, contents });
+
+export const revealInFinder = (path: string): Promise<void> =>
+  invoke("reveal_in_finder", { path });
+
 export const openInEditor = (rootDir: string): Promise<void> =>
   invoke("open_in_editor", { rootDir });
 

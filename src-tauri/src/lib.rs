@@ -167,6 +167,8 @@ pub fn run() {
             commands::add_app,
             commands::update_app,
             commands::delete_app,
+            commands::save_file,
+            commands::reveal_in_finder,
             commands::open_in_editor,
             commands::start_app,
             commands::stop_app,
