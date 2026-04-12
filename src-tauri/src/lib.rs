@@ -1,4 +1,5 @@
 pub mod db;
+pub mod port_scanner;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
