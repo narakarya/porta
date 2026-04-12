@@ -2,6 +2,7 @@ pub mod db;
 pub mod port_scanner;
 pub mod auto_detect;
 pub mod process_manager;
+pub mod caddy;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
