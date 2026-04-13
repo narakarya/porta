@@ -4,11 +4,10 @@ import type { App, Workspace } from "../../types";
 import LogViewer from "./LogViewer";
 import AppContextMenu from "./AppContextMenu";
 import AppSettingsModal from "./AppSettingsModal";
-import { openInEditor, openInTerminal, killPid, killPortHolder } from "../../lib/commands";
+import { openInEditor, openInTerminal, killPortHolder } from "../../lib/commands";
 import Tooltip from "../shared/Tooltip";
-import TunnelStatusBadge from "../shared/TunnelStatusBadge";
-
-import { stripAnsi, filterNoise as filterLog } from "../../lib/log-utils";
+import LogToast from "./LogToast";
+import TunnelQuickMenu from "./TunnelQuickMenu";
 
 interface Props {
   app: App;
@@ -17,109 +16,6 @@ interface Props {
   onOpenDetail?: () => void;
   onOpenTerminal?: () => void;
   onOpenDeploy?: () => void;
-}
-
-// ── Log Toast ─────────────────────────────────────────────────────────────────
-
-// Detect "held by process XXXX" pattern in log lines (Mix lock, npm lock, etc.)
-const LOCK_RE = /held by process (\d+)/i;
-
-interface LogToastProps {
-  appName: string;
-  logs: string[];
-  isRunning?: boolean;
-  isStarting?: boolean;
-  crashed?: boolean;
-  stackIndex?: number;
-  onExpand: () => void;
-  onClose: () => void;
-}
-
-function LogToast({ appName, logs, isRunning, isStarting, crashed, stackIndex = 0, onExpand, onClose }: LogToastProps) {
-  const [killedPid, setKilledPid] = useState<number | null>(null);
-  const preview = filterLog(logs).slice(-4).map(stripAnsi);
-
-  // Scan recent logs for a lock-holder PID
-  const lockPid = (() => {
-    for (let i = logs.length - 1; i >= Math.max(0, logs.length - 20); i--) {
-      const m = stripAnsi(logs[i]).match(LOCK_RE);
-      if (m) return parseInt(m[1], 10);
-    }
-    return null;
-  })();
-
-  const dotColor = crashed
-    ? "bg-red-400"
-    : isStarting
-    ? "bg-amber-400 pulse-dot"
-    : isRunning
-    ? "bg-emerald-400 pulse-dot"
-    : "bg-zinc-600";
-
-  async function handleKillLock() {
-    if (!lockPid) return;
-    try {
-      await killPid(lockPid);
-      setKilledPid(lockPid);
-    } catch {}
-  }
-
-  const bottomOffset = 16 + stackIndex * 152; // 152px = max toast height + 8px gap
-
-  return (
-    <div
-      className={`fixed right-4 z-50 w-[320px] bg-[#1c1c1e] border rounded-xl shadow-2xl overflow-hidden transition-all ${
-        crashed ? "border-red-500/20" : "border-white/[0.10]"
-      }`}
-      style={{ bottom: bottomOffset }}
-    >
-      {/* Header */}
-      <div className={`flex items-center gap-2 px-3 py-2 border-b ${crashed ? "border-red-500/10" : "border-white/[0.06]"}`}>
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
-        <span className="text-[12px] font-medium text-zinc-200 flex-1 truncate">{appName}</span>
-        <button onClick={onExpand} className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors shrink-0">
-          View full logs
-        </button>
-        <button onClick={onClose} className="ml-1 text-zinc-600 hover:text-zinc-300 transition-colors shrink-0">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-            <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-          </svg>
-        </button>
-      </div>
-
-      {/* Log preview — selectable */}
-      <div className="px-3 py-2 font-mono min-h-[48px] select-text">
-        {preview.length === 0 ? (
-          <p className="text-[11px] text-zinc-600 select-none">Starting…</p>
-        ) : (
-          preview.map((line, i) => (
-            <p key={i} className={`text-[11px] leading-[21px] truncate ${crashed ? "text-red-300/70" : "text-zinc-400"}`}>
-              {line || "\u00A0"}
-            </p>
-          ))
-        )}
-      </div>
-
-      {/* Lock-holder action */}
-      {lockPid && (
-        <div className="px-3 py-2 border-t border-white/[0.05] flex items-center gap-2">
-          {killedPid === lockPid ? (
-            <p className="text-[11px] text-emerald-400">Killed process {lockPid}</p>
-          ) : (
-            <>
-              <p className="text-[11px] text-zinc-500 flex-1">Lock held by pid {lockPid}</p>
-              <button
-                onClick={handleKillLock}
-                className="text-[11px] font-medium text-orange-400 hover:text-orange-200 bg-orange-500/10 hover:bg-orange-500/20 px-2 py-0.5 rounded transition-colors"
-              >
-                Kill {lockPid}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function resolvedHost(app: App, workspace: Workspace | null): string {
@@ -164,8 +60,6 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hostsMenuOpen, setHostsMenuOpen] = useState(false);
-  const [tunnelMenuOpen, setTunnelMenuOpen] = useState(false);
-  const [tunnelUrlCopied, setTunnelUrlCopied] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [killConfirm, setKillConfirm] = useState(false);
   const [portKillFeedback, setPortKillFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -295,110 +189,13 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
         )}
 
         {/* Tunnel quick menu — only shown when app is active, tunnel is connected, or there's an error */}
-        {(isActive || app.tunnel_active || tunnelError) && <div className="relative">
-          <Tooltip
-            label={tunnelError ? "Tunnel failed" : app.tunnel_active && app.tunnel_url ? "Tunnel connected" : app.tunnel_active ? "Connecting…" : "Quick Tunnel"}
-          >
-            <button
-              onClick={(e) => { e.stopPropagation(); setTunnelMenuOpen((v) => !v); }}
-              className={`p-1 rounded-md transition-colors ${
-                tunnelError
-                  ? "text-red-400 hover:bg-red-500/10"
-                  : app.tunnel_active && app.tunnel_url
-                  ? "text-sky-400 hover:bg-sky-500/10"
-                  : app.tunnel_active
-                  ? "text-amber-400 hover:bg-amber-500/10"
-                  : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
-              }`}
-            >
-              {app.tunnel_active && !app.tunnel_url ? (
-                <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <path d="M6.5 1.5A5 5 0 1 1 1.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <path d="M4 5.5a3.5 3.5 0 0 1 5 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  <path d="M2.5 4a5.5 5.5 0 0 1 8 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  <circle cx="6.5" cy="8" r="1" fill="currentColor"/>
-                  <path d="M6.5 9v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                </svg>
-              )}
-            </button>
-          </Tooltip>
-
-          {tunnelMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setTunnelMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 w-[220px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
-                {app.tunnel_active && app.tunnel_url ? (
-                  <>
-                    <div className="px-3 py-2 border-b border-white/[0.06]">
-                      <p className="text-[10px] text-zinc-500 mb-1">Tunnel URL</p>
-                      <p className="text-[11px] font-mono text-sky-300 truncate">{app.tunnel_url}</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(app.tunnel_url!).then(() => {
-                          setTunnelUrlCopied(true);
-                          setTimeout(() => { setTunnelUrlCopied(false); setTunnelMenuOpen(false); }, 1000);
-                        });
-                      }}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-zinc-300 hover:bg-white/[0.07] transition-colors"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3.5" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 3.5V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                      {tunnelUrlCopied ? "Copied!" : "Copy URL"}
-                    </button>
-                    <a
-                      href={app.tunnel_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => setTunnelMenuOpen(false)}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-zinc-300 hover:bg-white/[0.07] transition-colors"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M4.5 2H3a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h5a.5.5 0 00.5-.5V7M6.5 2H9M9 2v2.5M9 2L5.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      Open in browser
-                    </a>
-                    <div className="border-t border-white/[0.06]">
-                      <button
-                        onClick={() => { stopTunnel(app.id); setTunnelMenuOpen(false); }}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-red-400 hover:bg-red-500/10 transition-colors"
-                      >
-                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/></svg>
-                        Disconnect
-                      </button>
-                    </div>
-                  </>
-                ) : app.tunnel_active ? (
-                  <div className="px-3 py-3">
-                    <TunnelStatusBadge tunnelActive={app.tunnel_active} tunnelUrl={app.tunnel_url} />
-                  </div>
-                ) : tunnelError ? (
-                  <>
-                    <div className="px-3 py-2 border-b border-white/[0.06]">
-                      <p className="text-[10px] text-red-400 font-medium mb-0.5">Tunnel failed</p>
-                      <p className="text-[11px] text-red-300/70 leading-snug break-words">{tunnelError}</p>
-                    </div>
-                    <button
-                      onClick={() => { startTunnel(app.id); setTunnelMenuOpen(false); }}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-sky-400 hover:bg-sky-500/10 transition-colors"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5a3.5 3.5 0 0 1 7 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 7v2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="4" r="0.8" fill="currentColor"/></svg>
-                      Retry Tunnel
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => { startTunnel(app.id); setTunnelMenuOpen(false); }}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-sky-400 hover:bg-sky-500/10 transition-colors"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C5.5 1.5 7.5 2.5 8.5 4.5c.5 1 .5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 1.5C5.5 1.5 3.5 2.5 2.5 4.5c-.5 1-.5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M1.5 5.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                    Start Quick Tunnel
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>}
+        <TunnelQuickMenu
+          app={app}
+          isActive={isActive}
+          tunnelError={tunnelError}
+          onStartTunnel={() => startTunnel(app.id)}
+          onStopTunnel={() => stopTunnel(app.id)}
+        />
 
         {/* Terminal button — always shown */}
         <Tooltip label="Open terminal">

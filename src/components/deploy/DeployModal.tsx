@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { App, Workspace } from "../../types";
-import { checkKamal, kamalRun, installKamal, isTauri, terminalOpen, terminalWrite, terminalResize, terminalClose, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../../lib/commands";
+import { checkKamal, kamalRun, installKamal, isTauri, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import { stripAnsi, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
 import type { LevelFilter } from "../../lib/log-utils";
+import KamalConsolePane from "./KamalConsolePane";
+import DeployCommandSidebar, { type CustomForm } from "./DeployCommandSidebar";
 
 // ── Kamal cache ───────────────────────────────────────────────────────────────
 let _kamalCache: { installed: boolean; version: string | null; ts: number } | null = null;
@@ -55,110 +57,6 @@ type CmdState = {
 
 const emptyCmdState = (): CmdState => ({ logs: [], running: false, exitCode: null, startedAt: null });
 
-// ── Inline terminal pane for interactive kamal commands ───────────────────────
-// Embeds an xterm.js terminal connected to a real PTY shell at workDir,
-// then types the kamal command for the user.
-function KamalConsolePane({ termId, workDir, initialCmd }: { termId: string; workDir: string; initialCmd: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    let mounted = true;
-    let unlistenData: (() => void) | undefined;
-    let unlistenExit: (() => void) | undefined;
-
-    import("@xterm/xterm").then(({ Terminal }) =>
-      import("@xterm/addon-fit").then(({ FitAddon }) => {
-        if (!mounted || !containerRef.current) return;
-
-        const term = new Terminal({
-          theme: {
-            background: "#0d0d0f", foreground: "#d4d4d4", cursor: "#a0a0a0",
-            black: "#1e1e20", red: "#f87171", green: "#4ade80", yellow: "#fbbf24",
-            blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#d4d4d4",
-            brightBlack: "#52525b", brightRed: "#fca5a5", brightGreen: "#86efac",
-            brightYellow: "#fde68a", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe",
-            brightCyan: "#67e8f9", brightWhite: "#f4f4f5", selectionBackground: "#3f3f46",
-          },
-          fontFamily: '"JetBrains Mono", "Fira Code", Menlo, monospace',
-          fontSize: 12, lineHeight: 1.4, cursorBlink: true, cursorStyle: "block",
-          scrollback: 5000, allowProposedApi: true,
-        });
-        const fit = new FitAddon();
-        term.loadAddon(fit);
-        term.open(containerRef.current!);
-
-        requestAnimationFrame(async () => {
-          fit.fit();
-          const d = fit.proposeDimensions();
-          if (!d) return;
-          await terminalOpen(termId, workDir, d.rows, d.cols);
-          // Type the kamal command into the shell after a short pause
-          setTimeout(() => {
-            const enc = new TextEncoder();
-            terminalWrite(termId, Array.from(enc.encode(initialCmd + "\r"))).catch(() => {});
-          }, 300);
-        });
-
-        term.onData((data) => {
-          terminalWrite(termId, Array.from(new TextEncoder().encode(data))).catch(() => {});
-        });
-
-        if (isTauri) {
-          Promise.all([
-            listen<number[]>(`terminal:data:${termId}`, (e) => {
-              if (mounted) term.write(new Uint8Array(e.payload));
-            }),
-            listen<void>(`terminal:exit:${termId}`, () => {
-              if (mounted) term.writeln("\r\n\x1b[90m— shell exited —\x1b[0m");
-            }),
-          ]).then(([d, x]) => {
-            if (!mounted) { d(); x(); return; }
-            unlistenData = d; unlistenExit = x;
-          });
-        }
-
-        const ro = new ResizeObserver(() => {
-          if (!containerRef.current) return;
-          const { width, height } = containerRef.current.getBoundingClientRect();
-          if (width === 0 || height === 0) return;
-          fit.fit();
-          const dd = fit.proposeDimensions();
-          if (dd && dd.rows > 0 && dd.cols > 0)
-            terminalResize(termId, dd.rows, dd.cols).catch(() => {});
-        });
-        ro.observe(containerRef.current!);
-
-        // Cleanup
-        const origUnmount = () => {
-          mounted = false;
-          ro.disconnect();
-          unlistenData?.(); unlistenExit?.();
-          term.dispose();
-          terminalClose(termId).catch(() => {});
-        };
-        // Store cleanup on the container for the outer cleanup to call
-        (containerRef.current as HTMLDivElement & { _cleanup?: () => void })._cleanup = origUnmount;
-      })
-    );
-
-    return () => {
-      mounted = false;
-      const el = containerRef.current as (HTMLDivElement & { _cleanup?: () => void }) | null;
-      el?._cleanup?.();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [termId]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="flex-1 min-h-0 bg-[#0d0d0f]"
-      onKeyDown={(e) => e.stopPropagation()} // prevent modal Esc from leaking
-    />
-  );
-}
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props { app: App; workspace: Workspace | null; onClose: () => void; }
 
@@ -208,7 +106,6 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
   const allCommands = [...FIXED_COMMANDS, ...accessoryCommands, ...customCommands];
 
   // ── Custom command form ────────────────────────────────────────────────────
-  type CustomForm = { id: string; label: string; rawArgs: string; interactive: boolean };
   const emptyForm = (): CustomForm => ({ id: "", label: "", rawArgs: "", interactive: false });
   const [customForm, setCustomForm] = useState<CustomForm | null>(null);
   const [customFormError, setCustomFormError] = useState("");
@@ -560,184 +457,29 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
       <div className="flex flex-1 min-h-0">
 
         {/* ── Sidebar ───────────────────────────────────────────────────────── */}
-        <div className="w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col bg-[#0f0f11]">
-
-          {/* Sidebar search */}
-          <div className="px-3 py-2.5 border-b border-white/[0.05]">
-            <div className="relative">
-              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
-                <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
-                <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-              <input spellCheck={false}
-                value={cmdSearch}
-                onChange={e => setCmdSearch(e.target.value)}
-                placeholder="Filter commands…"
-                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-md pl-6 pr-2 py-1.5 text-[11px] text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-blue-500/40 transition-colors"
-              />
-            </div>
-          </div>
-
-          {/* Command groups */}
-          <div className="flex-1 overflow-y-auto py-1">
-            {Array.from(groups.entries()).map(([group, cmds]) => (
-              <div key={group} className="mb-1">
-                <div className="px-3 py-1.5 text-[9px] font-semibold text-zinc-600 uppercase tracking-wider select-none">
-                  {group}
-                </div>
-                {cmds.map(cmd => {
-                  const st = cmdStates[cmd.id];
-                  const isSelected = selectedCmdId === cmd.id;
-                  const isRunning  = st?.running ?? false;
-                  const isPending  = pendingCmdId === cmd.id;
-                  const notInstalled = !kamalStatus.installed || kamalStatus.checking;
-
-                  return (
-                    <div key={cmd.id} className="group relative flex items-center">
-                      <button
-                        onClick={() => {
-                          setSelectedCmdId(cmd.id);
-                          if (!isSelected) return; // first click = select only
-                          handleSidebarRun(cmd);   // second click on already-selected = run
-                        }}
-                        disabled={notInstalled}
-                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors ${
-                          isSelected
-                            ? "bg-white/[0.07] text-zinc-100"
-                            : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-                        } ${notInstalled ? "opacity-40 cursor-not-allowed" : ""}`}
-                      >
-                        {/* Status dot */}
-                        <span className="shrink-0 w-3.5 flex items-center justify-center">
-                          {isRunning ? (
-                            <span className="w-2.5 h-2.5 border border-blue-400 border-t-transparent rounded-full animate-spin" />
-                          ) : st?.exitCode === 0 ? (
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          ) : st?.exitCode != null ? (
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                          ) : (
-                            <span className="w-1 h-1 rounded-full bg-zinc-700" />
-                          )}
-                        </span>
-
-                        <span className="flex-1 truncate">{cmd.label}</span>
-
-                        {/* Pending or action hint */}
-                        {isPending && (
-                          <span className="shrink-0 text-[9px] text-amber-400 font-medium">?</span>
-                        )}
-                        {!isPending && isSelected && !isRunning && (
-                          <span className="shrink-0 text-[9px] text-zinc-600 opacity-0 group-hover:opacity-100">↵</span>
-                        )}
-                      </button>
-                      {cmd.group === "Custom" && (
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rawId = cmd.id.replace(/^custom-/, "");
-                              const raw = app.deploy_custom_commands?.find(c => c.id === rawId);
-                              if (raw) setCustomForm({ id: raw.id, label: raw.label, rawArgs: raw.args.join(" "), interactive: raw.interactive });
-                            }}
-                            className="text-zinc-500 hover:text-zinc-300 px-1 py-0.5 text-xs rounded"
-                            title="Edit"
-                          >
-                            ✎
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteCustomCmd(cmd.id.replace(/^custom-/, ""));
-                            }}
-                            className="text-zinc-500 hover:text-red-400 px-1 py-0.5 text-xs rounded"
-                            title="Delete"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-
-          {/* ── Custom command form ────────────────────────────────── */}
-          {customForm && (
-            <div className="border-t border-white/5 p-3 space-y-2">
-              <p className="text-xs font-medium text-zinc-400">
-                {customForm.id ? "Edit command" : "New command"}
-              </p>
-              <input
-                type="text"
-                placeholder="Label"
-                value={customForm.label}
-                onChange={(e) => setCustomForm({ ...customForm, label: e.target.value })}
-                className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/25"
-              />
-              <input
-                type="text"
-                placeholder="Args (e.g. app exec -i bin/console)"
-                value={customForm.rawArgs}
-                onChange={(e) => setCustomForm({ ...customForm, rawArgs: e.target.value })}
-                className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/25"
-              />
-              <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={customForm.interactive}
-                  onChange={(e) => setCustomForm({ ...customForm, interactive: e.target.checked })}
-                  className="rounded"
-                />
-                Interactive (opens terminal pane)
-              </label>
-              {customFormError && (
-                <p className="text-xs text-red-400">{customFormError}</p>
-              )}
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSaveCustomCmd}
-                  className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2 py-1.5"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => { setCustomForm(null); setCustomFormError(""); }}
-                  className="flex-1 text-xs bg-white/5 hover:bg-white/10 text-zinc-400 rounded px-2 py-1.5"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-          {!customForm && (
-            <div className="border-t border-white/5 p-2">
-              <button
-                onClick={() => setCustomForm(emptyForm())}
-                className="w-full text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/5 rounded px-2 py-1.5 text-left transition-colors"
-              >
-                + Add command
-              </button>
-            </div>
-          )}
-
-          {/* Sidebar footer: config path + install */}
-          <div className="border-t border-white/[0.05] px-3 py-2 space-y-2">
-            <div className="flex items-start gap-1.5">
-              <span className="text-[9px] text-zinc-700 uppercase tracking-wide shrink-0 mt-[1px]">cfg</span>
-              <code className="text-[10px] text-zinc-600 font-mono break-all leading-tight">{configPath || "—"}</code>
-            </div>
-            {!kamalStatus.checking && !kamalStatus.installed && (
-              <button
-                onClick={handleInstallKamal}
-                className="w-full px-2 py-1.5 rounded-md text-[11px] font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors"
-              >
-                Install Kamal
-              </button>
-            )}
-          </div>
-        </div>
+        <DeployCommandSidebar
+          app={app}
+          configPath={configPath}
+          groups={groups}
+          cmdStates={cmdStates}
+          selectedCmdId={selectedCmdId}
+          pendingCmdId={pendingCmdId}
+          cmdSearch={cmdSearch}
+          kamalInstalled={kamalStatus.installed}
+          kamalChecking={kamalStatus.checking}
+          customForm={customForm}
+          customFormError={customFormError}
+          onCmdSearchChange={setCmdSearch}
+          onSelectCmd={setSelectedCmdId}
+          onRunCmd={handleSidebarRun}
+          onEditCustomCmd={setCustomForm}
+          onDeleteCustomCmd={handleDeleteCustomCmd}
+          onSaveCustomCmd={handleSaveCustomCmd}
+          onCancelCustomForm={() => { setCustomForm(null); setCustomFormError(""); }}
+          onCustomFormChange={setCustomForm}
+          onAddCustomCmd={() => setCustomForm(emptyForm())}
+          onInstallKamal={handleInstallKamal}
+        />
 
         {/* ── Log panel ─────────────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0">
