@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getAppLogs } from "../../lib/commands";
-import { stripAnsi, filterNoise, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
-import type { LevelFilter } from "../../lib/log-utils";
+import { filterNoise, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
+import { useLogScroll } from "../../hooks/useLogScroll";
+import { useLogFilter } from "../../hooks/useLogFilter";
 
 interface Props {
   appId: string;
@@ -17,17 +18,12 @@ interface Props {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function LogViewer({ appId, appName, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear }: Props) {
-  const [query, setQuery] = useState("");
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const [followTail, setFollowTail] = useState(true);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const [copiedToast, setCopiedToast] = useState(false);
   const [diskLogs, setDiskLogs] = useState<string[] | null>(null); // null = loading
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isFirstScroll = useRef(true);
 
   // Load full log file from disk on mount.
   useEffect(() => {
@@ -59,7 +55,13 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     return diskLogs.length > 0 ? diskLogs : logs; // disk empty → Zustand fallback
   }, [diskLogs, logs]);
 
-  const cleanLogs = useMemo(() => filterNoise(allLogs).map(stripAnsi), [allLogs]);
+  const filteredAllLogs = useMemo(() => filterNoise(allLogs), [allLogs]);
+
+  const { search: query, setSearch: setQuery, levelFilter, setLevelFilter, filteredLogs: filteredLines } =
+    useLogFilter(filteredAllLogs);
+
+  const { containerRef, logEndRef, scrollToBottom } =
+    useLogScroll({ logs: allLogs, followTail });
 
   function showCopiedToast() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -92,16 +94,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, query]);
 
-  useEffect(() => {
-    if (!followTail) return;
-    if (isFirstScroll.current) {
-      isFirstScroll.current = false;
-      logEndRef.current?.scrollIntoView({ behavior: "instant" });
-      return;
-    }
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [allLogs, followTail]);
-
   function handleMouseUp() {
     const sel = window.getSelection();
     if (sel && sel.toString().length > 0) {
@@ -116,17 +108,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     if (!atBottom && followTail) setFollowTail(false);
     if (atBottom && !followTail) setFollowTail(true);
   }
-
-  const filteredLines = useMemo(() => {
-    const lower = query.toLowerCase();
-    return cleanLogs
-      .map((line, i) => ({ line, originalIndex: i }))
-      .filter(({ line }) => {
-        if (query && !line.toLowerCase().includes(lower)) return false;
-        if (levelFilter !== "all" && detectLevel(line) !== levelFilter) return false;
-        return true;
-      });
-  }, [cleanLogs, query, levelFilter]);
 
   const matchCount = query ? filteredLines.length : null;
 
@@ -226,7 +207,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
               setFollowTail(false);
             } else {
               setFollowTail(true);
-              logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              scrollToBottom();
             }
           }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${

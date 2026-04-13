@@ -3,8 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import type { App, Workspace } from "../../types";
 import { checkKamal, kamalRun, installKamal, isTauri, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../../lib/commands";
 import { usePortaStore } from "../../store";
-import { stripAnsi, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
-import type { LevelFilter } from "../../lib/log-utils";
+import { detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
+import { useLogScroll } from "../../hooks/useLogScroll";
+import { useLogFilter } from "../../hooks/useLogFilter";
 import KamalConsolePane from "./KamalConsolePane";
 import DeployCommandSidebar, { type CustomForm } from "./DeployCommandSidebar";
 
@@ -121,25 +122,34 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
   const [consoleKey, setConsoleKey] = useState<number>(0);
 
   // ── Log panel state (resets when switching commands) ──────────────────────
-  const [logQuery, setLogQuery]       = useState("");
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const [followTail, setFollowTail]   = useState(true);
   const [copiedLine, setCopiedLine]   = useState<number | null>(null);
   const [copiedToast, setCopiedToast] = useState(false);
 
-  const logEndRef    = useRef<HTMLDivElement>(null);
   const logBodyRef   = useRef<HTMLDivElement>(null);
   const searchRef    = useRef<HTMLInputElement>(null);
   const toastTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstScroll = useRef(true);
+
+  // ── Hooks ─────────────────────────────────────────────────────────────────
+  const selectedLogs = cmdStates[selectedCmdId]?.logs ?? [];
+
+  const {
+    search: logQuery, setSearch: setLogQuery,
+    levelFilter, setLevelFilter,
+    filteredLogs: filteredLines,
+    reset: resetLogFilter,
+  } = useLogFilter(selectedLogs);
+
+  const { logEndRef, scrollToBottom, resetFirstScroll } =
+    useLogScroll({ logs: selectedLogs, followTail });
 
   // Reset log panel and console key when switching selected command
   useEffect(() => {
-    setLogQuery("");
-    setLevelFilter("all");
+    resetLogFilter();
     setFollowTail(true);
     setConsoleKey(0);
-    isFirstScroll.current = true;
+    resetFirstScroll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCmdId]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -159,19 +169,6 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, logQuery, pendingCmdId]);
 
-
-  // ── Auto-scroll ───────────────────────────────────────────────────────────
-  const selectedLogs = cmdStates[selectedCmdId]?.logs ?? [];
-
-  useEffect(() => {
-    if (!followTail) return;
-    if (isFirstScroll.current) {
-      isFirstScroll.current = false;
-      logEndRef.current?.scrollIntoView({ behavior: "instant" });
-      return;
-    }
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedLogs, followTail]);
 
   function handleLogScroll() {
     const el = logBodyRef.current;
@@ -339,16 +336,6 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
     if (sel?.toString().length) navigator.clipboard.writeText(sel.toString()).then(() => showCopiedToast()).catch(() => {});
   }
 
-  // ── Filtered log lines ────────────────────────────────────────────────────
-  const cleanLogs = useMemo(() => selectedLogs.map(stripAnsi), [selectedLogs]);
-  const filteredLines = useMemo(() => {
-    const lower = logQuery.toLowerCase();
-    return cleanLogs.map((line, i) => ({ line, i })).filter(({ line }) => {
-      if (logQuery && !line.toLowerCase().includes(lower)) return false;
-      if (levelFilter !== "all" && detectLevel(line) !== levelFilter) return false;
-      return true;
-    });
-  }, [cleanLogs, logQuery, levelFilter]);
 
   // ── Sidebar filtered commands ─────────────────────────────────────────────
   const sidebarCmds = useMemo(() => {
@@ -548,7 +535,7 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
                 )}
               </div>
               <button
-                onClick={() => { setFollowTail(v => !v); if (!followTail) logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }}
+                onClick={() => { setFollowTail(v => !v); if (!followTail) scrollToBottom(); }}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-colors shrink-0 ${
                   followTail ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : "bg-white/[0.03] text-zinc-500 border-white/[0.05] hover:text-zinc-300"
                 }`}
@@ -651,14 +638,14 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
               </p>
             ) : (
               <div className="flex flex-col">
-                {filteredLines.map(({ line, i }) => {
+                {filteredLines.map(({ line, originalIndex }) => {
                   const level = detectLevel(line);
                   const textCls = level ? LEVEL_CLS[level] : "text-zinc-300";
                   const badge = level ? LEVEL_BADGE[level] : null;
                   return (
-                    <div key={i} className="flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start">
+                    <div key={originalIndex} className="flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start">
                       {/* Line number */}
-                      <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">{i + 1}</span>
+                      <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">{originalIndex + 1}</span>
                       {/* Badge */}
                       <span className="w-8 shrink-0 pt-[1px] select-none">
                         {badge && <span className={`text-[9px] font-medium px-1 py-px rounded border ${badge.cls}`}>{badge.label}</span>}
@@ -670,10 +657,10 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
                       {/* Copy */}
                       <button
                         onMouseDown={e => e.preventDefault()}
-                        onClick={() => copyLine(line, i)}
-                        className={`shrink-0 pt-[2px] transition-opacity select-none ${copiedLine === i ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}
+                        onClick={() => copyLine(line, originalIndex)}
+                        className={`shrink-0 pt-[2px] transition-opacity select-none ${copiedLine === originalIndex ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}
                       >
-                        {copiedLine === i
+                        {copiedLine === originalIndex
                           ? <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400"><path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                           : <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-zinc-600"><rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/><path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
                         }
