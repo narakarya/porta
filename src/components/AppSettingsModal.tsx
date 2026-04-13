@@ -1,6 +1,9 @@
 import { useRef, useState, useCallback } from "react";
 import { usePortaStore } from "../store";
 import type { App, Workspace } from "../types";
+import Field from "./shared/Field";
+import EnvVarEditor from "./shared/EnvVarEditor";
+import TunnelStatusBadge from "./shared/TunnelStatusBadge";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -426,49 +429,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                 <div className="h-px bg-white/[0.05]" />
 
                 {/* Inline env vars editor */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[12px] font-medium text-zinc-300">Inline Variables</p>
-                    <button
-                      onClick={() => setEnvVars((v) => [...v, { key: "", value: "" }])}
-                      className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      + Add
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-zinc-500 leading-relaxed">
-                    Key-value pairs injected at start. <code className="text-zinc-400">PORT</code> is always managed by Porta.
-                  </p>
-                  {envVars.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                      {envVars.map((row, i) => (
-                        <div key={i} className="flex gap-1.5 items-center">
-                          <input spellCheck={false}
-                            value={row.key}
-                            onChange={(e) => setEnvVars((v) => v.map((r, idx) => idx === i ? { ...r, key: e.target.value } : r))}
-                            className="input-base flex-1 font-mono text-[12px] uppercase"
-                            placeholder="KEY"
-                          />
-                          <span className="text-zinc-600 text-[12px]">=</span>
-                          <input spellCheck={false}
-                            value={row.value}
-                            onChange={(e) => setEnvVars((v) => v.map((r, idx) => idx === i ? { ...r, value: e.target.value } : r))}
-                            className="input-base flex-[2] font-mono text-[12px]"
-                            placeholder="value"
-                          />
-                          <button
-                            onClick={() => setEnvVars((v) => v.filter((_, idx) => idx !== i))}
-                            className="text-zinc-600 hover:text-red-400 transition-colors p-1 shrink-0"
-                          >
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                              <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <EnvVarEditor vars={envVars} onChange={setEnvVars} />
 
                 <div className="h-px bg-white/[0.05]" />
 
@@ -577,26 +538,11 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   </div>
 
                   {/* Status badge */}
-                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium mt-4 ${
-                    app.tunnel_active && app.tunnel_url
-                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      : app.tunnel_active
-                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                      : "bg-zinc-800 text-zinc-500 border border-white/[0.06]"
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      app.tunnel_active && app.tunnel_url
-                        ? "bg-emerald-400 pulse-dot"
-                        : app.tunnel_active
-                        ? "bg-amber-400 pulse-dot"
-                        : "bg-zinc-600"
-                    }`} />
-                    {app.tunnel_active && app.tunnel_url
-                      ? "Connected"
-                      : app.tunnel_active
-                      ? "Connecting..."
-                      : "Disconnected"}
-                  </div>
+                  <TunnelStatusBadge
+                    tunnelActive={app.tunnel_active}
+                    tunnelUrl={app.tunnel_url}
+                    className="mt-4"
+                  />
                 </div>
 
                 {app.tunnel_active && !app.tunnel_url && (
@@ -712,12 +658,3 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[12px] font-medium text-zinc-400">{label}</label>
-      {children}
-      {hint && <p className="text-[10px] text-red-400">{hint}</p>}
-    </div>
-  );
-}

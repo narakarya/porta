@@ -6,6 +6,7 @@ import AppContextMenu from "./AppContextMenu";
 import AppSettingsModal from "./AppSettingsModal";
 import { openInEditor, openInTerminal, killPid, killPortHolder } from "../lib/commands";
 import Tooltip from "./Tooltip";
+import TunnelStatusBadge from "./shared/TunnelStatusBadge";
 
 import { stripAnsi, filterNoise as filterLog } from "../lib/log-utils";
 
@@ -368,11 +369,8 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
                     </div>
                   </>
                 ) : app.tunnel_active ? (
-                  <div className="px-3 py-3 flex items-center gap-2">
-                    <svg className="animate-spin text-amber-400 shrink-0" width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path d="M5.5 1A4.5 4.5 0 1 1 1 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                    </svg>
-                    <span className="text-[12px] text-amber-400">Establishing tunnel…</span>
+                  <div className="px-3 py-3">
+                    <TunnelStatusBadge tunnelActive={app.tunnel_active} tunnelUrl={app.tunnel_url} />
                   </div>
                 ) : tunnelError ? (
                   <>
