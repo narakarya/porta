@@ -1,3 +1,4 @@
+pub mod app_state;
 pub mod auto_detect;
 pub mod backup;
 pub mod caddy;

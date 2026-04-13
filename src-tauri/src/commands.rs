@@ -15,21 +15,14 @@ use tauri::Emitter;
 
 use crate::auto_detect::{DetectResult, CommandSuggestion};
 use crate::backup::{self, PortaFile};
-use crate::caddy::CaddyManager;
 use crate::db::{
     models::{App, Workspace},
     Database,
 };
 use crate::port_scanner::find_available_port;
-use crate::process_manager::ProcessManager;
 use crate::setup::SetupStatus;
 
-pub struct AppState {
-    pub db: Mutex<Database>,
-    pub processes: ProcessManager,
-    pub caddy: CaddyManager,
-    pub db_path: PathBuf,
-}
+pub use crate::app_state::AppState;
 
 // ── Terminal session store ────────────────────────────────────────────────────
 
