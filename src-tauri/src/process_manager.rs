@@ -54,8 +54,13 @@ impl ProcessManager {
         }
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
+        // When launched as a macOS .app bundle, the process inherits a minimal
+        // environment without Homebrew, asdf, nvm, etc. We use an interactive login
+        // shell (`-i -l`) so ~/.zshrc and ~/.zprofile are sourced, giving child
+        // processes the same PATH the user has in their terminal.
+        let wrapped = format!("source ~/.zprofile 2>/dev/null; source ~/.zshrc 2>/dev/null; {command}");
         let mut cmd = Command::new(&shell);
-        cmd.args(["-l", "-c", command])
+        cmd.args(["-l", "-c", &wrapped])
             .current_dir(root_dir)
             .env("PORT", port.to_string())
             .stdout(Stdio::piped())
