@@ -8,7 +8,7 @@ use tauri::State;
 use crate::app_state::AppState;
 use crate::db::models::App;
 use super::settings::notify;
-use super::rebuild_tray_menu;
+use crate::tray::rebuild_tray_menu;
 
 /// Block the calling thread until `port` accepts a TCP connection or `timeout_ms` elapses.
 pub(crate) fn wait_for_port(port: u16, timeout_ms: u64) {
