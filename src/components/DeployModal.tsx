@@ -3,77 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { App, Workspace } from "../types";
 import { checkKamal, kamalRun, installKamal, isTauri, terminalOpen, terminalWrite, terminalResize, terminalClose, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../lib/commands";
 import { usePortaStore } from "../store";
-
-// ── ANSI + log utils (shared with LogViewer) ──────────────────────────────────
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /[\x1b\x9b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
-const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
-
-type LogLevel = "error" | "warn" | "info" | "debug" | "trace" | "success" | null;
-type LevelFilter = NonNullable<LogLevel> | "all";
-
-const LEVEL_PATTERNS: [LogLevel, RegExp][] = [
-  ["error",   /\b(error|err|fatal|exception|crash|failed|failure)\b/i],
-  ["warn",    /\b(warn(?:ing)?|deprecated|caution)\b/i],
-  ["success", /\b(compiled|generated|ok|done|started|ready|success(?:ful)?|listening)\b/i],
-  ["info",    /\b(info(?:rmation)?|notice|log)\b/i],
-  ["debug",   /\b(debug|verbose)\b/i],
-  ["trace",   /\b(trace)\b/i],
-];
-
-function detectLevel(line: string): LogLevel {
-  const b = line.match(/\[(error|err|fatal|warn(?:ing)?|info|debug|trace|notice)\]/i);
-  if (b) {
-    const l = b[1].toLowerCase();
-    if (l === "error" || l === "err" || l === "fatal") return "error";
-    if (l.startsWith("warn")) return "warn";
-    if (l === "info" || l === "notice") return "info";
-    if (l === "debug") return "debug";
-    if (l === "trace") return "trace";
-  }
-  const p = line.match(/(?:^|\s)(ERROR|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE|SUCCESS)[\s:]/);
-  if (p) {
-    const l = p[1].toLowerCase();
-    if (l === "error" || l === "fatal") return "error";
-    if (l.startsWith("warn")) return "warn";
-    if (l === "info") return "info";
-    if (l === "debug") return "debug";
-    if (l === "trace") return "trace";
-    if (l === "success") return "success";
-  }
-  for (const [level, re] of LEVEL_PATTERNS) if (re.test(line)) return level;
-  return null;
-}
-
-const LEVEL_CLS: Record<NonNullable<LogLevel>, string> = {
-  error: "text-red-400", warn: "text-amber-400", info: "text-blue-400",
-  debug: "text-zinc-500", trace: "text-zinc-600", success: "text-emerald-400",
-};
-const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
-  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
-  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
-  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
-  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
-  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-};
-const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; cls: string }[] = [
-  { key: "error",   label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/25" },
-  { key: "warn",    label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/25" },
-  { key: "success", label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
-  { key: "info",    label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
-  { key: "debug",   label: "DBG",  cls: "bg-zinc-700/50 text-zinc-400 border-zinc-600/40" },
-];
-
-function highlightLine(line: string, query: string): React.ReactNode {
-  if (!query) return line;
-  const parts = line.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"));
-  return parts.map((p, i) =>
-    p.toLowerCase() === query.toLowerCase()
-      ? <mark key={i} style={{ background: "rgba(250,204,21,0.25)", color: "#fef08a", borderRadius: 2, padding: "0 1px" }}>{p}</mark>
-      : p
-  );
-}
+import { stripAnsi, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../lib/log-utils";
+import type { LevelFilter } from "../lib/log-utils";
 
 // ── Kamal cache ───────────────────────────────────────────────────────────────
 let _kamalCache: { installed: boolean; version: string | null; ts: number } | null = null;
@@ -859,12 +790,12 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
                 </span>
               )}
               <div className="flex items-center gap-1 shrink-0">
-                {FILTER_PILLS.map(({ key, label, cls }) => (
+                {FILTER_PILLS.map(({ key, label, activeCls }) => (
                   <button
                     key={key}
                     onClick={() => setLevelFilter(levelFilter === key ? "all" : key)}
                     className={`px-1.5 py-1 rounded text-[10px] font-medium border transition-colors ${
-                      levelFilter === key ? cls : "bg-white/[0.03] text-zinc-600 border-white/[0.05] hover:text-zinc-400"
+                      levelFilter === key ? activeCls : "bg-white/[0.03] text-zinc-600 border-white/[0.05] hover:text-zinc-400"
                     }`}
                   >
                     {label}

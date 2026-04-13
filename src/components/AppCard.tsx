@@ -7,11 +7,7 @@ import AppSettingsModal from "./AppSettingsModal";
 import { openInEditor, openInTerminal, killPid, killPortHolder } from "../lib/commands";
 import Tooltip from "./Tooltip";
 
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /[\x1b\x9b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
-function stripAnsi(s: string) { return s.replace(ANSI_RE, ""); }
-const NOISE_RE = /cloudflare\.com\/(website-terms|terms)|Thank you for trying Cloudflare Tunnel|Doing so, you agree/i;
-function filterLog(lines: string[]) { return lines.filter((l) => !NOISE_RE.test(stripAnsi(l))); }
+import { stripAnsi, filterNoise as filterLog } from "../lib/log-utils";
 
 interface Props {
   app: App;
