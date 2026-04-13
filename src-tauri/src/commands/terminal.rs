@@ -1,0 +1,143 @@
+use std::collections::HashMap;
+use std::os::unix::io::RawFd;
+use std::sync::{Mutex, OnceLock};
+use std::thread;
+use tauri::Emitter;
+
+pub(super) struct TerminalHandle {
+    pub master_fd: RawFd,
+    pub child_pid: u32,
+}
+
+pub(super) fn terminals() -> &'static Mutex<HashMap<String, TerminalHandle>> {
+    static T: OnceLock<Mutex<HashMap<String, TerminalHandle>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Spawn an interactive `zsh` shell in `root_dir` inside a PTY.
+/// Output is streamed to `terminal:data:{app_id}` events as raw bytes (base64).
+/// Emits `terminal:exit:{app_id}` when the shell exits.
+#[tauri::command]
+pub fn terminal_open(
+    app: tauri::AppHandle,
+    app_id: String,
+    root_dir: String,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    use std::os::unix::io::FromRawFd;
+    use std::os::unix::process::CommandExt;
+
+    // Close any existing terminal for this app first.
+    terminal_close(app_id.clone())?;
+
+    let (master_fd, slave_fd) = unsafe {
+        let mut m: libc::c_int = -1;
+        let mut s: libc::c_int = -1;
+        let mut ws = libc::winsize {
+            ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0,
+        };
+        let ret = libc::openpty(
+            &mut m, &mut s, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws,
+        );
+        if ret != 0 {
+            return Err(format!("openpty: {}", std::io::Error::last_os_error()));
+        }
+        (m, s)
+    };
+
+    let (stdin_fd, stdout_fd, stderr_fd) = unsafe {(
+        libc::dup(slave_fd),
+        libc::dup(slave_fd),
+        libc::dup(slave_fd),
+    )};
+
+    let cwd = std::path::PathBuf::from(&root_dir);
+    let mut cmd = std::process::Command::new("zsh");
+    cmd.arg("-i")
+       .env("TERM", "xterm-256color")
+       .current_dir(&cwd)
+       .stdin(unsafe  { std::process::Stdio::from_raw_fd(stdin_fd)  })
+       .stdout(unsafe { std::process::Stdio::from_raw_fd(stdout_fd) })
+       .stderr(unsafe { std::process::Stdio::from_raw_fd(stderr_fd) });
+
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::close(slave_fd);
+            libc::close(master_fd);
+            libc::setsid();
+            libc::ioctl(0, libc::TIOCSCTTY.into(), 0i32);
+            Ok(())
+        });
+    }
+
+    let child = cmd.spawn().map_err(|e| format!("spawn shell: {e}"))?;
+    let child_pid = child.id();
+
+    unsafe { libc::close(slave_fd); }
+
+    // Detach child so we don't leave a zombie — we wait in a background thread.
+    let wait_pid = child_pid;
+    thread::spawn(move || unsafe { libc::waitpid(wait_pid as i32, std::ptr::null_mut(), 0); });
+
+    terminals().lock().unwrap().insert(app_id.clone(), TerminalHandle { master_fd, child_pid });
+
+    // Stream PTY output to frontend as raw bytes (UTF-8 best-effort).
+    let app_clone = app.clone();
+    let id_clone  = app_id.clone();
+    thread::spawn(move || {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let n = unsafe {
+                libc::read(master_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+            };
+            if n <= 0 { break; }
+            // Send raw bytes as a Vec<u8> — Tauri serialises to JSON array.
+            let chunk: Vec<u8> = buf[..n as usize].to_vec();
+            app_clone.emit(&format!("terminal:data:{}", id_clone), chunk).ok();
+        }
+        // Shell exited or fd closed — clean up.
+        terminals().lock().unwrap().remove(&id_clone);
+        unsafe { libc::close(master_fd); }
+        app_clone.emit(&format!("terminal:exit:{}", id_clone), ()).ok();
+    });
+
+    Ok(())
+}
+
+/// Write bytes from the frontend keyboard input into the PTY master.
+#[tauri::command]
+pub fn terminal_write(app_id: String, data: Vec<u8>) -> Result<(), String> {
+    let map = terminals().lock().unwrap();
+    if let Some(h) = map.get(&app_id) {
+        unsafe {
+            libc::write(h.master_fd, data.as_ptr() as *const libc::c_void, data.len());
+        }
+    }
+    Ok(())
+}
+
+/// Resize the terminal PTY (called when the xterm.js viewport changes).
+#[tauri::command]
+pub fn terminal_resize(app_id: String, rows: u16, cols: u16) -> Result<(), String> {
+    let map = terminals().lock().unwrap();
+    if let Some(h) = map.get(&app_id) {
+        let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+        unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
+    }
+    Ok(())
+}
+
+/// Close (and kill) a terminal session.
+#[tauri::command]
+pub fn terminal_close(app_id: String) -> Result<(), String> {
+    if let Some(h) = terminals().lock().unwrap().remove(&app_id) {
+        unsafe {
+            libc::kill(h.child_pid as i32, libc::SIGHUP);
+            libc::kill(h.child_pid as i32, libc::SIGTERM);
+            // Close master fd — causes the read thread to get EIO and stop.
+            libc::close(h.master_fd);
+        }
+    }
+    Ok(())
+}
