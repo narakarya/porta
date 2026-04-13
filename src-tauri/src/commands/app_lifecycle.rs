@@ -7,7 +7,7 @@ use tauri::State;
 
 use crate::app_state::AppState;
 use crate::db::models::App;
-use super::settings::notify;
+use super::settings::{notify, notify_crash};
 use crate::tray::rebuild_tray_menu;
 
 /// Block the calling thread until `port` accepts a TCP connection or `timeout_ms` elapses.
@@ -40,7 +40,7 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
         let reported = if is_stop { 0 } else { exit_code };
         exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
         if exit_code != 0 && !is_stop {
-            notify(&exit_handle, &format!("{} crashed", exit_name), &format!("Exit code: {exit_code}"));
+            notify_crash(&exit_handle, &exit_name, exit_code);
         }
     };
 

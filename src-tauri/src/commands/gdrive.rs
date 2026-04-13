@@ -152,7 +152,7 @@ async fn accept_oauth_code(
     let request = String::from_utf8_lossy(&buf[..n]);
 
     // GET /callback?code=XXX HTTP/1.1
-    let code = request
+    let raw_code = request
         .lines()
         .find(|l| l.starts_with("GET "))
         .and_then(|l| l.split_whitespace().nth(1))
@@ -163,6 +163,11 @@ async fn accept_oauth_code(
             })
         })
         .ok_or("No 'code' in OAuth redirect")?;
+
+    // URL-decode the authorization code (Google percent-encodes special chars)
+    let code = urlencoding::decode(&raw_code)
+        .unwrap_or(std::borrow::Cow::Borrowed(&raw_code))
+        .into_owned();
 
     let html = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
         <html><body style='font-family:sans-serif;padding:2rem'>\
@@ -293,7 +298,7 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
 
     if let Some(file_id) = existing_id {
         // Overwrite existing file
-        client
+        let resp = client
             .patch(format!(
                 "https://www.googleapis.com/upload/drive/v3/files/{}?uploadType=media",
                 file_id
@@ -304,6 +309,11 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
             .send()
             .await
             .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Drive upload failed ({}): {}", status, body));
+        }
     } else {
         // Create new file (multipart: JSON metadata + body)
         let boundary = "porta_multipart_boundary";
@@ -314,7 +324,7 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
             b = boundary,
             json = json
         );
-        client
+        let resp = client
             .post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
             .bearer_auth(&access_token)
             .header(
@@ -325,6 +335,11 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
             .send()
             .await
             .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Drive upload failed ({}): {}", status, body));
+        }
     }
 
     Ok(chrono::Utc::now().to_rfc3339())

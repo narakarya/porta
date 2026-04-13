@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { gdriveConnect, gdriveStatus, gdriveDisconnect, gdriveSync } from "../../lib/commands";
+import { gdriveConnect, gdriveStatus, gdriveDisconnect, gdriveSync, getGdriveCredentials, setGdriveCredentials } from "../../lib/commands";
 
 type SyncTarget = "none" | "git" | "icloud" | "gdrive";
 type SyncStatus = "idle" | "synced" | "syncing" | "error";
@@ -12,25 +12,49 @@ export default function SyncSection() {
   const [gdriveEmail, setGdriveEmail] = useState<string | null>(null);
   const [gdriveConnecting, setGdriveConnecting] = useState(false);
   const [gdriveError, setGdriveError] = useState<string | null>(null);
+  const [gdriveClientId, setGdriveClientId] = useState("");
+  const [gdriveClientSecret, setGdriveClientSecret] = useState("");
+  const [credentialsSaved, setCredentialsSaved] = useState(false);
 
   const icloudPath = "~/Library/Mobile Documents/com~apple~CloudDocs/Porta";
 
-  // Check stored auth on mount / when switching to gdrive
+  // Load stored credentials + auth status when switching to gdrive
   useEffect(() => {
     if (syncTarget !== "gdrive") return;
     gdriveStatus()
       .then((s) => { if (s.connected) setGdriveEmail(s.email ?? null); })
       .catch(() => {});
+    getGdriveCredentials()
+      .then((creds: { client_id: string; client_secret: string }) => {
+        if (creds.client_id) { setGdriveClientId(creds.client_id); setCredentialsSaved(true); }
+        if (creds.client_secret) setGdriveClientSecret(creds.client_secret);
+      })
+      .catch(() => {});
   }, [syncTarget]);
 
+  async function handleSaveCredentials() {
+    if (!gdriveClientId.trim() || !gdriveClientSecret.trim()) return;
+    await setGdriveCredentials(gdriveClientId.trim(), gdriveClientSecret.trim());
+    setCredentialsSaved(true);
+    setGdriveError(null);
+  }
+
   async function handleGdriveConnect() {
+    if (!credentialsSaved && gdriveClientId.trim() && gdriveClientSecret.trim()) {
+      await handleSaveCredentials();
+    }
     setGdriveConnecting(true);
     setGdriveError(null);
     try {
       const result = await gdriveConnect();
       setGdriveEmail(result.email);
     } catch (e) {
-      setGdriveError(String(e).replace(/^Error: /, ""));
+      const msg = String(e).replace(/^Error: /, "");
+      if (msg === "not_configured") {
+        setGdriveError("OAuth credentials not configured. Enter your Google Cloud client ID and secret below.");
+      } else {
+        setGdriveError(msg);
+      }
     } finally {
       setGdriveConnecting(false);
     }
@@ -204,6 +228,53 @@ export default function SyncSection() {
                 <p className="text-[12px] text-zinc-500 leading-relaxed">
                   You'll be redirected to Google in your browser to grant access. Porta only stores backups — no other files are accessed.
                 </p>
+
+                {/* OAuth credentials */}
+                <div className="flex flex-col gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                  <p className="text-[11px] text-zinc-500">
+                    Create a <span className="text-zinc-400">Desktop</span> OAuth app in{" "}
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
+                      Google Cloud Console
+                    </a>{" "}
+                    and paste the credentials here.
+                  </p>
+                  <label className="flex flex-col gap-1">
+                    <span className={labelCls}>Client ID</span>
+                    <input
+                      value={gdriveClientId}
+                      onChange={(e) => { setGdriveClientId(e.target.value); setCredentialsSaved(false); }}
+                      placeholder="123456789-abc.apps.googleusercontent.com"
+                      className={inputCls}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className={labelCls}>Client Secret</span>
+                    <input
+                      value={gdriveClientSecret}
+                      onChange={(e) => { setGdriveClientSecret(e.target.value); setCredentialsSaved(false); }}
+                      placeholder="GOCSPX-..."
+                      className={inputCls}
+                      type="password"
+                      autoComplete="off"
+                    />
+                  </label>
+                  {gdriveClientId && gdriveClientSecret && !credentialsSaved && (
+                    <button
+                      type="button"
+                      onClick={handleSaveCredentials}
+                      className="self-start px-2.5 py-1 text-[11px] font-medium bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded-md transition-colors"
+                    >
+                      Save Credentials
+                    </button>
+                  )}
+                  {credentialsSaved && (
+                    <span className="text-[11px] text-emerald-400">Credentials saved</span>
+                  )}
+                </div>
+
                 {gdriveError && (
                   <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/[0.07] border border-red-500/20">
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0 mt-0.5">
