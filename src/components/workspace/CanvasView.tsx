@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { App } from "../types";
-import { usePortaStore } from "../store";
+import type { App } from "../../types";
+import { usePortaStore } from "../../store";
 
 const NODE_W = 180;
 const NODE_H = 70;

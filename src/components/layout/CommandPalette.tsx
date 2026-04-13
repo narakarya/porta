@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { usePortaStore } from "../store";
-import { openInEditor } from "../lib/commands";
+import { usePortaStore } from "../../store";
+import { openInEditor } from "../../lib/commands";
 
 interface CommandPaletteProps {
   onOpenSettings: () => void;

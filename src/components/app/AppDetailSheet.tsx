@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { App, Workspace } from "../types";
+import type { App, Workspace } from "../../types";
 
 interface Props {
   app: App;

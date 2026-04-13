@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { usePortaStore } from "../store";
-import type { Workspace } from "../types";
+import { usePortaStore } from "../../store";
+import type { Workspace } from "../../types";
 
 type Section = "general" | "danger";
 

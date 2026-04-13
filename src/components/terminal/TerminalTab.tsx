@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen } from "@tauri-apps/api/event";
-import { terminalOpen, terminalWrite, terminalResize, terminalClose, isTauri } from "../lib/commands";
+import { terminalOpen, terminalWrite, terminalResize, terminalClose, isTauri } from "../../lib/commands";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {

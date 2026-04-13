@@ -1,5 +1,5 @@
 import { useState } from "react";
-import SetupWizard from "./SetupWizard";
+import SetupWizard from "../setup/SetupWizard";
 
 interface Props {
   onClose: () => void;

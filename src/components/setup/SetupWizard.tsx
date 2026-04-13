@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { runSetup } from "../lib/commands";
-import { usePortaStore } from "../store";
+import { runSetup } from "../../lib/commands";
+import { usePortaStore } from "../../store";
 
 type StepState = "idle" | "loading" | "done" | "error";
 

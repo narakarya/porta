@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
-import { usePortaStore } from "../store";
-import type { App } from "../types";
-import AppCard from "./AppCard";
-import AddAppModal from "./AddAppModal";
-import ServiceCard from "./ServiceCard";
+import { usePortaStore } from "../../store";
+import type { App } from "../../types";
+import AppCard from "../app/AppCard";
+import AddAppModal from "../app/AddAppModal";
+import ServiceCard from "../service/ServiceCard";
 import CanvasView from "./CanvasView";
-import AppDetailSheet from "./AppDetailSheet";
-import AppSettingsModal from "./AppSettingsModal";
-import DeployModal from "./DeployModal";
-import TerminalModal from "./TerminalModal";
+import AppDetailSheet from "../app/AppDetailSheet";
+import AppSettingsModal from "../app/AppSettingsModal";
+import DeployModal from "../deploy/DeployModal";
+import TerminalModal from "../terminal/TerminalModal";
 
 type ViewMode = "list" | "canvas";
 

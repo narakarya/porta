@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { App, Workspace } from "../types";
-import { checkKamal, kamalRun, installKamal, isTauri, terminalOpen, terminalWrite, terminalResize, terminalClose, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../lib/commands";
-import { usePortaStore } from "../store";
-import { stripAnsi, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../lib/log-utils";
-import type { LevelFilter } from "../lib/log-utils";
+import type { App, Workspace } from "../../types";
+import { checkKamal, kamalRun, installKamal, isTauri, terminalOpen, terminalWrite, terminalResize, terminalClose, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../../lib/commands";
+import { usePortaStore } from "../../store";
+import { stripAnsi, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
+import type { LevelFilter } from "../../lib/log-utils";
 
 // ── Kamal cache ───────────────────────────────────────────────────────────────
 let _kamalCache: { installed: boolean; version: string | null; ts: number } | null = null;

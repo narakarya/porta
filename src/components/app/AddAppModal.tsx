@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { detectStartCommand, nextAvailablePort, listAvailableCommands } from "../lib/commands";
-import type { CommandSuggestion } from "../lib/commands";
-import { usePortaStore } from "../store";
+import { detectStartCommand, nextAvailablePort, listAvailableCommands } from "../../lib/commands";
+import type { CommandSuggestion } from "../../lib/commands";
+import { usePortaStore } from "../../store";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 

@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
-import { usePortaStore } from "../store";
-import type { Workspace } from "../types";
-import AddWorkspaceModal from "./AddWorkspaceModal";
-import WorkspaceSettingsModal from "./WorkspaceSettingsModal";
-import WorkspaceContextMenu from "./WorkspaceContextMenu";
-import AddServiceModal from "./AddServiceModal";
-import ServiceSettingsModal from "./ServiceSettingsModal";
-import type { Service } from "../types";
-import Tooltip from "./Tooltip";
+import { usePortaStore } from "../../store";
+import type { Workspace } from "../../types";
+import AddWorkspaceModal from "../workspace/AddWorkspaceModal";
+import WorkspaceSettingsModal from "../workspace/WorkspaceSettingsModal";
+import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
+import AddServiceModal from "../service/AddServiceModal";
+import ServiceSettingsModal from "../service/ServiceSettingsModal";
+import type { Service } from "../../types";
+import Tooltip from "../shared/Tooltip";
 
 interface ContextMenuState {
   ws: Workspace;

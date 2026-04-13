@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import SetupWizard from "./SetupWizard";
-import { exportData, importData, listBackups, restoreBackup, saveFile, revealInFinder, gdriveConnect, gdriveStatus, gdriveDisconnect, gdriveSync, startCaddy, reloadCaddy, caddyStatusCheck, regenerateCerts, getLaunchAtLogin, setLaunchAtLogin } from "../lib/commands";
+import SetupWizard from "../setup/SetupWizard";
+import { exportData, importData, listBackups, restoreBackup, saveFile, revealInFinder, gdriveConnect, gdriveStatus, gdriveDisconnect, gdriveSync, startCaddy, reloadCaddy, caddyStatusCheck, regenerateCerts, getLaunchAtLogin, setLaunchAtLogin } from "../../lib/commands";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-import { usePortaStore } from "../store";
+import { usePortaStore } from "../../store";
 
 type Section = "setup" | "notifications" | "backup" | "sync";
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { DeploymentConfig, DeployEnvironment, DeployRole } from "../types";
+import type { DeploymentConfig, DeployEnvironment, DeployRole } from "../../types";
 
 interface Props {
   deployment: DeploymentConfig | null;

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { usePortaStore } from "./store";
 import { reloadCaddy, startCaddy } from "./lib/commands";
-import Layout from "./components/Layout";
-import WorkspaceView from "./components/WorkspaceView";
-import SetupWizard from "./components/SetupWizard";
-import SettingsPage from "./components/SettingsPage";
-import CommandPalette from "./components/CommandPalette";
+import Layout from "./components/layout/Layout";
+import WorkspaceView from "./components/workspace/WorkspaceView";
+import SetupWizard from "./components/setup/SetupWizard";
+import SettingsPage from "./components/settings/SettingsPage";
+import CommandPalette from "./components/layout/CommandPalette";
 
 type Page = "main" | "settings";
 

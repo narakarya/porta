@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { App } from "../types";
+import type { App } from "../../types";
 import TerminalTab from "./TerminalTab";
 
 interface TabSession {

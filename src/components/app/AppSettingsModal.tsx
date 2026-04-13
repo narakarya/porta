@@ -1,9 +1,9 @@
 import { useRef, useState, useCallback } from "react";
-import { usePortaStore } from "../store";
-import type { App, Workspace } from "../types";
-import Field from "./shared/Field";
-import EnvVarEditor from "./shared/EnvVarEditor";
-import TunnelStatusBadge from "./shared/TunnelStatusBadge";
+import { usePortaStore } from "../../store";
+import type { App, Workspace } from "../../types";
+import Field from "../shared/Field";
+import EnvVarEditor from "../shared/EnvVarEditor";
+import TunnelStatusBadge from "../shared/TunnelStatusBadge";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 

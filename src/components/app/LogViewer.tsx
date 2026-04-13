@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getAppLogs } from "../lib/commands";
-import { stripAnsi, filterNoise, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../lib/log-utils";
-import type { LevelFilter } from "../lib/log-utils";
+import { getAppLogs } from "../../lib/commands";
+import { stripAnsi, filterNoise, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
+import type { LevelFilter } from "../../lib/log-utils";
 
 interface Props {
   appId: string;

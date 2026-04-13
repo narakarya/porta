@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { usePortaStore } from "../store";
+import { usePortaStore } from "../../store";
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 

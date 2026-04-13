@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { usePortaStore } from "../store";
-import type { Service } from "../types";
+import { usePortaStore } from "../../store";
+import type { Service } from "../../types";
 import ServiceSettingsModal from "./ServiceSettingsModal";
 
 // eslint-disable-next-line no-control-regex

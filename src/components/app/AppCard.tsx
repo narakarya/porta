@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { usePortaStore } from "../store";
-import type { App, Workspace } from "../types";
+import { usePortaStore } from "../../store";
+import type { App, Workspace } from "../../types";
 import LogViewer from "./LogViewer";
 import AppContextMenu from "./AppContextMenu";
 import AppSettingsModal from "./AppSettingsModal";
-import { openInEditor, openInTerminal, killPid, killPortHolder } from "../lib/commands";
-import Tooltip from "./Tooltip";
-import TunnelStatusBadge from "./shared/TunnelStatusBadge";
+import { openInEditor, openInTerminal, killPid, killPortHolder } from "../../lib/commands";
+import Tooltip from "../shared/Tooltip";
+import TunnelStatusBadge from "../shared/TunnelStatusBadge";
 
-import { stripAnsi, filterNoise as filterLog } from "../lib/log-utils";
+import { stripAnsi, filterNoise as filterLog } from "../../lib/log-utils";
 
 interface Props {
   app: App;
