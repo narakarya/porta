@@ -18,6 +18,7 @@ pub mod tray;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 
@@ -36,8 +37,53 @@ use tauri_plugin_autostart::MacosLauncher;
 
 use caddy::CaddyManager;
 use commands::AppState;
+use commands::settings::{read_porta_config, write_porta_config};
 use db::Database;
 use process_manager::ProcessManager;
+
+// ── Window state persistence ─────────────────────────────────────────────────
+
+/// Flag to prevent saving window state during the initial restore.
+static RESTORING_WINDOW: AtomicBool = AtomicBool::new(false);
+
+fn save_window_state(window: &tauri::Window) {
+    if RESTORING_WINDOW.load(Ordering::Relaxed) {
+        return;
+    }
+    if let (Ok(pos), Ok(size)) = (window.outer_position(), window.inner_size()) {
+        let mut cfg = read_porta_config();
+        cfg["window"] = serde_json::json!({
+            "x": pos.x,
+            "y": pos.y,
+            "width": size.width,
+            "height": size.height,
+        });
+        write_porta_config(&cfg);
+    }
+}
+
+fn restore_window_state(window: &tauri::WebviewWindow) {
+    let cfg = read_porta_config();
+    if let Some(w) = cfg.get("window") {
+        let x = w.get("x").and_then(serde_json::Value::as_i64);
+        let y = w.get("y").and_then(serde_json::Value::as_i64);
+        let width = w.get("width").and_then(serde_json::Value::as_u64);
+        let height = w.get("height").and_then(serde_json::Value::as_u64);
+
+        RESTORING_WINDOW.store(true, Ordering::Relaxed);
+
+        if let (Some(x), Some(y)) = (x, y) {
+            use tauri::PhysicalPosition;
+            let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+        }
+        if let (Some(w), Some(h)) = (width, height) {
+            use tauri::PhysicalSize;
+            let _ = window.set_size(PhysicalSize::new(w as u32, h as u32));
+        }
+
+        RESTORING_WINDOW.store(false, Ordering::Relaxed);
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -75,6 +121,9 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(state)
         .setup(|app| {
+            if let Some(w) = app.get_webview_window("main") {
+                restore_window_state(&w);
+            }
             tray::setup_tray(app)?;
             auto_start::spawn_auto_start(app);
             metrics::spawn_metrics_poller(app.handle().clone());
@@ -160,10 +209,41 @@ pub fn run() {
             commands::import_porta_config,
         ])
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Hide instead of quit — tray keeps the app alive
-                api.prevent_close();
-                let _ = window.hide();
+            use std::sync::OnceLock;
+            use std::time::{Duration, Instant};
+
+            static DEBOUNCE_HANDLE: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    // Save final state before hiding
+                    save_window_state(window);
+                    // Hide instead of quit — tray keeps the app alive
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    // Debounce: schedule a save 500ms after the last move/resize event
+                    let mutex = DEBOUNCE_HANDLE.get_or_init(|| Mutex::new(None));
+                    let now = Instant::now();
+                    if let Ok(mut last) = mutex.lock() {
+                        *last = Some(now);
+                    }
+                    let win = window.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(500));
+                        let should_save = mutex
+                            .lock()
+                            .ok()
+                            .and_then(|g| *g)
+                            .map(|t| now >= t) // only save if no newer event arrived
+                            .unwrap_or(false);
+                        if should_save {
+                            save_window_state(&win);
+                        }
+                    });
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())

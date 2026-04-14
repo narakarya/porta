@@ -29,18 +29,28 @@ function validateSubdomain(s: string): string | null {
 }
 
 
+export interface AddAppDefaultValues {
+  name?: string;
+  root_dir?: string;
+  start_command?: string;
+  start_command_source?: string;
+}
+
 interface Props {
   workspaceId: string | null;
   onClose: () => void;
+  defaultValues?: AddAppDefaultValues;
 }
 
-export default function AddAppModal({ workspaceId, onClose }: Props) {
+export default function AddAppModal({ workspaceId, onClose, defaultValues }: Props) {
   const { workspaces, addApp, setupStatus } = usePortaStore();
   const scheme = setupStatus?.certs_generated ? "https" : "http";
-  const [name, setName] = useState("");
-  const [rootDir, setRootDir] = useState("");
-  const [command, setCommand] = useState("");
-  const [commandSource, setCommandSource] = useState<"auto" | "manual">("manual");
+  const [name, setName] = useState(defaultValues?.name ?? "");
+  const [rootDir, setRootDir] = useState(defaultValues?.root_dir ?? "");
+  const [command, setCommand] = useState(defaultValues?.start_command ?? "");
+  const [commandSource, setCommandSource] = useState<"auto" | "manual">(
+    (defaultValues?.start_command_source as "auto" | "manual") ?? "manual"
+  );
   const [port, setPort] = useState<number>(3000);
   const [subdomain, setSubdomain] = useState("");
   const [subdomainError, setSubdomainError] = useState<string | null>(null);

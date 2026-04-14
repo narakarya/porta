@@ -1,8 +1,10 @@
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { usePortaStore } from "../../store";
 import type { App } from "../../types";
+import { detectStartCommand } from "../../lib/commands";
 import AppCard from "../app/AppCard";
 import AddAppModal from "../app/AddAppModal";
+import type { AddAppDefaultValues } from "../app/AddAppModal";
 import ImportComposeModal from "./ImportComposeModal";
 import ServiceCard from "../service/ServiceCard";
 import CanvasView from "./CanvasView";
@@ -10,6 +12,8 @@ import AppDetailSheet from "../app/AppDetailSheet";
 import AppSettingsModal from "../app/AppSettingsModal";
 import DeployModal from "../deploy/DeployModal";
 import TerminalModal from "../terminal/TerminalModal";
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type ViewMode = "list" | "canvas";
 
@@ -53,7 +57,10 @@ function computeStartOrder(apps: { id: string; depends_on: string[] }[]): Record
 export default function WorkspaceView() {
   const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore();
   const [showAdd, setShowAdd] = useState(false);
+  const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
   const [showImportCompose, setShowImportCompose] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [filterByWs, setFilterByWs] = useState<Record<string, string>>({});
   const filterText = filterByWs[selectedWorkspaceId ?? "__standalone"] ?? "";
@@ -80,6 +87,91 @@ export default function WorkspaceView() {
     setOpenedTerminalIds((prev) => new Set([...prev, app.id]));
     setActiveTerminalAppId(app.id);
   }
+
+  // Handle a dropped folder path: detect start command and open AddAppModal pre-filled
+  const handleFolderDrop = useCallback(async (folderPath: string) => {
+    const parts = folderPath.split("/");
+    const folderName = parts[parts.length - 1] ?? "";
+    const defaults: AddAppDefaultValues = {
+      name: folderName,
+      root_dir: folderPath,
+    };
+    try {
+      const result = await detectStartCommand(folderPath);
+      if (result.command) {
+        defaults.start_command = result.command;
+        defaults.start_command_source = result.source;
+      }
+    } catch {
+      // Detection failed — open modal without start command pre-filled
+    }
+    setAddAppDefaults(defaults);
+    setShowAdd(true);
+  }, []);
+
+  // HTML5 drag-and-drop handlers (browser fallback)
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    // HTML5 drops — files may have a path property in some environments
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      // In Electron/Tauri webview, files may have a `path` property
+      const filePath = (file as File & { path?: string }).path;
+      if (filePath) {
+        handleFolderDrop(filePath);
+      }
+    }
+  }, [handleFolderDrop]);
+
+  // Tauri 2 native drag-drop listener — more reliable than HTML5 for folder paths
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+        unlisten = await getCurrentWebviewWindow().onDragDropEvent((event) => {
+          if (event.payload.type === "over") {
+            setIsDragging(true);
+          } else if (event.payload.type === "drop") {
+            setIsDragging(false);
+            const paths = event.payload.paths;
+            if (paths.length > 0) {
+              handleFolderDrop(paths[0]);
+            }
+          } else if (event.payload.type === "leave") {
+            setIsDragging(false);
+          }
+        });
+      } catch {
+        // Tauri drag-drop API not available — fall back to HTML5
+      }
+    })();
+    return () => { unlisten?.(); };
+  }, [handleFolderDrop]);
 
   const workspace = workspaces.find((w) => w.id === selectedWorkspaceId) ?? null;
   const allVisibleApps = apps.filter((a) => a.workspace_id === selectedWorkspaceId);
@@ -132,7 +224,26 @@ export default function WorkspaceView() {
   }
 
   return (
-    <div>
+    <div
+      className="relative"
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-400/50 bg-blue-500/[0.08] backdrop-blur-[2px] pointer-events-none">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" className="text-blue-400 mb-3">
+            <path d="M4 12V8a2 2 0 012-2h6l2 3h12a2 2 0 012 2v15a2 2 0 01-2 2H6a2 2 0 01-2-2V12z" stroke="currentColor" strokeWidth="1.8" fill="none"/>
+            <path d="M12 20l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M16 16v8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          <span className="text-[14px] font-medium text-blue-300">Drop folder to add app</span>
+          <span className="text-[12px] text-blue-400/60 mt-1">We'll auto-detect the framework</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-end justify-between mb-5">
         <div>
@@ -308,7 +419,8 @@ export default function WorkspaceView() {
           {showAdd && (
             <AddAppModal
               workspaceId={selectedWorkspaceId}
-              onClose={() => setShowAdd(false)}
+              onClose={() => { setShowAdd(false); setAddAppDefaults(undefined); }}
+              defaultValues={addAppDefaults}
             />
           )}
 

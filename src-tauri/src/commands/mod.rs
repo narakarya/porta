@@ -3,7 +3,7 @@ pub use crate::app_state::AppState;
 mod terminal;
 pub use terminal::*;
 
-mod settings;
+pub(crate) mod settings;
 pub use settings::*;
 
 mod deploy;
