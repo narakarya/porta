@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
 
@@ -10,7 +10,6 @@ const ROW_GAP = 48;
 const COLS = 3;
 
 type Pos = { x: number; y: number };
-type StatusFilter = "all" | "running" | "stopped";
 
 function initPositions(apps: App[]): Record<string, Pos> {
   const out: Record<string, Pos> = {};
@@ -40,46 +39,6 @@ interface Props {
 export default function CanvasView({ apps }: Props) {
   const { updateApp } = usePortaStore();
   const containerRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  // ── Filter state ────────────────────────────────────────────────────────────
-  const [filterText, setFilterText] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-
-  const filteredApps = useMemo(() => {
-    const q = filterText.toLowerCase().trim();
-    return apps.filter((app) => {
-      if (statusFilter === "running" && app.status !== "running") return false;
-      if (statusFilter === "stopped" && app.status !== "stopped") return false;
-      if (!q) return true;
-      return (
-        app.name.toLowerCase().includes(q) ||
-        String(app.port).includes(q) ||
-        (app.subdomain ?? "").toLowerCase().includes(q) ||
-        app.status.toLowerCase().includes(q)
-      );
-    });
-  }, [apps, filterText, statusFilter]);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName)) {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-      if (e.key === "Escape" && document.activeElement === searchRef.current) {
-        searchRef.current?.blur();
-        setFilterText("");
-        setStatusFilter("all");
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   // ── Source of truth for positions during drag — NO React state ─────────────
   // Initialized from grid layout; never triggers re-render during drag.
@@ -276,59 +235,11 @@ export default function CanvasView({ apps }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      {/* ── Filter bar ───────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-xs">
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M8 8l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
-          <input
-            ref={searchRef}
-            spellCheck={false}
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-8 pr-7 py-1.5 text-[12px] text-zinc-200 bg-white/[0.03] border border-white/[0.07] rounded-lg placeholder:text-zinc-600 focus:outline-none focus:border-white/[0.15]"
-            placeholder="Filter apps... (/ or ⌘F)"
-          />
-          {filterText && (
-            <button
-              onClick={() => { setFilterText(""); setStatusFilter("all"); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </button>
-          )}
-        </div>
-        <div className="flex gap-1">
-          {(["all", "running", "stopped"] as StatusFilter[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors ${
-                statusFilter === s
-                  ? "bg-white/[0.1] text-zinc-200"
-                  : "text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.04]"
-              }`}
-            >
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-zinc-600 select-none ml-auto">
-          Drag node to move &middot; Drag{" "}
-          <span className="inline-block w-2 h-2 rounded-full border border-zinc-500 align-middle" />{" "}
-          port to connect dependency
-        </p>
-      </div>
-
-      {filteredApps.length === 0 && apps.length > 0 && (
-        <div className="flex items-center justify-center py-12 text-[13px] text-zinc-600">
-          No apps match your filter
-        </div>
-      )}
+      <p className="text-[11px] text-zinc-600 select-none">
+        Drag node to move &middot; Drag{" "}
+        <span className="inline-block w-2 h-2 rounded-full border border-zinc-500 align-middle" />{" "}
+        port to connect dependency
+      </p>
 
       <div
         ref={containerRef}
@@ -400,7 +311,7 @@ export default function CanvasView({ apps }: Props) {
         </svg>
 
         {/* ── Node cards ───────────────────────────────────────────────────── */}
-        {filteredApps.map((app) => {
+        {apps.map((app) => {
           const pos = posRef.current[app.id];
           if (!pos) return null;
           const isTarget = highlightId === app.id && connectingFromId !== app.id;
