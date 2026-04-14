@@ -9,7 +9,9 @@ pub mod dns;
 pub mod port_check;
 pub mod port_scanner;
 pub mod process_manager;
+pub mod compose_parser;
 pub mod health;
+pub mod porta_config;
 pub mod metrics;
 pub mod setup;
 pub mod tray;
@@ -153,6 +155,9 @@ pub fn run() {
             commands::check_all_health,
             commands::start_workspace_apps,
             commands::stop_workspace_apps,
+            commands::parse_docker_compose,
+            commands::export_porta_config,
+            commands::import_porta_config,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

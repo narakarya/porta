@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { App, Workspace } from "../../types";
+import { usePortaStore } from "../../store";
 
 interface Props {
   app: App;
@@ -8,6 +9,76 @@ interface Props {
   onOpenSettings?: () => void;
   onOpenTerminal?: () => void;
   onOpenDeploy?: () => void;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatUptime(startedAt: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+  return (
+    <div className="w-full h-1.5 rounded-full bg-white/[0.06] mt-1.5">
+      <div
+        className={`h-full rounded-full transition-all duration-300 ${color}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+// ── Metrics Section ──────────────────────────────────────────────────────────
+
+function MetricsSection({ appId }: { appId: string }) {
+  const metrics = usePortaStore((s) => s.appMetrics[appId]);
+  const startedAt = usePortaStore((s) => s.appStartedAt[appId]);
+  const [now, setNow] = useState(Date.now());
+
+  // Tick every second for uptime display
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex gap-2">
+      {/* CPU */}
+      <div className="flex-1 rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+        <p className="text-[10px] text-zinc-600 uppercase tracking-wide font-medium">CPU</p>
+        <p className="text-[14px] font-semibold text-zinc-100 mt-0.5 font-mono">
+          {metrics ? `${metrics.cpu.toFixed(1)}%` : "--"}
+        </p>
+        <MiniBar value={metrics?.cpu ?? 0} max={100} color="bg-blue-400" />
+      </div>
+
+      {/* Memory */}
+      <div className="flex-1 rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+        <p className="text-[10px] text-zinc-600 uppercase tracking-wide font-medium">Memory</p>
+        <p className="text-[14px] font-semibold text-zinc-100 mt-0.5 font-mono">
+          {metrics ? `${metrics.mem_mb} MB` : "--"}
+        </p>
+        <MiniBar value={metrics?.mem_mb ?? 0} max={512} color="bg-purple-400" />
+      </div>
+
+      {/* Uptime */}
+      <div className="flex-1 rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+        <p className="text-[10px] text-zinc-600 uppercase tracking-wide font-medium">Uptime</p>
+        <p className="text-[14px] font-semibold text-zinc-100 mt-0.5 font-mono">
+          {startedAt ? formatUptime(startedAt, now) : "--"}
+        </p>
+        <div className="h-1.5 mt-1.5" /> {/* spacer to align with bars */}
+      </div>
+    </div>
+  );
 }
 
 // ── Overview Tab ──────────────────────────────────────────────────────────────
@@ -42,6 +113,11 @@ function OverviewTab({ app, workspace, onOpenSettings, onOpenTerminal, onOpenDep
           {app.status}
         </span>
       </div>
+
+      {/* Metrics — only for running apps */}
+      {app.status === "running" && (
+        <MetricsSection appId={app.id} />
+      )}
 
       {/* Start command */}
       <Row label="Start command">

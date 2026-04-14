@@ -399,6 +399,36 @@ export const terminalResize = (appId: string, rows: number, cols: number): Promi
 export const terminalClose = (appId: string): Promise<void> =>
   isTauri ? invoke("terminal_close", { appId }) : Promise.resolve();
 
+// ── Docker Compose import ────────────────────────────────────────────────────
+
+export interface ComposeService {
+  name: string;
+  image: string | null;
+  build_context: string | null;
+  ports: [number, number][];
+  environment: Record<string, string>;
+  volumes: string[];
+  depends_on: string[];
+  command: string | null;
+}
+
+export interface ComposeProject {
+  services: ComposeService[];
+}
+
+export const parseDockerCompose = (path: string): Promise<ComposeProject> =>
+  isTauri
+    ? invoke("parse_docker_compose", { path })
+    : Promise.reject(new Error("parse_docker_compose not available in browser mode"));
+
+// ── Porta Config (team sharing) ──────────────────────────────────────────────
+
+export const exportPortaConfig = (workspaceId: string, destPath: string): Promise<void> =>
+  isTauri ? invoke("export_porta_config", { workspaceId, destPath }) : Promise.resolve();
+
+export const importPortaConfig = (srcPath: string): Promise<void> =>
+  isTauri ? invoke("import_porta_config", { srcPath }) : Promise.resolve();
+
 // ── Certificate management ────────────────────────────────────────────────────
 
 export const regenerateCerts = (): Promise<void> =>

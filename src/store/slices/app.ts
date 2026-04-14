@@ -17,6 +17,7 @@ export interface AppSlice {
   appRestarting: Record<string, boolean>;
   appTunnelErrors: Record<string, string | null>;
   appMetrics: Record<string, { cpu: number; mem_mb: number }>;
+  appStartedAt: Record<string, number>;
   healthStatuses: Record<string, HealthStatus>;
 
   refreshHealth: () => Promise<void>;
@@ -46,6 +47,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appRestarting: {},
   appTunnelErrors: {},
   appMetrics: {},
+  appStartedAt: {},
   healthStatuses: {},
 
   refreshHealth: async () => {
@@ -94,13 +96,18 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       wsAppIds.forEach((id) => stopMockProcess(id));
     }
 
-    set((s) => ({
-      apps: s.apps.map((a) =>
-        wsAppIds.includes(a.id) ? { ...a, status: "stopped" as const, pid: null } : a
-      ),
-      appRetryCount: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: 0 }), s.appRetryCount),
-      appRestarting: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: false }), s.appRestarting),
-    }));
+    set((s) => {
+      const restStartedAt = { ...s.appStartedAt };
+      wsAppIds.forEach((id) => { delete restStartedAt[id]; });
+      return {
+        apps: s.apps.map((a) =>
+          wsAppIds.includes(a.id) ? { ...a, status: "stopped" as const, pid: null } : a
+        ),
+        appRetryCount: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: 0 }), s.appRetryCount),
+        appRestarting: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: false }), s.appRestarting),
+        appStartedAt: restStartedAt,
+      };
+    });
   },
 
   addApp: async (params) => {
@@ -170,13 +177,17 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     } else {
       stopMockProcess(id);
     }
-    set((s) => ({
-      apps: s.apps.map((a) =>
-        a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
-      ),
-      appRetryCount: { ...s.appRetryCount, [id]: 0 },
-      appRestarting: { ...s.appRestarting, [id]: false },
-    }));
+    set((s) => {
+      const { [id]: _, ...restStartedAt } = s.appStartedAt;
+      return {
+        apps: s.apps.map((a) =>
+          a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
+        ),
+        appRetryCount: { ...s.appRetryCount, [id]: 0 },
+        appRestarting: { ...s.appRestarting, [id]: false },
+        appStartedAt: restStartedAt,
+      };
+    });
   },
 
   restartApp: async (id) => {
@@ -218,12 +229,16 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     } else {
       killMockProcess(id);
     }
-    set((s) => ({
-      apps: s.apps.map((a) =>
-        a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
-      ),
-      appRetryCount: { ...s.appRetryCount, [id]: 0 },
-    }));
+    set((s) => {
+      const { [id]: _, ...restStartedAt } = s.appStartedAt;
+      return {
+        apps: s.apps.map((a) =>
+          a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
+        ),
+        appRetryCount: { ...s.appRetryCount, [id]: 0 },
+        appStartedAt: restStartedAt,
+      };
+    });
   },
 
   clearAppLogs: (id) =>

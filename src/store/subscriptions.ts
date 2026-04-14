@@ -30,13 +30,16 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
             a.id === appId ? { ...a, status: "running" as const } : a
           ),
           appRestarting: { ...s.appRestarting, [appId]: false },
+          appStartedAt: { ...s.appStartedAt, [appId]: Date.now() },
         }));
       } else if (event === "exit") {
+        const { [appId]: _, ...restStartedAt } = get().appStartedAt;
         set((s) => ({
           apps: s.apps.map((a) =>
             a.id === appId ? { ...a, status: "stopped" as const, pid: null } : a
           ),
           appExitCode: { ...s.appExitCode, [appId]: payload as number },
+          appStartedAt: restStartedAt,
         }));
       } else if (event === "crashed") {
         const p = payload as { exit_code: number; attempt: number; max: number };
@@ -90,11 +93,13 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       listen<number>(`app:exit:${app.id}`, (e) => {
+        const { [app.id]: _, ...restStartedAt } = get().appStartedAt;
         set((s) => ({
           apps: s.apps.map((a) =>
             a.id === app.id ? { ...a, status: "stopped" as const, pid: null } : a
           ),
           appExitCode: { ...s.appExitCode, [app.id]: e.payload },
+          appStartedAt: restStartedAt,
         }));
         cmd.markAppStopped(app.id).catch(() => {});
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
@@ -105,6 +110,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
             a.id === app.id ? { ...a, status: "running" as const } : a
           ),
           appRestarting: { ...s.appRestarting, [app.id]: false },
+          appStartedAt: { ...s.appStartedAt, [app.id]: Date.now() },
         }));
         cmd.markAppReady(app.id).catch(() => {});
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));

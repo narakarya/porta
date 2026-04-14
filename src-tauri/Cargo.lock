@@ -3000,6 +3000,7 @@ dependencies = [
  "chrono",
  "libc",
  "nix",
+ "pathdiff",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
