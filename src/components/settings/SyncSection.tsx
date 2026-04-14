@@ -1,95 +1,95 @@
 import { useState, useEffect } from "react";
-import { gdriveConnect, gdriveStatus, gdriveDisconnect, gdriveSync, getGdriveCredentials, setGdriveCredentials } from "../../lib/commands";
+import { gitSyncGetRepo, gitSyncSetRepo, gitSyncTest, gitSyncPush, gitSyncDisconnect } from "../../lib/commands";
 
-type SyncTarget = "none" | "git" | "icloud" | "gdrive";
-type SyncStatus = "idle" | "synced" | "syncing" | "error";
+type SyncStatus = "idle" | "connected" | "syncing" | "synced" | "error";
 
 export default function SyncSection() {
-  const [syncTarget, setSyncTarget] = useState<SyncTarget>("none");
   const [gitRepoUrl, setGitRepoUrl] = useState("");
+  const [savedUrl, setSavedUrl] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [lastSynced, setLastSynced] = useState<string | null>(null);
-  const [gdriveEmail, setGdriveEmail] = useState<string | null>(null);
-  const [gdriveConnecting, setGdriveConnecting] = useState(false);
-  const [gdriveError, setGdriveError] = useState<string | null>(null);
-  const [gdriveClientId, setGdriveClientId] = useState("");
-  const [gdriveClientSecret, setGdriveClientSecret] = useState("");
-  const [credentialsSaved, setCredentialsSaved] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testSuccess, setTestSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const icloudPath = "~/Library/Mobile Documents/com~apple~CloudDocs/Porta";
-
-  // Load stored credentials + auth status when switching to gdrive
+  // Load existing repo on mount
   useEffect(() => {
-    if (syncTarget !== "gdrive") return;
-    gdriveStatus()
-      .then((s) => { if (s.connected) setGdriveEmail(s.email ?? null); })
-      .catch(() => {});
-    getGdriveCredentials()
-      .then((creds: { client_id: string; client_secret: string }) => {
-        if (creds.client_id) { setGdriveClientId(creds.client_id); setCredentialsSaved(true); }
-        if (creds.client_secret) setGdriveClientSecret(creds.client_secret);
-      })
-      .catch(() => {});
-  }, [syncTarget]);
-
-  async function handleSaveCredentials() {
-    if (!gdriveClientId.trim() || !gdriveClientSecret.trim()) return;
-    await setGdriveCredentials(gdriveClientId.trim(), gdriveClientSecret.trim());
-    setCredentialsSaved(true);
-    setGdriveError(null);
-  }
-
-  async function handleGdriveConnect() {
-    if (!credentialsSaved && gdriveClientId.trim() && gdriveClientSecret.trim()) {
-      await handleSaveCredentials();
-    }
-    setGdriveConnecting(true);
-    setGdriveError(null);
-    try {
-      const result = await gdriveConnect();
-      setGdriveEmail(result.email);
-    } catch (e) {
-      const msg = String(e).replace(/^Error: /, "");
-      if (msg === "not_configured") {
-        setGdriveError("OAuth credentials not configured. Enter your Google Cloud client ID and secret below.");
-      } else {
-        setGdriveError(msg);
+    gitSyncGetRepo().then((url) => {
+      if (url) {
+        setSavedUrl(url);
+        setGitRepoUrl(url);
+        setSyncStatus("connected");
       }
+    }).catch(() => {});
+  }, []);
+
+  async function handleSaveRepo() {
+    if (!gitRepoUrl.trim()) return;
+    setSaving(true);
+    setSyncError(null);
+    setSaveSuccess(false);
+    try {
+      await gitSyncSetRepo(gitRepoUrl.trim());
+      setSavedUrl(gitRepoUrl.trim());
+      setSyncStatus("connected");
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (e) {
+      setSyncError(String(e).replace(/^Error: /, ""));
+      setSyncStatus("error");
     } finally {
-      setGdriveConnecting(false);
+      setSaving(false);
     }
   }
 
-  async function handleGdriveDisconnect() {
-    await gdriveDisconnect();
-    setGdriveEmail(null);
-  }
-
-  function handleTestConnection() {
-    setSyncStatus("error");
-    setGdriveError("Git sync is not yet implemented.");
+  async function handleTestConnection() {
+    setTesting(true);
+    setSyncError(null);
+    setTestSuccess(false);
+    try {
+      await gitSyncTest();
+      setTestSuccess(true);
+      setTimeout(() => setTestSuccess(false), 3000);
+    } catch (e) {
+      setSyncError(String(e).replace(/^Error: /, ""));
+      setSyncStatus("error");
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function handleSyncNow() {
     setSyncStatus("syncing");
+    setSyncError(null);
     try {
-      if (syncTarget === "gdrive") {
-        const ts = await gdriveSync();
-        setLastSynced(new Date(ts).toLocaleString());
+      const ts = await gitSyncPush();
+      if (ts.startsWith("No changes")) {
+        setLastSynced(ts);
       } else {
-        // iCloud / Git sync not yet implemented — placeholder
-        await new Promise((r) => setTimeout(r, 800));
-        setLastSynced(new Date().toLocaleString());
+        setLastSynced(new Date(ts).toLocaleString());
       }
       setSyncStatus("synced");
     } catch (e) {
       setSyncStatus("error");
-      setGdriveError(String(e).replace(/^Error: /, ""));
+      setSyncError(String(e).replace(/^Error: /, ""));
     }
   }
 
+  async function handleDisconnect() {
+    await gitSyncDisconnect();
+    setSavedUrl(null);
+    setSyncStatus("idle");
+    setLastSynced(null);
+    setSyncError(null);
+  }
+
+  const isConnected = savedUrl !== null;
+
   const statusColor: Record<SyncStatus, string> = {
     idle: "text-zinc-500",
+    connected: "text-blue-400",
     synced: "text-emerald-400",
     syncing: "text-amber-400",
     error: "text-red-400",
@@ -97,6 +97,7 @@ export default function SyncSection() {
 
   const statusLabel: Record<SyncStatus, string> = {
     idle: "Not configured",
+    connected: "Connected",
     synced: "Synced",
     syncing: "Syncing...",
     error: "Sync error",
@@ -110,7 +111,7 @@ export default function SyncSection() {
       <div>
         <h1 className="text-[16px] font-semibold text-zinc-100">Sync</h1>
         <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
-          Keep your Porta configuration in sync across multiple machines.
+          Keep your Porta configuration in sync across multiple machines via a Git repository.
         </p>
       </div>
 
@@ -120,6 +121,7 @@ export default function SyncSection() {
           <span className={`inline-block w-1.5 h-1.5 rounded-full ${
             syncStatus === "synced" ? "bg-emerald-400" :
             syncStatus === "syncing" ? "bg-amber-400 animate-pulse" :
+            syncStatus === "connected" ? "bg-blue-400" :
             syncStatus === "error" ? "bg-red-400" :
             "bg-zinc-600"
           }`} />
@@ -130,7 +132,7 @@ export default function SyncSection() {
         )}
       </div>
 
-      {/* Sync target selector */}
+      {/* Git config */}
       <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
         <div className="flex items-start gap-4">
           <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
@@ -139,37 +141,37 @@ export default function SyncSection() {
               <path d="M15 3v4h-4M5 17v-4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <div>
-            <p className="text-[13px] font-medium text-zinc-200">Sync Target</p>
+          <div className="flex-1">
+            <p className="text-[13px] font-medium text-zinc-200">Git Repository</p>
             <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
-              Choose where to sync your Porta configuration.
+              Porta will push and pull your configuration from a private Git repository.
             </p>
           </div>
+          {isConnected && (
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              className="text-[11px] text-zinc-600 hover:text-red-400 transition-colors shrink-0"
+            >
+              Disconnect
+            </button>
+          )}
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          {(["none", "git", "icloud", "gdrive"] as SyncTarget[]).map((target) => {
-            const active = syncTarget === target;
-            const labels: Record<SyncTarget, string> = { none: "None", git: "Git Repository", icloud: "iCloud Drive", gdrive: "Google Drive" };
-            return (
-              <button
-                key={target}
-                type="button"
-                onClick={() => { setSyncTarget(target); if (target === "none") setSyncStatus("idle"); }}
-                className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors ${
-                  active
-                    ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
-                    : "bg-white/[0.04] text-zinc-500 border-white/[0.06] hover:bg-white/[0.07] hover:text-zinc-300"
-                }`}
-              >
-                {labels[target]}
-              </button>
-            );
-          })}
-        </div>
-
-        {syncTarget === "git" && (
-          <div className="flex flex-col gap-3 mt-1">
+        {isConnected ? (
+          /* Connected state */
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/[0.07] border border-emerald-500/20">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-emerald-400 shrink-0">
+                <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M4 7l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="text-[12px] text-emerald-400 font-mono truncate flex-1">{savedUrl}</span>
+            </div>
+          </div>
+        ) : (
+          /* Not connected */
+          <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
               <span className={labelCls}>Repository URL</span>
               <input
@@ -181,144 +183,80 @@ export default function SyncSection() {
                 spellCheck={false}
               />
             </label>
-            <button
-              type="button"
-              onClick={handleTestConnection}
-              disabled={!gitRepoUrl || syncStatus === "syncing"}
-              className="self-start px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-not-allowed text-zinc-300 rounded-lg transition-colors"
-            >
-              {syncStatus === "syncing" ? "Testing..." : "Test Connection"}
-            </button>
-          </div>
-        )}
-
-        {syncTarget === "icloud" && (
-          <div className="flex flex-col gap-3 mt-1">
-            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-              <span className="text-[12px] text-zinc-500">iCloud path</span>
-              <span className="text-[12px] text-zinc-400 font-mono">{icloudPath}</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSaveRepo}
+                disabled={!gitRepoUrl.trim() || saving}
+                className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                {saving && <span className="w-3 h-3 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+                {saving ? "Connecting..." : "Connect"}
+              </button>
+              {saveSuccess && (
+                <span className="flex items-center gap-1.5 text-[12px] text-emerald-400">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5 5.5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Connected!
+                </span>
+              )}
+              {isConnected && (
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors"
+                >
+                  {testing ? "Testing..." : "Test Connection"}
+                </button>
+              )}
             </div>
-            <p className="text-[11px] text-zinc-600 leading-relaxed">
-              Porta will automatically detect and use your iCloud Drive for syncing configuration files.
-            </p>
           </div>
         )}
 
-        {syncTarget === "gdrive" && (
-          <div className="flex flex-col gap-3 mt-1">
-            {gdriveEmail ? (
-              /* Connected */
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-emerald-500/[0.07] border border-emerald-500/20">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-emerald-400 shrink-0">
-                  <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3"/>
-                  <path d="M4 7l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="text-[12px] text-emerald-400 flex-1">{gdriveEmail}</span>
-                <button
-                  type="button"
-                  onClick={handleGdriveDisconnect}
-                  className="text-[11px] text-zinc-500 hover:text-red-400 transition-colors"
-                >
-                  Disconnect
-                </button>
-              </div>
-            ) : (
-              /* Not connected */
-              <div className="flex flex-col gap-3">
-                <p className="text-[12px] text-zinc-500 leading-relaxed">
-                  You'll be redirected to Google in your browser to grant access. Porta only stores backups — no other files are accessed.
-                </p>
-
-                {/* OAuth credentials */}
-                <div className="flex flex-col gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                  <p className="text-[11px] text-zinc-500">
-                    Create a <span className="text-zinc-400">Desktop</span> OAuth app in{" "}
-                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer"
-                      className="text-blue-400 hover:text-blue-300 underline underline-offset-2">
-                      Google Cloud Console
-                    </a>{" "}
-                    and paste the credentials here.
-                  </p>
-                  <label className="flex flex-col gap-1">
-                    <span className={labelCls}>Client ID</span>
-                    <input
-                      value={gdriveClientId}
-                      onChange={(e) => { setGdriveClientId(e.target.value); setCredentialsSaved(false); }}
-                      placeholder="123456789-abc.apps.googleusercontent.com"
-                      className={inputCls}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className={labelCls}>Client Secret</span>
-                    <input
-                      value={gdriveClientSecret}
-                      onChange={(e) => { setGdriveClientSecret(e.target.value); setCredentialsSaved(false); }}
-                      placeholder="GOCSPX-..."
-                      className={inputCls}
-                      type="password"
-                      autoComplete="off"
-                    />
-                  </label>
-                  {gdriveClientId && gdriveClientSecret && !credentialsSaved && (
-                    <button
-                      type="button"
-                      onClick={handleSaveCredentials}
-                      className="self-start px-2.5 py-1 text-[11px] font-medium bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded-md transition-colors"
-                    >
-                      Save Credentials
-                    </button>
-                  )}
-                  {credentialsSaved && (
-                    <span className="text-[11px] text-emerald-400">Credentials saved</span>
-                  )}
-                </div>
-
-                {gdriveError && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/[0.07] border border-red-500/20">
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0 mt-0.5">
-                      <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2"/>
-                      <path d="M6 4v3M6 8.5v.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                    </svg>
-                    <span className="text-[11px] text-red-400 leading-relaxed">{gdriveError}</span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={handleGdriveConnect}
-                  disabled={gdriveConnecting}
-                  className="self-start flex items-center gap-2 px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors border border-white/[0.08]"
-                >
-                  {gdriveConnecting ? (
-                    <span className="w-3 h-3 border border-zinc-400/50 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" className="text-zinc-400">
-                      <path d="M17 7H3M13 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M3 13v4h14v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                  {gdriveConnecting ? "Waiting for browser…" : "Connect Google Drive"}
-                </button>
-              </div>
-            )}
+        {syncError && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/[0.07] border border-red-500/20">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0 mt-0.5">
+              <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M6 4v3M6 8.5v.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            <span className="text-[11px] text-red-400 leading-relaxed">{syncError}</span>
           </div>
         )}
       </div>
 
-      {syncTarget !== "none" && (
-        <button
-          type="button"
-          onClick={handleSyncNow}
-          disabled={
-            syncStatus === "syncing" ||
-            (syncTarget === "git" && !gitRepoUrl) ||
-            (syncTarget === "gdrive" && !gdriveEmail)
-          }
-          className="self-start px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
-        >
-          {syncStatus === "syncing" ? "Syncing..." : "Sync Now"}
-        </button>
+      {/* Sync actions */}
+      {isConnected && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleSyncNow}
+            disabled={syncStatus === "syncing"}
+            className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            {syncStatus === "syncing" && <span className="w-3 h-3 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+            {syncStatus === "syncing" ? "Syncing..." : "Sync Now"}
+          </button>
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={testing || syncStatus === "syncing"}
+            className="px-3 py-2 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors"
+          >
+            {testing ? "Testing..." : "Test Connection"}
+          </button>
+          {testSuccess && (
+            <span className="flex items-center gap-1.5 text-[12px] text-emerald-400 animate-in fade-in">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5 5.5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Connection OK
+            </span>
+          )}
+          {syncStatus === "synced" && lastSynced && !testSuccess && (
+            <span className="flex items-center gap-1.5 text-[12px] text-emerald-400">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5 5.5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              {lastSynced}
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

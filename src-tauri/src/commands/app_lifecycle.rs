@@ -33,15 +33,68 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
         log_handle.emit(&format!("app:log:{}", log_id), line).ok();
     };
 
+    // Capture auto-restart parameters for the on_exit closure
     let exit_id = id.clone();
     let exit_handle = handle.clone();
     let exit_name = app_data.name.clone();
+    let restart_policy = app_data.restart_policy.clone();
+    let max_retries = app_data.max_retries;
     let on_exit = move |exit_code: i32, is_stop: bool| {
         let reported = if is_stop { 0 } else { exit_code };
         exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
-        if exit_code != 0 && !is_stop {
-            notify_crash(&exit_handle, &exit_name, exit_code);
+
+        if is_stop || exit_code == 0 {
+            return;
         }
+
+        // Non-zero exit, not intentional stop → crash
+        notify_crash(&exit_handle, &exit_name, exit_code);
+
+        // Check if auto-restart is configured
+        let should_restart = match restart_policy.as_str() {
+            "always" => true,
+            "on-failure" => exit_code != 0,
+            _ => false, // "never"
+        };
+        if !should_restart {
+            return;
+        }
+
+        // Read current retry count from app state, attempt restart
+        let state: State<AppState> = exit_handle.state();
+        let retry_count = {
+            let mut retries = state.processes.retry_counts.lock().unwrap();
+            let count = retries.entry(exit_id.clone()).or_insert(0);
+            *count += 1;
+            *count
+        };
+
+        if retry_count > max_retries as u32 {
+            // Max retries exhausted
+            exit_handle.emit(&format!("app:max-retries:{}", exit_id), max_retries).ok();
+            notify(&exit_handle, &format!("{} stopped", exit_name),
+                &format!("Max retries ({}) reached", max_retries));
+            state.processes.retry_counts.lock().unwrap().remove(&exit_id);
+            return;
+        }
+
+        // Emit crashed event with attempt number
+        exit_handle.emit(&format!("app:crashed:{}", exit_id), retry_count).ok();
+
+        // Auto-restart after a short delay
+        let restart_handle = exit_handle.clone();
+        let restart_id = exit_id.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(2));
+            let state: State<AppState> = restart_handle.state();
+            // Re-read app from DB in case it was deleted
+            let app_opt = state.db.lock().unwrap().list_apps()
+                .ok()
+                .and_then(|apps| apps.into_iter().find(|a| a.id == restart_id));
+            if let Some(app) = app_opt {
+                start_single(&restart_handle, &app, false).ok();
+            }
+        });
     };
 
     let pid = state
@@ -59,6 +112,9 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
         )
         .map_err(|e| e.to_string())?;
 
+    // Reset retry count on successful start
+    state.processes.retry_counts.lock().unwrap().remove(id);
+
     state
         .db
         .lock()
@@ -67,6 +123,7 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
         .map_err(|e| e.to_string())?;
 
     spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+
     Ok(())
 }
 

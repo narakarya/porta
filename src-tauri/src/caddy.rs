@@ -25,9 +25,9 @@ impl CaddyManager {
 
     pub fn build_config(routes: &[(String, u16)]) -> Value {
         let has_certs = crate::setup::certs_exist();
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        let cert_file = format!("{}/.porta/certs/test.pem", home);
-        let key_file = format!("{}/.porta/certs/test-key.pem", home);
+        let base = crate::porta_dir();
+        let cert_file = base.join("certs").join("test.pem").to_string_lossy().to_string();
+        let key_file = base.join("certs").join("test-key.pem").to_string_lossy().to_string();
 
         if has_certs {
             // HTTPS server on :443 with mkcert wildcard cert + HTTP→HTTPS redirect on :80

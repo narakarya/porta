@@ -215,6 +215,15 @@ export const listBackups = (): Promise<string[]> =>
 export const restoreBackup = (filename: string): Promise<void> =>
   isTauri ? invoke("restore_backup", { filename }) : Promise.resolve();
 
+export const exportFullBackup = (destPath: string): Promise<void> =>
+  isTauri ? invoke("export_full_backup", { destPath }) : Promise.resolve();
+
+export const importFullBackup = (srcPath: string): Promise<void> =>
+  isTauri ? invoke("import_full_backup", { srcPath }) : Promise.resolve();
+
+export const getPortaEnv = (): Promise<string> =>
+  isTauri ? invoke("get_porta_env") : Promise.resolve("dev");
+
 // ── Clone App ─────────────────────────────────────────────────────────────────
 
 export const cloneApp = (id: string): Promise<App> =>

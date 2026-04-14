@@ -266,8 +266,7 @@ pub async fn gdrive_sync(app: tauri::AppHandle) -> Result<String, String> {
     let access_token = get_gdrive_access_token(&app).await?;
 
     // Export current DB state
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let db_path = std::path::PathBuf::from(home).join(".porta").join("porta.db");
+    let db_path = crate::porta_dir().join("porta.db");
     let db = Database::open(db_path).map_err(|e| e.to_string())?;
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let apps = db.list_apps().map_err(|e| e.to_string())?;

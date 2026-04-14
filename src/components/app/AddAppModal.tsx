@@ -73,7 +73,7 @@ export default function AddAppModal({ workspaceId, onClose }: Props) {
   }
 
   const workspace = workspaces.find((w) => w.id === wsId) ?? null;
-  const domain = workspace?.domain ?? "narakarya.test";
+  const domain = workspace?.domain || "narakarya.test";
   const preview = `${subdomain || name || "..."}.${domain}`;
 
   function handleSubdomainChange(val: string) {

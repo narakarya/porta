@@ -90,6 +90,56 @@ pub fn brew_install(package: &str, on_log: &dyn Fn(&str)) -> Result<()> {
     Ok(())
 }
 
+fn caddy_path() -> &'static str {
+    if std::path::Path::new("/opt/homebrew/opt/caddy/bin/caddy").exists() {
+        "/opt/homebrew/opt/caddy/bin/caddy"
+    } else if std::path::Path::new("/opt/homebrew/bin/caddy").exists() {
+        "/opt/homebrew/bin/caddy"
+    } else {
+        "/usr/local/bin/caddy"
+    }
+}
+
+const PLIST_LABEL: &str = "com.narakarya.porta.caddy";
+
+/// Generate the launchd plist that runs Caddy in API mode with --resume.
+fn caddy_plist_content() -> String {
+    let caddy = caddy_path();
+    let config_dir = crate::porta_dir().join("caddy");
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{caddy}</string>
+        <string>run</string>
+        <string>--resume</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>XDG_CONFIG_HOME</key>
+        <string>{config_dir}</string>
+        <key>XDG_DATA_HOME</key>
+        <string>{config_dir}</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/porta-caddy.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/porta-caddy.log</string>
+</dict>
+</plist>"#,
+        config_dir = config_dir.display(),
+    )
+}
+
 pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
     // Fast path: already running — skip everything, no password dialog needed
     if crate::caddy::CaddyManager::new().is_running() {
@@ -97,16 +147,30 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
         return Ok(());
     }
 
-    let caddy = caddy_path();
+    let plist_path = format!("/Library/LaunchDaemons/{}.plist", PLIST_LABEL);
+
+    // Ensure the caddy config dir exists
+    let config_dir = crate::porta_dir().join("caddy");
+    std::fs::create_dir_all(&config_dir)?;
 
     if certs_exist() {
-        // HTTPS mode: Caddy must bind :443 — requires root via osascript
-        on_log("Requesting admin permission to start Caddy on port 443…");
+        // HTTPS mode: Caddy must bind :443 — requires root via launchd daemon.
+        // Install a custom plist that runs `caddy run --resume` (API mode).
+        on_log("Installing Caddy as a persistent service (port 443, admin required)…");
         on_log("(macOS will ask for your password)");
 
+        let plist_content = caddy_plist_content();
+        // Write plist to temp file, then use osascript to move and load (avoids quoting issues)
+        let tmp_plist = "/tmp/porta-caddy-daemon.plist";
+        std::fs::write(tmp_plist, &plist_content)?;
+
         let script = format!(
-            "do shell script \"pkill -9 caddy; sleep 0.3; {} start >> /tmp/porta-caddy.log 2>&1\" with administrator privileges",
-            caddy
+            "do shell script \"launchctl unload '{plist_path}' 2>/dev/null; \
+             cp '{tmp_plist}' '{plist_path}'; \
+             launchctl load -w '{plist_path}'\" \
+             with administrator privileges",
+            plist_path = plist_path,
+            tmp_plist = tmp_plist,
         );
         let out = Command::new("osascript")
             .arg("-e").arg(&script)
@@ -117,16 +181,14 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
             if stderr.contains("User canceled") || stderr.contains("cancelled") {
                 return Err(anyhow::anyhow!("Admin permission was cancelled. HTTPS requires Caddy to run with admin privileges."));
             }
-            if !stderr.contains("already") && !stderr.contains("pid file") {
-                on_log(&format!("osascript warning: {}", stderr.trim()));
-            }
+            on_log(&format!("osascript warning: {}", stderr.trim()));
         }
 
         on_log("Waiting for Caddy to come up…");
-        for i in 0..12 {
+        for i in 0..15 {
             std::thread::sleep(std::time::Duration::from_secs(1));
             if crate::caddy::CaddyManager::new().is_running() {
-                on_log("Caddy is running.");
+                on_log("Caddy is running (persistent via launchd).");
                 return Ok(());
             }
             if i == 5 {
@@ -135,25 +197,17 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
         }
 
         return Err(anyhow::anyhow!(
-            "Caddy did not respond after 12 seconds. Check /tmp/porta-caddy.log for details."
+            "Caddy did not respond after 15 seconds. Check /tmp/porta-caddy.log for details."
         ));
     }
 
-    // HTTP-only mode — no admin needed
+    // HTTP-only mode — no admin needed, just start directly
     on_log("Starting Caddy (HTTP mode)…");
-    let out = Command::new(caddy).arg("start").output()?;
+    let out = Command::new(caddy_path()).arg("start").output()?;
     if out.status.success() { return Ok(()); }
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains("already") || stderr.contains("pid file") { return Ok(()); }
     Err(anyhow::anyhow!("Failed to start Caddy: {}", stderr.trim()))
-}
-
-fn caddy_path() -> &'static str {
-    if std::path::Path::new("/opt/homebrew/bin/caddy").exists() {
-        "/opt/homebrew/bin/caddy"
-    } else {
-        "/usr/local/bin/caddy"
-    }
 }
 
 /// workspace_domains: list of all workspace domain strings (e.g. ["uq.test", "tanyaobat.test"])
@@ -194,7 +248,7 @@ pub fn run_full_setup(
         workspace_domains.iter().map(|d| format!("*.{d}")).collect::<Vec<_>>().join(" ")
     ));
     generate_certs(workspace_domains)?;
-    on_log("Certificates written to ~/.porta/certs/");
+    on_log(&format!("Certificates written to {}/certs/", crate::porta_dir().display()));
 
     on_step("caddy_running");
     start_caddy(on_log)?;
@@ -213,8 +267,7 @@ fn mkcert_path() -> Option<String> {
 }
 
 pub fn certs_exist() -> bool {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let cert = std::path::PathBuf::from(&home).join(".porta").join("certs").join("test.pem");
+    let cert = crate::porta_dir().join("certs").join("test.pem");
     cert.exists()
 }
 
@@ -245,8 +298,7 @@ pub fn install_mkcert_ca() -> Result<()> {
 pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
     let mkcert = mkcert_path()
         .ok_or_else(|| anyhow::anyhow!("mkcert not found"))?;
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let certs_dir = std::path::PathBuf::from(&home).join(".porta").join("certs");
+    let certs_dir = crate::porta_dir().join("certs");
     std::fs::create_dir_all(&certs_dir)?;
 
     // Re-run -install each time (idempotent) to ensure CA stays trusted in the

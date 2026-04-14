@@ -1,8 +1,9 @@
 use anyhow::{anyhow, Result};
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
+use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,8 @@ pub struct ProcessManager {
     /// Tracks app IDs that are being intentionally stopped (SIGTERM/SIGKILL by user).
     /// The on_exit closure checks this to avoid triggering auto-restart on manual stops.
     pub stopping: Arc<Mutex<HashSet<String>>>,
+    /// Tracks retry counts per app for auto-restart logic.
+    pub retry_counts: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl Default for ProcessManager {
@@ -27,6 +30,7 @@ impl ProcessManager {
         ProcessManager {
             pids: Arc::new(Mutex::new(HashMap::new())),
             stopping: Arc::new(Mutex::new(HashSet::new())),
+            retry_counts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -64,7 +68,10 @@ impl ProcessManager {
             .current_dir(root_dir)
             .env("PORT", port.to_string())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // Create a new process group so we can kill the shell AND all its
+            // children (e.g. node, next dev) with a single signal to -pgid.
+            .process_group(0);
 
         // Inject .env file variables (PORT always wins over .env).
         if let Some(path) = env_file {
@@ -188,13 +195,17 @@ impl ProcessManager {
     pub fn stop(&self, app_id: &str) -> Result<()> {
         // Mark as intentionally stopping before sending signal
         self.stopping.lock().unwrap().insert(app_id.to_string());
+        // Reset retry count on manual stop
+        self.retry_counts.lock().unwrap().remove(app_id);
 
         let pid_opt = {
             let pids = self.pids.lock().unwrap();
             pids.get(app_id).copied()
         };
         if let Some(pid) = pid_opt {
-            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+            let pgid = Pid::from_raw(pid as i32);
+            // Send SIGTERM to the entire process group (shell + all children)
+            let _ = killpg(pgid, Signal::SIGTERM);
             let pids = Arc::clone(&self.pids);
             let app_id = app_id.to_string();
             thread::spawn(move || {
@@ -205,7 +216,8 @@ impl ProcessManager {
                         return;
                     }
                 }
-                let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+                // Escalate: SIGKILL the entire process group
+                let _ = killpg(pgid, Signal::SIGKILL);
                 pids.lock().unwrap().remove(&app_id);
             });
         }
@@ -224,9 +236,10 @@ impl ProcessManager {
         };
 
         let Some(pid) = pid_opt else { return Ok(()) };
+        let pgid = Pid::from_raw(pid as i32);
 
-        // Graceful SIGTERM first
-        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+        // Graceful SIGTERM to entire process group first
+        let _ = killpg(pgid, Signal::SIGTERM);
 
         // Poll until dead, falling back to SIGKILL after timeout
         let steps = (timeout_ms / 50).max(1);
@@ -237,14 +250,14 @@ impl ProcessManager {
                 self.pids.lock().unwrap().remove(app_id);
                 return Ok(());
             }
-            // Halfway through timeout — escalate to SIGKILL
+            // Halfway through timeout — escalate to SIGKILL on entire group
             if i == steps / 2 {
-                let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+                let _ = killpg(pgid, Signal::SIGKILL);
             }
         }
 
-        // Final SIGKILL and a short grace period for the OS to reclaim the port
-        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+        // Final SIGKILL to entire group and a short grace period for the OS to reclaim the port
+        let _ = killpg(pgid, Signal::SIGKILL);
         thread::sleep(Duration::from_millis(150));
         self.pids.lock().unwrap().remove(app_id);
         Ok(())
@@ -255,7 +268,8 @@ impl ProcessManager {
         self.stopping.lock().unwrap().insert(app_id.to_string());
         let mut pids = self.pids.lock().unwrap();
         if let Some(pid) = pids.remove(app_id) {
-            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+            // Kill the entire process group
+            let _ = killpg(Pid::from_raw(pid as i32), Signal::SIGKILL);
         }
         Ok(())
     }
@@ -269,7 +283,8 @@ impl ProcessManager {
         }
         drop(stopping);
         for pid in pids.values() {
-            let _ = kill(Pid::from_raw(*pid as i32), Signal::SIGTERM);
+            // Kill entire process group for each app
+            let _ = killpg(Pid::from_raw(*pid as i32), Signal::SIGTERM);
         }
         pids.clear();
     }
@@ -277,13 +292,16 @@ impl ProcessManager {
     pub fn is_running(&self, app_id: &str) -> bool {
         self.pids.lock().unwrap().contains_key(app_id)
     }
+
+    /// Returns a snapshot of current app_id → pid mappings (for metrics polling).
+    pub fn pids(&self) -> HashMap<String, u32> {
+        self.pids.lock().unwrap().clone()
+    }
 }
 
-/// Returns the path to the per-app log file: ~/.porta/logs/{app_id}.log
+/// Returns the path to the per-app log file: <porta_dir>/logs/{app_id}.log
 pub fn log_file_path(app_id: &str) -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home)
-        .join(".porta")
+    crate::porta_dir()
         .join("logs")
         .join(format!("{}.log", app_id))
 }

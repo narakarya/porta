@@ -108,3 +108,22 @@ pub fn restore_backup(state: State<AppState>, filename: String) -> Result<(), St
     std::fs::copy(&backup_path, &state.db_path).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub fn export_full_backup(state: State<AppState>, dest_path: String) -> Result<(), String> {
+    backup::auto_backup(&state.db_path).ok();
+    std::fs::copy(&state.db_path, &dest_path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_full_backup(state: State<AppState>, src_path: String) -> Result<(), String> {
+    backup::auto_backup(&state.db_path).ok();
+    std::fs::copy(&src_path, &state.db_path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_porta_env() -> String {
+    if cfg!(debug_assertions) { "dev".into() } else { "prod".into() }
+}

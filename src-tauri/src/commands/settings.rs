@@ -1,6 +1,5 @@
 fn porta_config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join(".porta").join("config.json")
+    crate::porta_dir().join("config.json")
 }
 
 pub(crate) fn read_porta_config() -> serde_json::Value {
@@ -47,25 +46,6 @@ pub fn set_notifications_enabled(enabled: bool) {
     let mut cfg = read_porta_config();
     cfg["notifications_enabled"] = serde_json::json!(enabled);
     write_porta_config(&cfg);
-}
-
-/// Detect Google Drive Desktop mount on macOS.
-/// Looks for ~/Library/CloudStorage/GoogleDrive-*/My Drive
-#[tauri::command]
-pub fn detect_gdrive_path() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    let cloud_storage = std::path::Path::new(&home).join("Library/CloudStorage");
-    for entry in std::fs::read_dir(&cloud_storage).ok()?.flatten() {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if name_str.starts_with("GoogleDrive-") {
-            let candidate = entry.path().join("My Drive");
-            if candidate.exists() {
-                return Some(candidate.to_string_lossy().to_string());
-            }
-        }
-    }
-    None
 }
 
 // ── Launch at Login ───────────────────────────────────────────────────────────
