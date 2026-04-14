@@ -35,7 +35,14 @@ export const createWorkspaceSlice: StateCreator<AllSlices, [], [], WorkspaceSlic
           : workspaces.length > 0
           ? workspaces[0].id
           : null;
-      set({ workspaces, apps, services, selectedWorkspaceId, loading: false });
+      // Initialize appStartedAt for already-running apps (survives Porta restart)
+      const appStartedAt: Record<string, number> = { ...get().appStartedAt };
+      for (const app of apps) {
+        if ((app.status === "running" || app.status === "starting") && !appStartedAt[app.id]) {
+          appStartedAt[app.id] = Date.now();
+        }
+      }
+      set({ workspaces, apps, services, selectedWorkspaceId, loading: false, appStartedAt });
 
       if (isTauri) {
         const { MAX_LOG_LINES } = await import("../index");

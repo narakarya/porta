@@ -16,12 +16,20 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
         loop {
             thread::sleep(Duration::from_secs(2));
 
-            // Get current pid→app_id mapping from ProcessManager
+            // Get pid→app_id mapping from ProcessManager + DB (covers apps surviving Porta restart)
             let state = app.state::<AppState>();
-            let pid_map: HashMap<String, u32> = {
-                let pids = state.processes.pids();
-                pids
-            };
+            let mut pid_map: HashMap<String, u32> = state.processes.pids();
+
+            // Also include running apps from DB whose PID we know but aren't in ProcessManager
+            if let Ok(db_apps) = state.db.lock().unwrap().list_apps() {
+                for a in &db_apps {
+                    if a.status == "running" {
+                        if let Some(pid) = a.pid {
+                            pid_map.entry(a.id.clone()).or_insert(pid);
+                        }
+                    }
+                }
+            }
 
             if pid_map.is_empty() {
                 continue;
