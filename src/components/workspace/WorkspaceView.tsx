@@ -190,7 +190,7 @@ export default function WorkspaceView() {
       </div>
 
       {/* Filter bar */}
-      {allVisibleApps.length > 3 && (
+      {allVisibleApps.length > 1 && (
         <div className="relative mb-3 max-w-xs">
           <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
