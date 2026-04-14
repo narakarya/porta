@@ -1,19 +1,34 @@
-use tauri::Emitter;
-use tauri::State;
+use tauri::{Emitter, Manager, State};
 
 use crate::app_state::AppState;
 use crate::setup::SetupStatus;
 
-fn workspace_domains(state: &AppState) -> Result<Vec<String>, String> {
-    Ok(state
-        .db
-        .lock()
-        .unwrap()
+/// Collect all unique domains that need SSL certs: workspace domains + app custom domains.
+fn all_domains(state: &AppState) -> Result<Vec<String>, String> {
+    let db = state.db.lock().unwrap();
+    let mut domains: Vec<String> = db
         .list_workspaces()
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|w| w.domain)
-        .collect())
+        .collect();
+    // Add any app-level custom domains + binding custom domains
+    let apps = db.list_apps().map_err(|e| e.to_string())?;
+    for app in &apps {
+        if let Some(ref cd) = app.custom_domain {
+            if !cd.is_empty() && !domains.contains(cd) {
+                domains.push(cd.clone());
+            }
+        }
+        for binding in &app.port_bindings {
+            if let Some(ref cd) = binding.custom_domain {
+                if !cd.is_empty() && !domains.contains(cd) {
+                    domains.push(cd.clone());
+                }
+            }
+        }
+    }
+    Ok(domains)
 }
 
 pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
@@ -22,9 +37,32 @@ pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
     let apps = db.list_apps().map_err(|e| e.to_string())?;
     let routes: Vec<(String, u16)> = apps
         .iter()
-        .flat_map(|a| a.all_hosts(&workspaces).into_iter().map(move |h| (h, a.port)))
+        .flat_map(|a| a.all_routes(&workspaces))
         .collect();
+
+    // Collect all domains that need certs (workspace + app custom_domain + binding custom_domains)
+    let mut domains: Vec<String> = workspaces.iter().map(|w| w.domain.clone()).collect();
+    for app in &apps {
+        if let Some(ref cd) = app.custom_domain {
+            if !cd.is_empty() && !domains.contains(cd) {
+                domains.push(cd.clone());
+            }
+        }
+        for binding in &app.port_bindings {
+            if let Some(ref cd) = binding.custom_domain {
+                if !cd.is_empty() && !domains.contains(cd) {
+                    domains.push(cd.clone());
+                }
+            }
+        }
+    }
     drop(db);
+
+    // Regenerate certs if mkcert is available — ensures new custom domains get covered
+    if crate::setup::certs_exist() {
+        crate::setup::generate_certs(&domains).ok();
+    }
+
     state.caddy.reload(&routes).map_err(|e| e.to_string())
 }
 
@@ -34,16 +72,22 @@ pub fn check_setup() -> SetupStatus {
 }
 
 /// Silently try to start Caddy without running the full wizard.
+/// Runs on a background thread so the UI doesn't freeze during the wait.
 #[tauri::command]
-pub fn start_caddy(state: State<AppState>) -> Result<(), String> {
-    crate::setup::start_caddy(&|_| {}).map_err(|e| e.to_string())?;
-    sync_caddy(&state).ok();
-    Ok(())
+pub async fn start_caddy(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::setup::start_caddy(&|_| {}).map_err(|e| e.to_string())?;
+        let state = app.state::<AppState>();
+        sync_caddy(&state).ok();
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub fn run_setup(state: State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let domains = workspace_domains(&state)?;
+    let domains = all_domains(&state)?;
     crate::setup::run_full_setup(
         &domains,
         &|step_key| { app.emit("setup:step", step_key).ok(); },
@@ -69,7 +113,7 @@ pub fn reload_caddy(state: State<AppState>) -> Result<(), String> {
 /// Re-generate wildcard SSL certificates for all workspace domains.
 #[tauri::command]
 pub fn regenerate_certs(state: State<AppState>) -> Result<(), String> {
-    let domains = workspace_domains(&state)?;
+    let domains = all_domains(&state)?;
     crate::setup::generate_certs(&domains).map_err(|e| e.to_string())?;
     sync_caddy(&state).ok();
     Ok(())

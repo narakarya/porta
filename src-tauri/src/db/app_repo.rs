@@ -10,25 +10,36 @@ impl Database {
         let env_vars_json = serde_json::to_string(&a.env_vars).unwrap_or_else(|_| "{}".into());
         let depends_on_json = serde_json::to_string(&a.depends_on).unwrap_or_else(|_| "[]".into());
         let extra_subdomains_json = serde_json::to_string(&a.extra_subdomains).unwrap_or_else(|_| "[]".into());
+        let port_bindings_json = serde_json::to_string(&a.port_bindings).unwrap_or_else(|_| "[]".into());
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain,
                                start_command, start_command_source, status, pid,
                                env_file, auto_start, env_vars, restart_policy, max_retries,
-                               health_check_path, depends_on, extra_subdomains)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                               health_check_path, depends_on, extra_subdomains, custom_domain,
+                               port_bindings)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
                 a.status, a.pid, a.env_file, a.auto_start as i32,
                 env_vars_json, a.restart_policy, a.max_retries as i32,
-                a.health_check_path, depends_on_json, extra_subdomains_json
+                a.health_check_path, depends_on_json, extra_subdomains_json,
+                a.custom_domain, port_bindings_json
             ],
         )?;
+        // Register primary port
         tx.execute(
             "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
             params![a.port, a.id],
         )?;
+        // Register each binding port
+        for binding in &a.port_bindings {
+            tx.execute(
+                "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
+                params![binding.port, a.id],
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -39,7 +50,9 @@ impl Database {
                     start_command, start_command_source, status, pid,
                     env_file, auto_start, env_vars, restart_policy, max_retries,
                     health_check_path, depends_on, extra_subdomains,
-                    COALESCE(deploy_custom_commands, '[]')
+                    COALESCE(deploy_custom_commands, '[]'),
+                    custom_domain,
+                    COALESCE(port_bindings, '[]')
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -56,6 +69,9 @@ impl Database {
             let extra_subdomains: Vec<String> = serde_json::from_str(&extra_subdomains_str).unwrap_or_default();
             let custom_cmds_str: String = row.get::<_, Option<String>>(18)?.unwrap_or_else(|| "[]".into());
             let deploy_custom_commands: Vec<models::CustomDeployCmd> = serde_json::from_str(&custom_cmds_str).unwrap_or_default();
+            let custom_domain: Option<String> = row.get(19)?;
+            let port_bindings_str: String = row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "[]".into());
+            let port_bindings: Vec<models::PortBinding> = serde_json::from_str(&port_bindings_str).unwrap_or_default();
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -75,11 +91,13 @@ impl Database {
                 health_check_path,
                 depends_on,
                 extra_subdomains,
+                custom_domain,
                 tunnel_provider: None,
                 tunnel_url: None,
                 tunnel_active: false,
                 deploy_config_path: None,
                 deploy_custom_commands,
+                port_bindings,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -102,36 +120,39 @@ impl Database {
         health_check_path: Option<&str>,
         depends_on: &[String],
         extra_subdomains: &[String],
+        custom_domain: Option<&str>,
+        port_bindings: &[models::PortBinding],
     ) -> Result<()> {
-        let old_port: u16 = self.conn.query_row(
-            "SELECT port FROM apps WHERE id = ?1",
-            params![id],
-            |r| r.get(0),
-        )?;
-
         let env_vars_json = serde_json::to_string(env_vars).unwrap_or_else(|_| "{}".into());
         let depends_on_json = serde_json::to_string(depends_on).unwrap_or_else(|_| "[]".into());
         let extra_subdomains_json = serde_json::to_string(extra_subdomains).unwrap_or_else(|_| "[]".into());
+        let port_bindings_json = serde_json::to_string(port_bindings).unwrap_or_else(|_| "[]".into());
 
         self.conn.execute(
             "UPDATE apps SET name=?1, port=?2, subdomain=?3, start_command=?4,
                              env_file=?5, auto_start=?6, env_vars=?7,
                              restart_policy=?8, max_retries=?9,
-                             health_check_path=?10, depends_on=?11, extra_subdomains=?12
-             WHERE id=?13",
+                             health_check_path=?10, depends_on=?11, extra_subdomains=?12,
+                             custom_domain=?13, port_bindings=?14
+             WHERE id=?15",
             params![
                 name, port, subdomain, start_command, env_file,
                 auto_start as i32, env_vars_json, restart_policy,
                 max_retries as i32, health_check_path, depends_on_json,
-                extra_subdomains_json, id
+                extra_subdomains_json, custom_domain, port_bindings_json, id
             ],
         )?;
 
-        if old_port != port {
-            self.conn.execute("DELETE FROM port_registry WHERE app_id = ?1", params![id])?;
+        // Always rebuild port_registry for this app (primary + all bindings)
+        self.conn.execute("DELETE FROM port_registry WHERE app_id = ?1", params![id])?;
+        self.conn.execute(
+            "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
+            params![port, id],
+        )?;
+        for binding in port_bindings {
             self.conn.execute(
                 "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
-                params![port, id],
+                params![binding.port, id],
             )?;
         }
         Ok(())

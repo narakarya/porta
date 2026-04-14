@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::db::models::{App, Workspace};
+use crate::db::models::{App, PortBinding, Workspace};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PortaFile {
@@ -27,6 +27,10 @@ pub struct AppExport {
     pub start_command_source: String,
     #[serde(default)]
     pub extra_subdomains: Vec<String>,
+    #[serde(default)]
+    pub custom_domain: Option<String>,
+    #[serde(default)]
+    pub port_bindings: Vec<PortBinding>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,13 +51,14 @@ impl From<&App> for AppExport {
             start_command: a.start_command.clone(),
             start_command_source: a.start_command_source.clone(),
             extra_subdomains: a.extra_subdomains.clone(),
+            custom_domain: a.custom_domain.clone(),
+            port_bindings: a.port_bindings.clone(),
         }
     }
 }
 
 pub fn backup_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".porta").join("backups")
+    crate::porta_dir().join("backups")
 }
 
 pub fn auto_backup(db_path: &Path) -> Result<()> {
@@ -104,7 +109,7 @@ mod tests {
     use crate::db::models::{App, Workspace};
 
     fn sample_workspace() -> Workspace {
-        Workspace { id: "w1".into(), name: "Test".into(), domain: "test.test".into() }
+        Workspace { id: "w1".into(), name: "Test".into(), domain: "test.test".into(), deployment: None }
     }
 
     fn sample_app() -> App {
@@ -121,7 +126,19 @@ mod tests {
             pid: None,
             env_file: None,
             auto_start: false,
+            env_vars: std::collections::HashMap::new(),
+            restart_policy: "on-failure".into(),
+            max_retries: 3,
+            health_check_path: None,
+            depends_on: vec![],
+            extra_subdomains: vec![],
+            custom_domain: None,
+            tunnel_provider: None,
+            tunnel_url: None,
+            tunnel_active: false,
             deploy_config_path: None,
+            deploy_custom_commands: vec![],
+            port_bindings: vec![],
         }
     }
 

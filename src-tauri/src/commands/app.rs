@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::app_state::AppState;
 use crate::auto_detect::{DetectResult, CommandSuggestion};
-use crate::db::models::App;
+use crate::db::models::{App, PortBinding};
 use crate::port_scanner::find_available_port;
 use super::setup::sync_caddy;
 
@@ -73,11 +73,13 @@ pub fn add_app(
         health_check_path: None,
         depends_on: vec![],
         extra_subdomains: vec![],
+        custom_domain: None,
         tunnel_provider: None,
         tunnel_url: None,
         tunnel_active: false,
         deploy_config_path: None,
         deploy_custom_commands: vec![],
+        port_bindings: vec![],
     };
     state
         .db
@@ -107,6 +109,8 @@ pub fn update_app(
     health_check_path: Option<String>,
     depends_on: Option<Vec<String>>,
     extra_subdomains: Option<Vec<String>>,
+    custom_domain: Option<String>,
+    port_bindings: Option<Vec<PortBinding>>,
 ) -> Result<App, String> {
     state
         .db
@@ -124,6 +128,8 @@ pub fn update_app(
             health_check_path.as_deref(),
             &depends_on.unwrap_or_default(),
             &extra_subdomains.unwrap_or_default(),
+            custom_domain.as_deref(),
+            &port_bindings.unwrap_or_default(),
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;

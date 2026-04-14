@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import type { App } from "../../types";
+import type { App, HealthStatus } from "../../types";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
 import { startMockProcess, stopMockProcess, killMockProcess } from "../../lib/mock-data";
@@ -17,7 +17,11 @@ export interface AppSlice {
   appRestarting: Record<string, boolean>;
   appTunnelErrors: Record<string, string | null>;
   appMetrics: Record<string, { cpu: number; mem_mb: number }>;
+  healthStatuses: Record<string, HealthStatus>;
 
+  refreshHealth: () => Promise<void>;
+  startAllInWorkspace: (workspaceId: string) => Promise<void>;
+  stopAllInWorkspace: (workspaceId: string) => Promise<void>;
   addApp: (params: Parameters<typeof cmd.addApp>[0]) => Promise<void>;
   updateApp: (params: Parameters<typeof cmd.updateApp>[0]) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
@@ -42,6 +46,62 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appRestarting: {},
   appTunnelErrors: {},
   appMetrics: {},
+  healthStatuses: {},
+
+  refreshHealth: async () => {
+    try {
+      const statuses = await cmd.checkAllHealth();
+      set({ healthStatuses: statuses });
+    } catch {}
+  },
+
+  startAllInWorkspace: async (workspaceId) => {
+    const { apps } = get();
+    const wsAppIds = apps
+      .filter((a) => a.workspace_id === workspaceId && a.status === "stopped" && a.start_command)
+      .map((a) => a.id);
+
+    if (wsAppIds.length === 0) return;
+
+    set((s) => ({
+      apps: s.apps.map((a) =>
+        wsAppIds.includes(a.id) ? { ...a, status: "starting" as const } : a
+      ),
+      appLogs: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: [] }), s.appLogs),
+      appExitCode: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: null }), s.appExitCode),
+      appRetryCount: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: 0 }), s.appRetryCount),
+      portConflicts: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: false }), s.portConflicts),
+    }));
+
+    if (isTauri) {
+      await cmd.startWorkspaceApps(workspaceId);
+    } else {
+      wsAppIds.forEach((id) => startMockProcess(id));
+    }
+  },
+
+  stopAllInWorkspace: async (workspaceId) => {
+    const { apps } = get();
+    const wsAppIds = apps
+      .filter((a) => a.workspace_id === workspaceId && (a.status === "running" || a.status === "starting"))
+      .map((a) => a.id);
+
+    if (wsAppIds.length === 0) return;
+
+    if (isTauri) {
+      await cmd.stopWorkspaceApps(workspaceId);
+    } else {
+      wsAppIds.forEach((id) => stopMockProcess(id));
+    }
+
+    set((s) => ({
+      apps: s.apps.map((a) =>
+        wsAppIds.includes(a.id) ? { ...a, status: "stopped" as const, pid: null } : a
+      ),
+      appRetryCount: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: 0 }), s.appRetryCount),
+      appRestarting: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: false }), s.appRestarting),
+    }));
+  },
 
   addApp: async (params) => {
     const app = await cmd.addApp(params);
@@ -80,6 +140,20 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     }));
     if (isTauri) {
       await cmd.startApp(id);
+      // Load early log lines that were written before the event listener was ready
+      setTimeout(() => {
+        cmd.getAppLogs(id).then((logs) => {
+          if (logs.length === 0) return;
+          set((s) => {
+            const current = s.appLogs[id] ?? [];
+            // Merge: use file logs if they have more content than streamed logs
+            if (logs.length > current.length) {
+              return { appLogs: { ...s.appLogs, [id]: logs.slice(-MAX_LOG_LINES) } };
+            }
+            return {};
+          });
+        }).catch(() => {});
+      }, 800);
     } else {
       startMockProcess(id);
     }
@@ -116,6 +190,19 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     }));
     if (isTauri) {
       await cmd.restartApp(id);
+      // Load early log lines that were written before the event listener was ready
+      setTimeout(() => {
+        cmd.getAppLogs(id).then((logs) => {
+          if (logs.length === 0) return;
+          set((s) => {
+            const current = s.appLogs[id] ?? [];
+            if (logs.length > current.length) {
+              return { appLogs: { ...s.appLogs, [id]: logs.slice(-MAX_LOG_LINES) } };
+            }
+            return {};
+          });
+        }).catch(() => {});
+      }, 800);
     } else {
       stopMockProcess(id);
       startMockProcess(id);

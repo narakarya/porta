@@ -66,11 +66,13 @@ pub fn import_data(
                 health_check_path: None,
                 depends_on: vec![],
                 extra_subdomains: a.extra_subdomains.clone(),
+                custom_domain: a.custom_domain.clone(),
                 tunnel_provider: None,
                 tunnel_url: None,
                 tunnel_active: false,
                 deploy_config_path: None,
                 deploy_custom_commands: vec![],
+                port_bindings: a.port_bindings.clone(),
             };
             db.insert_app(&app).ok();
         }

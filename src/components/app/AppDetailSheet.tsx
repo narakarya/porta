@@ -19,7 +19,7 @@ function OverviewTab({ app, workspace, onOpenSettings, onOpenTerminal, onOpenDep
   onOpenTerminal?: () => void;
   onOpenDeploy?: () => void;
 }) {
-  const domain = workspace?.domain ?? "narakarya.test";
+  const domain = app.custom_domain || workspace?.domain || "narakarya.test";
   const sub = app.subdomain ?? app.name;
   const host = sub === "*" ? `*.${domain}` : `${sub}.${domain}`;
 
@@ -59,6 +59,27 @@ function OverviewTab({ app, workspace, onOpenSettings, onOpenTerminal, onOpenDep
       <Row label="URL">
         <span className="text-zinc-400 font-mono text-[11px]">{host}</span>
       </Row>
+
+      {/* Port bindings (only shown if bindings exist) */}
+      {app.port_bindings && app.port_bindings.length > 0 && (
+        <Row label="Port bindings">
+          <div className="flex flex-col gap-1">
+            {app.port_bindings.map((b) => {
+              const bDomain = b.custom_domain?.trim() || domain;
+              const bSub = b.subdomain?.trim() || b.label.trim().toLowerCase().replace(/\s+/g, "-");
+              const bHost = bSub ? `${bSub}.${bDomain}` : bDomain;
+              return (
+                <div key={b.id} className="flex items-center gap-2 text-[11px]">
+                  <span className="text-zinc-300 font-medium min-w-[80px]">{b.label}</span>
+                  <span className="text-zinc-500 font-mono truncate">{bHost}</span>
+                  <span className="text-zinc-600">&rarr;</span>
+                  <span className="text-zinc-400 font-mono">:{b.port}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Row>
+      )}
 
       {/* Env file */}
       <Row label="Env file">

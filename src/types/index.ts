@@ -27,6 +27,10 @@ export interface App {
   depends_on: string[];
   // multiple subdomains
   extra_subdomains: string[];
+  // custom domain (overrides workspace domain)
+  custom_domain: string | null;
+  // multi-port bindings
+  port_bindings: PortBinding[];
   // tunnel
   tunnel_provider: string | null;
   tunnel_url: string | null;
@@ -35,6 +39,8 @@ export interface App {
   deploy_config_path: string | null;
   deploy_custom_commands: CustomDeployCmd[];
 }
+
+export type HealthStatus = "healthy" | "unhealthy" | "unknown";
 
 export interface DetectResult {
   command: string | null;
@@ -74,6 +80,8 @@ export type UpdateAppParams = {
   health_check_path: string | null;
   depends_on: string[];
   extra_subdomains: string[];
+  custom_domain: string | null;
+  port_bindings?: PortBinding[];
 };
 
 // ── Services ─────────────────────────────────────────────────────────────────
@@ -100,6 +108,16 @@ export type AddServiceParams = {
   volumes: string[];
   scope: "global" | string;
 };
+
+// ── Port Bindings ────────────────────────────────────────────────────────────
+
+export interface PortBinding {
+  id: string;
+  label: string;
+  port: number;
+  subdomain: string | null;
+  custom_domain: string | null;
+}
 
 // ── Deployment ────────────────────────────────────────────────────────────────
 

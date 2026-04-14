@@ -19,21 +19,23 @@ interface Props {
 }
 
 function resolvedHost(app: App, workspace: Workspace | null): string {
-  const domain = workspace?.domain ?? "narakarya.test";
+  const domain = app.custom_domain || workspace?.domain || "narakarya.test";
   const sub = app.subdomain ?? app.name;
   return sub === "*" ? `*.${domain}` : `${sub}.${domain}`;
 }
 
 function allHosts(app: App, workspace: Workspace | null): string[] {
-  const domain = workspace?.domain ?? "narakarya.test";
+  const domain = app.custom_domain || workspace?.domain || "narakarya.test";
   const primary = resolvedHost(app, workspace);
   const extras = (app.extra_subdomains ?? []).map((s) => `${s}.${domain}`);
   return [primary, ...extras];
 }
 
 export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOpenTerminal, onOpenDeploy }: Props) {
-  const { startApp, stopApp, restartApp, killApp, setupStatus, appLogs, appExitCode, appRetryCount, portConflicts, appRestarting, appTunnelErrors, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex } =
+  const { startApp, stopApp, restartApp, killApp, setupStatus, appLogs, appExitCode, appRetryCount, portConflicts, appRestarting, appTunnelErrors, appMetrics, healthStatuses, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex } =
     usePortaStore();
+  const metrics = appMetrics[app.id];
+  const health = healthStatuses[app.id];
 
   const host = resolvedHost(app, workspace);
   const hosts = allHosts(app, workspace);
@@ -135,6 +137,23 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
         >
           <div className="flex items-center gap-1.5">
             <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
+            {isRunning && health && (
+              <Tooltip label={health === "healthy" ? "Healthy" : health === "unhealthy" ? "Unhealthy" : "Checking..."} side="top">
+                {health === "healthy" ? (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-emerald-400">
+                    <path d="M2.5 5.5l2 2 3.5-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : health === "unhealthy" ? (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-red-400">
+                    <path d="M5 3v2.5M5 7h.01" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                ) : (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-500">
+                    <path d="M3.5 3.5a2 2 0 013 1.5c0 1-1.5 1-1.5 2M5 8.5h.01" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                )}
+              </Tooltip>
+            )}
             {startOrder !== undefined && (
               <span className="text-[9px] font-medium text-zinc-600 bg-white/[0.04] border border-white/[0.06] px-1 py-0.5 rounded leading-none">
                 {startOrder}
@@ -165,6 +184,11 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <p className="text-[11px] text-zinc-600">port {app.port}</p>
+            {metrics && isRunning && (
+              <span className="text-[10px] text-zinc-600 font-mono">
+                {metrics.cpu.toFixed(1)}% · {metrics.mem_mb} MB
+              </span>
+            )}
             {extraCount > 0 && (
               <span className="text-[10px] font-medium text-zinc-500 bg-white/[0.05] border border-white/[0.08] px-1 py-0.5 rounded leading-none" title={(app.extra_subdomains ?? []).join(", ")}>
                 +{extraCount}

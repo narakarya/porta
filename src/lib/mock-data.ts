@@ -29,11 +29,13 @@ export const mockApps: App[] = [
     health_check_path: null,
     depends_on: [],
     extra_subdomains: [],
+    custom_domain: null,
     tunnel_provider: null,
     tunnel_url: null,
     tunnel_active: false,
     deploy_config_path: null,
     deploy_custom_commands: [],
+    port_bindings: [],
   },
   {
     id: "app-2",
@@ -54,12 +56,14 @@ export const mockApps: App[] = [
     health_check_path: "/health",
     depends_on: [],
     extra_subdomains: [],
+    custom_domain: null,
     tunnel_provider: null,
     tunnel_url: null,
     tunnel_active: false,
     // This app has a deploy config so the Deploy tab appears in mock mode
     deploy_config_path: "/Users/dev/narakarya/api/config/deploy.yml",
     deploy_custom_commands: [],
+    port_bindings: [],
   },
   {
     id: "app-3",
@@ -80,11 +84,13 @@ export const mockApps: App[] = [
     health_check_path: null,
     depends_on: [],
     extra_subdomains: [],
+    custom_domain: null,
     tunnel_provider: null,
     tunnel_url: null,
     tunnel_active: false,
     deploy_config_path: null,
     deploy_custom_commands: [],
+    port_bindings: [],
   },
   {
     id: "app-4",
@@ -105,11 +111,13 @@ export const mockApps: App[] = [
     health_check_path: null,
     depends_on: [],
     extra_subdomains: [],
+    custom_domain: null,
     tunnel_provider: null,
     tunnel_url: null,
     tunnel_active: false,
     deploy_config_path: null,
     deploy_custom_commands: [],
+    port_bindings: [],
   },
 ];
 
@@ -167,11 +175,13 @@ export function mockAddApp(params: {
     health_check_path: null,
     depends_on: [],
     extra_subdomains: [],
+    custom_domain: null,
     tunnel_provider: null,
     tunnel_url: null,
     tunnel_active: false,
     deploy_config_path: null,
     deploy_custom_commands: [],
+    port_bindings: [],
   };
   state.apps.push(app);
   return app;

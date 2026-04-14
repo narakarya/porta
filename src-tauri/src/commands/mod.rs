@@ -6,11 +6,11 @@ pub use terminal::*;
 mod settings;
 pub use settings::*;
 
-mod gdrive;
-pub use gdrive::*;
-
 mod deploy;
 pub use deploy::*;
+
+mod git_sync;
+pub use git_sync::*;
 
 mod tunnel;
 pub use tunnel::*;
@@ -35,3 +35,9 @@ pub use app_lifecycle::*;
 
 mod app;
 pub use app::*;
+
+mod health;
+pub use health::*;
+
+mod workspace_bulk;
+pub use workspace_bulk::*;

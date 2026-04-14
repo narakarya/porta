@@ -9,6 +9,15 @@ pub struct CustomDeployCmd {
     pub interactive: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortBinding {
+    pub id: String,
+    pub label: String,
+    pub port: u16,
+    pub subdomain: Option<String>,
+    pub custom_domain: Option<String>,
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +68,9 @@ pub struct App {
     // multiple subdomains — additional hostnames that also route to this app's port
     #[serde(default)]
     pub extra_subdomains: Vec<String>,
+    // optional custom domain — overrides workspace domain for this app
+    #[serde(default)]
+    pub custom_domain: Option<String>,
     // tunnel — frontend-only state, not stored in DB
     #[serde(default)]
     pub tunnel_provider: Option<String>,
@@ -73,16 +85,29 @@ pub struct App {
     /// User-defined custom deploy commands, stored as JSON in DB.
     #[serde(default)]
     pub deploy_custom_commands: Vec<CustomDeployCmd>,
+    /// Extra port bindings — each gets its own Caddy route with a separate port.
+    #[serde(default)]
+    pub port_bindings: Vec<PortBinding>,
 }
 
 impl App {
-    pub fn resolved_host(&self, workspaces: &[Workspace]) -> String {
-        let domain = self
-            .workspace_id
+    /// The effective domain for this app: custom_domain if set, otherwise workspace domain,
+    /// falling back to "narakarya.test" for standalone apps.
+    pub fn effective_domain(&self, workspaces: &[Workspace]) -> String {
+        if let Some(ref cd) = self.custom_domain {
+            if !cd.is_empty() {
+                return cd.clone();
+            }
+        }
+        self.workspace_id
             .as_ref()
             .and_then(|wid| workspaces.iter().find(|w| &w.id == wid))
-            .map(|w| w.domain.as_str())
-            .unwrap_or("narakarya.test");
+            .map(|w| w.domain.clone())
+            .unwrap_or_else(|| "narakarya.test".into())
+    }
+
+    pub fn resolved_host(&self, workspaces: &[Workspace]) -> String {
+        let domain = self.effective_domain(workspaces);
         let sub = self.subdomain.as_deref().unwrap_or(&self.name);
         if sub == "*" {
             format!("*.{}", domain)
@@ -91,23 +116,36 @@ impl App {
         }
     }
 
-    /// Returns all hostnames for this app — primary plus any extra subdomains.
-    /// Used by Caddy sync to register every hostname that should route to this port.
-    pub fn all_hosts(&self, workspaces: &[Workspace]) -> Vec<String> {
-        let domain = self
-            .workspace_id
-            .as_ref()
-            .and_then(|wid| workspaces.iter().find(|w| &w.id == wid))
-            .map(|w| w.domain.as_str())
-            .unwrap_or("narakarya.test");
+    /// Returns all (hostname, port) routes for this app — primary binding,
+    /// extra subdomains (mapped to the primary port), and port bindings
+    /// (each with its own port).
+    pub fn all_routes(&self, workspaces: &[Workspace]) -> Vec<(String, u16)> {
+        let domain = self.effective_domain(workspaces);
+        let mut routes = Vec::new();
 
-        let mut hosts = vec![self.resolved_host(workspaces)];
+        // Primary binding
+        routes.push((self.resolved_host(workspaces), self.port));
+
+        // Extra subdomains (existing feature — all map to primary port)
         for sub in &self.extra_subdomains {
             let trimmed = sub.trim();
             if !trimmed.is_empty() {
-                hosts.push(format!("{}.{}", trimmed, domain));
+                routes.push((format!("{}.{}", trimmed, domain), self.port));
             }
         }
-        hosts
+
+        // Port bindings (each has its own port)
+        for binding in &self.port_bindings {
+            let binding_domain = binding.custom_domain.as_deref()
+                .filter(|d| !d.is_empty())
+                .unwrap_or(&domain);
+            let fallback_sub = binding.label.to_lowercase().replace(' ', "-");
+            let sub = binding.subdomain.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&fallback_sub);
+            routes.push((format!("{}.{}", sub, binding_domain), binding.port));
+        }
+
+        routes
     }
 }

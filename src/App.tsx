@@ -10,7 +10,7 @@ import CommandPalette from "./components/layout/CommandPalette";
 type Page = "main" | "settings";
 
 export default function App() {
-  const { load, checkSetup, loadSettings, setupStatus } = usePortaStore();
+  const { load, checkSetup, loadSettings, setupStatus, refreshHealth } = usePortaStore();
   const [page, setPage] = useState<Page>("main");
   const [caddyStarting, setCaddyStarting] = useState(false);
   const [caddyError, setCaddyError] = useState<string | null>(null);
@@ -18,9 +18,12 @@ export default function App() {
 
   useEffect(() => {
     checkSetup();
-    load();
+    load().then(() => refreshHealth());
     loadSettings();
     reloadCaddy().catch(() => {});
+
+    const healthInterval = setInterval(() => refreshHealth(), 30_000);
+    return () => clearInterval(healthInterval);
   }, []);
 
   // Show banner if Caddy is installed but stopped (e.g. after reboot).
@@ -63,15 +66,14 @@ export default function App() {
                 ? `Caddy failed to start — ${caddyError}`
                 : "HTTPS proxy (Caddy) isn't running. macOS will ask for your password to start it on port 443."}
             </p>
-            {!caddyStarting && (
-              <button
-                onClick={handleStartCaddy}
-                className="text-[11px] font-medium text-amber-400 hover:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 px-2 py-0.5 rounded transition-colors shrink-0"
-              >
-                {caddyError ? "Retry" : "Start Caddy"}
-              </button>
-            )}
-            {caddyStarting && <span className="spinner text-amber-400 shrink-0" />}
+            <button
+              onClick={handleStartCaddy}
+              disabled={caddyStarting}
+              className="text-[11px] font-medium text-amber-400 hover:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 px-2 py-0.5 rounded transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none flex items-center gap-1.5"
+            >
+              {caddyStarting && <span className="spinner text-amber-400" />}
+              {caddyStarting ? "Starting…" : caddyError ? "Retry" : "Start Caddy"}
+            </button>
             <button
               onClick={() => setCaddyBannerDismissed(true)}
               className="p-0.5 text-amber-600 hover:text-amber-300 transition-colors shrink-0"

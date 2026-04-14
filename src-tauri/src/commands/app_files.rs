@@ -27,21 +27,38 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_in_editor(root_dir: String) -> Result<(), String> {
-    // Try editors in order: cursor, code, zed, then fall back to Finder
-    let editors = ["cursor", "code", "zed"];
-    for editor in &editors {
-        if std::process::Command::new(editor)
-            .arg(&root_dir)
+    // macOS apps launched via Finder/Dock don't inherit shell PATH,
+    // so we also check common install locations for editor CLIs.
+    let candidates: &[&[&str]] = &[
+        &["cursor", "/usr/local/bin/cursor", "/opt/homebrew/bin/cursor"],
+        &["code", "/usr/local/bin/code", "/opt/homebrew/bin/code"],
+        &["zed", "/usr/local/bin/zed", "/opt/homebrew/bin/zed"],
+    ];
+    for group in candidates {
+        for bin in *group {
+            if std::process::Command::new(bin)
+                .arg(&root_dir)
+                .spawn()
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+    }
+    // Fallback: open via macOS `open -a` with known editor app bundles
+    let app_bundles = [
+        "Cursor",
+        "Visual Studio Code",
+        "Zed",
+    ];
+    for app in &app_bundles {
+        if std::process::Command::new("open")
+            .args(["-a", app, &root_dir])
             .spawn()
             .is_ok()
         {
             return Ok(());
         }
     }
-    // Fallback: open in Finder
-    std::process::Command::new("open")
-        .arg(&root_dir)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    Err("No editor found. Install Cursor, VS Code, or Zed.".into())
 }

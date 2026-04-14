@@ -50,7 +50,7 @@ function computeStartOrder(apps: { id: string; depends_on: string[] }[]): Record
 }
 
 export default function WorkspaceView() {
-  const { workspaces, apps, services, selectedWorkspaceId, startApp, stopApp } = usePortaStore();
+  const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore();
   const [showAdd, setShowAdd] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [detailApp, setDetailApp] = useState<App | null>(null);
@@ -85,13 +85,15 @@ export default function WorkspaceView() {
   );
 
   function handleStartAll() {
-    stoppedWithCommand.forEach((app) => startApp(app.id));
+    if (selectedWorkspaceId) {
+      startAllInWorkspace(selectedWorkspaceId);
+    }
   }
 
   function handleStopAll() {
-    visibleApps
-      .filter((a) => a.status === "running" || a.status === "starting")
-      .forEach((app) => stopApp(app.id));
+    if (selectedWorkspaceId) {
+      stopAllInWorkspace(selectedWorkspaceId);
+    }
   }
 
   if (!workspace && selectedWorkspaceId !== null) {

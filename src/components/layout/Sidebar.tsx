@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { Workspace } from "../../types";
 import AddWorkspaceModal from "../workspace/AddWorkspaceModal";
@@ -30,33 +30,78 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const [otherExpanded, setOtherExpanded] = useState(true);
   const [servicesCollapsed, setServicesCollapsed] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
+  const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   // Use ref so event handlers always read the latest value without stale closures
   const dragSrcRef = useRef<{ type: "ws" | "svc"; index: number } | null>(null);
+  const isDraggingRef = useRef(false);
+  const didReorderRef = useRef(false);
 
-  function handleDragStart(type: "ws" | "svc", index: number, e: React.DragEvent) {
+  // WKWebView (Tauri/macOS) doesn't reliably fire HTML5 dragover/drop events because
+  // it routes drags through the native macOS NSDraggingSession system, which expects
+  // external drop targets. We use mouse events instead to bypass this entirely.
+  function handleMouseDown(type: "ws" | "svc", index: number) {
     dragSrcRef.current = { type, index };
-    e.dataTransfer.effectAllowed = "move";
+    isDraggingRef.current = true;
+    setDraggingItem({ type, index });
   }
 
-  function handleDragOver(type: "ws" | "svc", index: number, e: React.DragEvent) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragSrcRef.current?.type === type) setDragOverIndex({ type, index });
+  function handleMouseEnter(type: "ws" | "svc", index: number) {
+    const src = dragSrcRef.current;
+    if (isDraggingRef.current && src?.type === type && src.index !== index) {
+      setDragOverIndex({ type, index });
+    }
   }
 
-  function handleDrop(type: "ws" | "svc", index: number) {
+  function handleMouseUp(type: "ws" | "svc", index: number) {
     const src = dragSrcRef.current;
     if (src && src.type === type && src.index !== index) {
       if (type === "ws") reorderWorkspaces(src.index, index);
       else reorderServices(src.index, index);
+      didReorderRef.current = true;
     }
     dragSrcRef.current = null;
+    isDraggingRef.current = false;
     setDragOverIndex(null);
+    setDraggingItem(null);
   }
 
-  function handleDragEnd() {
-    dragSrcRef.current = null;
-    setDragOverIndex(null);
+  // Global mouseup + cursor management during drag
+  useEffect(() => {
+    function onGlobalMouseUp() {
+      if (!isDraggingRef.current) return;
+      dragSrcRef.current = null;
+      isDraggingRef.current = false;
+      setDragOverIndex(null);
+      setDraggingItem(null);
+      document.body.style.cursor = "";
+    }
+    window.addEventListener("mouseup", onGlobalMouseUp);
+    return () => window.removeEventListener("mouseup", onGlobalMouseUp);
+  }, []);
+
+  // Set grabbing cursor globally while drag is active so it doesn't flicker
+  // when the mouse moves between items
+  useEffect(() => {
+    document.body.style.cursor = draggingItem ? "grabbing" : "";
+    return () => { document.body.style.cursor = ""; };
+  }, [draggingItem]);
+
+  // Each sidebar row is py-1.5 (12px) + ~20px line-height + 2px gap = ~34px total.
+  // Items between src and dst shift by this amount to visually open a "slot".
+  const ITEM_H = 34;
+
+  function getShift(type: "ws" | "svc", index: number): number {
+    if (!draggingItem || draggingItem.type !== type) return 0;
+    if (!dragOverIndex || dragOverIndex.type !== type) return 0;
+    if (index === draggingItem.index) return 0;
+
+    const src = draggingItem.index;
+    const dst = dragOverIndex.index;
+    if (src === dst) return 0;
+
+    if (src < dst && index > src && index <= dst) return -ITEM_H; // slot opens below
+    if (src > dst && index < src && index >= dst) return ITEM_H;  // slot opens above
+    return 0;
   }
 
   const activeCount = (wsId: string | null) =>
@@ -85,40 +130,75 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       </div>
 
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
-        <button
-          onClick={() => setWsExpanded(!wsExpanded)}
-          className="flex items-center gap-1 px-2 mb-1 mt-1 group/hdr"
-        >
-          <svg
-            width="8" height="8" viewBox="0 0 8 8" fill="none"
-            className={`text-zinc-600 transition-transform duration-150 ${wsExpanded ? "rotate-90" : ""}`}
+        <div className="flex items-center gap-1 px-2 mb-1 mt-1">
+          <button
+            onClick={() => setWsExpanded(!wsExpanded)}
+            className="flex items-center gap-1 group/hdr flex-1"
           >
-            <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest group-hover/hdr:text-zinc-400 transition-colors">
-            Workspaces
-          </span>
-        </button>
+            <svg
+              width="8" height="8" viewBox="0 0 8 8" fill="none"
+              className={`text-zinc-600 transition-transform duration-150 ${wsExpanded ? "rotate-90" : ""}`}
+            >
+              <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest group-hover/hdr:text-zinc-400 transition-colors">
+              Workspaces
+            </span>
+          </button>
+          <Tooltip label="New Workspace" side="left">
+            <button
+              onClick={() => setShowAddWs(true)}
+              className="text-zinc-600 hover:text-zinc-300 transition-colors p-0.5 rounded"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </Tooltip>
+        </div>
 
         {wsExpanded && workspaces.map((w, i) => {
           const count = activeCount(w.id);
           const isSelected = selectedWorkspaceId === w.id;
           const isDropTarget = dragOverIndex?.type === "ws" && dragOverIndex.index === i;
+          const isLifted = draggingItem?.type === "ws" && draggingItem.index === i;
+          const shift = getShift("ws", i);
           return (
-            <button
+            <div
               key={w.id}
-              draggable
-              onDragStart={(e) => handleDragStart("ws", i, e)}
-              onDragOver={(e) => handleDragOver("ws", i, e)}
-              onDrop={() => handleDrop("ws", i)}
-              onDragEnd={handleDragEnd}
-              onClick={() => selectWorkspace(w.id)}
+              role="button"
+              tabIndex={0}
+              onMouseDown={() => handleMouseDown("ws", i)}
+              onMouseEnter={() => handleMouseEnter("ws", i)}
+              onMouseUp={() => handleMouseUp("ws", i)}
+              onClick={() => {
+                if (didReorderRef.current) { didReorderRef.current = false; return; }
+                selectWorkspace(w.id);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") selectWorkspace(w.id); }}
               onContextMenu={(e) => handleRightClick(e, w)}
-              className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
-                isSelected
-                  ? "bg-white/10 text-zinc-100"
-                  : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
-              } ${isDropTarget ? "ring-1 ring-blue-500/40" : ""} cursor-grab active:cursor-grabbing`}
+              style={isLifted ? {
+                transform: "scale(1.04) translateY(-1px)",
+                boxShadow: "0 6px 20px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+                zIndex: 10,
+                position: "relative",
+                opacity: 0.95,
+              } : shift !== 0 ? {
+                transform: `translateY(${shift}px)`,
+                transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
+                zIndex: 1,
+                position: "relative",
+              } : {
+                transform: "translateY(0px)",
+                transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
+              }}
+              className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none ${
+                isLifted
+                  ? "bg-white/15 text-zinc-100"
+                  : isSelected
+                    ? "bg-white/10 text-zinc-100"
+                    : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+              } cursor-grab active:cursor-grabbing`}
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
                 count > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
@@ -127,7 +207,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               {count > 0 && (
                 <span className="text-[11px] text-emerald-400 font-medium tabular-nums">{count}</span>
               )}
-            </button>
+            </div>
           );
         })}
 
@@ -192,7 +272,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               ) : null;
             })()}
           </button>
-          <Tooltip label="New Service" side="bottom">
+          <Tooltip label="New Service" side="left">
             <button
               onClick={() => setShowAddService(true)}
               className="text-zinc-600 hover:text-zinc-300 transition-colors p-0.5 rounded"
@@ -216,17 +296,37 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               ? "bg-amber-400 animate-pulse"
               : "bg-zinc-600";
             const isDropTarget = dragOverIndex?.type === "svc" && dragOverIndex.index === i;
+            const isLifted = draggingItem?.type === "svc" && draggingItem.index === i;
+            const shift = getShift("svc", i);
             return (
               <div
                 key={svc.id}
-                draggable
-                onDragStart={(e) => handleDragStart("svc", i, e)}
-                onDragOver={(e) => handleDragOver("svc", i, e)}
-                onDrop={() => handleDrop("svc", i)}
-                onDragEnd={handleDragEnd}
-                onClick={() => setEditingService(svc)}
-                className={`group/svc flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200 cursor-pointer transition-colors ${
-                  isDropTarget ? "ring-1 ring-blue-500/40" : ""
+                onMouseDown={() => handleMouseDown("svc", i)}
+                onMouseEnter={() => handleMouseEnter("svc", i)}
+                onMouseUp={() => handleMouseUp("svc", i)}
+                onClick={() => {
+                  if (didReorderRef.current) { didReorderRef.current = false; return; }
+                  setEditingService(svc);
+                }}
+                style={isLifted ? {
+                  transform: "scale(1.04) translateY(-1px)",
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+                  zIndex: 10,
+                  position: "relative",
+                  opacity: 0.95,
+                } : shift !== 0 ? {
+                  transform: `translateY(${shift}px)`,
+                  transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
+                  zIndex: 1,
+                  position: "relative",
+                } : {
+                  transform: "translateY(0px)",
+                  transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
+                }}
+                className={`group/svc flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] cursor-grab ${
+                  isLifted
+                    ? "bg-white/15 text-zinc-200"
+                    : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${dotColor}`} />
@@ -240,13 +340,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       </div>
 
       <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-0.5">
-        <button
-          onClick={() => setShowAddWs(true)}
-          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-all duration-100"
-        >
-          <span className="text-base leading-none">+</span>
-          <span>New Workspace</span>
-        </button>
         <button
           onClick={onOpenSettings}
           className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.05] transition-all duration-100"

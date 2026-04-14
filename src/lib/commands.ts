@@ -8,6 +8,7 @@ import type {
   Service,
   AddServiceParams,
   CustomDeployCmd,
+  HealthStatus,
 } from "../types";
 import {
   getMockState,
@@ -112,11 +113,13 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
         healthCheckPath: params.health_check_path,
         dependsOn: params.depends_on,
         extraSubdomains: params.extra_subdomains,
+        customDomain: params.custom_domain,
+        portBindings: params.port_bindings,
       })
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [] } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [] } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>
@@ -160,6 +163,22 @@ export const markAppReady = (id: string): Promise<void> =>
 
 export const getAppLogs = (id: string): Promise<string[]> =>
   isTauri ? invoke("get_app_logs", { id }) : Promise.resolve([]);
+
+// ── Health checks ───────────────────────────────────────────────────────────
+
+export const checkAppHealth = (id: string): Promise<HealthStatus> =>
+  isTauri ? invoke("check_app_health", { id }) : Promise.resolve("unknown" as HealthStatus);
+
+export const checkAllHealth = (): Promise<Record<string, HealthStatus>> =>
+  isTauri ? invoke("check_all_health") : Promise.resolve({});
+
+// ── Workspace bulk start / stop ──────────────────────────────────────────────
+
+export const startWorkspaceApps = (workspaceId: string): Promise<void> =>
+  isTauri ? invoke("start_workspace_apps", { workspaceId }) : Promise.resolve();
+
+export const stopWorkspaceApps = (workspaceId: string): Promise<void> =>
+  isTauri ? invoke("stop_workspace_apps", { workspaceId }) : Promise.resolve();
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -288,35 +307,28 @@ export const stopService = (id: string): Promise<void> => {
   return Promise.resolve();
 };
 
-// ── Google Drive OAuth ────────────────────────────────────────────────────────
+// ── Git Sync ─────────────────────────────────────────────────────────────────
 
-export const setGdriveCredentials = (clientId: string, clientSecret: string): Promise<void> =>
-  isTauri ? invoke("set_gdrive_credentials", { clientId, clientSecret }) : Promise.resolve();
+export const gitSyncCheck = (): Promise<boolean> =>
+  isTauri ? invoke("git_sync_check") : Promise.resolve(true);
 
-export const getGdriveCredentials = (): Promise<{ client_id: string; client_secret: string }> =>
-  isTauri
-    ? invoke("get_gdrive_credentials")
-    : Promise.resolve({ client_id: "", client_secret: "" });
+export const gitSyncGetRepo = (): Promise<string | null> =>
+  isTauri ? invoke("git_sync_get_repo") : Promise.resolve(null);
 
-/** Opens a browser consent page and awaits the redirect. Resolves with `{ email }` on success. */
-export const gdriveConnect = (): Promise<{ email: string }> =>
-  isTauri
-    ? invoke("gdrive_connect")
-    : Promise.reject(new Error("Google Drive auth requires the desktop app"));
+export const gitSyncSetRepo = (url: string): Promise<void> =>
+  isTauri ? invoke("git_sync_set_repo", { url }) : Promise.resolve();
 
-export const gdriveStatus = (): Promise<{ connected: boolean; email: string | null }> =>
-  isTauri
-    ? invoke("gdrive_status")
-    : Promise.resolve({ connected: false, email: null });
+export const gitSyncTest = (): Promise<void> =>
+  isTauri ? invoke("git_sync_test") : Promise.resolve();
 
-export const gdriveDisconnect = (): Promise<void> =>
-  isTauri ? invoke("gdrive_disconnect") : Promise.resolve();
+export const gitSyncPush = (): Promise<string> =>
+  isTauri ? invoke("git_sync_push") : Promise.resolve(new Date().toISOString());
 
-/** Upload current config to Google Drive. Returns ISO timestamp of sync. */
-export const gdriveSync = (): Promise<string> =>
-  isTauri
-    ? invoke("gdrive_sync")
-    : Promise.reject(new Error("Google Drive sync requires the desktop app"));
+export const gitSyncPull = (): Promise<string | null> =>
+  isTauri ? invoke("git_sync_pull") : Promise.resolve(null);
+
+export const gitSyncDisconnect = (): Promise<void> =>
+  isTauri ? invoke("git_sync_disconnect") : Promise.resolve();
 
 // ── Tunneling (cloudflared) ───────────────────────────────────────────────────
 

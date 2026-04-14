@@ -82,6 +82,10 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN extra_subdomains TEXT NOT NULL DEFAULT '[]'", []);
         // deploy custom commands
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN deploy_custom_commands TEXT NOT NULL DEFAULT '[]'", []);
+        // custom domain per app (overrides workspace domain)
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN custom_domain TEXT", []);
+        // multi-port bindings
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN port_bindings TEXT NOT NULL DEFAULT '[]'", []);
 
         Ok(())
     }
@@ -133,10 +137,13 @@ mod tests {
             health_check_path: None,
             depends_on: vec![],
             extra_subdomains: vec![],
+            custom_domain: None,
             tunnel_provider: None,
             tunnel_url: None,
             tunnel_active: false,
             deploy_config_path: None,
+            deploy_custom_commands: vec![],
+            port_bindings: vec![],
         };
         db.insert_app(&a).unwrap();
         let ports = db.used_ports().unwrap();
@@ -162,10 +169,13 @@ mod tests {
             health_check_path: None,
             depends_on: vec![],
             extra_subdomains: vec![],
+            custom_domain: None,
             tunnel_provider: None,
             tunnel_url: None,
             tunnel_active: false,
             deploy_config_path: None,
+            deploy_custom_commands: vec![],
+            port_bindings: vec![],
         };
         db.insert_app(&a).unwrap();
         let list = db.list_apps().unwrap();

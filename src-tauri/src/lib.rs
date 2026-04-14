@@ -8,12 +8,25 @@ pub mod db;
 pub mod dns;
 pub mod port_scanner;
 pub mod process_manager;
+pub mod health;
+pub mod metrics;
 pub mod setup;
 pub mod tray;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
+
+/// Returns the Porta data directory: `~/.porta` for release, `~/.porta-dev` for debug builds.
+pub fn porta_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    if cfg!(debug_assertions) {
+        PathBuf::from(home).join(".porta-dev")
+    } else {
+        PathBuf::from(home).join(".porta")
+    }
+}
 
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
@@ -25,14 +38,9 @@ use process_manager::ProcessManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let db_path = {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        std::path::PathBuf::from(home).join(".porta").join("porta.db")
-    };
-
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).expect("failed to create ~/.porta");
-    }
+    let base = porta_dir();
+    std::fs::create_dir_all(&base).expect("failed to create porta data dir");
+    let db_path = base.join("porta.db");
 
     let db = Database::open(db_path.clone()).expect("failed to open database");
 
@@ -66,6 +74,7 @@ pub fn run() {
         .setup(|app| {
             tray::setup_tray(app)?;
             auto_start::spawn_auto_start(app);
+            metrics::spawn_metrics_poller(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -103,7 +112,6 @@ pub fn run() {
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
             commands::caddy_status,
-            commands::detect_gdrive_path,
             commands::list_available_commands,
             commands::check_kamal,
             commands::kamal_run,
@@ -124,17 +132,22 @@ pub fn run() {
             commands::reorder_services,
             commands::start_service,
             commands::stop_service,
-            commands::set_gdrive_credentials,
-            commands::get_gdrive_credentials,
-            commands::gdrive_connect,
-            commands::gdrive_status,
-            commands::gdrive_disconnect,
-            commands::gdrive_sync,
             commands::check_cloudflared,
             commands::start_tunnel,
             commands::stop_tunnel,
             commands::get_launch_at_login,
             commands::set_launch_at_login,
+            commands::git_sync_check,
+            commands::git_sync_get_repo,
+            commands::git_sync_set_repo,
+            commands::git_sync_test,
+            commands::git_sync_push,
+            commands::git_sync_pull,
+            commands::git_sync_disconnect,
+            commands::check_app_health,
+            commands::check_all_health,
+            commands::start_workspace_apps,
+            commands::stop_workspace_apps,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
