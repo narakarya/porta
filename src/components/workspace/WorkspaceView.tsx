@@ -55,15 +55,10 @@ export default function WorkspaceView() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImportCompose, setShowImportCompose] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [filterText, setFilterText] = useState("");
+  const [filterByWs, setFilterByWs] = useState<Record<string, string>>({});
+  const filterText = filterByWs[selectedWorkspaceId ?? "__standalone"] ?? "";
+  const setFilterText = (text: string) => setFilterByWs((prev) => ({ ...prev, [selectedWorkspaceId ?? "__standalone"]: text }));
   const filterRef = useRef<HTMLInputElement>(null);
-  const prevWsId = useRef(selectedWorkspaceId);
-  useEffect(() => {
-    if (prevWsId.current !== selectedWorkspaceId) {
-      setFilterText("");
-      prevWsId.current = selectedWorkspaceId;
-    }
-  }, [selectedWorkspaceId]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
