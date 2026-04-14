@@ -67,6 +67,10 @@ pub fn spawn_auto_start(app: &tauri::App) {
     let auto_start_handle = app.handle().clone();
     std::thread::spawn(move || {
         for app_data in &auto_start_apps {
+            // Skip apps that are already running (survived from previous session)
+            if app_data.status == "running" {
+                continue;
+            }
             if let Err(e) = crate::commands::app_lifecycle::start_single(&auto_start_handle, app_data, false) {
                 eprintln!("auto-start failed for {}: {}", app_data.name, e);
                 continue;
