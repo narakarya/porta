@@ -2,6 +2,7 @@ import { useState } from "react";
 import { parseDockerCompose, isTauri } from "../../lib/commands";
 import type { ComposeService, ComposeProject } from "../../lib/commands";
 import { usePortaStore } from "../../store";
+import ModalWrapper from "../shared/ModalWrapper";
 
 const inputCls =
   "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
@@ -148,8 +149,8 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 w-[560px] flex flex-col gap-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="p-6 w-[560px] flex flex-col gap-5">
         {/* Header */}
         <div>
           <h2 className="text-[15px] font-semibold text-zinc-100">Import from Docker Compose</h2>
@@ -273,7 +274,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </ModalWrapper>
   );
 }
 

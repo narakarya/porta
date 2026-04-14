@@ -1,6 +1,5 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { usePortaStore } from "../../store";
-import { exportPortaConfig, importPortaConfig, isTauri } from "../../lib/commands";
 import type { App } from "../../types";
 import AppCard from "../app/AppCard";
 import AddAppModal from "../app/AddAppModal";
@@ -52,10 +51,9 @@ function computeStartOrder(apps: { id: string; depends_on: string[] }[]): Record
 }
 
 export default function WorkspaceView() {
-  const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace, load } = usePortaStore();
+  const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore();
   const [showAdd, setShowAdd] = useState(false);
   const [showImportCompose, setShowImportCompose] = useState(false);
-  const [showShareMenu, setShowShareMenu] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [filterText, setFilterText] = useState("");
   const filterRef = useRef<HTMLInputElement>(null);
@@ -123,39 +121,6 @@ export default function WorkspaceView() {
     }
   }
 
-  async function handleExportConfig() {
-    setShowShareMenu(false);
-    if (!isTauri || !selectedWorkspaceId) return;
-    try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const destPath = await save({
-        defaultPath: ".porta.yml",
-        filters: [{ name: "Porta Config", extensions: ["yml", "yaml"] }],
-      });
-      if (destPath) await exportPortaConfig(selectedWorkspaceId, destPath);
-    } catch (e) {
-      console.error("Export failed:", e);
-    }
-  }
-
-  async function handleImportConfig() {
-    setShowShareMenu(false);
-    if (!isTauri) return;
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "Porta Config", extensions: ["yml", "yaml"] }],
-      });
-      if (selected) {
-        await importPortaConfig(selected as string);
-        await load();
-      }
-    } catch (e) {
-      console.error("Import failed:", e);
-    }
-  }
-
   if (!workspace && selectedWorkspaceId !== null) {
     return (
       <div className="flex items-center justify-center h-full text-zinc-600 text-[13px]">
@@ -168,43 +133,12 @@ export default function WorkspaceView() {
     <div>
       {/* Header */}
       <div className="flex items-end justify-between mb-5">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-[17px] font-semibold text-zinc-100 leading-tight">
-              {workspace?.name ?? "Standalone"}
-            </h1>
-            {workspace && (
-              <p className="text-[12px] text-zinc-500 mt-0.5">{workspace.domain}</p>
-            )}
-          </div>
+        <div>
+          <h1 className="text-[17px] font-semibold text-zinc-100 leading-tight">
+            {workspace?.name ?? "Standalone"}
+          </h1>
           {workspace && (
-            <div className="relative">
-              <button
-                onClick={() => setShowShareMenu((v) => !v)}
-                className="px-2 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.04] hover:bg-white/[0.08] rounded-md border border-white/[0.06] transition-colors"
-                title="Share workspace"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline -mt-px mr-1">
-                  <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                  <polyline points="16 6 12 2 8 6" />
-                  <line x1="12" y1="2" x2="12" y2="15" />
-                </svg>
-                Share
-              </button>
-              {showShareMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowShareMenu(false)} />
-                  <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-white/[0.08] bg-zinc-900 shadow-xl py-1">
-                    <button onClick={handleExportConfig} className="w-full text-left px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-white/[0.06] transition-colors">
-                      Export .porta.yml
-                    </button>
-                    <button onClick={handleImportConfig} className="w-full text-left px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-white/[0.06] transition-colors">
-                      Import .porta.yml
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <p className="text-[12px] text-zinc-500 mt-0.5">{workspace.domain}</p>
           )}
         </div>
         {visibleApps.length > 0 && (

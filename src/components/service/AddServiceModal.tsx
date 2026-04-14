@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
+import ModalWrapper from "../shared/ModalWrapper";
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
@@ -281,10 +282,10 @@ export default function AddServiceModal({ onClose }: Props) {
   const showForm = selectedPreset !== null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50">
+    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
       <form
         onSubmit={submit}
-        className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 w-[500px] flex flex-col gap-5 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="p-6 w-[500px] flex flex-col gap-5"
       >
         {/* Header */}
         <div>
@@ -428,6 +429,6 @@ export default function AddServiceModal({ onClose }: Props) {
           </button>
         </div>
       </form>
-    </div>
+    </ModalWrapper>
   );
 }

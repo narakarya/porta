@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
+import ModalWrapper from "../shared/ModalWrapper";
 
 const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
 
@@ -60,10 +61,10 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50">
+    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl">
       <form
         onSubmit={submit}
-        className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 w-[340px] flex flex-col gap-4 shadow-2xl"
+        className="p-6 w-[340px] flex flex-col gap-4"
       >
         <div>
           <h2 className="text-[15px] font-semibold text-zinc-100">New Workspace</h2>
@@ -114,6 +115,6 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
           </button>
         </div>
       </form>
-    </div>
+    </ModalWrapper>
   );
 }

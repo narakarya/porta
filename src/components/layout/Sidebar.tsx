@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
+import { isTauri } from "../../lib/commands";
 import type { Workspace } from "../../types";
 import AddWorkspaceModal from "../workspace/AddWorkspaceModal";
 import WorkspaceSettingsModal from "../workspace/WorkspaceSettingsModal";
@@ -341,6 +342,26 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             {
               label: "Workspace Settings",
               onClick: () => setSettingsWs(contextMenu.ws),
+            },
+            {
+              label: "Export .porta.yml",
+              onClick: async () => {
+                if (!isTauri) return;
+                const { save } = await import("@tauri-apps/plugin-dialog");
+                const { exportPortaConfig } = await import("../../lib/commands");
+                const dest = await save({ defaultPath: ".porta.yml", filters: [{ name: "YAML", extensions: ["yml", "yaml"] }] });
+                if (dest) await exportPortaConfig(contextMenu.ws.id, dest);
+              },
+            },
+            {
+              label: "Import .porta.yml",
+              onClick: async () => {
+                if (!isTauri) return;
+                const { open } = await import("@tauri-apps/plugin-dialog");
+                const { importPortaConfig } = await import("../../lib/commands");
+                const src = await open({ multiple: false, filters: [{ name: "YAML", extensions: ["yml", "yaml"] }] });
+                if (src) { await importPortaConfig(src as string); usePortaStore.getState().load(); }
+              },
             },
           ]}
         />

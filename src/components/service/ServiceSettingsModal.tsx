@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
 import type { Service } from "../../types";
+import ModalWrapper from "../shared/ModalWrapper";
 
 const inputCls =
   "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
@@ -188,10 +189,10 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
   const isRunning = service.status !== "stopped";
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50">
+    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
       <form
         onSubmit={submit}
-        className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 w-[500px] flex flex-col gap-5 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="p-6 w-[500px] flex flex-col gap-5"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
@@ -346,6 +347,6 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
           </button>
         </div>
       </form>
-    </div>
+    </ModalWrapper>
   );
 }

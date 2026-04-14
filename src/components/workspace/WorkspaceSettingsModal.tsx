@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { Workspace } from "../../types";
+import ModalWrapper from "../shared/ModalWrapper";
 
 type Section = "general" | "danger";
 
@@ -53,7 +54,7 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-[#111113] text-zinc-100 font-sans flex h-screen overflow-hidden z-50">
+    <ModalWrapper onClose={onClose} className="bg-[#111113] text-zinc-100 font-sans flex h-screen w-screen overflow-hidden">
       {/* Drag region */}
       <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
 
@@ -203,6 +204,6 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
           )}
         </div>
       </main>
-    </div>
+    </ModalWrapper>
   );
 }
