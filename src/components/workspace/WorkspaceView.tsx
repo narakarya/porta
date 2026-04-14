@@ -57,6 +57,13 @@ export default function WorkspaceView() {
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [filterText, setFilterText] = useState("");
   const filterRef = useRef<HTMLInputElement>(null);
+  const prevWsId = useRef(selectedWorkspaceId);
+  useEffect(() => {
+    if (prevWsId.current !== selectedWorkspaceId) {
+      setFilterText("");
+      prevWsId.current = selectedWorkspaceId;
+    }
+  }, [selectedWorkspaceId]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

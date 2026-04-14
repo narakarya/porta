@@ -53,6 +53,16 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   refreshHealth: async () => {
     try {
       const statuses = await cmd.checkAllHealth();
+      const prev = get().healthStatuses;
+      const apps = get().apps;
+      for (const [id, status] of Object.entries(statuses)) {
+        if (status === "unhealthy" && prev[id] === "healthy") {
+          const app = apps.find((a) => a.id === id);
+          if (app && "Notification" in window && Notification.permission === "granted") {
+            new Notification(`${app.name} is unhealthy`, { body: `Health check failed on port ${app.port}` });
+          }
+        }
+      }
       set({ healthStatuses: statuses });
     } catch {}
   },

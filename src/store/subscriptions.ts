@@ -43,6 +43,10 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         }));
       } else if (event === "crashed") {
         const p = payload as { exit_code: number; attempt: number; max: number };
+        const appName = get().apps.find((a) => a.id === appId)?.name ?? appId;
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(`${appName} crashed`, { body: `Exit code ${p.exit_code} — retry ${p.attempt}/${p.max}` });
+        }
         set((s) => ({
           appRetryCount: { ...s.appRetryCount, [appId]: p.attempt },
           apps: s.apps.map((a) =>
@@ -50,6 +54,10 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           ),
         }));
       } else if (event === "max-retries") {
+        const appName = get().apps.find((a) => a.id === appId)?.name ?? appId;
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(`${appName} gave up`, { body: "Max retries reached. App stopped." });
+        }
         set((s) => ({
           appRetryCount: { ...s.appRetryCount, [appId]: 0 },
           appRestarting: { ...s.appRestarting, [appId]: false },

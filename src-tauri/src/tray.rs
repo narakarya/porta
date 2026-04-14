@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
@@ -9,8 +9,6 @@ use tauri::{
 use crate::app_state::AppState;
 use crate::db::Database;
 
-/// Rebuild the system tray menu to reflect current app status.
-/// Opens a fresh DB connection to avoid holding locks.
 pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &Path) {
     let Ok(db) = Database::open(db_path.to_path_buf()) else { return };
     let Ok(workspaces) = db.list_workspaces() else { return };
@@ -19,46 +17,96 @@ pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &Path) {
 
     let Ok(menu) = Menu::new(app) else { return };
 
-    let Ok(show) = MenuItem::with_id(app, "show", "Open Dashboard", true, None::<&str>) else {
-        return;
+    // Header
+    let running_count = apps.iter().filter(|a| a.status == "running").count();
+    let total = apps.len();
+    let header_label = if total == 0 {
+        "Porta — No apps".to_string()
+    } else {
+        format!("Porta — {}/{} running", running_count, total)
     };
-    menu.append(&show).ok();
+    if let Ok(header) = MenuItem::with_id(app, "header", &header_label, false, None::<&str>) {
+        menu.append(&header).ok();
+    }
+    PredefinedMenuItem::separator(app).map(|s| menu.append(&s)).ok();
 
-    if !apps.is_empty() {
-        let Ok(sep) = PredefinedMenuItem::separator(app) else { return };
-        menu.append(&sep).ok();
+    // Open Dashboard
+    if let Ok(show) = MenuItem::with_id(app, "show", "Open Dashboard", true, Some("CmdOrCtrl+O")) {
+        menu.append(&show).ok();
+    }
+    PredefinedMenuItem::separator(app).map(|s| menu.append(&s)).ok();
 
-        for app_data in &apps {
-            let ws_name = workspaces
-                .iter()
-                .find(|w| Some(&w.id) == app_data.workspace_id.as_ref())
-                .map(|w| w.name.as_str())
-                .unwrap_or("Global");
-            let dot = if app_data.status == "running" { "●" } else { "○" };
-            let label = format!("{} {}  [{}]", dot, app_data.name, ws_name);
-            if let Ok(item) = MenuItem::with_id(
-                app,
-                format!("toggle-{}", app_data.id),
-                label,
-                true,
-                None::<&str>,
-            ) {
-                menu.append(&item).ok();
+    // Quick actions
+    let has_stopped = apps.iter().any(|a| a.status == "stopped" && !a.start_command.is_empty());
+    let has_running = apps.iter().any(|a| a.status == "running");
+    if has_stopped {
+        if let Ok(item) = MenuItem::with_id(app, "start-all", "▶ Start All Apps", true, None::<&str>) {
+            menu.append(&item).ok();
+        }
+    }
+    if has_running {
+        if let Ok(item) = MenuItem::with_id(app, "stop-all", "■ Stop All Apps", true, None::<&str>) {
+            menu.append(&item).ok();
+        }
+    }
+    if has_stopped || has_running {
+        PredefinedMenuItem::separator(app).map(|s| menu.append(&s)).ok();
+    }
+
+    // Apps grouped by workspace
+    for ws in &workspaces {
+        let ws_apps: Vec<_> = apps.iter().filter(|a| a.workspace_id.as_ref() == Some(&ws.id)).collect();
+        if ws_apps.is_empty() { continue; }
+
+        if let Ok(submenu) = Submenu::with_id(app, format!("ws-{}", ws.id), &ws.name, true) {
+            for app_data in &ws_apps {
+                let dot = if app_data.status == "running" { "🟢" } else { "⚫" };
+                let label = format!("{} {} :{}", dot, app_data.name, app_data.port);
+                let action = if app_data.status == "running" { "Stop" } else { "Start" };
+                if let Ok(item) = MenuItem::with_id(
+                    app,
+                    format!("toggle-{}", app_data.id),
+                    &format!("{} — {}", label, action),
+                    true,
+                    None::<&str>,
+                ) {
+                    submenu.append(&item).ok();
+                }
             }
+            menu.append(&submenu).ok();
         }
     }
 
-    let Ok(sep2) = PredefinedMenuItem::separator(app) else { return };
-    menu.append(&sep2).ok();
-    let Ok(quit) = MenuItem::with_id(app, "quit", "Quit Porta", true, None::<&str>) else {
-        return;
-    };
-    menu.append(&quit).ok();
+    // Standalone apps
+    let standalone: Vec<_> = apps.iter().filter(|a| a.workspace_id.is_none()).collect();
+    if !standalone.is_empty() {
+        if let Ok(submenu) = Submenu::with_id(app, "ws-standalone", "Standalone", true) {
+            for app_data in &standalone {
+                let dot = if app_data.status == "running" { "🟢" } else { "⚫" };
+                let label = format!("{} {} :{}", dot, app_data.name, app_data.port);
+                let action = if app_data.status == "running" { "Stop" } else { "Start" };
+                if let Ok(item) = MenuItem::with_id(
+                    app,
+                    format!("toggle-{}", app_data.id),
+                    &format!("{} — {}", label, action),
+                    true,
+                    None::<&str>,
+                ) {
+                    submenu.append(&item).ok();
+                }
+            }
+            menu.append(&submenu).ok();
+        }
+    }
+
+    PredefinedMenuItem::separator(app).map(|s| menu.append(&s)).ok();
+    if let Ok(quit) = MenuItem::with_id(app, "quit", "Quit Porta", true, Some("CmdOrCtrl+Q")) {
+        menu.append(&quit).ok();
+    }
 
     tray.set_menu(Some(menu)).ok();
 }
 
-/// Set up the system tray icon, menu, and event handlers.
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "Open Dashboard", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Porta", true, None::<&str>)?;
@@ -66,11 +114,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
 
     TrayIconBuilder::with_id("porta-main")
+        .tooltip("Porta")
         .menu(&menu)
         .icon(app.default_window_icon().unwrap().clone())
         .on_menu_event(|app: &tauri::AppHandle, event: tauri::menu::MenuEvent| {
             let id = event.id.as_ref();
-            if id == "show" {
+            if id == "show" || id == "header" {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();
                     let _ = w.set_focus();
@@ -78,12 +127,35 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             } else if id == "quit" {
                 app.state::<AppState>().processes.stop_all();
                 app.exit(0);
+            } else if id == "start-all" {
+                let handle = app.clone();
+                std::thread::spawn(move || {
+                    let state = handle.state::<AppState>();
+                    let db = state.db.lock().unwrap();
+                    let apps = db.list_apps().unwrap_or_default();
+                    drop(db);
+                    for app_data in apps.iter().filter(|a| a.status == "stopped" && !a.start_command.is_empty()) {
+                        crate::commands::app_lifecycle::start_single(&handle, app_data, true).ok();
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    rebuild_tray_menu(&handle, &state.db_path);
+                });
+            } else if id == "stop-all" {
+                let state = app.state::<AppState>();
+                let db = state.db.lock().unwrap();
+                let apps = db.list_apps().unwrap_or_default();
+                drop(db);
+                for app_data in apps.iter().filter(|a| a.status == "running") {
+                    state.processes.stop(&app_data.id).ok();
+                    state.db.lock().unwrap().update_app_status(&app_data.id, "stopped", None).ok();
+                    app.emit(&format!("app:exit:{}", app_data.id), 0i32).ok();
+                }
+                rebuild_tray_menu(app, &state.db_path);
             } else if let Some(app_id) = id.strip_prefix("toggle-") {
                 let app_id = app_id.to_string();
                 let handle = app.clone();
                 let db_path = app.state::<AppState>().db_path.clone();
                 std::thread::spawn(move || {
-                    // Read current status from a fresh DB connection
                     let Ok(db) = crate::db::Database::open(db_path.clone()) else { return };
                     let Ok(apps) = db.list_apps() else { return };
                     let Some(app_data) = apps.iter().find(|a| a.id == app_id).cloned() else { return };
@@ -93,15 +165,11 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         state.processes.stop(&app_id).ok();
                         state.db.lock().unwrap().update_app_status(&app_id, "stopped", None).ok();
                         handle.emit(&format!("app:exit:{}", app_id), 0i32).ok();
-                    } else {
-                        // Can't fully start without app context — show dashboard
-                        if let Some(w) = handle.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
+                    } else if !app_data.start_command.is_empty() {
+                        crate::commands::app_lifecycle::start_single(&handle, &app_data, true).ok();
                     }
 
-                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                     rebuild_tray_menu(&handle, &db_path);
                 });
             }
