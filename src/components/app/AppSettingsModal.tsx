@@ -118,13 +118,14 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     setDeleteProfileConfirm(null);
   }, [activeProfileId, app.env_file, app.env_vars]);
 
-  // Port availability check (debounced)
+  // Port availability check (debounced) — skip if port unchanged from the app's current port
   const [portCheckResult, setPortCheckResult] = useState<PortCheckResult | null>(null);
   useEffect(() => {
     if (!portValid) { setPortCheckResult(null); return; }
+    if (portNum === app.port) { setPortCheckResult(null); return; }
     const timer = setTimeout(() => { checkPortAvailable(portNum).then(setPortCheckResult).catch(() => {}); }, 500);
     return () => clearTimeout(timer);
-  }, [port, portValid, portNum]);
+  }, [port, portValid, portNum, app.port]);
 
   // Live URL preview
   const scheme = setupStatus?.certs_generated ? "https" : "http";

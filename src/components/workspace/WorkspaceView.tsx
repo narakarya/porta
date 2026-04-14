@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { usePortaStore } from "../../store";
 import { exportPortaConfig, importPortaConfig, isTauri } from "../../lib/commands";
 import type { App } from "../../types";
@@ -57,6 +57,18 @@ export default function WorkspaceView() {
   const [showImportCompose, setShowImportCompose] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [filterText, setFilterText] = useState("");
+  const filterRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); filterRef.current?.focus(); }
+      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName)) { e.preventDefault(); filterRef.current?.focus(); }
+      if (e.key === "Escape" && document.activeElement === filterRef.current) { filterRef.current?.blur(); setFilterText(""); }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const [detailApp, setDetailApp] = useState<App | null>(null);
   const [settingsApp, setSettingsApp] = useState<App | null>(null);
   const [deployApp, setDeployApp] = useState<App | null>(null);
@@ -70,13 +82,24 @@ export default function WorkspaceView() {
   }
 
   const workspace = workspaces.find((w) => w.id === selectedWorkspaceId) ?? null;
-  const visibleApps = apps.filter((a) => a.workspace_id === selectedWorkspaceId);
-  const runningCount = visibleApps.filter((a) => a.status === "running").length;
-  const activeCount = visibleApps.filter((a) => a.status === "running" || a.status === "starting").length;
-  const stoppedWithCommand = visibleApps.filter((a) => a.status === "stopped" && a.start_command);
+  const allVisibleApps = apps.filter((a) => a.workspace_id === selectedWorkspaceId);
+  const filteredApps = useMemo(() => {
+    const q = filterText.toLowerCase().trim();
+    if (!q) return allVisibleApps;
+    return allVisibleApps.filter((a) =>
+      a.name.toLowerCase().includes(q) ||
+      String(a.port).includes(q) ||
+      (a.subdomain ?? "").toLowerCase().includes(q) ||
+      a.status.includes(q)
+    );
+  }, [allVisibleApps, filterText]);
+  const visibleApps = filteredApps;
+  const runningCount = allVisibleApps.filter((a) => a.status === "running").length;
+  const activeCount = allVisibleApps.filter((a) => a.status === "running" || a.status === "starting").length;
+  const stoppedWithCommand = allVisibleApps.filter((a) => a.status === "stopped" && a.start_command);
   const hasStoppedApps = stoppedWithCommand.length > 0;
   const hasActiveApps = activeCount > 0;
-  const startOrder = useMemo(() => computeStartOrder(visibleApps), [visibleApps]);
+  const startOrder = useMemo(() => computeStartOrder(allVisibleApps), [allVisibleApps]);
 
   // Keep detailApp in sync with latest store data
   const liveDetailApp = detailApp
@@ -231,6 +254,40 @@ export default function WorkspaceView() {
           </div>
         )}
       </div>
+
+      {/* Filter bar */}
+      {allVisibleApps.length > 3 && (
+        <div className="relative mb-3 max-w-xs">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M8 8l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+          </svg>
+          <input
+            ref={filterRef}
+            spellCheck={false}
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            className="w-full pl-8 pr-7 py-1.5 text-[12px] text-zinc-200 bg-white/[0.03] border border-white/[0.07] rounded-lg placeholder:text-zinc-600 focus:outline-none focus:border-white/[0.15]"
+            placeholder="Filter apps... (/ or ⌘F)"
+          />
+          {filterText && (
+            <button
+              onClick={() => setFilterText("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
+
+      {filterText && visibleApps.length === 0 && allVisibleApps.length > 0 && (
+        <div className="flex items-center justify-center py-8 text-[13px] text-zinc-600">
+          No apps match "{filterText}"
+        </div>
+      )}
 
       <>
         {/* App list / Canvas */}
