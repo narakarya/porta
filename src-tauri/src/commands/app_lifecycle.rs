@@ -231,17 +231,19 @@ pub fn stop_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Re
     Ok(())
 }
 
-/// Kill an arbitrary PID with SIGKILL.
+/// Kill an arbitrary PID with SIGKILL — also try killing the process group.
 #[tauri::command]
 pub fn kill_pid(pid: u32) -> Result<(), String> {
-    nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(pid as i32),
-        nix::sys::signal::Signal::SIGKILL,
-    )
-    .map_err(|e| e.to_string())
+    let p = nix::unistd::Pid::from_raw(pid as i32);
+    // Try killing the process group first (catches child processes)
+    let _ = nix::sys::signal::killpg(p, nix::sys::signal::Signal::SIGKILL);
+    // Also kill the individual PID in case it's not a group leader
+    nix::sys::signal::kill(p, nix::sys::signal::Signal::SIGKILL)
+        .map_err(|e| e.to_string())
 }
 
 /// Kill whatever process is currently holding `port`.
+/// Kills ALL PIDs found on the port (not just the first one).
 #[tauri::command]
 pub fn kill_port_holder(port: u16) -> Result<u32, String> {
     let output = std::process::Command::new("lsof")
@@ -250,17 +252,21 @@ pub fn kill_port_holder(port: u16) -> Result<u32, String> {
         .map_err(|e| e.to_string())?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let pid_str = stdout.lines().next().unwrap_or("").trim().to_string();
-    if pid_str.is_empty() {
+    let pids: Vec<u32> = stdout
+        .lines()
+        .filter_map(|l| l.trim().parse::<u32>().ok())
+        .collect();
+
+    if pids.is_empty() {
         return Err(format!("No process found on port {}", port));
     }
-    let pid: u32 = pid_str.parse().map_err(|_| format!("Invalid PID: {}", pid_str))?;
-    nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(pid as i32),
-        nix::sys::signal::Signal::SIGKILL,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(pid)
+
+    for &pid in &pids {
+        let p = nix::unistd::Pid::from_raw(pid as i32);
+        let _ = nix::sys::signal::killpg(p, nix::sys::signal::Signal::SIGKILL);
+        let _ = nix::sys::signal::kill(p, nix::sys::signal::Signal::SIGKILL);
+    }
+    Ok(pids[0])
 }
 
 #[tauri::command]
