@@ -115,11 +115,13 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
         extraSubdomains: params.extra_subdomains,
         customDomain: params.custom_domain,
         portBindings: params.port_bindings,
+        envProfiles: params.env_profiles,
+        activeProfileId: params.active_profile_id,
       })
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [] } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [] } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>
@@ -148,6 +150,17 @@ export const restartApp = (id: string): Promise<void> =>
 
 export const killApp = (id: string): Promise<void> =>
   isTauri ? invoke("kill_app", { id }) : Promise.resolve();
+
+export interface PortCheckResult {
+  available: boolean;
+  pid: number | null;
+  process_name: string | null;
+}
+
+export const checkPortAvailable = (port: number): Promise<PortCheckResult> =>
+  isTauri
+    ? invoke("check_port_available", { port })
+    : Promise.resolve({ available: true, pid: null, process_name: null });
 
 export const killPortHolder = (port: number): Promise<number> =>
   isTauri ? invoke("kill_port_holder", { port }) : Promise.resolve(0);

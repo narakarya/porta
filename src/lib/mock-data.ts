@@ -36,6 +36,8 @@ export const mockApps: App[] = [
     deploy_config_path: null,
     deploy_custom_commands: [],
     port_bindings: [],
+    env_profiles: [],
+    active_profile_id: null,
   },
   {
     id: "app-2",
@@ -64,6 +66,8 @@ export const mockApps: App[] = [
     deploy_config_path: "/Users/dev/narakarya/api/config/deploy.yml",
     deploy_custom_commands: [],
     port_bindings: [],
+    env_profiles: [],
+    active_profile_id: null,
   },
   {
     id: "app-3",
@@ -91,6 +95,8 @@ export const mockApps: App[] = [
     deploy_config_path: null,
     deploy_custom_commands: [],
     port_bindings: [],
+    env_profiles: [],
+    active_profile_id: null,
   },
   {
     id: "app-4",
@@ -118,6 +124,8 @@ export const mockApps: App[] = [
     deploy_config_path: null,
     deploy_custom_commands: [],
     port_bindings: [],
+    env_profiles: [],
+    active_profile_id: null,
   },
 ];
 
@@ -182,6 +190,8 @@ export function mockAddApp(params: {
     deploy_config_path: null,
     deploy_custom_commands: [],
     port_bindings: [],
+    env_profiles: [],
+    active_profile_id: null,
   };
   state.apps.push(app);
   return app;

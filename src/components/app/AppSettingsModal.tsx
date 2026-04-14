@@ -1,6 +1,7 @@
-import { useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { usePortaStore } from "../../store";
-import type { App, PortBinding, Workspace } from "../../types";
+import { checkPortAvailable, type PortCheckResult } from "../../lib/commands";
+import type { App, EnvProfile, PortBinding, Workspace } from "../../types";
 import Field from "../shared/Field";
 import EnvVarEditor from "../shared/EnvVarEditor";
 import TunnelStatusBadge from "../shared/TunnelStatusBadge";
@@ -27,6 +28,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
   const [extraSubdomainInput, setExtraSubdomainInput] = useState("");
   const [portBindings, setPortBindings] = useState<PortBinding[]>(app.port_bindings ?? []);
   const [customDomain, setCustomDomain] = useState(app.custom_domain ?? "");
+
   const [startCommand, setStartCommand] = useState(app.start_command);
   // Health check (from agent-a7a6ec3b)
   const [healthCheckPath, setHealthCheckPath] = useState(app.health_check_path ?? "");
@@ -76,6 +78,54 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
   });
   const canSave = name.trim() && portValid && subdomainValid && customDomainValid && portBindingsValid;
 
+  // Environment profiles
+  const [envProfiles, setEnvProfiles] = useState<EnvProfile[]>(app.env_profiles ?? []);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(app.active_profile_id ?? null);
+  const [showNewProfile, setShowNewProfile] = useState(false);
+  const [newProfileName, setNewProfileName] = useState("");
+  const [deleteProfileConfirm, setDeleteProfileConfirm] = useState<string | null>(null);
+
+  const selectProfile = useCallback((profileId: string | null) => {
+    if (activeProfileId) {
+      const obj: Record<string, string> = {};
+      for (const { key, value } of envVars) { if (key.trim()) obj[key.trim()] = value; }
+      setEnvProfiles((prev) => prev.map((p) => p.id === activeProfileId ? { ...p, env_file: envFile.trim() || null, env_vars: obj } : p));
+    }
+    setActiveProfileId(profileId);
+    if (profileId) {
+      const profile = envProfiles.find((p) => p.id === profileId);
+      if (profile) { setEnvFile(profile.env_file ?? ""); setEnvVars(Object.entries(profile.env_vars ?? {}).map(([key, value]) => ({ key, value }))); }
+    } else {
+      setEnvFile(app.env_file ?? ""); setEnvVars(Object.entries(app.env_vars ?? {}).map(([key, value]) => ({ key, value })));
+    }
+  }, [activeProfileId, envVars, envFile, envProfiles, app.env_file, app.env_vars]);
+
+  const createProfile = useCallback(() => {
+    if (!newProfileName.trim()) return;
+    const obj: Record<string, string> = {};
+    for (const { key, value } of envVars) { if (key.trim()) obj[key.trim()] = value; }
+    const np: EnvProfile = { id: `prof-${Date.now().toString(36)}`, name: newProfileName.trim(), env_file: envFile.trim() || null, env_vars: { ...obj } };
+    setEnvProfiles((prev) => [...prev, np]);
+    setActiveProfileId(np.id);
+    setNewProfileName(""); setShowNewProfile(false);
+  }, [newProfileName, envVars, envFile]);
+
+  const deleteProfile = useCallback((profileId: string) => {
+    setEnvProfiles((prev) => prev.filter((p) => p.id !== profileId));
+    if (activeProfileId === profileId) {
+      setActiveProfileId(null); setEnvFile(app.env_file ?? ""); setEnvVars(Object.entries(app.env_vars ?? {}).map(([key, value]) => ({ key, value })));
+    }
+    setDeleteProfileConfirm(null);
+  }, [activeProfileId, app.env_file, app.env_vars]);
+
+  // Port availability check (debounced)
+  const [portCheckResult, setPortCheckResult] = useState<PortCheckResult | null>(null);
+  useEffect(() => {
+    if (!portValid) { setPortCheckResult(null); return; }
+    const timer = setTimeout(() => { checkPortAvailable(portNum).then(setPortCheckResult).catch(() => {}); }, 500);
+    return () => clearTimeout(timer);
+  }, [port, portValid, portNum]);
+
   // Live URL preview
   const scheme = setupStatus?.certs_generated ? "https" : "http";
   const domain = customDomain.trim() || workspace?.domain || "narakarya.test";
@@ -107,15 +157,31 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
       for (const { key, value } of envVars) {
         if (key.trim()) env_vars[key.trim()] = value;
       }
+
+      // Sync the currently-displayed env values back into the active profile
+      let finalProfiles = [...envProfiles];
+      let finalEnvFile: string | null = envFile.trim() || null;
+      let finalEnvVars = env_vars;
+
+      if (activeProfileId) {
+        finalProfiles = finalProfiles.map((p) =>
+          p.id === activeProfileId
+            ? { ...p, env_file: envFile.trim() || null, env_vars: { ...env_vars } }
+            : p
+        );
+        finalEnvFile = app.env_file ?? null;
+        finalEnvVars = app.env_vars ?? {};
+      }
+
       await updateApp({
         id: app.id,
         name: name.trim(),
         port: portNum,
         subdomain: subdomain.trim() || null,
         start_command: startCommand.trim(),
-        env_file: envFile.trim() || null,
+        env_file: finalEnvFile,
         auto_start: autoStart,
-        env_vars,
+        env_vars: finalEnvVars,
         restart_policy: restartPolicy,
         max_retries: parseInt(maxRetries, 10) || 3,
         health_check_path: healthCheckPath.trim() || null,
@@ -123,6 +189,8 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
         extra_subdomains: extraSubdomains,
         custom_domain: customDomain.trim() || null,
         port_bindings: portBindings,
+        env_profiles: finalProfiles,
+        active_profile_id: activeProfileId,
       });
       onClose();
     } catch (e) {
@@ -233,6 +301,13 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   <input spellCheck={false} value={port} onChange={(e) => setPort(e.target.value)}
                     className={`input-base ${!portValid && port ? "border-red-500/50" : ""}`}
                     placeholder="3000" type="number" min={1} max={65535} />
+                  {portCheckResult && portValid && (
+                    <p className={`text-[10px] mt-1 ${portCheckResult.available ? "text-emerald-400" : "text-amber-400"}`}>
+                      {portCheckResult.available
+                        ? "✓ Port available"
+                        : `⚠ Port in use by ${portCheckResult.process_name ?? "unknown"} (PID ${portCheckResult.pid ?? "?"})`}
+                    </p>
+                  )}
                 </Field>
 
                 <Field label="Start Command">
@@ -522,6 +597,64 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
               <div>
                 <h1 className="text-[16px] font-semibold text-zinc-100">Environment</h1>
                 <p className="text-[12px] text-zinc-500 mt-1">Environment variables and startup behavior.</p>
+              </div>
+
+              {/* Profile selector */}
+              <div className="flex flex-col gap-3 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-medium text-zinc-300">Profile</p>
+                  <button onClick={() => setShowNewProfile(true)} className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors">+ New Profile</button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => selectProfile(null)}
+                    className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
+                      activeProfileId === null
+                        ? "bg-blue-600/30 text-blue-300 border border-blue-500/30"
+                        : "bg-white/[0.04] text-zinc-400 border border-white/[0.07] hover:bg-white/[0.07]"
+                    }`}
+                  >Default</button>
+                  {envProfiles.map((profile) => (
+                    <div key={profile.id} className="flex items-center gap-0">
+                      <button
+                        onClick={() => selectProfile(profile.id)}
+                        className={`px-3 py-1.5 rounded-l-lg text-[12px] font-medium transition-colors ${
+                          activeProfileId === profile.id
+                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/30"
+                            : "bg-white/[0.04] text-zinc-400 border border-white/[0.07] hover:bg-white/[0.07]"
+                        }`}
+                      >{profile.name}</button>
+                      {deleteProfileConfirm === profile.id ? (
+                        <div className="flex items-center gap-1 ml-1">
+                          <button onClick={() => deleteProfile(profile.id)} className="px-1.5 py-1.5 text-[10px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded transition-colors hover:bg-red-500/20">Delete</button>
+                          <button onClick={() => setDeleteProfileConfirm(null)} className="px-1.5 py-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteProfileConfirm(profile.id)}
+                          className={`px-1.5 py-1.5 rounded-r-lg text-zinc-600 hover:text-red-400 transition-colors border-y border-r ${
+                            activeProfileId === profile.id ? "border-blue-500/30 bg-blue-600/30" : "border-white/[0.07] bg-white/[0.04] hover:bg-white/[0.07]"
+                          }`}
+                          title={`Delete ${profile.name}`}
+                        >
+                          <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {activeProfileId && (
+                  <p className="text-[10px] text-blue-400/60">Active profile will be used when starting the app.</p>
+                )}
+                {showNewProfile && (
+                  <div className="flex gap-2 items-center">
+                    <input spellCheck={false} value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") createProfile(); if (e.key === "Escape") { setShowNewProfile(false); setNewProfileName(""); } }}
+                      className="input-base flex-1 text-[12px]" placeholder="Profile name (e.g. staging)" autoFocus />
+                    <button onClick={createProfile} disabled={!newProfileName.trim()} className="px-3 py-2 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors shrink-0">Create</button>
+                    <button onClick={() => { setShowNewProfile(false); setNewProfileName(""); }} className="px-2 py-2 text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors shrink-0">Cancel</button>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-5 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">

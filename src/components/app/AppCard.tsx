@@ -4,7 +4,7 @@ import type { App, Workspace } from "../../types";
 import LogViewer from "./LogViewer";
 import AppContextMenu from "./AppContextMenu";
 import AppSettingsModal from "./AppSettingsModal";
-import { openInEditor, openInTerminal, killPortHolder } from "../../lib/commands";
+import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, type PortCheckResult } from "../../lib/commands";
 import Tooltip from "../shared/Tooltip";
 import LogToast from "./LogToast";
 import TunnelQuickMenu from "./TunnelQuickMenu";
@@ -70,6 +70,21 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
     setPortKillFeedback({ ok, msg });
     setTimeout(() => setPortKillFeedback(null), 3000);
   }
+
+  // ── Port availability check for stopped apps ──────────────────────────────
+  const [portCheck, setPortCheck] = useState<PortCheckResult | null>(null);
+  useEffect(() => {
+    if (isActive) { setPortCheck(null); return; }
+    let cancelled = false;
+    function check() {
+      checkPortAvailable(app.port)
+        .then((r) => { if (!cancelled) setPortCheck(r); })
+        .catch(() => {});
+    }
+    check();
+    const interval = setInterval(check, 10_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [app.port, isActive]);
 
   const [logToastOpen, setLogToastOpen] = useState(false);
   function openToast() { setLogToastOpen(true); registerToast(app.id); }
@@ -188,6 +203,17 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
               <span className="text-[10px] text-zinc-600 font-mono">
                 {metrics.cpu.toFixed(1)}% · {metrics.mem_mb} MB
               </span>
+            )}
+            {portCheck && !portCheck.available && (
+              <Tooltip label={`Port ${app.port} in use by ${portCheck.process_name ?? "unknown"} (PID ${portCheck.pid ?? "?"})`}>
+                <span className="text-amber-400">
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="inline-block">
+                    <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                    <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
+                  </svg>
+                </span>
+              </Tooltip>
             )}
             {extraCount > 0 && (
               <span className="text-[10px] font-medium text-zinc-500 bg-white/[0.05] border border-white/[0.08] px-1 py-0.5 rounded leading-none" title={(app.extra_subdomains ?? []).join(", ")}>

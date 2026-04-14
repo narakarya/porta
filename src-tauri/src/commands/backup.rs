@@ -73,6 +73,8 @@ pub fn import_data(
                 deploy_config_path: None,
                 deploy_custom_commands: vec![],
                 port_bindings: a.port_bindings.clone(),
+                env_profiles: vec![],
+                active_profile_id: None,
             };
             db.insert_app(&app).ok();
         }

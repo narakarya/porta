@@ -86,6 +86,9 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN custom_domain TEXT", []);
         // multi-port bindings
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN port_bindings TEXT NOT NULL DEFAULT '[]'", []);
+        // environment profiles
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_profiles TEXT NOT NULL DEFAULT '[]'", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN active_profile_id TEXT", []);
 
         Ok(())
     }
@@ -144,6 +147,8 @@ mod tests {
             deploy_config_path: None,
             deploy_custom_commands: vec![],
             port_bindings: vec![],
+            env_profiles: vec![],
+            active_profile_id: None,
         };
         db.insert_app(&a).unwrap();
         let ports = db.used_ports().unwrap();
@@ -176,6 +181,8 @@ mod tests {
             deploy_config_path: None,
             deploy_custom_commands: vec![],
             port_bindings: vec![],
+            env_profiles: vec![],
+            active_profile_id: None,
         };
         db.insert_app(&a).unwrap();
         let list = db.list_apps().unwrap();

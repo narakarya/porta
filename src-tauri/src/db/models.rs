@@ -10,6 +10,14 @@ pub struct CustomDeployCmd {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvProfile {
+    pub id: String,
+    pub name: String,
+    pub env_file: Option<String>,
+    pub env_vars: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortBinding {
     pub id: String,
     pub label: String,
@@ -88,6 +96,12 @@ pub struct App {
     /// Extra port bindings — each gets its own Caddy route with a separate port.
     #[serde(default)]
     pub port_bindings: Vec<PortBinding>,
+    /// Named environment profiles (e.g. "development", "staging", "test").
+    #[serde(default)]
+    pub env_profiles: Vec<EnvProfile>,
+    /// ID of the active environment profile. If None, root-level env_file/env_vars are used.
+    #[serde(default)]
+    pub active_profile_id: Option<String>,
 }
 
 impl App {

@@ -6,6 +6,7 @@ pub mod caddy;
 pub mod commands;
 pub mod db;
 pub mod dns;
+pub mod port_check;
 pub mod port_scanner;
 pub mod process_manager;
 pub mod health;
@@ -144,6 +145,7 @@ pub fn run() {
             commands::git_sync_push,
             commands::git_sync_pull,
             commands::git_sync_disconnect,
+            commands::check_port_available,
             commands::check_app_health,
             commands::check_all_health,
             commands::start_workspace_apps,

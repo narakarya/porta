@@ -139,6 +139,8 @@ mod tests {
             deploy_config_path: None,
             deploy_custom_commands: vec![],
             port_bindings: vec![],
+            env_profiles: vec![],
+            active_profile_id: None,
         }
     }
 

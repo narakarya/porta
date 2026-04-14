@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getAppLogs } from "../../lib/commands";
-import { filterNoise, detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
-import { useLogScroll } from "../../hooks/useLogScroll";
-import { useLogFilter } from "../../hooks/useLogFilter";
 
 interface Props {
   appId: string;
@@ -16,14 +13,116 @@ interface Props {
   onClear: () => void;
 }
 
+// ── ANSI stripping ─────────────────────────────────────────────────────────────
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /[\x1b\x9b][\[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_RE, "");
+}
+const NOISE_RE = /cloudflare\.com\/(website-terms|terms)|Thank you for trying Cloudflare Tunnel|Doing so, you agree/i;
+function filterNoise(lines: string[]) { return lines.filter((l) => !NOISE_RE.test(stripAnsi(l))); }
+
+// ── Log level detection ────────────────────────────────────────────────────────
+type LogLevel = "error" | "warn" | "info" | "debug" | "trace" | "success" | null;
+
+const LEVEL_PATTERNS: [LogLevel, RegExp][] = [
+  ["error",   /\b(error|err|fatal|exception|crash|failed|failure)\b/i],
+  ["warn",    /\b(warn(?:ing)?|deprecated|caution)\b/i],
+  ["success", /\b(compiled|generated|ok|done|started|ready|success(?:ful)?|listening)\b/i],
+  ["info",    /\b(info(?:rmation)?|notice|log)\b/i],
+  ["debug",   /\b(debug|verbose)\b/i],
+  ["trace",   /\b(trace)\b/i],
+];
+
+function detectLevel(line: string): LogLevel {
+  // Bracketed level markers get priority — [error], [warning], [info], etc.
+  const bracketed = line.match(/\[(error|err|fatal|warn(?:ing)?|info|debug|trace|notice)\]/i);
+  if (bracketed) {
+    const l = bracketed[1].toLowerCase();
+    if (l === "error" || l === "err" || l === "fatal") return "error";
+    if (l.startsWith("warn")) return "warn";
+    if (l === "info" || l === "notice") return "info";
+    if (l === "debug") return "debug";
+    if (l === "trace") return "trace";
+  }
+
+  // PREFIX markers: ERROR:, WARN:, INFO: etc. at start or after timestamp
+  const prefix = line.match(/(?:^|\s)(ERROR|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE|SUCCESS)[\s:]/);
+  if (prefix) {
+    const l = prefix[1].toLowerCase();
+    if (l === "error" || l === "fatal") return "error";
+    if (l.startsWith("warn")) return "warn";
+    if (l === "info") return "info";
+    if (l === "debug") return "debug";
+    if (l === "trace") return "trace";
+    if (l === "success") return "success";
+  }
+
+  // Heuristic scan (lower priority, only if no marker found)
+  for (const [level, re] of LEVEL_PATTERNS) {
+    if (re.test(line)) return level;
+  }
+
+  return null;
+}
+
+const LEVEL_CLASS: Record<NonNullable<LogLevel>, string> = {
+  error:   "text-red-400",
+  warn:    "text-amber-400",
+  info:    "text-blue-400",
+  debug:   "text-zinc-500",
+  trace:   "text-zinc-600",
+  success: "text-emerald-400",
+};
+
+const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
+  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
+  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
+  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
+  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
+  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
+  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
+};
+
+// ── Search highlight ───────────────────────────────────────────────────────────
+function highlightLine(line: string, query: string): React.ReactNode {
+  if (!query) return line;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = line.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.toLowerCase()
+      ? <mark key={i} style={{ background: "rgba(250,204,21,0.25)", color: "#fef08a", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
+      : part
+  );
+}
+
+// ── Level filter ──────────────────────────────────────────────────────────────
+type EnabledLevels = Set<NonNullable<LogLevel>>;
+
+const ALL_FILTER_LEVELS: NonNullable<LogLevel>[] = ["error", "warn", "success", "info", "debug"];
+
+const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; activeCls: string }[] = [
+  { key: "error",   label: "ERR",  activeCls: "bg-red-500/15 text-red-400 border-red-500/25" },
+  { key: "warn",    label: "WARN", activeCls: "bg-amber-500/15 text-amber-400 border-amber-500/25" },
+  { key: "success", label: "OK",   activeCls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
+  { key: "info",    label: "INFO", activeCls: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
+  { key: "debug",   label: "DBG",  activeCls: "bg-zinc-700/50 text-zinc-400 border-zinc-600/40" },
+];
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function LogViewer({ appId, appName, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear }: Props) {
+  const [query, setQuery] = useState("");
+  const [enabledLevels, setEnabledLevels] = useState<EnabledLevels>(new Set(ALL_FILTER_LEVELS));
   const [followTail, setFollowTail] = useState(true);
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const [copiedToast, setCopiedToast] = useState(false);
   const [diskLogs, setDiskLogs] = useState<string[] | null>(null); // null = loading
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isFirstScroll = useRef(true);
 
   // Load full log file from disk on mount.
   useEffect(() => {
@@ -55,13 +154,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     return diskLogs.length > 0 ? diskLogs : logs; // disk empty → Zustand fallback
   }, [diskLogs, logs]);
 
-  const filteredAllLogs = useMemo(() => filterNoise(allLogs), [allLogs]);
-
-  const { search: query, setSearch: setQuery, levelFilter, setLevelFilter, filteredLogs: filteredLines } =
-    useLogFilter(filteredAllLogs);
-
-  const { containerRef, logEndRef, scrollToBottom } =
-    useLogScroll({ logs: allLogs, followTail });
+  const cleanLogs = useMemo(() => filterNoise(allLogs).map(stripAnsi), [allLogs]);
 
   function showCopiedToast() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -77,6 +170,82 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     });
   }
 
+  const allLevelsEnabled = enabledLevels.size === ALL_FILTER_LEVELS.length;
+
+  function toggleLevel(level: NonNullable<LogLevel>) {
+    setEnabledLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) {
+        // Don't allow disabling all levels
+        if (next.size === 1) return prev;
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+      return next;
+    });
+  }
+
+  function resetLevels() {
+    setEnabledLevels(new Set(ALL_FILTER_LEVELS));
+  }
+
+  const filteredLines = useMemo(() => {
+    return cleanLogs
+      .map((line, i) => ({ line, originalIndex: i }))
+      .filter(({ line }) => {
+        if (!allLevelsEnabled) {
+          const level = detectLevel(line);
+          if (level && !enabledLevels.has(level)) return false;
+        }
+        return true;
+      });
+  }, [cleanLogs, enabledLevels, allLevelsEnabled]);
+
+  // Search matches are indices into filteredLines
+  const searchMatches = useMemo(() => {
+    if (!query) return [];
+    const lower = query.toLowerCase();
+    const matches: number[] = [];
+    filteredLines.forEach(({ line }, idx) => {
+      if (line.toLowerCase().includes(lower)) matches.push(idx);
+    });
+    return matches;
+  }, [filteredLines, query]);
+
+  // Clamp active match index when matches change
+  useEffect(() => {
+    if (searchMatches.length === 0) {
+      setActiveMatchIndex(0);
+    } else if (activeMatchIndex >= searchMatches.length) {
+      setActiveMatchIndex(searchMatches.length - 1);
+    }
+  }, [searchMatches.length, activeMatchIndex]);
+
+  // Scroll to the active match
+  const matchLineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  useEffect(() => {
+    if (searchMatches.length === 0) return;
+    const targetIdx = searchMatches[activeMatchIndex];
+    const el = matchLineRefs.current.get(targetIdx);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFollowTail(false);
+    }
+  }, [activeMatchIndex, searchMatches]);
+
+  function goToNextMatch() {
+    if (searchMatches.length === 0) return;
+    setActiveMatchIndex((prev) => (prev + 1) % searchMatches.length);
+  }
+
+  function goToPrevMatch() {
+    if (searchMatches.length === 0) return;
+    setActiveMatchIndex((prev) => (prev - 1 + searchMatches.length) % searchMatches.length);
+  }
+
+  const matchCount = query ? searchMatches.length : null;
+
   useEffect(() => { searchRef.current?.focus(); }, []);
 
   useEffect(() => {
@@ -89,10 +258,37 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         e.preventDefault();
         searchRef.current?.focus();
       }
+      // Navigate search matches when search input is focused
+      if (document.activeElement === searchRef.current && query) {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          goToNextMatch();
+        } else if (e.key === "Enter" && e.shiftKey) {
+          e.preventDefault();
+          goToPrevMatch();
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          goToNextMatch();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          goToPrevMatch();
+        }
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, query]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, query, searchMatches]);
+
+  useEffect(() => {
+    if (!followTail) return;
+    if (isFirstScroll.current) {
+      isFirstScroll.current = false;
+      logEndRef.current?.scrollIntoView({ behavior: "instant" });
+      return;
+    }
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [allLogs, followTail]);
 
   function handleMouseUp() {
     const sel = window.getSelection();
@@ -108,8 +304,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     if (!atBottom && followTail) setFollowTail(false);
     if (atBottom && !followTail) setFollowTail(true);
   }
-
-  const matchCount = query ? filteredLines.length : null;
 
   return (
     <div className="fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden">
@@ -165,9 +359,33 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         </div>
 
         {matchCount !== null && (
-          <span className="text-[11px] text-zinc-500 shrink-0">
-            {matchCount === 0 ? "no matches" : `${matchCount} match${matchCount === 1 ? "" : "es"}`}
-          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-[11px] text-zinc-500">
+              {matchCount === 0 ? "no matches" : `${activeMatchIndex + 1}/${matchCount}`}
+            </span>
+            {matchCount > 0 && (
+              <>
+                <button
+                  onClick={goToPrevMatch}
+                  className="p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+                  title="Previous match (Shift+Enter)"
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M2 6.5L5 3.5L8 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={goToNextMatch}
+                  className="p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+                  title="Next match (Enter)"
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
         )}
 
         <div className="flex-1" />
@@ -175,26 +393,26 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         {/* Level filter pills */}
         <div className="flex items-center gap-1 shrink-0">
           {FILTER_PILLS.map(({ key, label, activeCls }) => {
-            const isActive = levelFilter === key;
+            const isActive = enabledLevels.has(key);
             return (
               <button
                 key={key}
-                onClick={() => setLevelFilter(isActive ? "all" : key)}
+                onClick={() => toggleLevel(key)}
                 className={`px-2 py-1 rounded-md text-[10px] font-medium border transition-colors ${
                   isActive
                     ? activeCls
-                    : "bg-white/[0.04] text-zinc-500 border border-white/[0.06] hover:text-zinc-300"
+                    : "bg-white/[0.04] text-zinc-500/40 border border-white/[0.04] hover:text-zinc-400 line-through"
                 }`}
               >
                 {label}
               </button>
             );
           })}
-          {levelFilter !== "all" && (
+          {!allLevelsEnabled && (
             <button
-              onClick={() => setLevelFilter("all")}
+              onClick={resetLevels}
               className="px-1.5 py-1 rounded-md text-[10px] font-medium border bg-white/[0.04] text-zinc-500 border-white/[0.06] hover:text-zinc-300 transition-colors"
-              title="Clear level filter"
+              title="Show all levels"
             >
               ×
             </button>
@@ -207,7 +425,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
               setFollowTail(false);
             } else {
               setFollowTail(true);
-              scrollToBottom();
+              logEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }
           }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${
@@ -257,19 +475,27 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
 
         {filteredLines.length === 0 ? (
           <p className="text-[12px] text-zinc-600 mt-8 text-center select-none">
-            {(query || levelFilter !== "all") ? "No lines match your filter." : "No output yet."}
+            {(!allLevelsEnabled) ? "No lines match your filter." : "No output yet."}
           </p>
         ) : (
           <div className="flex flex-col w-full">
-            {filteredLines.map(({ line, originalIndex }) => {
+            {filteredLines.map(({ line, originalIndex }, filteredIdx) => {
               const level = crashed ? "error" : detectLevel(line);
-              const textCls = level ? LEVEL_CLS[level] : "text-zinc-300";
+              const textCls = level ? LEVEL_CLASS[level] : "text-zinc-300";
               const badge = level ? LEVEL_BADGE[level] : null;
+              const isActiveMatch = query && searchMatches.length > 0 && searchMatches[activeMatchIndex] === filteredIdx;
+              const isMatch = query && searchMatches.includes(filteredIdx);
 
               return (
                 <div
                   key={originalIndex}
-                  className="flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start"
+                  ref={(el) => {
+                    if (isMatch && el) matchLineRefs.current.set(filteredIdx, el);
+                    else matchLineRefs.current.delete(filteredIdx);
+                  }}
+                  className={`flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start ${
+                    isActiveMatch ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20" : ""
+                  }`}
                 >
                   {/* Line number */}
                   <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">
@@ -324,7 +550,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
       {/* Footer */}
       <div className="flex items-center gap-3 px-4 py-2 border-t border-white/[0.05] shrink-0 select-none">
         <span className="text-[10px] text-zinc-700 font-mono">
-          {(query || levelFilter !== "all") ? `Showing ${filteredLines.length} of ${allLogs.length} lines` : `${allLogs.length} lines`}
+          {(!allLevelsEnabled) ? `Showing ${filteredLines.length} of ${allLogs.length} lines` : `${allLogs.length} lines`}
         </span>
         <div className="flex items-center gap-3 text-[10px] text-zinc-700">
           <span className="text-red-400/60">● ERR</span>
@@ -334,7 +560,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
           <span className="text-zinc-500/60">● DBG</span>
         </div>
         <span className="flex-1" />
-        <span className="text-[10px] text-zinc-700">Esc to close · ⌘F to search</span>
+        <span className="text-[10px] text-zinc-700">Esc to close · ⌘F to search · Enter/↑↓ to navigate matches</span>
       </div>
     </div>
   );

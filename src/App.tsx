@@ -20,7 +20,6 @@ export default function App() {
     checkSetup();
     load().then(() => refreshHealth());
     loadSettings();
-    reloadCaddy().catch(() => {});
 
     const healthInterval = setInterval(() => refreshHealth(), 30_000);
     return () => clearInterval(healthInterval);

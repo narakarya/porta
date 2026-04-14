@@ -31,6 +31,9 @@ export interface App {
   custom_domain: string | null;
   // multi-port bindings
   port_bindings: PortBinding[];
+  // environment profiles
+  env_profiles: EnvProfile[];
+  active_profile_id: string | null;
   // tunnel
   tunnel_provider: string | null;
   tunnel_url: string | null;
@@ -82,6 +85,8 @@ export type UpdateAppParams = {
   extra_subdomains: string[];
   custom_domain: string | null;
   port_bindings?: PortBinding[];
+  env_profiles?: EnvProfile[];
+  active_profile_id?: string | null;
 };
 
 // ── Services ─────────────────────────────────────────────────────────────────
@@ -143,6 +148,13 @@ export interface DeploymentConfig {
 }
 
 // ── Deploy custom commands ─────────────────────────────────────────────────────
+
+export interface EnvProfile {
+  id: string;
+  name: string;
+  env_file: string | null;
+  env_vars: Record<string, string>;
+}
 
 export interface CustomDeployCmd {
   id: string;

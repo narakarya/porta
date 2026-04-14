@@ -31,45 +31,54 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const [servicesCollapsed, setServicesCollapsed] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
-  // Use ref so event handlers always read the latest value without stale closures
+  // Refs so global mouseup can read latest values without stale closures
   const dragSrcRef = useRef<{ type: "ws" | "svc"; index: number } | null>(null);
+  const dragOverRef = useRef<{ type: "ws" | "svc"; index: number } | null>(null);
   const isDraggingRef = useRef(false);
-  const didReorderRef = useRef(false);
+  // Container refs — used by mousemove to calculate hover index from Y position.
+  // mousemove on the container is more reliable than mouseenter on individual items
+  // in WKWebView (Tauri/macOS) during a mouse-button-held drag.
+  const wsListRef = useRef<HTMLDivElement>(null);
+  const svcListRef = useRef<HTMLDivElement>(null);
 
-  // WKWebView (Tauri/macOS) doesn't reliably fire HTML5 dragover/drop events because
-  // it routes drags through the native macOS NSDraggingSession system, which expects
-  // external drop targets. We use mouse events instead to bypass this entirely.
+  function setDragOver(val: typeof dragOverIndex) {
+    dragOverRef.current = val;
+    setDragOverIndex(val);
+  }
+
   function handleMouseDown(type: "ws" | "svc", index: number) {
     dragSrcRef.current = { type, index };
     isDraggingRef.current = true;
     setDraggingItem({ type, index });
   }
 
-  function handleMouseEnter(type: "ws" | "svc", index: number) {
+  function handleListMouseMove(
+    e: React.MouseEvent,
+    type: "ws" | "svc",
+    ref: React.RefObject<HTMLDivElement | null>,
+    count: number,
+  ) {
     const src = dragSrcRef.current;
-    if (isDraggingRef.current && src?.type === type && src.index !== index) {
-      setDragOverIndex({ type, index });
-    }
+    if (!isDraggingRef.current || src?.type !== type || !ref.current || count === 0) return;
+    const rect = ref.current.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    // Derive index from proportional Y position within the container
+    const idx = Math.min(count - 1, Math.max(0, Math.floor(relY / (rect.height / count))));
+    setDragOver(idx !== src.index ? { type, index: idx } : null);
   }
 
-  function handleMouseUp(type: "ws" | "svc", index: number) {
-    const src = dragSrcRef.current;
-    if (src && src.type === type && src.index !== index) {
-      if (type === "ws") reorderWorkspaces(src.index, index);
-      else reorderServices(src.index, index);
-      didReorderRef.current = true;
-    }
-    dragSrcRef.current = null;
-    isDraggingRef.current = false;
-    setDragOverIndex(null);
-    setDraggingItem(null);
-  }
-
-  // Global mouseup + cursor management during drag
+  // Global mouseup: perform reorder using refs (avoids stale closure on state)
   useEffect(() => {
     function onGlobalMouseUp() {
       if (!isDraggingRef.current) return;
+      const src = dragSrcRef.current;
+      const dst = dragOverRef.current;
+      if (src && dst && src.type === dst.type && src.index !== dst.index) {
+        if (src.type === "ws") reorderWorkspaces(src.index, dst.index);
+        else reorderServices(src.index, dst.index);
+      }
       dragSrcRef.current = null;
+      dragOverRef.current = null;
       isDraggingRef.current = false;
       setDragOverIndex(null);
       setDraggingItem(null);
@@ -77,32 +86,13 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
     }
     window.addEventListener("mouseup", onGlobalMouseUp);
     return () => window.removeEventListener("mouseup", onGlobalMouseUp);
-  }, []);
+  }, [reorderWorkspaces, reorderServices]);
 
-  // Set grabbing cursor globally while drag is active so it doesn't flicker
-  // when the mouse moves between items
+  // Keep cursor grabbing globally so it doesn't flicker as mouse moves between items
   useEffect(() => {
     document.body.style.cursor = draggingItem ? "grabbing" : "";
     return () => { document.body.style.cursor = ""; };
   }, [draggingItem]);
-
-  // Each sidebar row is py-1.5 (12px) + ~20px line-height + 2px gap = ~34px total.
-  // Items between src and dst shift by this amount to visually open a "slot".
-  const ITEM_H = 34;
-
-  function getShift(type: "ws" | "svc", index: number): number {
-    if (!draggingItem || draggingItem.type !== type) return 0;
-    if (!dragOverIndex || dragOverIndex.type !== type) return 0;
-    if (index === draggingItem.index) return 0;
-
-    const src = draggingItem.index;
-    const dst = dragOverIndex.index;
-    if (src === dst) return 0;
-
-    if (src < dst && index > src && index <= dst) return -ITEM_H; // slot opens below
-    if (src > dst && index < src && index >= dst) return ITEM_H;  // slot opens above
-    return 0;
-  }
 
   const activeCount = (wsId: string | null) =>
     apps.filter(
@@ -157,59 +147,56 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </Tooltip>
         </div>
 
-        {wsExpanded && workspaces.map((w, i) => {
-          const count = activeCount(w.id);
-          const isSelected = selectedWorkspaceId === w.id;
-          const isDropTarget = dragOverIndex?.type === "ws" && dragOverIndex.index === i;
-          const isLifted = draggingItem?.type === "ws" && draggingItem.index === i;
-          const shift = getShift("ws", i);
-          return (
-            <div
-              key={w.id}
-              role="button"
-              tabIndex={0}
-              onMouseDown={() => handleMouseDown("ws", i)}
-              onMouseEnter={() => handleMouseEnter("ws", i)}
-              onMouseUp={() => handleMouseUp("ws", i)}
-              onClick={() => {
-                if (didReorderRef.current) { didReorderRef.current = false; return; }
-                selectWorkspace(w.id);
-              }}
-              onKeyDown={(e) => { if (e.key === "Enter") selectWorkspace(w.id); }}
-              onContextMenu={(e) => handleRightClick(e, w)}
-              style={isLifted ? {
-                transform: "scale(1.04) translateY(-1px)",
-                boxShadow: "0 6px 20px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
-                zIndex: 10,
-                position: "relative",
-                opacity: 0.95,
-              } : shift !== 0 ? {
-                transform: `translateY(${shift}px)`,
-                transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
-                zIndex: 1,
-                position: "relative",
-              } : {
-                transform: "translateY(0px)",
-                transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
-              }}
-              className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none ${
-                isLifted
-                  ? "bg-white/15 text-zinc-100"
-                  : isSelected
-                    ? "bg-white/10 text-zinc-100"
-                    : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
-              } cursor-grab active:cursor-grabbing`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
-                count > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
-              }`} />
-              <span className="flex-1 truncate">{w.name}</span>
-              {count > 0 && (
-                <span className="text-[11px] text-emerald-400 font-medium tabular-nums">{count}</span>
-              )}
-            </div>
-          );
-        })}
+        {wsExpanded && (
+          <div
+            ref={wsListRef}
+            onMouseMove={(e) => handleListMouseMove(e, "ws", wsListRef, workspaces.length)}
+            onMouseLeave={() => isDraggingRef.current && setDragOver(null)}
+          >
+            {workspaces.map((w, i) => {
+              const count = activeCount(w.id);
+              const isSelected = selectedWorkspaceId === w.id;
+              const isGhost = draggingItem?.type === "ws" && draggingItem.index === i;
+              const srcIdx = draggingItem?.type === "ws" ? draggingItem.index : null;
+              const dstIdx = dragOverIndex?.type === "ws" ? dragOverIndex.index : null;
+              // Show insertion line before item when dragging from below, after when from above
+              const showLineBefore = dstIdx === i && srcIdx !== null && srcIdx > i;
+              const showLineAfter  = dstIdx === i && srcIdx !== null && srcIdx < i;
+              return (
+                <div key={w.id} className="relative">
+                  {showLineBefore && (
+                    <div className="absolute -top-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                  )}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onMouseDown={() => handleMouseDown("ws", i)}
+                    onClick={() => selectWorkspace(w.id)}
+                    onKeyDown={(e) => { if (e.key === "Enter") selectWorkspace(w.id); }}
+                    onContextMenu={(e) => handleRightClick(e, w)}
+                    style={isGhost ? { opacity: 0.35 } : undefined}
+                    className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
+                      isSelected
+                        ? "bg-white/10 text-zinc-100"
+                        : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
+                      count > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
+                    }`} />
+                    <span className="flex-1 truncate">{w.name}</span>
+                    {count > 0 && (
+                      <span className="text-[11px] text-emerald-400 font-medium tabular-nums">{count}</span>
+                    )}
+                  </div>
+                  {showLineAfter && (
+                    <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <button
           onClick={() => setOtherExpanded(!otherExpanded)}
@@ -283,60 +270,53 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             </button>
           </Tooltip>
         </div>
-        {!servicesCollapsed &&
-          services.map((svc, i) => {
-            const isRunning = svc.status === "running";
-            const isPulling = svc.status === "pulling";
-            const isStarting = svc.status === "starting";
-            const dotColor = isRunning
-              ? "bg-emerald-400 pulse-dot"
-              : isPulling
-              ? "bg-blue-400 animate-pulse"
-              : isStarting
-              ? "bg-amber-400 animate-pulse"
-              : "bg-zinc-600";
-            const isDropTarget = dragOverIndex?.type === "svc" && dragOverIndex.index === i;
-            const isLifted = draggingItem?.type === "svc" && draggingItem.index === i;
-            const shift = getShift("svc", i);
-            return (
-              <div
-                key={svc.id}
-                onMouseDown={() => handleMouseDown("svc", i)}
-                onMouseEnter={() => handleMouseEnter("svc", i)}
-                onMouseUp={() => handleMouseUp("svc", i)}
-                onClick={() => {
-                  if (didReorderRef.current) { didReorderRef.current = false; return; }
-                  setEditingService(svc);
-                }}
-                style={isLifted ? {
-                  transform: "scale(1.04) translateY(-1px)",
-                  boxShadow: "0 6px 20px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
-                  zIndex: 10,
-                  position: "relative",
-                  opacity: 0.95,
-                } : shift !== 0 ? {
-                  transform: `translateY(${shift}px)`,
-                  transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
-                  zIndex: 1,
-                  position: "relative",
-                } : {
-                  transform: "translateY(0px)",
-                  transition: "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)",
-                }}
-                className={`group/svc flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] cursor-grab ${
-                  isLifted
-                    ? "bg-white/15 text-zinc-200"
-                    : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${dotColor}`} />
-                <span className="flex-1 truncate">{svc.name}</span>
-                <span className="text-[10px] text-zinc-600 group-hover/svc:text-zinc-500 transition-colors">
-                  :{svc.port}
-                </span>
-              </div>
-            );
-          })}
+        {!servicesCollapsed && (
+          <div
+            ref={svcListRef}
+            onMouseMove={(e) => handleListMouseMove(e, "svc", svcListRef, services.length)}
+            onMouseLeave={() => isDraggingRef.current && setDragOver(null)}
+          >
+            {services.map((svc, i) => {
+              const isRunning = svc.status === "running";
+              const isPulling = svc.status === "pulling";
+              const isStarting = svc.status === "starting";
+              const dotColor = isRunning
+                ? "bg-emerald-400 pulse-dot"
+                : isPulling
+                ? "bg-blue-400 animate-pulse"
+                : isStarting
+                ? "bg-amber-400 animate-pulse"
+                : "bg-zinc-600";
+              const isGhost = draggingItem?.type === "svc" && draggingItem.index === i;
+              const srcIdx = draggingItem?.type === "svc" ? draggingItem.index : null;
+              const dstIdx = dragOverIndex?.type === "svc" ? dragOverIndex.index : null;
+              const showLineBefore = dstIdx === i && srcIdx !== null && srcIdx > i;
+              const showLineAfter  = dstIdx === i && srcIdx !== null && srcIdx < i;
+              return (
+                <div key={svc.id} className="relative">
+                  {showLineBefore && (
+                    <div className="absolute -top-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                  )}
+                  <div
+                    onMouseDown={() => handleMouseDown("svc", i)}
+                    onClick={() => setEditingService(svc)}
+                    style={isGhost ? { opacity: 0.35 } : undefined}
+                    className="group/svc flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200 cursor-grab"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${dotColor}`} />
+                    <span className="flex-1 truncate">{svc.name}</span>
+                    <span className="text-[10px] text-zinc-600 group-hover/svc:text-zinc-500 transition-colors">
+                      :{svc.port}
+                    </span>
+                  </div>
+                  {showLineAfter && (
+                    <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-0.5">

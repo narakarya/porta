@@ -39,5 +39,8 @@ pub use app::*;
 mod health;
 pub use health::*;
 
+mod port_check;
+pub use port_check::*;
+
 mod workspace_bulk;
 pub use workspace_bulk::*;

@@ -80,6 +80,8 @@ pub fn add_app(
         deploy_config_path: None,
         deploy_custom_commands: vec![],
         port_bindings: vec![],
+        env_profiles: vec![],
+        active_profile_id: None,
     };
     state
         .db
@@ -111,6 +113,8 @@ pub fn update_app(
     extra_subdomains: Option<Vec<String>>,
     custom_domain: Option<String>,
     port_bindings: Option<Vec<PortBinding>>,
+    env_profiles: Option<Vec<crate::db::models::EnvProfile>>,
+    active_profile_id: Option<String>,
 ) -> Result<App, String> {
     state
         .db
@@ -130,6 +134,8 @@ pub fn update_app(
             &extra_subdomains.unwrap_or_default(),
             custom_domain.as_deref(),
             &port_bindings.unwrap_or_default(),
+            &env_profiles.unwrap_or_default(),
+            active_profile_id.as_deref(),
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
