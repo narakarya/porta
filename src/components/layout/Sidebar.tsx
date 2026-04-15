@@ -110,7 +110,10 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
   return (
     <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-9 pb-3 shrink-0">
-      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag mt-1">
+      <div className="px-4 mt-2 mb-3">
+        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Porta</span>
+      </div>
+      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
         <div className="flex items-center gap-1 px-2 mb-1 mt-1">
           <button
             onClick={() => setWsExpanded(!wsExpanded)}

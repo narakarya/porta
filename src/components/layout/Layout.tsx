@@ -36,24 +36,14 @@ export default function Layout({ children, onOpenSettings }: Props) {
           </span>
         </div>
 
-        {/* Right: settings */}
-        <button
-          onClick={onOpenSettings}
-          className="no-drag p-1.5 rounded-md text-zinc-700 hover:text-zinc-400 hover:bg-white/[0.05] transition-colors mr-2"
-          title="Settings"
-        >
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M7 1.5v1.2M7 11.3v1.2M1.5 7h1.2M11.3 7h1.2M3.1 3.1l.85.85M10.05 10.05l.85.85M10.9 3.1l-.85.85M3.95 10.05l-.85.85" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
-        </button>
+        <div className="w-8" />
       </div>
 
       {/* Sidebar drag region (traffic lights area) */}
       <div className="drag-region fixed top-0 left-0 w-[200px] h-9 z-10" />
 
       <Sidebar onOpenSettings={onOpenSettings} />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-9 px-6 pb-6 no-drag">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-12 px-6 pb-6 no-drag">
         {children}
       </main>
     </div>
