@@ -31,7 +31,10 @@ export default function SyncSection() {
     setSyncError(null);
     setSaveSuccess(false);
     try {
-      await gitSyncSetRepo(gitRepoUrl.trim());
+      await Promise.all([
+        gitSyncSetRepo(gitRepoUrl.trim()),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
       setSavedUrl(gitRepoUrl.trim());
       setSyncStatus("connected");
       setSaveSuccess(true);
@@ -49,7 +52,11 @@ export default function SyncSection() {
     setSyncError(null);
     setTestSuccess(false);
     try {
-      await gitSyncTest();
+      const [result] = await Promise.all([
+        gitSyncTest(),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
+      void result;
       setTestSuccess(true);
       setTimeout(() => setTestSuccess(false), 3000);
     } catch (e) {
@@ -64,7 +71,10 @@ export default function SyncSection() {
     setSyncStatus("syncing");
     setSyncError(null);
     try {
-      const ts = await gitSyncPush();
+      const [ts] = await Promise.all([
+        gitSyncPush(),
+        new Promise((r) => setTimeout(r, 400)),
+      ]) as [string, unknown];
       if (ts.startsWith("No changes")) {
         setLastSynced(ts);
       } else {
