@@ -198,9 +198,16 @@ export default function SyncSection() {
                 type="button"
                 onClick={handleSaveRepo}
                 disabled={!gitRepoUrl.trim() || saving}
-                className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
+                className={`px-3 py-1.5 text-[12px] font-medium text-white rounded-lg transition-colors flex items-center gap-1.5 ${
+                  saving ? "bg-blue-600/70 cursor-wait" : "bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
+                }`}
               >
-                {saving && <span className="w-3 h-3 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+                {saving && (
+                  <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                    <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
                 {saving ? "Connecting..." : "Connect"}
               </button>
               {saveSuccess && (
@@ -216,7 +223,7 @@ export default function SyncSection() {
                   disabled={testing}
                   className="px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors flex items-center gap-1.5"
                 >
-                  {testing && <span className="w-3 h-3 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+                  {testing && <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />}
                   {testing ? "Testing..." : "Test Connection"}
                 </button>
               )}
@@ -242,18 +249,32 @@ export default function SyncSection() {
             type="button"
             onClick={handleSyncNow}
             disabled={syncStatus === "syncing"}
-            className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
+            className={`px-4 py-2 text-[13px] font-medium text-white rounded-lg transition-colors flex items-center gap-1.5 ${
+              syncStatus === "syncing" ? "bg-blue-600/70 cursor-wait" : "bg-blue-600 hover:bg-blue-500"
+            }`}
           >
-            {syncStatus === "syncing" && <span className="w-3 h-3 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+            {syncStatus === "syncing" && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {syncStatus === "syncing" ? "Syncing..." : "Sync Now"}
           </button>
           <button
             type="button"
             onClick={handleTestConnection}
             disabled={testing || syncStatus === "syncing"}
-            className="px-3 py-2 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors flex items-center gap-1.5"
+            className={`px-3 py-2 text-[12px] font-medium text-zinc-300 rounded-lg transition-colors flex items-center gap-1.5 ${
+              testing ? "bg-white/[0.08] cursor-wait" : "bg-white/[0.06] hover:bg-white/[0.10]"
+            }`}
           >
-            {testing && <span className="w-3 h-3 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+            {testing && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {testing ? "Testing..." : "Test Connection"}
           </button>
           {testSuccess && (
