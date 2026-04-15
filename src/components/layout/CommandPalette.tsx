@@ -238,7 +238,7 @@ export default function CommandPalette({ onOpenSettings }: CommandPaletteProps) 
           id: `stop-${app.id}`,
           label: `Stop ${app.name}`,
           hint:
-            app.status === "starting" ? "starting\u2026" : `port ${app.port}`,
+            app.status === "starting" ? "starting..." : `port ${app.port}`,
           section: "Apps",
           icon: "■",
           statusColor,
@@ -441,7 +441,7 @@ export default function CommandPalette({ onOpenSettings }: CommandPaletteProps) 
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search commands\u2026"
+            placeholder="Search commands..."
             className="flex-1 bg-transparent py-3 text-[13px] text-zinc-100 placeholder-zinc-600 outline-none"
           />
           {query && (
