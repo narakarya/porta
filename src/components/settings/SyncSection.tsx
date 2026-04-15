@@ -30,11 +30,9 @@ export default function SyncSection() {
     setSaving(true);
     setSyncError(null);
     setSaveSuccess(false);
+    await new Promise((r) => requestAnimationFrame(r));
     try {
-      await Promise.all([
-        gitSyncSetRepo(gitRepoUrl.trim()),
-        new Promise((r) => setTimeout(r, 400)),
-      ]);
+      await gitSyncSetRepo(gitRepoUrl.trim());
       setSavedUrl(gitRepoUrl.trim());
       setSyncStatus("connected");
       setSaveSuccess(true);
@@ -51,12 +49,9 @@ export default function SyncSection() {
     setTesting(true);
     setSyncError(null);
     setTestSuccess(false);
+    await new Promise((r) => requestAnimationFrame(r));
     try {
-      const [result] = await Promise.all([
-        gitSyncTest(),
-        new Promise((r) => setTimeout(r, 400)),
-      ]);
-      void result;
+      await gitSyncTest();
       setTestSuccess(true);
       setTimeout(() => setTestSuccess(false), 3000);
     } catch (e) {
@@ -70,11 +65,9 @@ export default function SyncSection() {
   async function handleSyncNow() {
     setSyncStatus("syncing");
     setSyncError(null);
+    await new Promise((r) => requestAnimationFrame(r));
     try {
-      const [ts] = await Promise.all([
-        gitSyncPush(),
-        new Promise((r) => setTimeout(r, 400)),
-      ]) as [string, unknown];
+      const ts = await gitSyncPush();
       if (ts.startsWith("No changes")) {
         setLastSynced(ts);
       } else {
