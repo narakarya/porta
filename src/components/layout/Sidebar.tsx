@@ -109,7 +109,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   }
 
   return (
-    <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-8 pb-3 shrink-0">
+    <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-10 pb-3 shrink-0">
       {/* App name */}
       <div className="px-4 mb-4 flex items-center gap-2">
         <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Porta</span>
