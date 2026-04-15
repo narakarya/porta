@@ -110,8 +110,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
   return (
     <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pb-3 shrink-0">
-      <div className="h-9 flex items-center px-4 shrink-0" style={{ paddingLeft: "76px" }}>
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Porta</span>
+      <div className="h-9 flex items-center px-4 shrink-0">
+        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest ml-12">Porta</span>
       </div>
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
         <div className="flex items-center gap-1 px-2 mb-1 mt-1">
