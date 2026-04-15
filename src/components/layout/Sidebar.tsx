@@ -100,7 +100,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       (a) => a.workspace_id === wsId && (a.status === "running" || a.status === "starting")
     ).length;
 
-  const totalRunning = apps.filter((a) => a.status === "running" || a.status === "starting").length;
+
 
   function handleRightClick(e: React.MouseEvent, ws: Workspace) {
     e.preventDefault();
@@ -109,18 +109,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   }
 
   return (
-    <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-10 pb-3 shrink-0">
-      {/* App name */}
-      <div className="px-4 mb-4 flex items-center gap-2">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">Porta</span>
-        {totalRunning > 0 && (
-          <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md tabular-nums">
-            {totalRunning}
-          </span>
-        )}
-      </div>
-
-      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
+    <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-9 pb-3 shrink-0">
+      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag mt-1">
         <div className="flex items-center gap-1 px-2 mb-1 mt-1">
           <button
             onClick={() => setWsExpanded(!wsExpanded)}
