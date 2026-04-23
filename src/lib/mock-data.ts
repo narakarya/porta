@@ -38,6 +38,15 @@ export const mockApps: App[] = [
     port_bindings: [],
     env_profiles: [],
     active_profile_id: null,
+    kind: "process",
+    docker_image: null,
+    docker_container_port: null,
+    docker_args: null,
+    docker_volumes: [],
+    compose_file: null,
+    network_share: false,
+    tunnel_name: null,
+    tunnel_custom_hostname: null,
   },
   {
     id: "app-2",
@@ -68,6 +77,15 @@ export const mockApps: App[] = [
     port_bindings: [],
     env_profiles: [],
     active_profile_id: null,
+    kind: "process",
+    docker_image: null,
+    docker_container_port: null,
+    docker_args: null,
+    docker_volumes: [],
+    compose_file: null,
+    network_share: false,
+    tunnel_name: null,
+    tunnel_custom_hostname: null,
   },
   {
     id: "app-3",
@@ -97,6 +115,15 @@ export const mockApps: App[] = [
     port_bindings: [],
     env_profiles: [],
     active_profile_id: null,
+    kind: "process",
+    docker_image: null,
+    docker_container_port: null,
+    docker_args: null,
+    docker_volumes: [],
+    compose_file: null,
+    network_share: false,
+    tunnel_name: null,
+    tunnel_custom_hostname: null,
   },
   {
     id: "app-4",
@@ -126,6 +153,15 @@ export const mockApps: App[] = [
     port_bindings: [],
     env_profiles: [],
     active_profile_id: null,
+    kind: "process",
+    docker_image: null,
+    docker_container_port: null,
+    docker_args: null,
+    docker_volumes: [],
+    compose_file: null,
+    network_share: false,
+    tunnel_name: null,
+    tunnel_custom_hostname: null,
   },
 ];
 
@@ -141,6 +177,7 @@ export const mockSetupStatus: SetupStatus = {
 export const mockDetectResult: DetectResult = {
   command: "npm run dev",
   source: "package.json",
+  kind: "process",
 };
 
 let nextPort = 8081;
@@ -169,10 +206,12 @@ export function mockAddApp(params: {
   subdomain: string | null;
   start_command: string;
   start_command_source: string;
+  kind?: App["kind"];
 }): App {
   const app: App = {
     id: `app-${Date.now()}`,
     ...params,
+    kind: params.kind ?? "process",
     status: "stopped",
     pid: null,
     env_file: null,
@@ -192,6 +231,14 @@ export function mockAddApp(params: {
     port_bindings: [],
     env_profiles: [],
     active_profile_id: null,
+    docker_image: null,
+    docker_container_port: null,
+    docker_args: null,
+    docker_volumes: [],
+    compose_file: null,
+    network_share: false,
+    tunnel_name: null,
+    tunnel_custom_hostname: null,
   };
   state.apps.push(app);
   return app;

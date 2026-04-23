@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { Service } from "../../types";
 import ServiceSettingsModal from "./ServiceSettingsModal";
@@ -10,7 +11,14 @@ const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
 interface Props { service: Service; }
 
 export default function ServiceCard({ service }: Props) {
-  const { startService, stopService, serviceLogs, clearServiceLogs } = usePortaStore();
+  const { startService, stopService, clearServiceLogs } = usePortaStore(
+    useShallow((s) => ({
+      startService: s.startService,
+      stopService: s.stopService,
+      clearServiceLogs: s.clearServiceLogs,
+    }))
+  );
+  const serviceLog = usePortaStore((s) => s.serviceLogs[service.id]);
   const [logsOpen, setLogsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -20,7 +28,7 @@ export default function ServiceCard({ service }: Props) {
   const isStarting = service.status === "starting";
   const isActive = isRunning || isPulling || isStarting;
 
-  const logs = serviceLogs[service.id] ?? [];
+  const logs = serviceLog ?? [];
 
   const dotColor =
     isRunning  ? "bg-emerald-400" :

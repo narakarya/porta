@@ -1,11 +1,72 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::State;
 
 use crate::app_state::AppState;
+
+// Tracks live PTY runs by run_id so kamal_cancel can kill them. The child is
+// made its own session/group leader via setsid() so we can signal the whole
+// group with kill(-pid, …) without hitting porta itself.
+fn kamal_run_pids() -> &'static Mutex<HashMap<String, i32>> {
+    static R: OnceLock<Mutex<HashMap<String, i32>>> = OnceLock::new();
+    R.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+// Returns a shim ZDOTDIR that redirects `.zshrc` loading through porta. The
+// shim defines dummy functions for known-broken plugins (kiro-cli-autocomplete
+// panics on `kiro init zsh` inside a non-TTY PTY) BEFORE sourcing the user's
+// real startup files, so those plugin init calls become no-ops. The user's
+// aliases / PATH / everything else in `.zshrc` still load normally.
+fn zsh_shim_zdotdir() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = std::env::temp_dir().join("porta-zsh-shim");
+        let _ = std::fs::create_dir_all(&dir);
+
+        // Helper block: stub every known-broken CLI that panics when invoked
+        // from a PTY (kiro-cli-autocomplete + its aliases). Functions shadow
+        // binaries in zsh's lookup order, so any `kiro init zsh` or similar
+        // invocation becomes a no-op. Applied BOTH in .zshenv and .zshrc so
+        // it's active no matter which user file tries to init the plugin.
+        let stub = r#"# porta shim — silence broken CLI autocomplete plugins
+kiro() { return 0 }
+kiro-cli-autocomplete() { return 0 }
+# Env-var belt-and-suspenders — some versions respect these.
+export KIRO_DISABLE=1
+export KIRO_CLI_AUTOCOMPLETE_DISABLE=1
+export KIRO_NO_AUTOCOMPLETE=1
+"#;
+
+        // shim/.zshenv — runs first, before user's env. Stub kiro here so
+        // user's .zshenv can't accidentally invoke the real binary.
+        let shim_zshenv = format!(
+            "{stub}\n[[ -r \"$HOME/.zshenv\" ]] && source \"$HOME/.zshenv\"\n"
+        );
+        let _ = std::fs::write(dir.join(".zshenv"), shim_zshenv);
+
+        // shim/.zshrc — re-apply stub (idempotent) then source user's rc files
+        // in zsh's normal order. The trailing unset lets the user's *command*
+        // still resolve the real kiro binary via PATH (plugin init is done by
+        // this point, so the panic-y code paths are behind us).
+        let shim_zshrc = format!(
+            r#"{stub}
+# ZDOTDIR redirects zsh away from $HOME for startup files, so source
+# the user's files manually in zsh's normal order.
+[[ -r "$HOME/.zprofile" ]] && source "$HOME/.zprofile"
+[[ -r "$HOME/.zshrc"    ]] && source "$HOME/.zshrc"
+
+unset -f kiro kiro-cli-autocomplete 2>/dev/null
+"#
+        );
+        let _ = std::fs::write(dir.join(".zshrc"), shim_zshrc);
+
+        dir
+    }).as_path()
+}
 
 /// Check if the `kamal` binary is in PATH. Returns { installed, version }.
 #[tauri::command]
@@ -52,9 +113,15 @@ fn kamal_work_dir(config_path: &str) -> PathBuf {
 
 // ── PTY helper ───────────────────────────────────────────────────────────────
 
-pub(super) fn spawn_pty_command<F>(cmd_str: &str, cwd: &Path, on_line: F) -> Result<i32, String>
+pub(super) fn spawn_pty_command<F, S>(
+    cmd_str: &str,
+    cwd: &Path,
+    on_line: F,
+    on_spawn: S,
+) -> Result<i32, String>
 where
     F: Fn(String) + Send + Sync + 'static,
+    S: FnOnce(u32),
 {
     use std::os::unix::io::FromRawFd;
     use std::os::unix::process::CommandExt;
@@ -85,8 +152,13 @@ where
     let shared_rfd = Arc::new(AtomicI32::new(reader_fd));
     let shared_rfd2 = Arc::clone(&shared_rfd);
 
+    // Keep `-i` so aliases/functions from the user's `.zshrc` (e.g. a
+    // Docker-based `kamal` alias) are available, but override ZDOTDIR to a
+    // porta-managed shim that stubs known-broken plugins before sourcing
+    // the user's real startup files — see `zsh_shim_zdotdir()`.
     let mut cmd = std::process::Command::new("zsh");
     cmd.args(["-i", "-c", cmd_str])
+       .env("ZDOTDIR", zsh_shim_zdotdir())
        .current_dir(cwd)
        .stdin(unsafe  { std::process::Stdio::from_raw_fd(stdin_fd)  })
        .stdout(unsafe { std::process::Stdio::from_raw_fd(stdout_fd) })
@@ -97,6 +169,16 @@ where
             libc::close(slave_fd);
             libc::close(master_fd);
             libc::close(reader_fd);
+            // Become our own session/process-group leader so cancel can kill the
+            // whole group (via kill(-pid, …)) without hitting porta itself.
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // Attach our PTY slave (now on fd 0 via dup2 in spawn) as the
+            // controlling terminal. Without this, `zsh -i` job-control calls
+            // (tcsetpgrp, tcgetpgrp) have no ctty and can leave the shell in
+            // a state where waitpid() on the parent side never reports exit.
+            libc::ioctl(0, libc::TIOCSCTTY.into(), 0i32);
             Ok(())
         });
     }
@@ -108,8 +190,11 @@ where
 
     unsafe { libc::close(slave_fd); }
 
+    on_spawn(child.id());
+
     let on_line = Arc::new(on_line);
     let on_line_r = Arc::clone(&on_line);
+    let on_line_m = Arc::clone(&on_line);
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut leftover: Vec<u8> = Vec::new();
@@ -135,7 +220,32 @@ where
         }
     });
 
-    let code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+    // Poll for exit rather than blocking on `child.wait()`. A blocking wait
+    // can hang indefinitely if another thread in the process (e.g. a Tauri
+    // plugin) happens to reap our child via waitpid(-1, …) first. The
+    // kill(pid, 0) probe is a safety net for the (unlikely) case where
+    // try_wait keeps reporting None on a dead child — if the kernel no longer
+    // knows the pid, bail out instead of spinning forever.
+    let child_pid = child.id() as i32;
+    let code = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.code().unwrap_or(-1),
+            Err(e) => {
+                on_line_m(format!("[porta] try_wait error: {} — bailing out", e));
+                break -1;
+            }
+            Ok(None) => {}
+        }
+        if unsafe { libc::kill(child_pid, 0) } != 0 {
+            let errno = std::io::Error::last_os_error();
+            on_line_m(format!(
+                "[porta] kill(pid {}, 0) failed ({}) — treating as exited",
+                child_pid, errno
+            ));
+            break -1;
+        }
+        thread::sleep(Duration::from_millis(150));
+    };
 
     thread::sleep(Duration::from_millis(250));
 
@@ -162,10 +272,23 @@ pub fn kamal_run(
         let kamal_cmd = format!("kamal {}", args.join(" "));
         let log_app = app.clone();
         let log_id  = run_id.clone();
-        match spawn_pty_command(&kamal_cmd, &work_dir, move |line| {
-            log_app.emit(&format!("kamal:log:{}", log_id), line).ok();
-        }) {
-            Ok(code) => { app.emit(&format!("kamal:exit:{}", run_id), code).ok(); }
+        let reg_id  = run_id.clone();
+        let result = spawn_pty_command(
+            &kamal_cmd,
+            &work_dir,
+            move |line| {
+                log_app.emit(&format!("kamal:log:{}", log_id), line).ok();
+            },
+            move |pid| {
+                kamal_run_pids().lock().unwrap().insert(reg_id, pid as i32);
+            },
+        );
+        kamal_run_pids().lock().unwrap().remove(&run_id);
+        match result {
+            Ok(code) => {
+                app.emit(&format!("kamal:log:{}", run_id), format!("[porta] process finished (exit {})", code)).ok();
+                app.emit(&format!("kamal:exit:{}", run_id), code).ok();
+            }
             Err(e)   => {
                 app.emit(&format!("kamal:log:{}", run_id), format!("[err] {e}")).ok();
                 app.emit(&format!("kamal:exit:{}", run_id), -1i32).ok();
@@ -181,9 +304,19 @@ pub fn install_kamal(app: tauri::AppHandle, app_id: String, run_id: String) -> R
     thread::spawn(move || {
         let log_app = app.clone();
         let log_id  = run_id.clone();
-        match spawn_pty_command("gem install kamal", std::path::Path::new("/tmp"), move |line| {
-            log_app.emit(&format!("kamal:log:{}", log_id), line).ok();
-        }) {
+        let reg_id  = run_id.clone();
+        let result = spawn_pty_command(
+            "gem install kamal",
+            std::path::Path::new("/tmp"),
+            move |line| {
+                log_app.emit(&format!("kamal:log:{}", log_id), line).ok();
+            },
+            move |pid| {
+                kamal_run_pids().lock().unwrap().insert(reg_id, pid as i32);
+            },
+        );
+        kamal_run_pids().lock().unwrap().remove(&run_id);
+        match result {
             Ok(code) => { app.emit(&format!("kamal:exit:{}", run_id), code).ok(); }
             Err(e)   => {
                 app.emit(&format!("kamal:log:{}", run_id), format!("[err] {e}")).ok();
@@ -191,6 +324,52 @@ pub fn install_kamal(app: tauri::AppHandle, app_id: String, run_id: String) -> R
             }
         }
     });
+    Ok(())
+}
+
+/// Interrupt a running kamal command. Sends SIGINT to the process group first
+/// (so kamal can clean up SSH sessions), then escalates to SIGKILL after a short
+/// grace period if it's still alive.
+#[tauri::command]
+pub fn kamal_cancel(app: tauri::AppHandle, run_id: String) -> Result<(), String> {
+    let pid = match kamal_run_pids().lock().unwrap().get(&run_id).copied() {
+        Some(p) => p,
+        None => {
+            app.emit(
+                &format!("kamal:log:{}", run_id),
+                "[porta] cancel requested — process already exited".to_string(),
+            ).ok();
+            return Ok(());
+        }
+    };
+
+    app.emit(
+        &format!("kamal:log:{}", run_id),
+        format!("[porta] stopping (SIGINT → pgid {})", pid),
+    ).ok();
+
+    // Signal the entire process group so nested kamal children (ssh, docker, …) get hit.
+    let int_rc = unsafe { libc::kill(-pid, libc::SIGINT) };
+    if int_rc != 0 {
+        app.emit(
+            &format!("kamal:log:{}", run_id),
+            format!("[porta] SIGINT failed: {}", std::io::Error::last_os_error()),
+        ).ok();
+    }
+
+    let app_kill = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(2000));
+        let still_alive = kamal_run_pids().lock().unwrap().contains_key(&run_id);
+        if still_alive {
+            app_kill.emit(
+                &format!("kamal:log:{}", run_id),
+                "[porta] grace period elapsed — sending SIGKILL".to_string(),
+            ).ok();
+            unsafe { libc::kill(-pid, libc::SIGKILL); }
+        }
+    });
+
     Ok(())
 }
 

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import { isTauri } from "../../lib/commands";
 import type { Workspace } from "../../types";
@@ -21,7 +22,17 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { workspaces, apps, services, selectedWorkspaceId, selectWorkspace, reorderWorkspaces, reorderServices } = usePortaStore();
+  const { workspaces, apps, services, selectedWorkspaceId, selectWorkspace, reorderWorkspaces, reorderServices } = usePortaStore(
+    useShallow((s) => ({
+      workspaces: s.workspaces,
+      apps: s.apps,
+      services: s.services,
+      selectedWorkspaceId: s.selectedWorkspaceId,
+      selectWorkspace: s.selectWorkspace,
+      reorderWorkspaces: s.reorderWorkspaces,
+      reorderServices: s.reorderServices,
+    }))
+  );
   const [showAddWs, setShowAddWs] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
@@ -95,10 +106,18 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
     return () => { document.body.style.cursor = ""; };
   }, [draggingItem]);
 
-  const activeCount = (wsId: string | null) =>
-    apps.filter(
-      (a) => a.workspace_id === wsId && (a.status === "running" || a.status === "starting")
-    ).length;
+  // One pass over apps instead of N×M nested scans in JSX.
+  const activeByWs = useMemo(() => {
+    const counts = new Map<string | null, number>();
+    for (const a of apps) {
+      if (a.status === "running" || a.status === "starting") {
+        const k = a.workspace_id;
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [apps]);
+  const activeCount = (wsId: string | null) => activeByWs.get(wsId) ?? 0;
 
 
 
@@ -110,8 +129,9 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
   return (
     <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pb-3 shrink-0">
-      <div className="h-9 flex items-center px-4 shrink-0">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest ml-12">Porta</span>
+      <div className="h-11 flex items-center gap-2 px-4 shrink-0">
+        <img src="/porta-logo.svg" alt="" width={18} height={18} className="rounded-[4px]" />
+        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Porta</span>
       </div>
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
         <div className="flex items-center gap-1 px-2 mb-1 mt-1">
@@ -324,6 +344,9 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </svg>
           <span>Settings</span>
         </button>
+        <div className="px-2 pt-1 text-[9px] text-zinc-700 font-mono select-text" title="Build tag — confirms latest install is running">
+          build {__BUILD_TAG__}
+        </div>
       </div>
 
       {contextMenu && (

@@ -108,6 +108,15 @@ pub fn import_porta_config(state: State<AppState>, src_path: String) -> Result<(
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,
+            kind: "process".into(),
+            docker_image: None,
+            docker_container_port: None,
+            docker_args: None,
+            docker_volumes: vec![],
+            compose_file: None,
+            network_share: false,
+            tunnel_name: None,
+            tunnel_custom_hostname: None,
         };
         apps_to_insert.push(app);
     }

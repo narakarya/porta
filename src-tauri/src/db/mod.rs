@@ -44,10 +44,37 @@ impl Database {
             );
 
             CREATE TABLE IF NOT EXISTS port_registry (
-                port INTEGER PRIMARY KEY,
-                app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE
+                port INTEGER NOT NULL,
+                app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+                PRIMARY KEY (port, app_id)
             );
         ")?;
+
+        // Migrate existing port_registry from PRIMARY KEY (port) to composite
+        // PRIMARY KEY (port, app_id). This allows the same port to appear in
+        // multiple bindings (e.g. one app exposing the same backend on several
+        // domains for cookie-isolation testing).
+        let old_schema: bool = self.conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='port_registry'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .map(|sql| sql.contains("port INTEGER PRIMARY KEY"))
+            .unwrap_or(false);
+        if old_schema {
+            self.conn.execute_batch("
+                CREATE TABLE port_registry_new (
+                    port INTEGER NOT NULL,
+                    app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+                    PRIMARY KEY (port, app_id)
+                );
+                INSERT OR IGNORE INTO port_registry_new (port, app_id)
+                    SELECT port, app_id FROM port_registry;
+                DROP TABLE port_registry;
+                ALTER TABLE port_registry_new RENAME TO port_registry;
+            ")?;
+        }
 
         self.conn.execute_batch("
             CREATE TABLE IF NOT EXISTS services (
@@ -89,6 +116,26 @@ impl Database {
         // environment profiles
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_profiles TEXT NOT NULL DEFAULT '[]'", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN active_profile_id TEXT", []);
+        // app kind: "process" (spawn start_command) or "static" (Caddy file_server)
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN kind TEXT NOT NULL DEFAULT 'process'", []);
+        // docker support
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN docker_image TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN docker_container_port INTEGER", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN docker_args TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN docker_volumes TEXT NOT NULL DEFAULT '[]'", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN compose_file TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN network_share INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN tunnel_name TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN tunnel_custom_hostname TEXT", []);
+        // Tunnel provider: "cloudflare" | "tailscale" | NULL. Nullable to distinguish
+        // "user hasn't chosen a provider" from either option.
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN tunnel_provider TEXT", []);
+        // Backfill existing rows that already have a Cloudflare tunnel configured
+        // but predate the provider column, so the UI shows the correct selection.
+        let _ = self.conn.execute(
+            "UPDATE apps SET tunnel_provider = 'cloudflare' WHERE tunnel_provider IS NULL AND tunnel_name IS NOT NULL AND tunnel_name != ''",
+            [],
+        );
 
         Ok(())
     }
@@ -141,6 +188,7 @@ mod tests {
             depends_on: vec![],
             extra_subdomains: vec![],
             custom_domain: None,
+            kind: "process".into(),
             tunnel_provider: None,
             tunnel_url: None,
             tunnel_active: false,
@@ -149,10 +197,75 @@ mod tests {
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,
+            docker_image: None,
+            docker_container_port: None,
+            docker_args: None,
+            docker_volumes: vec![],
+            compose_file: None,
+            network_share: false,
+            tunnel_name: None,
+            tunnel_custom_hostname: None,
         };
         db.insert_app(&a).unwrap();
         let ports = db.used_ports().unwrap();
         assert_eq!(ports, vec![4001]);
+    }
+
+    #[test]
+    fn test_insert_app_with_binding_sharing_primary_port() {
+        // Same backend port reachable via multiple domains (cookie isolation
+        // testing) must not trip port_registry's PRIMARY KEY.
+        let mut db = in_memory_db();
+        let a = App {
+            id: "a3".into(), workspace_id: None, name: "api".into(),
+            root_dir: "/tmp".into(), port: 4003, subdomain: None,
+            start_command: "node server.js".into(),
+            start_command_source: "manual".into(),
+            status: "stopped".into(), pid: None,
+            env_file: None, auto_start: false,
+            env_vars: HashMap::new(),
+            restart_policy: "on-failure".into(),
+            max_retries: 3,
+            health_check_path: None,
+            depends_on: vec![],
+            extra_subdomains: vec![],
+            custom_domain: None,
+            kind: "process".into(),
+            tunnel_provider: None,
+            tunnel_url: None,
+            tunnel_active: false,
+            deploy_config_path: None,
+            deploy_custom_commands: vec![],
+            port_bindings: vec![
+                models::PortBinding {
+                    id: "b1".into(),
+                    label: "tenant-a".into(),
+                    port: 4003,
+                    subdomain: Some("tenant-a".into()),
+                    custom_domain: None,
+                },
+                models::PortBinding {
+                    id: "b2".into(),
+                    label: "tenant-b".into(),
+                    port: 4003,
+                    subdomain: Some("tenant-b".into()),
+                    custom_domain: None,
+                },
+            ],
+            env_profiles: vec![],
+            active_profile_id: None,
+            docker_image: None,
+            docker_container_port: None,
+            docker_args: None,
+            docker_volumes: vec![],
+            compose_file: None,
+            network_share: false,
+            tunnel_name: None,
+            tunnel_custom_hostname: None,
+        };
+        db.insert_app(&a).unwrap();
+        let ports = db.used_ports().unwrap();
+        assert_eq!(ports, vec![4003]); // DISTINCT collapses duplicates
     }
 
     #[test]
@@ -175,6 +288,7 @@ mod tests {
             depends_on: vec![],
             extra_subdomains: vec![],
             custom_domain: None,
+            kind: "process".into(),
             tunnel_provider: None,
             tunnel_url: None,
             tunnel_active: false,
@@ -183,6 +297,14 @@ mod tests {
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,
+            docker_image: None,
+            docker_container_port: None,
+            docker_args: None,
+            docker_volumes: vec![],
+            compose_file: None,
+            network_share: false,
+            tunnel_name: None,
+            tunnel_custom_hostname: None,
         };
         db.insert_app(&a).unwrap();
         let list = db.list_apps().unwrap();

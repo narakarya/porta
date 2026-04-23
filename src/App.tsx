@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "./store";
-import { startCaddy } from "./lib/commands";
+import { startCaddy, listCloudflareTunnels, getCfApiToken, listTunnelDns } from "./lib/commands";
+import { setCachedTunnels, setCachedDnsRoutes } from "./lib/tunnelCache";
 import Layout from "./components/layout/Layout";
 import WorkspaceView from "./components/workspace/WorkspaceView";
 import SetupWizard from "./components/setup/SetupWizard";
@@ -10,7 +12,15 @@ import CommandPalette from "./components/layout/CommandPalette";
 type Page = "main" | "settings";
 
 export default function App() {
-  const { load, checkSetup, loadSettings, setupStatus, refreshHealth } = usePortaStore();
+  const { load, checkSetup, loadSettings, refreshHealth } = usePortaStore(
+    useShallow((s) => ({
+      load: s.load,
+      checkSetup: s.checkSetup,
+      loadSettings: s.loadSettings,
+      refreshHealth: s.refreshHealth,
+    }))
+  );
+  const setupStatus = usePortaStore((s) => s.setupStatus);
   const [page, setPage] = useState<Page>("main");
   const [caddyAutoStartFailed, setCaddyAutoStartFailed] = useState(false);
   const [caddyBannerDismissed, setCaddyBannerDismissed] = useState(false);
@@ -21,7 +31,24 @@ export default function App() {
     loadSettings();
 
     const healthInterval = setInterval(() => refreshHealth(), 30_000);
-    return () => clearInterval(healthInterval);
+
+    // Pre-warm tunnel cache in the background so opening Settings → Tunnels
+    // is instant (shows cached list immediately, refreshes in background).
+    const prewarmDelay = setTimeout(() => {
+      listCloudflareTunnels()
+        .then(setCachedTunnels)
+        .catch(() => {});
+      getCfApiToken()
+        .then((t) => {
+          if (t) return listTunnelDns(t).then(setCachedDnsRoutes);
+        })
+        .catch(() => {});
+    }, 2000);
+
+    return () => {
+      clearInterval(healthInterval);
+      clearTimeout(prewarmDelay);
+    };
   }, []);
 
   // Auto-start Caddy silently if installed but not running

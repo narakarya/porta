@@ -37,7 +37,7 @@ interface Props {
 }
 
 export default function CanvasView({ apps }: Props) {
-  const { updateApp } = usePortaStore();
+  const updateApp = usePortaStore((s) => s.updateApp);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ── Source of truth for positions during drag — NO React state ─────────────

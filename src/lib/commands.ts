@@ -81,6 +81,29 @@ export const listApps = (): Promise<App[]> =>
 export const detectStartCommand = (rootDir: string): Promise<DetectResult> =>
   isTauri ? invoke("detect_start_command", { rootDir }) : Promise.resolve(mockDetectResult);
 
+export const saveComposeYaml = (appId: string, content: string): Promise<string> =>
+  isTauri ? invoke("save_compose_yaml", { appId, content }) : Promise.resolve("");
+
+export const loadComposeYaml = (path: string): Promise<string> =>
+  isTauri ? invoke("load_compose_yaml", { path }) : Promise.resolve("");
+
+export interface ParsedComposeService {
+  name: string;
+  image: string | null;
+  build_context: string | null;
+  ports: [number, number][];
+  environment: Record<string, string>;
+  volumes: string[];
+  depends_on: string[];
+  command: string | null;
+}
+export interface ParsedComposeProject {
+  services: ParsedComposeService[];
+}
+
+export const parseComposeString = (content: string): Promise<ParsedComposeProject> =>
+  isTauri ? invoke("parse_compose_string", { content }) : Promise.reject(new Error("not tauri"));
+
 export const nextAvailablePort = (): Promise<number> =>
   isTauri ? invoke("next_available_port") : Promise.resolve(mockNextPort());
 
@@ -94,6 +117,16 @@ export const addApp = (params: AddAppParams): Promise<App> =>
         subdomain: params.subdomain,
         startCommand: params.start_command,
         startCommandSource: params.start_command_source,
+        kind: params.kind,
+        dockerImage: params.docker_image ?? null,
+        dockerContainerPort: params.docker_container_port ?? null,
+        dockerArgs: params.docker_args ?? null,
+        dockerVolumes: params.docker_volumes ?? [],
+        composeFile: params.compose_file ?? null,
+        composeYaml: params.compose_yaml ?? null,
+        networkShare: params.network_share ?? false,
+        tunnelName: params.tunnel_name ?? null,
+        tunnelCustomHostname: params.tunnel_custom_hostname ?? null,
       })
     : Promise.resolve(mockAddApp(params));
 
@@ -102,6 +135,7 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
     ? invoke("update_app", {
         id: params.id,
         name: params.name,
+        rootDir: params.root_dir,
         port: params.port,
         subdomain: params.subdomain,
         startCommand: params.start_command,
@@ -117,11 +151,20 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
         portBindings: params.port_bindings,
         envProfiles: params.env_profiles,
         activeProfileId: params.active_profile_id,
+        dockerImage: params.docker_image ?? null,
+        dockerContainerPort: params.docker_container_port ?? null,
+        dockerArgs: params.docker_args ?? null,
+        dockerVolumes: params.docker_volumes ?? [],
+        composeFile: params.compose_file ?? null,
+        composeYaml: params.compose_yaml ?? null,
+        networkShare: params.network_share ?? false,
+        tunnelName: params.tunnel_name ?? null,
+        tunnelCustomHostname: params.tunnel_custom_hostname ?? null,
       })
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [] } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [], kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>
@@ -135,6 +178,17 @@ export const revealInFinder = (path: string): Promise<void> =>
 
 export const openInEditor = (rootDir: string): Promise<void> =>
   isTauri ? invoke("open_in_editor", { rootDir }) : Promise.resolve();
+
+export interface GitStatus {
+  in_repo: boolean;
+  branch: string | null;
+  dirty: boolean;
+}
+
+export const getGitStatus = (rootDir: string): Promise<GitStatus> =>
+  isTauri
+    ? invoke("get_git_status", { rootDir })
+    : Promise.resolve({ in_repo: false, branch: null, dirty: false });
 
 export const openInTerminal = (rootDir: string): Promise<void> =>
   isTauri ? invoke("open_in_terminal", { rootDir }) : Promise.resolve();
@@ -357,11 +411,86 @@ export const gitSyncDisconnect = (): Promise<void> =>
 export const checkCloudflared = (): Promise<boolean> =>
   isTauri ? invoke("check_cloudflared") : Promise.resolve(false);
 
+export interface CloudflareTunnel {
+  id: string;
+  name: string;
+  connection_count: number;
+}
+
+export const listCloudflareTunnels = (): Promise<CloudflareTunnel[]> =>
+  isTauri ? invoke("list_cloudflare_tunnels") : Promise.resolve([]);
+
+export const createCloudflareTunnel = (name: string): Promise<void> =>
+  isTauri ? invoke("create_cloudflare_tunnel", { name }) : Promise.resolve();
+
+export const deleteCloudflareTunnel = (name: string, force: boolean): Promise<void> =>
+  isTauri ? invoke("delete_cloudflare_tunnel", { name, force }) : Promise.resolve();
+
+export const routeTunnelDns = (tunnelName: string, hostname: string, overwrite: boolean): Promise<void> =>
+  isTauri ? invoke("route_tunnel_dns", { tunnelName, hostname, overwrite }) : Promise.resolve();
+
+export interface TunnelDnsRoute {
+  zone_name: string;
+  hostname: string;
+  tunnel_id: string;
+}
+
+export const listTunnelDns = (apiToken: string): Promise<TunnelDnsRoute[]> =>
+  isTauri ? invoke("list_tunnel_dns", { apiToken }) : Promise.resolve([]);
+
+export const getCfApiToken = (): Promise<string> =>
+  isTauri ? invoke("get_cf_api_token") : Promise.resolve("");
+
+export const setCfApiToken = (token: string): Promise<void> =>
+  isTauri ? invoke("set_cf_api_token", { token }) : Promise.resolve();
+
+export const setTunnelConfig = (
+  id: string,
+  tunnelProvider: string | null,
+  tunnelName: string | null,
+  tunnelCustomHostname: string | null
+): Promise<void> =>
+  isTauri
+    ? invoke("set_tunnel_config", { id, tunnelProvider, tunnelName, tunnelCustomHostname })
+    : Promise.resolve();
+
 export const startTunnel = (id: string, port: number): Promise<void> =>
   isTauri ? invoke("start_tunnel", { id, port }) : Promise.resolve();
 
 export const stopTunnel = (id: string): Promise<void> =>
   isTauri ? invoke("stop_tunnel", { id }) : Promise.resolve();
+
+// ── Tunneling (tailscale) ─────────────────────────────────────────────────────
+
+export interface TailscaleStatus {
+  installed: boolean;
+  running: boolean;
+  logged_in: boolean;
+  host: string | null;
+  error: string | null;
+}
+
+export const checkTailscale = (): Promise<boolean> =>
+  isTauri ? invoke("check_tailscale") : Promise.resolve(false);
+
+export const getTailscaleStatus = (): Promise<TailscaleStatus> =>
+  isTauri
+    ? invoke("tailscale_status")
+    : Promise.resolve({ installed: false, running: false, logged_in: false, host: null, error: null });
+
+export interface TailscaleServeEntry {
+  port: number;
+  upstream: string;
+}
+
+export const listTailscaleServes = (): Promise<TailscaleServeEntry[]> =>
+  isTauri ? invoke("list_tailscale_serves") : Promise.resolve([]);
+
+export const startTailscaleServe = (id: string, port: number): Promise<void> =>
+  isTauri ? invoke("start_tailscale_serve", { id, port }) : Promise.resolve();
+
+export const stopTailscaleServe = (id: string): Promise<void> =>
+  isTauri ? invoke("stop_tailscale_serve", { id }) : Promise.resolve();
 
 // ── Launch at Login ───────────────────────────────────────────────────────────
 
@@ -387,8 +516,16 @@ export const caddyStatusCheck = (): Promise<boolean> =>
 
 // ── In-app terminal ───────────────────────────────────────────────────────────
 
-export const terminalOpen = (appId: string, rootDir: string, rows: number, cols: number): Promise<void> =>
-  isTauri ? invoke("terminal_open", { appId, rootDir, rows, cols }) : Promise.resolve();
+export const terminalOpen = (
+  appId: string,
+  rootDir: string,
+  rows: number,
+  cols: number,
+  startupCmd?: string | null,
+): Promise<void> =>
+  isTauri
+    ? invoke("terminal_open", { appId, rootDir, rows, cols, startupCmd: startupCmd ?? null })
+    : Promise.resolve();
 
 export const terminalWrite = (appId: string, data: number[]): Promise<void> =>
   isTauri ? invoke("terminal_write", { appId, data }) : Promise.resolve();
@@ -450,6 +587,11 @@ export const kamalRun = (
   isTauri
     ? invoke("kamal_run", { appId, configPath, args, runId })
     : Promise.reject(new Error("kamal_run not available in browser mode"));
+
+export const kamalCancel = (runId: string): Promise<void> =>
+  isTauri
+    ? invoke("kamal_cancel", { runId })
+    : Promise.resolve();
 
 export const installKamal = (appId: string, runId: string): Promise<void> =>
   isTauri

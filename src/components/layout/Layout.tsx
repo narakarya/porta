@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import Sidebar from "./Sidebar";
 
@@ -8,14 +9,19 @@ interface Props {
 }
 
 export default function Layout({ children, onOpenSettings }: Props) {
-  const { apps } = usePortaStore();
-  const running = apps.filter((a) => a.status === "running").length;
-  const total = apps.length;
+  // Derive counts via selector so Layout only re-renders when running/total count
+  // flips, not on every apps array mutation (metrics tick etc).
+  const { running, total } = usePortaStore(
+    useShallow((s) => ({
+      running: s.apps.filter((a) => a.status === "running").length,
+      total: s.apps.length,
+    }))
+  );
 
   return (
     <div className="flex h-screen bg-[#111113] text-zinc-100 font-sans overflow-hidden">
       {/* Title bar */}
-      <div className="drag-region fixed top-0 left-[200px] right-0 h-9 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]">
+      <div className="drag-region fixed top-0 left-[200px] right-0 h-11 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]">
         {/* Search trigger — wider */}
         <button
           onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
@@ -39,10 +45,10 @@ export default function Layout({ children, onOpenSettings }: Props) {
       </div>
 
       {/* Sidebar drag region (traffic lights area) */}
-      <div className="drag-region fixed top-0 left-0 w-[200px] h-9 z-10" />
+      <div className="drag-region fixed top-0 left-0 w-[200px] h-11 z-10" />
 
       <Sidebar onOpenSettings={onOpenSettings} />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-12 px-6 pb-6 no-drag">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-14 px-6 pb-6 no-drag">
         {children}
       </main>
     </div>

@@ -31,7 +31,27 @@ pub struct AppExport {
     pub custom_domain: Option<String>,
     #[serde(default)]
     pub port_bindings: Vec<PortBinding>,
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub docker_image: Option<String>,
+    #[serde(default)]
+    pub docker_container_port: Option<u16>,
+    #[serde(default)]
+    pub docker_args: Option<String>,
+    #[serde(default)]
+    pub docker_volumes: Vec<String>,
+    #[serde(default)]
+    pub compose_file: Option<String>,
+    #[serde(default)]
+    pub network_share: bool,
+    #[serde(default)]
+    pub tunnel_name: Option<String>,
+    #[serde(default)]
+    pub tunnel_custom_hostname: Option<String>,
 }
+
+fn default_kind() -> String { "process".into() }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PortEntry {
@@ -53,6 +73,15 @@ impl From<&App> for AppExport {
             extra_subdomains: a.extra_subdomains.clone(),
             custom_domain: a.custom_domain.clone(),
             port_bindings: a.port_bindings.clone(),
+            kind: a.kind.clone(),
+            docker_image: a.docker_image.clone(),
+            docker_container_port: a.docker_container_port,
+            docker_args: a.docker_args.clone(),
+            docker_volumes: a.docker_volumes.clone(),
+            compose_file: a.compose_file.clone(),
+            network_share: a.network_share,
+            tunnel_name: a.tunnel_name.clone(),
+            tunnel_custom_hostname: a.tunnel_custom_hostname.clone(),
         }
     }
 }
@@ -141,6 +170,15 @@ mod tests {
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,
+            kind: "process".into(),
+            docker_image: None,
+            docker_container_port: None,
+            docker_args: None,
+            docker_volumes: vec![],
+            compose_file: None,
+            network_share: false,
+            tunnel_name: None,
+            tunnel_custom_hostname: None,
         }
     }
 

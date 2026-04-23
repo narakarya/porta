@@ -6,6 +6,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{Emitter, Manager};
 
 use crate::app_state::AppState;
+use crate::docker_manager::DockerManager;
 
 /// Spawn a background thread that polls CPU/memory for all running app processes
 /// every 2 seconds and emits `app:metrics:{id}` events to the frontend.
@@ -16,18 +17,33 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
         loop {
             thread::sleep(Duration::from_secs(2));
 
-            // Get pid→app_id mapping from ProcessManager + DB (covers apps surviving Porta restart)
             let state = app.state::<AppState>();
-            let mut pid_map: HashMap<String, u32> = state.processes.pids();
+            // Get pid→app_id mapping from ProcessManager + DB (covers apps surviving Porta restart)
+            let mut pid_map: HashMap<String, u32> = state.processes.pids().into_iter().collect();
+            let docker_ids: Vec<String> = state.docker.active_ids();
 
-            // Also include running apps from DB whose PID we know but aren't in ProcessManager
-            if let Ok(db_apps) = state.db.lock().unwrap().list_apps() {
+            // Snapshot the DB list with the lock held only for the call itself —
+            // the lock drops at the end of this let statement, so iteration below
+            // doesn't block concurrent start/stop/update commands.
+            let db_apps = state.db.lock().unwrap().list_apps().ok();
+            if let Some(db_apps) = db_apps {
                 for a in &db_apps {
-                    if a.status == "running" {
+                    if a.status == "running" && !a.is_docker() {
                         if let Some(pid) = a.pid {
                             pid_map.entry(a.id.clone()).or_insert(pid);
                         }
                     }
+                }
+            }
+
+            // Docker apps — pull stats from `docker stats --no-stream`.
+            for app_id in &docker_ids {
+                if let Some((cpu, mem)) = DockerManager::stats(app_id) {
+                    let payload = serde_json::json!({
+                        "cpu": (cpu * 10.0).round() / 10.0,
+                        "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,
+                    });
+                    app.emit(&format!("app:metrics:{}", app_id), payload).ok();
                 }
             }
 

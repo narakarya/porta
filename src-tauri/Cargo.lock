@@ -2994,10 +2994,11 @@ dependencies = [
 
 [[package]]
 name = "porta"
-version = "0.1.0"
+version = "0.2.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
+ "futures-util",
  "libc",
  "nix",
  "pathdiff",

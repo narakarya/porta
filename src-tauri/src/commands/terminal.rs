@@ -17,6 +17,12 @@ pub(super) fn terminals() -> &'static Mutex<HashMap<String, TerminalHandle>> {
 /// Spawn an interactive `zsh` shell in `root_dir` inside a PTY.
 /// Output is streamed to `terminal:data:{app_id}` events as raw bytes (base64).
 /// Emits `terminal:exit:{app_id}` when the shell exits.
+///
+/// If `startup_cmd` is provided, it is written to the PTY after the shell
+/// prompt appears — this keeps the shell fully interactive (history, aliases,
+/// Ctrl-C) while auto-running a command like `claude`. Using the PTY write
+/// path (rather than `zsh -c`) is what lets the user see the command typed in
+/// and interact with its TUI afterwards.
 #[tauri::command]
 pub fn terminal_open(
     app: tauri::AppHandle,
@@ -24,6 +30,7 @@ pub fn terminal_open(
     root_dir: String,
     rows: u16,
     cols: u16,
+    startup_cmd: Option<String>,
 ) -> Result<(), String> {
     use std::os::unix::io::FromRawFd;
     use std::os::unix::process::CommandExt;
@@ -81,6 +88,25 @@ pub fn terminal_open(
     thread::spawn(move || unsafe { libc::waitpid(wait_pid as i32, std::ptr::null_mut(), 0); });
 
     terminals().lock().unwrap().insert(app_id.clone(), TerminalHandle { master_fd, child_pid });
+
+    // If a startup command was requested, write it to the PTY after a short
+    // delay so the interactive shell has a chance to print its prompt first.
+    if let Some(cmd_text) = startup_cmd {
+        let cmd_trimmed = cmd_text.trim().to_string();
+        if !cmd_trimmed.is_empty() {
+            thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                let payload = format!("{}\n", cmd_trimmed);
+                unsafe {
+                    libc::write(
+                        master_fd,
+                        payload.as_ptr() as *const libc::c_void,
+                        payload.len(),
+                    );
+                }
+            });
+        }
+    }
 
     // Stream PTY output to frontend as raw bytes (UTF-8 best-effort).
     let app_clone = app.clone();

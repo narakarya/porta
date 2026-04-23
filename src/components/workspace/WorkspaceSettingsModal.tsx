@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { Workspace } from "../../types";
 import ModalWrapper from "../shared/ModalWrapper";
+import { yieldToFrame } from "../../lib/ui";
 
 type Section = "general" | "danger";
 
@@ -37,6 +38,7 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
     if (!canSave) return;
     setSaving(true);
     setSaveError(null);
+    await yieldToFrame();
     try {
       await updateWorkspace(workspace.id, name.trim(), domain);
       onClose();
@@ -154,8 +156,14 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
                   <button
                     onClick={handleSave}
                     disabled={!canSave || saving}
-                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1.5"
                   >
+                    {saving && (
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                        <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
                     {saving ? "Saving…" : "Save Changes"}
                   </button>
                 </div>

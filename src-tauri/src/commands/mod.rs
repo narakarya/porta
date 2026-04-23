@@ -15,6 +15,9 @@ pub use git_sync::*;
 mod tunnel;
 pub use tunnel::*;
 
+mod tailscale;
+pub use tailscale::*;
+
 mod service;
 pub use service::*;
 

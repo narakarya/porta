@@ -39,6 +39,7 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
     let exit_name = app_data.name.clone();
     let restart_policy = app_data.restart_policy.clone();
     let max_retries = app_data.max_retries;
+    let is_docker_exit = app_data.is_docker();
     let on_exit = move |exit_code: i32, is_stop: bool| {
         let reported = if is_stop { 0 } else { exit_code };
         exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
@@ -60,10 +61,15 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
             return;
         }
 
-        // Read current retry count from app state, attempt restart
+        // Read current retry count from the appropriate manager's counters
         let state: State<AppState> = exit_handle.state();
         let retry_count = {
-            let mut retries = state.processes.retry_counts.lock().unwrap();
+            let retries_map = if is_docker_exit {
+                &state.docker.retry_counts
+            } else {
+                &state.processes.retry_counts
+            };
+            let mut retries = retries_map.lock().unwrap();
             let count = retries.entry(exit_id.clone()).or_insert(0);
             *count += 1;
             *count
@@ -74,7 +80,12 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
             exit_handle.emit(&format!("app:max-retries:{}", exit_id), max_retries).ok();
             notify(&exit_handle, &format!("{} stopped", exit_name),
                 &format!("Max retries ({}) reached", max_retries));
-            state.processes.retry_counts.lock().unwrap().remove(&exit_id);
+            let retries_map = if is_docker_exit {
+                &state.docker.retry_counts
+            } else {
+                &state.processes.retry_counts
+            };
+            retries_map.lock().unwrap().remove(&exit_id);
             return;
         }
 
@@ -96,6 +107,120 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
             }
         });
     };
+
+    if app_data.is_compose() {
+        let compose_file = app_data
+            .compose_file
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| "compose app has no compose file".to_string())?
+            .to_string();
+        let root_dir_owned = if app_data.root_dir.is_empty() {
+            None
+        } else {
+            Some(app_data.root_dir.clone())
+        };
+        let shared_net = if app_data.network_share {
+            Some(app_data.workspace_network_name())
+        } else {
+            None
+        };
+        // Flip status to "starting" immediately and set the port watcher going
+        // so the UI shows a spinner while `docker compose up -d` does the (slow)
+        // image pull in a background thread.
+        state.docker.retry_counts.lock().unwrap().remove(id);
+        state
+            .db
+            .lock()
+            .unwrap()
+            .update_app_status(id, "starting", None)
+            .map_err(|e| e.to_string())?;
+        handle.emit(&format!("app:starting:{}", id), ()).ok();
+        spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+
+        let id_owned = id.clone();
+        let handle_owned = handle.clone();
+        let env_vars = app_data.env_vars.clone();
+        thread::spawn(move || {
+            let state: tauri::State<AppState> = handle_owned.state();
+            let result = state.docker.compose_start(
+                &id_owned,
+                &compose_file,
+                root_dir_owned.as_deref(),
+                shared_net.as_deref(),
+                &env_vars,
+                truncate_log,
+                on_log,
+            );
+            if let Err(e) = result {
+                state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                handle_owned.emit(&format!("app:start-failed:{}", id_owned), e.to_string()).ok();
+                handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
+            }
+        });
+        return Ok(());
+    }
+
+    if app_data.is_docker() {
+        let image = app_data
+            .docker_image
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| "docker app has no image".to_string())?
+            .to_string();
+        let container_port = app_data
+            .docker_container_port
+            .ok_or_else(|| "docker app has no container port".to_string())?;
+        let root_dir_owned = if app_data.root_dir.is_empty() {
+            None
+        } else {
+            Some(app_data.root_dir.clone())
+        };
+        let shared_net = if app_data.network_share {
+            Some(app_data.workspace_network_name())
+        } else {
+            None
+        };
+        state.docker.retry_counts.lock().unwrap().remove(id);
+        state
+            .db
+            .lock()
+            .unwrap()
+            .update_app_status(id, "starting", None)
+            .map_err(|e| e.to_string())?;
+        handle.emit(&format!("app:starting:{}", id), ()).ok();
+        spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+
+        let id_owned = id.clone();
+        let handle_owned = handle.clone();
+        let docker_args = app_data.docker_args.clone();
+        let docker_volumes = app_data.docker_volumes.clone();
+        let env_vars = app_data.env_vars.clone();
+        let host_port = app_data.port;
+        thread::spawn(move || {
+            let state: tauri::State<AppState> = handle_owned.state();
+            let result = state.docker.start(
+                &id_owned,
+                &image,
+                host_port,
+                container_port,
+                docker_args.as_deref(),
+                &docker_volumes,
+                root_dir_owned.as_deref(),
+                shared_net.as_deref(),
+                &env_vars,
+                truncate_log,
+                on_log,
+                on_exit,
+            );
+            if let Err(e) = result {
+                state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                handle_owned.emit(&format!("app:start-failed:{}", id_owned), e.to_string()).ok();
+                handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
+            }
+        });
+        return Ok(());
+    }
 
     let pid = state
         .processes
@@ -156,6 +281,16 @@ pub fn start_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> R
         .clone();
     drop(db);
 
+    // Static apps have no process — Caddy serves them as long as it's running.
+    // Mark as "running" so the UI reflects it and skip the spawn path entirely.
+    if app_data.is_static() {
+        state.db.lock().unwrap()
+            .update_app_status(&id, "running", None)
+            .map_err(|e| e.to_string())?;
+        app.emit(&format!("app:ready:{}", id), ()).ok();
+        return Ok(());
+    }
+
     let unstarted_deps: Vec<App> = app_data
         .depends_on
         .iter()
@@ -213,7 +348,22 @@ pub fn mark_app_stopped(state: State<AppState>, id: String) -> Result<(), String
 
 #[tauri::command]
 pub fn stop_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
-    state.processes.stop(&id).map_err(|e| e.to_string())?;
+    let app_data = state.db.lock().unwrap().list_apps().ok()
+        .and_then(|apps| apps.into_iter().find(|a| a.id == id));
+    let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
+    let is_docker = app_data.as_ref().map(|a| a.is_docker()).unwrap_or(false);
+    let is_compose = app_data.as_ref().map(|a| a.is_compose()).unwrap_or(false);
+    if is_compose {
+        if let Some(ref a) = app_data {
+            let root = if a.root_dir.is_empty() { None } else { Some(a.root_dir.as_str()) };
+            let file = a.compose_file.as_deref().unwrap_or("");
+            state.docker.compose_stop(&id, file, root).map_err(|e| e.to_string())?;
+        }
+    } else if is_docker {
+        state.docker.stop(&id).map_err(|e| e.to_string())?;
+    } else if !is_static {
+        state.processes.stop(&id).map_err(|e| e.to_string())?;
+    }
     state
         .db
         .lock()
@@ -271,14 +421,77 @@ pub fn kill_port_holder(port: u16) -> Result<u32, String> {
 
 #[tauri::command]
 pub fn restart_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
-    state.processes.stop_and_wait(&id, 3000).ok();
+    // Read the port and kind before stopping so we can route to the right manager.
+    let (port_opt, is_docker, is_compose, compose_file, root_dir) = {
+        let db = state.db.lock().unwrap();
+        let app_opt = db.list_apps().ok()
+            .and_then(|apps| apps.into_iter().find(|a| a.id == id));
+        (
+            app_opt.as_ref().map(|a| a.port),
+            app_opt.as_ref().map(|a| a.is_docker()).unwrap_or(false),
+            app_opt.as_ref().map(|a| a.is_compose()).unwrap_or(false),
+            app_opt.as_ref().and_then(|a| a.compose_file.clone()),
+            app_opt.map(|a| a.root_dir).unwrap_or_default(),
+        )
+    };
+
+    if is_compose {
+        let root = if root_dir.is_empty() { None } else { Some(root_dir.as_str()) };
+        let file = compose_file.as_deref().unwrap_or("");
+        state.docker.compose_stop_and_wait(&id, file, root).ok();
+    } else if is_docker {
+        state.docker.stop_and_wait(&id, 10_000).ok();
+    } else {
+        state.processes.stop_and_wait(&id, 3000).ok();
+    }
+
+    // After stop_and_wait the main process group is dead, but child processes that
+    // called setsid()/setpgid() escape the group kill and may still hold the port.
+    // Force-kill anything still listening on the port before we start fresh.
+    // Skip for docker/compose apps — the port is held by docker-proxy, killing it breaks docker.
+    if !is_docker && !is_compose { if let Some(port) = port_opt {
+        if let Ok(output) = std::process::Command::new("lsof")
+            .args(["-ti", &format!("tcp:{}", port)])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<u32> = stdout
+                .lines()
+                .filter_map(|l| l.trim().parse::<u32>().ok())
+                .collect();
+            for pid in pids {
+                let p = nix::unistd::Pid::from_raw(pid as i32);
+                let _ = nix::sys::signal::killpg(p, nix::sys::signal::Signal::SIGKILL);
+                let _ = nix::sys::signal::kill(p, nix::sys::signal::Signal::SIGKILL);
+            }
+            // Brief pause so the OS can release the socket after the kill
+            if !stdout.trim().is_empty() {
+                thread::sleep(Duration::from_millis(200));
+            }
+        }
+    } }
+
     state.db.lock().unwrap().update_app_status(&id, "stopped", None).map_err(|e| e.to_string())?;
     start_app(state, app, id)
 }
 
 #[tauri::command]
 pub fn kill_app(state: State<AppState>, id: String) -> Result<(), String> {
-    state.processes.kill(&id).map_err(|e| e.to_string())?;
+    let app_data = state.db.lock().unwrap().list_apps().ok()
+        .and_then(|apps| apps.into_iter().find(|a| a.id == id));
+    let is_docker = app_data.as_ref().map(|a| a.is_docker()).unwrap_or(false);
+    let is_compose = app_data.as_ref().map(|a| a.is_compose()).unwrap_or(false);
+    if is_compose {
+        if let Some(ref a) = app_data {
+            let root = if a.root_dir.is_empty() { None } else { Some(a.root_dir.as_str()) };
+            let file = a.compose_file.as_deref().unwrap_or("");
+            state.docker.compose_stop_and_wait(&id, file, root).ok();
+        }
+    } else if is_docker {
+        state.docker.kill(&id).map_err(|e| e.to_string())?;
+    } else {
+        state.processes.kill(&id).map_err(|e| e.to_string())?;
+    }
     state
         .db
         .lock()

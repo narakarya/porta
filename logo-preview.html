@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Porta — Logo Concepts</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #151820;
+    --surface-2: #1d212c;
+    --border: #272c39;
+    --text: #e6e8ee;
+    --muted: #8a90a0;
+    --accent: #5b8def;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 48px 32px 96px;
+    line-height: 1.55;
+  }
+  header {
+    max-width: 1180px;
+    margin: 0 auto 40px;
+  }
+  h1 {
+    font-size: 32px;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header p {
+    color: var(--muted);
+    margin: 0;
+    max-width: 640px;
+  }
+  .grid {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .preview {
+    aspect-ratio: 16 / 11;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(91,141,239,0.15), transparent 60%),
+      radial-gradient(circle at 70% 80%, rgba(160,100,255,0.10), transparent 60%),
+      #101219;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview svg { width: 160px; height: 160px; }
+  .meta {
+    padding: 16px 18px 18px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    background: rgba(91,141,239,0.12);
+    padding: 3px 8px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+  }
+  .meta h3 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  .meta p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .variants {
+    display: flex;
+    gap: 10px;
+    padding: 12px 18px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .variant {
+    flex: 1;
+    aspect-ratio: 1 / 1;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+  }
+  .variant svg { width: 60%; height: 60%; }
+  .v-dark { background: #0b0d12; }
+  .v-light { background: #f5f6f8; }
+  .v-accent { background: linear-gradient(135deg, #5b8def, #a064ff); }
+
+  .wordmark-row {
+    max-width: 1180px;
+    margin: 48px auto 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 32px;
+  }
+  .wordmark-row h2 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .wordmarks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .wm {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 20px;
+    background: var(--surface-2);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .wm svg { width: 36px; height: 36px; flex-shrink: 0; }
+  .wm span {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  footer {
+    max-width: 1180px;
+    margin: 48px auto 0;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Porta — Logo Concepts</h1>
+  <p>Enam alternatif logo. <em>Porta</em> (Latin) = pintu/gerbang. Tiap konsep mencerminkan peran Porta sebagai gateway antara app lokal, proxy, DNS, dan public expose.</p>
+</header>
+
+<!-- ITERATION: REPRESENTING MANY APPS + SMALL-SIZE LEGIBILITY -->
+<section style="max-width:1180px;margin:0 auto 56px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px 32px;">
+  <h2 style="margin:0 0 6px;font-size:20px;letter-spacing:-0.01em;">Iterasi — "banyak apps di bawah satu gerbang"</h2>
+  <p style="margin:0 0 24px;color:var(--muted);font-size:14px;">Titik tunggal hilang di ukuran kecil + belum nyeritain multi-app. Empat varian di bawah pakai pendekatan beda, dengan preview ukuran 14/18/28/44px supaya kelihatan mana yang survive.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;">
+
+    <!-- V1: Three columns inside arch -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:20px;">
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">
+        <svg viewBox="0 0 120 120" width="120" height="120">
+          <rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/>
+          <path d="M32 92 V58 a28 28 0 0 1 56 0 V92" stroke="#f97316" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <rect x="44" y="70" width="6" height="18" rx="1.5" fill="#f97316"/>
+          <rect x="57" y="64" width="6" height="24" rx="1.5" fill="#f97316"/>
+          <rect x="70" y="72" width="6" height="16" rx="1.5" fill="#f97316"/>
+        </svg>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">V1 · Columns in Arch</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">3 kolom dengan tinggi berbeda = apps dengan status / resource berbeda di bawah satu gerbang.</div>
+      <!-- size preview -->
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#151820;border-radius:6px;">
+        <svg viewBox="0 0 120 120" width="14" height="14"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M32 92 V58 a28 28 0 0 1 56 0 V92" stroke="#f97316" stroke-width="10" fill="none"/><rect x="44" y="70" width="8" height="20" fill="#f97316"/><rect x="57" y="64" width="8" height="26" fill="#f97316"/><rect x="70" y="72" width="8" height="18" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="18" height="18"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M32 92 V58 a28 28 0 0 1 56 0 V92" stroke="#f97316" stroke-width="9" fill="none"/><rect x="44" y="70" width="7" height="19" fill="#f97316"/><rect x="57" y="64" width="7" height="25" fill="#f97316"/><rect x="70" y="72" width="7" height="17" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="28" height="28"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M32 92 V58 a28 28 0 0 1 56 0 V92" stroke="#f97316" stroke-width="8" fill="none"/><rect x="44" y="70" width="6" height="19" fill="#f97316"/><rect x="57" y="64" width="6" height="25" fill="#f97316"/><rect x="70" y="72" width="6" height="17" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="44" height="44"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M32 92 V58 a28 28 0 0 1 56 0 V92" stroke="#f97316" stroke-width="7" fill="none"/><rect x="44" y="70" width="6" height="19" fill="#f97316"/><rect x="57" y="64" width="6" height="25" fill="#f97316"/><rect x="70" y="72" width="6" height="17" fill="#f97316"/></svg>
+      </div>
+    </div>
+
+    <!-- V2: Dots flowing through baseline -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:20px;">
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">
+        <svg viewBox="0 0 120 120" width="120" height="120">
+          <rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/>
+          <path d="M30 90 V58 a30 30 0 0 1 60 0 V90" stroke="#f97316" stroke-width="7" stroke-linecap="round" fill="none"/>
+          <circle cx="38" cy="80" r="4" fill="#f97316"/>
+          <circle cx="52" cy="80" r="4" fill="#f97316"/>
+          <circle cx="66" cy="80" r="4" fill="#f97316"/>
+          <circle cx="80" cy="80" r="4" fill="#f97316"/>
+        </svg>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">V2 · Dots Row</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">4 titik berjejer di dalam gerbang. Di ukuran kecil dots bakal merge jadi garis solid — tetap terbaca.</div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#151820;border-radius:6px;">
+        <svg viewBox="0 0 120 120" width="14" height="14"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M30 90 V58 a30 30 0 0 1 60 0 V90" stroke="#f97316" stroke-width="10" fill="none"/><circle cx="38" cy="80" r="6" fill="#f97316"/><circle cx="52" cy="80" r="6" fill="#f97316"/><circle cx="66" cy="80" r="6" fill="#f97316"/><circle cx="80" cy="80" r="6" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="18" height="18"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M30 90 V58 a30 30 0 0 1 60 0 V90" stroke="#f97316" stroke-width="9" fill="none"/><circle cx="38" cy="80" r="5" fill="#f97316"/><circle cx="52" cy="80" r="5" fill="#f97316"/><circle cx="66" cy="80" r="5" fill="#f97316"/><circle cx="80" cy="80" r="5" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="28" height="28"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M30 90 V58 a30 30 0 0 1 60 0 V90" stroke="#f97316" stroke-width="8" fill="none"/><circle cx="38" cy="80" r="4" fill="#f97316"/><circle cx="52" cy="80" r="4" fill="#f97316"/><circle cx="66" cy="80" r="4" fill="#f97316"/><circle cx="80" cy="80" r="4" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="44" height="44"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M30 90 V58 a30 30 0 0 1 60 0 V90" stroke="#f97316" stroke-width="7" fill="none"/><circle cx="38" cy="80" r="4" fill="#f97316"/><circle cx="52" cy="80" r="4" fill="#f97316"/><circle cx="66" cy="80" r="4" fill="#f97316"/><circle cx="80" cy="80" r="4" fill="#f97316"/></svg>
+      </div>
+    </div>
+
+    <!-- V3: Stacked bars (grid of apps) -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:20px;">
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">
+        <svg viewBox="0 0 120 120" width="120" height="120">
+          <rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/>
+          <path d="M28 92 V56 a32 32 0 0 1 64 0 V92" stroke="#f97316" stroke-width="7" stroke-linecap="round" fill="none"/>
+          <rect x="40" y="66" width="16" height="6" rx="1" fill="#f97316"/>
+          <rect x="64" y="66" width="16" height="6" rx="1" fill="#f97316"/>
+          <rect x="40" y="78" width="16" height="6" rx="1" fill="#f97316"/>
+          <rect x="64" y="78" width="16" height="6" rx="1" fill="#f97316"/>
+        </svg>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">V3 · App Grid</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Grid 2×2 = app tiles di bawah gerbang. Terstruktur, mirip dashboard.</div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#151820;border-radius:6px;">
+        <svg viewBox="0 0 120 120" width="14" height="14"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M28 92 V56 a32 32 0 0 1 64 0 V92" stroke="#f97316" stroke-width="10" fill="none"/><rect x="40" y="66" width="16" height="7" fill="#f97316"/><rect x="64" y="66" width="16" height="7" fill="#f97316"/><rect x="40" y="78" width="16" height="7" fill="#f97316"/><rect x="64" y="78" width="16" height="7" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="18" height="18"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M28 92 V56 a32 32 0 0 1 64 0 V92" stroke="#f97316" stroke-width="9" fill="none"/><rect x="40" y="66" width="16" height="6" fill="#f97316"/><rect x="64" y="66" width="16" height="6" fill="#f97316"/><rect x="40" y="78" width="16" height="6" fill="#f97316"/><rect x="64" y="78" width="16" height="6" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="28" height="28"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M28 92 V56 a32 32 0 0 1 64 0 V92" stroke="#f97316" stroke-width="8" fill="none"/><rect x="40" y="66" width="16" height="6" fill="#f97316"/><rect x="64" y="66" width="16" height="6" fill="#f97316"/><rect x="40" y="78" width="16" height="6" fill="#f97316"/><rect x="64" y="78" width="16" height="6" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="44" height="44"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M28 92 V56 a32 32 0 0 1 64 0 V92" stroke="#f97316" stroke-width="7" fill="none"/><rect x="40" y="66" width="16" height="6" fill="#f97316"/><rect x="64" y="66" width="16" height="6" fill="#f97316"/><rect x="40" y="78" width="16" height="6" fill="#f97316"/><rect x="64" y="78" width="16" height="6" fill="#f97316"/></svg>
+      </div>
+    </div>
+
+    <!-- V4: Solid arch with cutouts (negative space apps) -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:20px;">
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">
+        <svg viewBox="0 0 120 120" width="120" height="120">
+          <rect x="10" y="10" width="100" height="100" rx="24" fill="#f97316"/>
+          <!-- Solid arch shape -->
+          <path d="M28 92 V58 a32 32 0 0 1 64 0 V92 Z" fill="#0a0a0a"/>
+          <!-- App tiles carved out -->
+          <rect x="38" y="68" width="12" height="16" rx="1.5" fill="#f97316"/>
+          <rect x="54" y="68" width="12" height="16" rx="1.5" fill="#f97316"/>
+          <rect x="70" y="68" width="12" height="16" rx="1.5" fill="#f97316"/>
+        </svg>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">V4 · Solid + Cutout</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Gerbang solid dengan jendela app "terbakar" keluar. Paling bold, chunky, survive di tiny size.</div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#151820;border-radius:6px;">
+        <svg viewBox="0 0 120 120" width="14" height="14"><rect x="10" y="10" width="100" height="100" rx="24" fill="#f97316"/><path d="M28 92 V58 a32 32 0 0 1 64 0 V92 Z" fill="#0a0a0a"/><rect x="38" y="68" width="12" height="16" fill="#f97316"/><rect x="54" y="68" width="12" height="16" fill="#f97316"/><rect x="70" y="68" width="12" height="16" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="18" height="18"><rect x="10" y="10" width="100" height="100" rx="24" fill="#f97316"/><path d="M28 92 V58 a32 32 0 0 1 64 0 V92 Z" fill="#0a0a0a"/><rect x="38" y="68" width="12" height="16" fill="#f97316"/><rect x="54" y="68" width="12" height="16" fill="#f97316"/><rect x="70" y="68" width="12" height="16" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="28" height="28"><rect x="10" y="10" width="100" height="100" rx="24" fill="#f97316"/><path d="M28 92 V58 a32 32 0 0 1 64 0 V92 Z" fill="#0a0a0a"/><rect x="38" y="68" width="12" height="16" fill="#f97316"/><rect x="54" y="68" width="12" height="16" fill="#f97316"/><rect x="70" y="68" width="12" height="16" fill="#f97316"/></svg>
+        <svg viewBox="0 0 120 120" width="44" height="44"><rect x="10" y="10" width="100" height="100" rx="24" fill="#f97316"/><path d="M28 92 V58 a32 32 0 0 1 64 0 V92 Z" fill="#0a0a0a"/><rect x="38" y="68" width="12" height="16" fill="#f97316"/><rect x="54" y="68" width="12" height="16" fill="#f97316"/><rect x="70" y="68" width="12" height="16" fill="#f97316"/></svg>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:20px;padding:14px 18px;background:#151820;border-radius:8px;border-left:3px solid #f97316;font-size:13px;color:#d4d4d8;">
+    <strong>Rekomendasi:</strong> V2 (Dots Row) paling ringan & iconic. V4 (Solid + Cutout) paling tough di ukuran kecil — jendela ngga pernah hilang.
+  </div>
+</section>
+
+<!-- COLOR EXPLORATION -->
+<section style="max-width:1180px;margin:0 auto 56px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px 32px;">
+  <h2 style="margin:0 0 6px;font-size:20px;letter-spacing:-0.01em;">Color exploration — Konsep 01 (Archway)</h2>
+  <p style="margin:0 0 24px;color:var(--muted);font-size:14px;">Eksperimen palette. Lihat di berbagai background (dark, light, menu bar kecil) untuk putusin mana yang paling enak.</p>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;">
+
+    <!-- A. Blue→Purple (current) -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+      <svg viewBox="0 0 120 120" fill="none" style="width:120px;height:120px;">
+        <defs><linearGradient id="ca" x1="0" y1="0" x2="120" y2="120"><stop offset="0" stop-color="#5b8def"/><stop offset="1" stop-color="#a064ff"/></linearGradient></defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#ca)"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="white"/>
+      </svg>
+      <div style="margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;">A · Blue → Purple</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Current</div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;justify-content:center;">
+        <div style="width:20px;height:20px;border-radius:4px;background:#0b0d12;display:flex;align-items:center;justify-content:center;border:1px solid #272c39;">
+          <svg viewBox="0 0 120 120" width="14" height="14"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#ca)"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="10"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- B. Orange→Red -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+      <svg viewBox="0 0 120 120" fill="none" style="width:120px;height:120px;">
+        <defs><linearGradient id="cb" x1="0" y1="0" x2="120" y2="120"><stop offset="0" stop-color="#fb923c"/><stop offset="1" stop-color="#dc2626"/></linearGradient></defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#cb)"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="white"/>
+      </svg>
+      <div style="margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;">B · Orange → Red</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Warm, energetic</div>
+      </div>
+    </div>
+
+    <!-- C. Amber Gold -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+      <svg viewBox="0 0 120 120" fill="none" style="width:120px;height:120px;">
+        <defs><linearGradient id="cc" x1="0" y1="0" x2="120" y2="120"><stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#cc)"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#1c1917" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="#1c1917" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="#1c1917"/>
+      </svg>
+      <div style="margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;">C · Amber Gold</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Arch hitam di emas</div>
+      </div>
+    </div>
+
+    <!-- D. Black + Yellow -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+      <svg viewBox="0 0 120 120" fill="none" style="width:120px;height:120px;">
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#facc15" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="#facc15" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="#facc15"/>
+      </svg>
+      <div style="margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;">D · Black + Yellow</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Bold, kontras tinggi</div>
+      </div>
+    </div>
+
+    <!-- E. Black + Amber -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+      <svg viewBox="0 0 120 120" fill="none" style="width:120px;height:120px;">
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="#1c1917"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#fbbf24" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="#fbbf24" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="#fbbf24"/>
+      </svg>
+      <div style="margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;">E · Black + Amber</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Softer, premium feel</div>
+      </div>
+    </div>
+
+    <!-- F. Black + Orange -->
+    <div style="background:#0b0d12;border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">
+      <svg viewBox="0 0 120 120" fill="none" style="width:120px;height:120px;">
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#f97316" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="#f97316" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="#f97316"/>
+      </svg>
+      <div style="margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;">F · Black + Orange</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Tech-warm, Linear vibe</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Context preview: menu bar + sidebar -->
+  <div style="margin-top:28px;padding-top:24px;border-top:1px solid var(--border);">
+    <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;">Preview di sidebar (18×18, ukuran asli app)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+      <div style="display:flex;align-items:center;gap:10px;background:#1a1a1c;padding:10px 14px;border-radius:6px;border:1px solid #2a2a2e;">
+        <svg viewBox="0 0 120 120" width="18" height="18" style="border-radius:4px;"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#ca)"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="10"/></svg>
+        <span style="font-size:11px;font-weight:600;color:#a1a1aa;letter-spacing:0.15em;">PORTA</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;">A</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#1a1a1c;padding:10px 14px;border-radius:6px;border:1px solid #2a2a2e;">
+        <svg viewBox="0 0 120 120" width="18" height="18" style="border-radius:4px;"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#cb)"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="10"/></svg>
+        <span style="font-size:11px;font-weight:600;color:#a1a1aa;letter-spacing:0.15em;">PORTA</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;">B</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#1a1a1c;padding:10px 14px;border-radius:6px;border:1px solid #2a2a2e;">
+        <svg viewBox="0 0 120 120" width="18" height="18" style="border-radius:4px;"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#cc)"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#1c1917" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="#1c1917" stroke-width="10"/></svg>
+        <span style="font-size:11px;font-weight:600;color:#a1a1aa;letter-spacing:0.15em;">PORTA</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;">C</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#1a1a1c;padding:10px 14px;border-radius:6px;border:1px solid #2a2a2e;">
+        <svg viewBox="0 0 120 120" width="18" height="18" style="border-radius:4px;"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#facc15" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="#facc15" stroke-width="10"/></svg>
+        <span style="font-size:11px;font-weight:600;color:#a1a1aa;letter-spacing:0.15em;">PORTA</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;">D</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#1a1a1c;padding:10px 14px;border-radius:6px;border:1px solid #2a2a2e;">
+        <svg viewBox="0 0 120 120" width="18" height="18" style="border-radius:4px;"><rect x="10" y="10" width="100" height="100" rx="24" fill="#1c1917"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#fbbf24" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="#fbbf24" stroke-width="10"/></svg>
+        <span style="font-size:11px;font-weight:600;color:#a1a1aa;letter-spacing:0.15em;">PORTA</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;">E</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#1a1a1c;padding:10px 14px;border-radius:6px;border:1px solid #2a2a2e;">
+        <svg viewBox="0 0 120 120" width="18" height="18" style="border-radius:4px;"><rect x="10" y="10" width="100" height="100" rx="24" fill="#0a0a0a"/><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#f97316" stroke-width="10" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="#f97316" stroke-width="10"/></svg>
+        <span style="font-size:11px;font-weight:600;color:#a1a1aa;letter-spacing:0.15em;">PORTA</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;">F</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="grid">
+
+  <!-- 1. ARCH / PORTAL -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#5b8def"/>
+            <stop offset="1" stop-color="#a064ff"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g1)"/>
+        <path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="4" fill="white"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 01</span>
+      <h3>Archway</h3>
+      <p>Gerbang melengkung klasik — makna harfiah "porta". Timeless, mudah dikenali di app icon kecil.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#5b8def" stroke-width="8" stroke-linecap="round" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="#5b8def" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="60" r="4" fill="#5b8def"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="#151820" stroke-width="8" stroke-linecap="round" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="#151820" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="60" r="4" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="8" stroke-linecap="round" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="60" r="4" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. P MONOGRAM WITH DOOR -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g2" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#1fc4a7"/>
+            <stop offset="1" stop-color="#3e7dff"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g2)"/>
+        <path d="M40 95 V30 H70 a18 18 0 0 1 0 36 H52" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <rect x="56" y="40" width="14" height="16" rx="2" fill="white" opacity="0.35"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 02</span>
+      <h3>P Monogram</h3>
+      <p>Huruf "P" dengan jendela pintu di dalamnya. Bersih, sangat readable sebagai favicon / menu bar icon.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M40 95 V30 H70 a18 18 0 0 1 0 36 H52" stroke="#1fc4a7" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="56" y="40" width="14" height="16" rx="2" fill="#1fc4a7" opacity="0.35"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M40 95 V30 H70 a18 18 0 0 1 0 36 H52" stroke="#151820" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="56" y="40" width="14" height="16" rx="2" fill="#151820" opacity="0.35"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M40 95 V30 H70 a18 18 0 0 1 0 36 H52" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="56" y="40" width="14" height="16" rx="2" fill="white" opacity="0.35"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. PROXY FLOW -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g3" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#ff7a59"/>
+            <stop offset="1" stop-color="#c93fe3"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g3)"/>
+        <circle cx="60" cy="60" r="10" fill="white"/>
+        <path d="M22 35 Q42 35 50 55" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <path d="M22 60 Q42 60 50 60" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <path d="M22 85 Q42 85 50 65" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <path d="M70 55 Q85 45 98 45" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <path d="M70 60 Q85 60 98 60" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <path d="M70 65 Q85 75 98 75" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 03</span>
+      <h3>Proxy Flow</h3>
+      <p>Banyak input → satu titik → banyak output. Persis seperti cara Caddy routing di Porta.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="60" r="10" fill="#ff7a59"/><path d="M22 35 Q42 35 50 55 M22 60 Q42 60 50 60 M22 85 Q42 85 50 65 M70 55 Q85 45 98 45 M70 60 Q85 60 98 60 M70 65 Q85 75 98 75" stroke="#ff7a59" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="60" r="10" fill="#151820"/><path d="M22 35 Q42 35 50 55 M22 60 Q42 60 50 60 M22 85 Q42 85 50 65 M70 55 Q85 45 98 45 M70 60 Q85 60 98 60 M70 65 Q85 75 98 75" stroke="#151820" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="60" r="10" fill="white"/><path d="M22 35 Q42 35 50 55 M22 60 Q42 60 50 60 M22 85 Q42 85 50 65 M70 55 Q85 45 98 45 M70 60 Q85 60 98 60 M70 65 Q85 75 98 75" stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. DOORWAY WITH LIGHT -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g4" x1="60" y1="40" x2="60" y2="110">
+            <stop offset="0" stop-color="#ffd36b"/>
+            <stop offset="1" stop-color="#ffd36b" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="g4b" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#1a1f2e"/>
+            <stop offset="1" stop-color="#2a1e3e"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g4b)"/>
+        <path d="M40 95 V50 a20 20 0 0 1 40 0 V95 Z" fill="url(#g4)"/>
+        <path d="M40 95 V50 a20 20 0 0 1 40 0 V95" stroke="#ffd36b" stroke-width="4" stroke-linejoin="round" fill="none"/>
+        <circle cx="73" cy="70" r="2.5" fill="#ffd36b"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 04</span>
+      <h3>Open Door</h3>
+      <p>Pintu terbuka dengan cahaya keluar. Hangat, ramah — cocok untuk tool personal developer.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M40 95 V50 a20 20 0 0 1 40 0 V95" stroke="#ffd36b" stroke-width="4" stroke-linejoin="round" fill="none"/><circle cx="73" cy="70" r="2.5" fill="#ffd36b"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M40 95 V50 a20 20 0 0 1 40 0 V95" stroke="#151820" stroke-width="4" stroke-linejoin="round" fill="none"/><circle cx="73" cy="70" r="2.5" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M40 95 V50 a20 20 0 0 1 40 0 V95" stroke="white" stroke-width="4" stroke-linejoin="round" fill="none"/><circle cx="73" cy="70" r="2.5" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. PORT PLUG -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g5" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#2dd4bf"/>
+            <stop offset="1" stop-color="#0ea5e9"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g5)"/>
+        <rect x="32" y="38" width="56" height="44" rx="10" stroke="white" stroke-width="6" fill="none"/>
+        <circle cx="48" cy="60" r="4" fill="white"/>
+        <circle cx="60" cy="60" r="4" fill="white"/>
+        <circle cx="72" cy="60" r="4" fill="white"/>
+        <line x1="60" y1="25" x2="60" y2="38" stroke="white" stroke-width="5" stroke-linecap="round"/>
+        <line x1="60" y1="82" x2="60" y2="95" stroke="white" stroke-width="5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 05</span>
+      <h3>Port Socket</h3>
+      <p>Literal "port" — socket dengan tiga pin (multi-app). Technical feel, cocok untuk audiens developer.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="32" y="38" width="56" height="44" rx="10" stroke="#2dd4bf" stroke-width="6" fill="none"/><circle cx="48" cy="60" r="4" fill="#2dd4bf"/><circle cx="60" cy="60" r="4" fill="#2dd4bf"/><circle cx="72" cy="60" r="4" fill="#2dd4bf"/><line x1="60" y1="25" x2="60" y2="38" stroke="#2dd4bf" stroke-width="5" stroke-linecap="round"/><line x1="60" y1="82" x2="60" y2="95" stroke="#2dd4bf" stroke-width="5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="32" y="38" width="56" height="44" rx="10" stroke="#151820" stroke-width="6" fill="none"/><circle cx="48" cy="60" r="4" fill="#151820"/><circle cx="60" cy="60" r="4" fill="#151820"/><circle cx="72" cy="60" r="4" fill="#151820"/><line x1="60" y1="25" x2="60" y2="38" stroke="#151820" stroke-width="5" stroke-linecap="round"/><line x1="60" y1="82" x2="60" y2="95" stroke="#151820" stroke-width="5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="32" y="38" width="56" height="44" rx="10" stroke="white" stroke-width="6" fill="none"/><circle cx="48" cy="60" r="4" fill="white"/><circle cx="60" cy="60" r="4" fill="white"/><circle cx="72" cy="60" r="4" fill="white"/><line x1="60" y1="25" x2="60" y2="38" stroke="white" stroke-width="5" stroke-linecap="round"/><line x1="60" y1="82" x2="60" y2="95" stroke="white" stroke-width="5" stroke-linecap="round"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. GEOMETRIC GATE -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g6" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#1a1f2e"/>
+            <stop offset="1" stop-color="#0b0d12"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g6)" stroke="#272c39" stroke-width="1"/>
+        <rect x="30" y="30" width="14" height="60" rx="3" fill="#5b8def"/>
+        <rect x="76" y="30" width="14" height="60" rx="3" fill="#a064ff"/>
+        <rect x="44" y="30" width="32" height="10" rx="3" fill="#2dd4bf"/>
+        <circle cx="60" cy="65" r="6" fill="white"/>
+        <circle cx="60" cy="65" r="11" stroke="white" stroke-width="1.5" fill="none" opacity="0.4"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 06</span>
+      <h3>Geometric Gate</h3>
+      <p>Dua pilar + atap + inti. Abstract, modern, memorable. Rentang warna bisa adaptif untuk dark/light mode.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="30" y="30" width="14" height="60" rx="3" fill="#5b8def"/><rect x="76" y="30" width="14" height="60" rx="3" fill="#a064ff"/><rect x="44" y="30" width="32" height="10" rx="3" fill="#2dd4bf"/><circle cx="60" cy="65" r="6" fill="white"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="30" y="30" width="14" height="60" rx="3" fill="#151820"/><rect x="76" y="30" width="14" height="60" rx="3" fill="#151820"/><rect x="44" y="30" width="32" height="10" rx="3" fill="#151820"/><circle cx="60" cy="65" r="6" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="30" y="30" width="14" height="60" rx="3" fill="white"/><rect x="76" y="30" width="14" height="60" rx="3" fill="white"/><rect x="44" y="30" width="32" height="10" rx="3" fill="white"/><circle cx="60" cy="65" r="6" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<header style="margin-top: 72px;">
+  <h1 style="font-size: 22px;">More alternatives</h1>
+  <p>Enam konsep tambahan dengan arah visual yang berbeda — lebih ke sisi developer / tech / nautical.</p>
+</header>
+
+<div class="grid">
+
+  <!-- 7. KEYHOLE P -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g7" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#6b4cff"/>
+            <stop offset="1" stop-color="#2d7ff9"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g7)"/>
+        <circle cx="60" cy="52" r="14" fill="white"/>
+        <path d="M54 62 L52 88 H68 L66 62 Z" fill="white"/>
+        <circle cx="60" cy="52" r="5" fill="#2d7ff9"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 07</span>
+      <h3>Keyhole</h3>
+      <p>Lubang kunci — access control, gatekeeper. Cocok menekankan fungsi Porta sebagai "penjaga" akses ke app lokal.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="52" r="14" fill="#6b4cff"/><path d="M54 62 L52 88 H68 L66 62 Z" fill="#6b4cff"/><circle cx="60" cy="52" r="5" fill="#0b0d12"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="52" r="14" fill="#151820"/><path d="M54 62 L52 88 H68 L66 62 Z" fill="#151820"/><circle cx="60" cy="52" r="5" fill="#f5f6f8"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="52" r="14" fill="white"/><path d="M54 62 L52 88 H68 L66 62 Z" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. TERMINAL PROMPT GATE -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g8" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#0f766e"/>
+            <stop offset="1" stop-color="#065f46"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g8)"/>
+        <rect x="26" y="32" width="68" height="56" rx="8" stroke="#4ade80" stroke-width="3" fill="none"/>
+        <path d="M38 52 L48 60 L38 68" stroke="#4ade80" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <rect x="54" y="65" width="22" height="4" rx="1" fill="#4ade80"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 08</span>
+      <h3>Terminal Prompt</h3>
+      <p>"&gt;_" di dalam bingkai. Unapologetically developer-first — bilang langsung "ini tool buat orang CLI".</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="26" y="32" width="68" height="56" rx="8" stroke="#4ade80" stroke-width="3" fill="none"/><path d="M38 52 L48 60 L38 68" stroke="#4ade80" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="54" y="65" width="22" height="4" rx="1" fill="#4ade80"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="26" y="32" width="68" height="56" rx="8" stroke="#151820" stroke-width="3" fill="none"/><path d="M38 52 L48 60 L38 68" stroke="#151820" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="54" y="65" width="22" height="4" rx="1" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="26" y="32" width="68" height="56" rx="8" stroke="white" stroke-width="3" fill="none"/><path d="M38 52 L48 60 L38 68" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="54" y="65" width="22" height="4" rx="1" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. LAYERED PORTALS -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g9" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#f97316"/>
+            <stop offset="1" stop-color="#dc2626"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g9)"/>
+        <path d="M28 94 V62 a32 32 0 0 1 64 0 V94" stroke="white" stroke-width="3" fill="none" opacity="0.35"/>
+        <path d="M38 94 V64 a22 22 0 0 1 44 0 V94" stroke="white" stroke-width="3.5" fill="none" opacity="0.6"/>
+        <path d="M48 94 V66 a12 12 0 0 1 24 0 V94" stroke="white" stroke-width="4.5" fill="none"/>
+        <circle cx="60" cy="74" r="3" fill="white"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 09</span>
+      <h3>Nested Portals</h3>
+      <p>Tiga gerbang berjenjang — mewakili workspace → apps → processes. Depth, hierarchy, multi-layer.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M28 94 V62 a32 32 0 0 1 64 0 V94" stroke="#f97316" stroke-width="3" fill="none" opacity="0.35"/><path d="M38 94 V64 a22 22 0 0 1 44 0 V94" stroke="#f97316" stroke-width="3.5" fill="none" opacity="0.6"/><path d="M48 94 V66 a12 12 0 0 1 24 0 V94" stroke="#f97316" stroke-width="4.5" fill="none"/><circle cx="60" cy="74" r="3" fill="#f97316"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M28 94 V62 a32 32 0 0 1 64 0 V94" stroke="#151820" stroke-width="3" fill="none" opacity="0.35"/><path d="M38 94 V64 a22 22 0 0 1 44 0 V94" stroke="#151820" stroke-width="3.5" fill="none" opacity="0.6"/><path d="M48 94 V66 a12 12 0 0 1 24 0 V94" stroke="#151820" stroke-width="4.5" fill="none"/><circle cx="60" cy="74" r="3" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M28 94 V62 a32 32 0 0 1 64 0 V94" stroke="white" stroke-width="3" fill="none" opacity="0.35"/><path d="M38 94 V64 a22 22 0 0 1 44 0 V94" stroke="white" stroke-width="3.5" fill="none" opacity="0.6"/><path d="M48 94 V66 a12 12 0 0 1 24 0 V94" stroke="white" stroke-width="4.5" fill="none"/><circle cx="60" cy="74" r="3" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10. APERTURE / IRIS -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g10" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#111827"/>
+            <stop offset="1" stop-color="#1e293b"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g10)"/>
+        <g transform="translate(60 60)">
+          <path d="M0 -26 L22 -14 V14 Z" fill="#38bdf8" opacity="0.9"/>
+          <path d="M22 -14 L22 14 L0 26 Z" fill="#22d3ee" opacity="0.9" transform="rotate(60)"/>
+          <path d="M22 -14 L22 14 L0 26 Z" fill="#06b6d4" opacity="0.9" transform="rotate(120)"/>
+          <path d="M22 -14 L22 14 L0 26 Z" fill="#38bdf8" opacity="0.9" transform="rotate(180)"/>
+          <path d="M22 -14 L22 14 L0 26 Z" fill="#22d3ee" opacity="0.9" transform="rotate(240)"/>
+          <path d="M22 -14 L22 14 L0 26 Z" fill="#06b6d4" opacity="0.9" transform="rotate(300)"/>
+          <circle r="8" fill="#0b0d12"/>
+        </g>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 10</span>
+      <h3>Aperture</h3>
+      <p>Diafragma/iris kamera — presisi, bisa membuka-menutup, fokus. Sangat modern, unik di kategori dev tools.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><g transform="translate(60 60)"><circle r="24" stroke="#38bdf8" stroke-width="3" fill="none"/><path d="M-24 0 L-8 0 M24 0 L8 0 M0 -24 L0 -8 M0 24 L0 8 M-17 -17 L-6 -6 M17 17 L6 6 M-17 17 L-6 6 M17 -17 L6 -6" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/></g></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><g transform="translate(60 60)"><circle r="24" stroke="#151820" stroke-width="3" fill="none"/><path d="M-24 0 L-8 0 M24 0 L8 0 M0 -24 L0 -8 M0 24 L0 8 M-17 -17 L-6 -6 M17 17 L6 6 M-17 17 L-6 6 M17 -17 L6 -6" stroke="#151820" stroke-width="3" stroke-linecap="round"/></g></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><g transform="translate(60 60)"><circle r="24" stroke="white" stroke-width="3" fill="none"/><path d="M-24 0 L-8 0 M24 0 L8 0 M0 -24 L0 -8 M0 24 L0 8 M-17 -17 L-6 -6 M17 17 L6 6 M-17 17 L-6 6 M17 -17 L6 -6" stroke="white" stroke-width="3" stroke-linecap="round"/></g></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 11. CODE BRACES GATE -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g11" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#ec4899"/>
+            <stop offset="1" stop-color="#8b5cf6"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g11)"/>
+        <path d="M48 30 Q34 30 34 44 Q34 58 26 60 Q34 62 34 76 Q34 90 48 90" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M72 30 Q86 30 86 44 Q86 58 94 60 Q86 62 86 76 Q86 90 72 90" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <circle cx="60" cy="60" r="5" fill="white"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 11</span>
+      <h3>Braces Gate</h3>
+      <p>{ · } — kurung kurawal sebagai pilar gerbang. Playful, developer-native, langsung terbaca.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M48 30 Q34 30 34 44 Q34 58 26 60 Q34 62 34 76 Q34 90 48 90 M72 30 Q86 30 86 44 Q86 58 94 60 Q86 62 86 76 Q86 90 72 90" stroke="#ec4899" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="60" cy="60" r="5" fill="#ec4899"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M48 30 Q34 30 34 44 Q34 58 26 60 Q34 62 34 76 Q34 90 48 90 M72 30 Q86 30 86 44 Q86 58 94 60 Q86 62 86 76 Q86 90 72 90" stroke="#151820" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="60" cy="60" r="5" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M48 30 Q34 30 34 44 Q34 58 26 60 Q34 62 34 76 Q34 90 48 90 M72 30 Q86 30 86 44 Q86 58 94 60 Q86 62 86 76 Q86 90 72 90" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="60" cy="60" r="5" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 12. HARBOR / ANCHOR PORT -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g12" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#0369a1"/>
+            <stop offset="1" stop-color="#0c4a6e"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g12)"/>
+        <circle cx="60" cy="34" r="7" stroke="white" stroke-width="4" fill="none"/>
+        <line x1="60" y1="41" x2="60" y2="88" stroke="white" stroke-width="4" stroke-linecap="round"/>
+        <line x1="46" y1="54" x2="74" y2="54" stroke="white" stroke-width="4" stroke-linecap="round"/>
+        <path d="M38 76 Q42 92 60 92 Q78 92 82 76" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 12</span>
+      <h3>Harbor / Port</h3>
+      <p>Jangkar — main kata "port" secara nautical. Stabil, grounded, mudah di-recall di industri yang penuh logo abstrak.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="34" r="7" stroke="#0ea5e9" stroke-width="4" fill="none"/><line x1="60" y1="41" x2="60" y2="88" stroke="#0ea5e9" stroke-width="4" stroke-linecap="round"/><line x1="46" y1="54" x2="74" y2="54" stroke="#0ea5e9" stroke-width="4" stroke-linecap="round"/><path d="M38 76 Q42 92 60 92 Q78 92 82 76" stroke="#0ea5e9" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="34" r="7" stroke="#151820" stroke-width="4" fill="none"/><line x1="60" y1="41" x2="60" y2="88" stroke="#151820" stroke-width="4" stroke-linecap="round"/><line x1="46" y1="54" x2="74" y2="54" stroke="#151820" stroke-width="4" stroke-linecap="round"/><path d="M38 76 Q42 92 60 92 Q78 92 82 76" stroke="#151820" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="34" r="7" stroke="white" stroke-width="4" fill="none"/><line x1="60" y1="41" x2="60" y2="88" stroke="white" stroke-width="4" stroke-linecap="round"/><line x1="46" y1="54" x2="74" y2="54" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M38 76 Q42 92 60 92 Q78 92 82 76" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<header style="margin-top: 72px;">
+  <h1 style="font-size: 22px;">Distinctive concepts</h1>
+  <p>Empat konsep yang sengaja dibuat lebih unik — menggabungkan elemen non-obvious (motif Nusantara, asimetri, tekstur anyaman) supaya kemungkinan tabrakan dengan brand existing jauh lebih kecil.</p>
+</header>
+
+<div class="grid">
+
+  <!-- 13. GAPURA BENTAR -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g13" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#b45309"/>
+            <stop offset="1" stop-color="#7c2d12"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g13)"/>
+        <!-- Left split pillar -->
+        <path d="M22 92 V40 H34 V48 H42 V56 H50 V64 H56 V92 Z" fill="#fde68a"/>
+        <!-- Right split pillar -->
+        <path d="M98 92 V40 H86 V48 H78 V56 H70 V64 H64 V92 Z" fill="#fde68a"/>
+        <!-- Glow between -->
+        <circle cx="60" cy="78" r="3" fill="white"/>
+        <path d="M58 78 L58 64 L62 64 L62 78 Z" fill="white" opacity="0.35"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 13 · Unik</span>
+      <h3>Gapura Bentar</h3>
+      <p>Gerbang terbelah khas Nusantara. Identitas kultural kuat, silhouette khas, hampir nggak ada di dev tool global.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M22 92 V40 H34 V48 H42 V56 H50 V64 H56 V92 Z M98 92 V40 H86 V48 H78 V56 H70 V64 H64 V92 Z" fill="#fde68a"/><circle cx="60" cy="78" r="3" fill="#fde68a"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M22 92 V40 H34 V48 H42 V56 H50 V64 H56 V92 Z M98 92 V40 H86 V48 H78 V56 H70 V64 H64 V92 Z" fill="#151820"/><circle cx="60" cy="78" r="3" fill="#151820"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><path d="M22 92 V40 H34 V48 H42 V56 H50 V64 H56 V92 Z M98 92 V40 H86 V48 H78 V56 H70 V64 H64 V92 Z" fill="white"/><circle cx="60" cy="78" r="3" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 14. ANYAMAN WEAVE -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g14" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#064e3b"/>
+            <stop offset="1" stop-color="#022c22"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g14)"/>
+        <!-- Horizontal strips (back) -->
+        <rect x="28" y="38" width="64" height="8" rx="2" fill="#10b981"/>
+        <rect x="28" y="74" width="64" height="8" rx="2" fill="#10b981"/>
+        <!-- Vertical strips (front, over horizontals) -->
+        <rect x="38" y="28" width="8" height="64" rx="2" fill="#fbbf24"/>
+        <rect x="74" y="28" width="8" height="64" rx="2" fill="#fbbf24"/>
+        <!-- Horizontal middle (over verticals — creates weave illusion) -->
+        <rect x="28" y="56" width="64" height="8" rx="2" fill="#10b981"/>
+        <!-- Re-cover vertical bits at middle-horizontal crossings with the vertical colour, only at the non-weave crossings -->
+        <rect x="38" y="38" width="8" height="8" rx="2" fill="#fbbf24"/>
+        <rect x="74" y="38" width="8" height="8" rx="2" fill="#fbbf24"/>
+        <rect x="38" y="74" width="8" height="8" rx="2" fill="#fbbf24"/>
+        <rect x="74" y="74" width="8" height="8" rx="2" fill="#fbbf24"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 14 · Unik</span>
+      <h3>Anyaman</h3>
+      <p>Pola anyam 2-warna — metafor "merajut proses, proxy, dan domain jadi satu". Tekstural, jarang dipakai di logo tech.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="28" y="38" width="64" height="8" rx="2" fill="#10b981"/><rect x="28" y="74" width="64" height="8" rx="2" fill="#10b981"/><rect x="38" y="28" width="8" height="64" rx="2" fill="#fbbf24"/><rect x="74" y="28" width="8" height="64" rx="2" fill="#fbbf24"/><rect x="28" y="56" width="64" height="8" rx="2" fill="#10b981"/><rect x="38" y="38" width="8" height="8" rx="2" fill="#fbbf24"/><rect x="74" y="38" width="8" height="8" rx="2" fill="#fbbf24"/><rect x="38" y="74" width="8" height="8" rx="2" fill="#fbbf24"/><rect x="74" y="74" width="8" height="8" rx="2" fill="#fbbf24"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="28" y="38" width="64" height="8" rx="2" fill="#151820"/><rect x="28" y="74" width="64" height="8" rx="2" fill="#151820"/><rect x="38" y="28" width="8" height="64" rx="2" fill="#6b7280"/><rect x="74" y="28" width="8" height="64" rx="2" fill="#6b7280"/><rect x="28" y="56" width="64" height="8" rx="2" fill="#151820"/><rect x="38" y="38" width="8" height="8" rx="2" fill="#6b7280"/><rect x="74" y="38" width="8" height="8" rx="2" fill="#6b7280"/><rect x="38" y="74" width="8" height="8" rx="2" fill="#6b7280"/><rect x="74" y="74" width="8" height="8" rx="2" fill="#6b7280"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="28" y="38" width="64" height="8" rx="2" fill="white"/><rect x="28" y="74" width="64" height="8" rx="2" fill="white"/><rect x="38" y="28" width="8" height="64" rx="2" fill="white" opacity="0.6"/><rect x="74" y="28" width="8" height="64" rx="2" fill="white" opacity="0.6"/><rect x="28" y="56" width="64" height="8" rx="2" fill="white"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 15. ASYMMETRIC FLOW -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g15" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#0f172a"/>
+            <stop offset="1" stop-color="#1e1b4b"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g15)"/>
+        <!-- Solid left pillar -->
+        <rect x="32" y="34" width="10" height="58" rx="3" fill="#f472b6"/>
+        <!-- Dotted right pillar -->
+        <circle cx="84" cy="38" r="3.5" fill="#60a5fa"/>
+        <circle cx="84" cy="50" r="3.5" fill="#60a5fa"/>
+        <circle cx="84" cy="62" r="3.5" fill="#60a5fa"/>
+        <circle cx="84" cy="74" r="3.5" fill="#60a5fa"/>
+        <circle cx="84" cy="86" r="3.5" fill="#60a5fa"/>
+        <!-- Asymmetric curve arch from left-top sweeping down right -->
+        <path d="M37 40 Q60 20 84 32" stroke="#a78bfa" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        <!-- Flow particle -->
+        <circle cx="60" cy="23" r="3" fill="white"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 15 · Unik</span>
+      <h3>Asymmetric Flow</h3>
+      <p>Pilar solid + pilar titik-titik = static vs dynamic. Komposisi sengaja nggak simetris — lebih susah "nabrak" logo lain.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="32" y="34" width="10" height="58" rx="3" fill="#f472b6"/><circle cx="84" cy="38" r="3.5" fill="#60a5fa"/><circle cx="84" cy="50" r="3.5" fill="#60a5fa"/><circle cx="84" cy="62" r="3.5" fill="#60a5fa"/><circle cx="84" cy="74" r="3.5" fill="#60a5fa"/><circle cx="84" cy="86" r="3.5" fill="#60a5fa"/><path d="M37 40 Q60 20 84 32" stroke="#a78bfa" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="32" y="34" width="10" height="58" rx="3" fill="#151820"/><circle cx="84" cy="38" r="3.5" fill="#151820"/><circle cx="84" cy="50" r="3.5" fill="#151820"/><circle cx="84" cy="62" r="3.5" fill="#151820"/><circle cx="84" cy="74" r="3.5" fill="#151820"/><circle cx="84" cy="86" r="3.5" fill="#151820"/><path d="M37 40 Q60 20 84 32" stroke="#151820" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="32" y="34" width="10" height="58" rx="3" fill="white"/><circle cx="84" cy="38" r="3.5" fill="white"/><circle cx="84" cy="50" r="3.5" fill="white"/><circle cx="84" cy="62" r="3.5" fill="white"/><circle cx="84" cy="74" r="3.5" fill="white"/><circle cx="84" cy="86" r="3.5" fill="white"/><path d="M37 40 Q60 20 84 32" stroke="white" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 16. PULSE GATE -->
+  <div class="card">
+    <div class="preview">
+      <svg viewBox="0 0 120 120" fill="none">
+        <defs>
+          <linearGradient id="g16" x1="0" y1="0" x2="120" y2="120">
+            <stop offset="0" stop-color="#0c0a09"/>
+            <stop offset="1" stop-color="#1c1917"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="100" height="100" rx="24" fill="url(#g16)"/>
+        <!-- Left tall post -->
+        <rect x="22" y="28" width="8" height="64" rx="2" fill="#facc15"/>
+        <!-- Right short post -->
+        <rect x="90" y="48" width="8" height="44" rx="2" fill="#facc15"/>
+        <!-- Baseline -->
+        <line x1="18" y1="94" x2="102" y2="94" stroke="#facc15" stroke-width="3" stroke-linecap="round"/>
+        <!-- Pulse waveform through the gate -->
+        <path d="M30 66 L44 66 L50 50 L56 82 L62 56 L70 66 L90 66" stroke="#ef4444" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="meta">
+      <span class="tag">Konsep 16 · Unik</span>
+      <h3>Pulse Gate</h3>
+      <p>Gerbang asimetris (tinggi kiri-rendah kanan) dengan waveform ECG melintas — visualisasi live traffic Porta.</p>
+    </div>
+    <div class="variants">
+      <div class="variant v-dark">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="22" y="28" width="8" height="64" rx="2" fill="#facc15"/><rect x="90" y="48" width="8" height="44" rx="2" fill="#facc15"/><line x1="18" y1="94" x2="102" y2="94" stroke="#facc15" stroke-width="3" stroke-linecap="round"/><path d="M30 66 L44 66 L50 50 L56 82 L62 56 L70 66 L90 66" stroke="#ef4444" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-light">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="22" y="28" width="8" height="64" rx="2" fill="#151820"/><rect x="90" y="48" width="8" height="44" rx="2" fill="#151820"/><line x1="18" y1="94" x2="102" y2="94" stroke="#151820" stroke-width="3" stroke-linecap="round"/><path d="M30 66 L44 66 L50 50 L56 82 L62 56 L70 66 L90 66" stroke="#151820" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </div>
+      <div class="variant v-accent">
+        <svg viewBox="0 0 120 120" fill="none"><rect x="22" y="28" width="8" height="64" rx="2" fill="white"/><rect x="90" y="48" width="8" height="44" rx="2" fill="white"/><line x1="18" y1="94" x2="102" y2="94" stroke="white" stroke-width="3" stroke-linecap="round"/><path d="M30 66 L44 66 L50 50 L56 82 L62 56 L70 66 L90 66" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- WORDMARK PREVIEW -->
+<div class="wordmark-row">
+  <h2>Wordmark preview (logo + teks)</h2>
+  <div class="wordmarks">
+    <div class="wm">
+      <svg viewBox="0 0 120 120" fill="none"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#wg1)"/><defs><linearGradient id="wg1" x1="0" y1="0" x2="120" y2="120"><stop offset="0" stop-color="#5b8def"/><stop offset="1" stop-color="#a064ff"/></linearGradient></defs><path d="M35 92 V60 a25 25 0 0 1 50 0 V92" stroke="white" stroke-width="8" stroke-linecap="round" fill="none"/><line x1="35" y1="92" x2="85" y2="92" stroke="white" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="60" r="4" fill="white"/></svg>
+      <span>Porta</span>
+    </div>
+    <div class="wm">
+      <svg viewBox="0 0 120 120" fill="none"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#wg2)"/><defs><linearGradient id="wg2" x1="0" y1="0" x2="120" y2="120"><stop offset="0" stop-color="#1fc4a7"/><stop offset="1" stop-color="#3e7dff"/></linearGradient></defs><path d="M40 95 V30 H70 a18 18 0 0 1 0 36 H52" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="56" y="40" width="14" height="16" rx="2" fill="white" opacity="0.35"/></svg>
+      <span>Porta</span>
+    </div>
+    <div class="wm">
+      <svg viewBox="0 0 120 120" fill="none"><rect x="10" y="10" width="100" height="100" rx="24" fill="url(#wg5)"/><defs><linearGradient id="wg5" x1="0" y1="0" x2="120" y2="120"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs><rect x="32" y="38" width="56" height="44" rx="10" stroke="white" stroke-width="6" fill="none"/><circle cx="48" cy="60" r="4" fill="white"/><circle cx="60" cy="60" r="4" fill="white"/><circle cx="72" cy="60" r="4" fill="white"/><line x1="60" y1="25" x2="60" y2="38" stroke="white" stroke-width="5" stroke-linecap="round"/><line x1="60" y1="82" x2="60" y2="95" stroke="white" stroke-width="5" stroke-linecap="round"/></svg>
+      <span>Porta</span>
+    </div>
+    <div class="wm">
+      <svg viewBox="0 0 120 120" fill="none"><rect x="10" y="10" width="100" height="100" rx="24" fill="#1a1f2e" stroke="#272c39"/><rect x="30" y="30" width="14" height="60" rx="3" fill="#5b8def"/><rect x="76" y="30" width="14" height="60" rx="3" fill="#a064ff"/><rect x="44" y="30" width="32" height="10" rx="3" fill="#2dd4bf"/><circle cx="60" cy="65" r="6" fill="white"/></svg>
+      <span>Porta</span>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Rekomendasi: <strong>Konsep 01 (Archway)</strong> untuk makna yang paling jelas, atau <strong>Konsep 06 (Geometric Gate)</strong> untuk kesan paling modern & tech-forward.
+</footer>
+
+</body>
+</html>

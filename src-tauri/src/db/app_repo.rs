@@ -12,14 +12,18 @@ impl Database {
         let extra_subdomains_json = serde_json::to_string(&a.extra_subdomains).unwrap_or_else(|_| "[]".into());
         let port_bindings_json = serde_json::to_string(&a.port_bindings).unwrap_or_else(|_| "[]".into());
         let env_profiles_json = serde_json::to_string(&a.env_profiles).unwrap_or_else(|_| "[]".into());
+        let docker_volumes_json = serde_json::to_string(&a.docker_volumes).unwrap_or_else(|_| "[]".into());
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain,
                                start_command, start_command_source, status, pid,
                                env_file, auto_start, env_vars, restart_policy, max_retries,
                                health_check_path, depends_on, extra_subdomains, custom_domain,
-                               port_bindings, env_profiles, active_profile_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                               port_bindings, env_profiles, active_profile_id, kind,
+                               docker_image, docker_container_port, docker_args, docker_volumes,
+                               compose_file, network_share, tunnel_name, tunnel_custom_hostname,
+                               tunnel_provider)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
@@ -27,7 +31,11 @@ impl Database {
                 env_vars_json, a.restart_policy, a.max_retries as i32,
                 a.health_check_path, depends_on_json, extra_subdomains_json,
                 a.custom_domain, port_bindings_json, env_profiles_json,
-                a.active_profile_id
+                a.active_profile_id, a.kind,
+                a.docker_image, a.docker_container_port, a.docker_args, docker_volumes_json,
+                a.compose_file, a.network_share as i32,
+                a.tunnel_name, a.tunnel_custom_hostname,
+                a.tunnel_provider
             ],
         )?;
         // Register primary port
@@ -35,10 +43,11 @@ impl Database {
             "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
             params![a.port, a.id],
         )?;
-        // Register each binding port
+        // Register each binding port. INSERT OR IGNORE: bindings may share the
+        // primary port or each other (same backend, multiple domains).
         for binding in &a.port_bindings {
             tx.execute(
-                "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO port_registry (port, app_id) VALUES (?1, ?2)",
                 params![binding.port, a.id],
             )?;
         }
@@ -56,7 +65,14 @@ impl Database {
                     custom_domain,
                     COALESCE(port_bindings, '[]'),
                     COALESCE(env_profiles, '[]'),
-                    active_profile_id
+                    active_profile_id,
+                    COALESCE(kind, 'process'),
+                    docker_image, docker_container_port, docker_args,
+                    COALESCE(docker_volumes, '[]'),
+                    compose_file,
+                    COALESCE(network_share, 0),
+                    tunnel_name, tunnel_custom_hostname,
+                    tunnel_provider
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -79,6 +95,17 @@ impl Database {
             let env_profiles_str: String = row.get::<_, Option<String>>(21)?.unwrap_or_else(|| "[]".into());
             let env_profiles: Vec<models::EnvProfile> = serde_json::from_str(&env_profiles_str).unwrap_or_default();
             let active_profile_id: Option<String> = row.get(22)?;
+            let kind: String = row.get(23)?;
+            let docker_image: Option<String> = row.get(24)?;
+            let docker_container_port: Option<u16> = row.get(25)?;
+            let docker_args: Option<String> = row.get(26)?;
+            let docker_volumes_str: String = row.get::<_, Option<String>>(27)?.unwrap_or_else(|| "[]".into());
+            let docker_volumes: Vec<String> = serde_json::from_str(&docker_volumes_str).unwrap_or_default();
+            let compose_file: Option<String> = row.get(28)?;
+            let network_share: bool = row.get::<_, i32>(29).map(|v| v != 0).unwrap_or(false);
+            let tunnel_name: Option<String> = row.get(30)?;
+            let tunnel_custom_hostname: Option<String> = row.get(31)?;
+            let tunnel_provider: Option<String> = row.get(32)?;
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -99,7 +126,7 @@ impl Database {
                 depends_on,
                 extra_subdomains,
                 custom_domain,
-                tunnel_provider: None,
+                tunnel_provider,
                 tunnel_url: None,
                 tunnel_active: false,
                 deploy_config_path: None,
@@ -107,6 +134,15 @@ impl Database {
                 port_bindings,
                 env_profiles,
                 active_profile_id,
+                kind,
+                docker_image,
+                docker_container_port,
+                docker_args,
+                docker_volumes,
+                compose_file,
+                network_share,
+                tunnel_name,
+                tunnel_custom_hostname,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -118,6 +154,7 @@ impl Database {
         &self,
         id: &str,
         name: &str,
+        root_dir: Option<&str>,
         port: u16,
         subdomain: Option<&str>,
         start_command: &str,
@@ -133,29 +170,69 @@ impl Database {
         port_bindings: &[models::PortBinding],
         env_profiles: &[models::EnvProfile],
         active_profile_id: Option<&str>,
+        docker_image: Option<&str>,
+        docker_container_port: Option<u16>,
+        docker_args: Option<&str>,
+        docker_volumes: &[String],
+        compose_file: Option<&str>,
+        network_share: bool,
+        tunnel_name: Option<&str>,
+        tunnel_custom_hostname: Option<&str>,
     ) -> Result<()> {
         let env_vars_json = serde_json::to_string(env_vars).unwrap_or_else(|_| "{}".into());
         let depends_on_json = serde_json::to_string(depends_on).unwrap_or_else(|_| "[]".into());
         let extra_subdomains_json = serde_json::to_string(extra_subdomains).unwrap_or_else(|_| "[]".into());
         let port_bindings_json = serde_json::to_string(port_bindings).unwrap_or_else(|_| "[]".into());
         let env_profiles_json = serde_json::to_string(env_profiles).unwrap_or_else(|_| "[]".into());
+        let docker_volumes_json = serde_json::to_string(docker_volumes).unwrap_or_else(|_| "[]".into());
 
-        self.conn.execute(
-            "UPDATE apps SET name=?1, port=?2, subdomain=?3, start_command=?4,
-                             env_file=?5, auto_start=?6, env_vars=?7,
-                             restart_policy=?8, max_retries=?9,
-                             health_check_path=?10, depends_on=?11, extra_subdomains=?12,
-                             custom_domain=?13, port_bindings=?14,
-                             env_profiles=?15, active_profile_id=?16
-             WHERE id=?17",
-            params![
-                name, port, subdomain, start_command, env_file,
-                auto_start as i32, env_vars_json, restart_policy,
-                max_retries as i32, health_check_path, depends_on_json,
-                extra_subdomains_json, custom_domain, port_bindings_json,
-                env_profiles_json, active_profile_id, id
-            ],
-        )?;
+        if let Some(dir) = root_dir {
+            self.conn.execute(
+                "UPDATE apps SET name=?1, root_dir=?2, port=?3, subdomain=?4, start_command=?5,
+                                 env_file=?6, auto_start=?7, env_vars=?8,
+                                 restart_policy=?9, max_retries=?10,
+                                 health_check_path=?11, depends_on=?12, extra_subdomains=?13,
+                                 custom_domain=?14, port_bindings=?15,
+                                 env_profiles=?16, active_profile_id=?17,
+                                 docker_image=?18, docker_container_port=?19, docker_args=?20,
+                                 docker_volumes=?21, compose_file=?22, network_share=?23,
+                                 tunnel_name=?24, tunnel_custom_hostname=?25
+                 WHERE id=?26",
+                params![
+                    name, dir, port, subdomain, start_command, env_file,
+                    auto_start as i32, env_vars_json, restart_policy,
+                    max_retries as i32, health_check_path, depends_on_json,
+                    extra_subdomains_json, custom_domain, port_bindings_json,
+                    env_profiles_json, active_profile_id,
+                    docker_image, docker_container_port, docker_args,
+                    docker_volumes_json, compose_file, network_share as i32,
+                    tunnel_name, tunnel_custom_hostname, id
+                ],
+            )?;
+        } else {
+            self.conn.execute(
+                "UPDATE apps SET name=?1, port=?2, subdomain=?3, start_command=?4,
+                                 env_file=?5, auto_start=?6, env_vars=?7,
+                                 restart_policy=?8, max_retries=?9,
+                                 health_check_path=?10, depends_on=?11, extra_subdomains=?12,
+                                 custom_domain=?13, port_bindings=?14,
+                                 env_profiles=?15, active_profile_id=?16,
+                                 docker_image=?17, docker_container_port=?18, docker_args=?19,
+                                 docker_volumes=?20, compose_file=?21, network_share=?22,
+                                 tunnel_name=?23, tunnel_custom_hostname=?24
+                 WHERE id=?25",
+                params![
+                    name, port, subdomain, start_command, env_file,
+                    auto_start as i32, env_vars_json, restart_policy,
+                    max_retries as i32, health_check_path, depends_on_json,
+                    extra_subdomains_json, custom_domain, port_bindings_json,
+                    env_profiles_json, active_profile_id,
+                    docker_image, docker_container_port, docker_args,
+                    docker_volumes_json, compose_file, network_share as i32,
+                    tunnel_name, tunnel_custom_hostname, id
+                ],
+            )?;
+        }
 
         // Always rebuild port_registry for this app (primary + all bindings)
         self.conn.execute("DELETE FROM port_registry WHERE app_id = ?1", params![id])?;
@@ -165,7 +242,7 @@ impl Database {
         )?;
         for binding in port_bindings {
             self.conn.execute(
-                "INSERT INTO port_registry (port, app_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO port_registry (port, app_id) VALUES (?1, ?2)",
                 params![binding.port, id],
             )?;
         }
@@ -217,7 +294,7 @@ impl Database {
     }
 
     pub fn used_ports(&self) -> Result<Vec<u16>> {
-        let mut stmt = self.conn.prepare("SELECT port FROM port_registry")?;
+        let mut stmt = self.conn.prepare("SELECT DISTINCT port FROM port_registry")?;
         let ports = stmt.query_map([], |row| row.get::<_, u16>(0))?;
         Ok(ports.filter_map(|r| r.ok()).collect())
     }

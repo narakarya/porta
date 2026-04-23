@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getAppLogs } from "../../lib/commands";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getAppLogs, isTauri } from "../../lib/commands";
+import { listen } from "@tauri-apps/api/event";
 
 interface Props {
   appId: string;
   appName: string;
-  logs: string[];  // live Zustand buffer (capped) — used only to detect new lines
+  logs: string[];
   isRunning?: boolean;
   isStarting?: boolean;
   crashed?: boolean;
@@ -20,47 +21,56 @@ function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "");
 }
 const NOISE_RE = /cloudflare\.com\/(website-terms|terms)|Thank you for trying Cloudflare Tunnel|Doing so, you agree/i;
-function filterNoise(lines: string[]) { return lines.filter((l) => !NOISE_RE.test(stripAnsi(l))); }
 
 // ── Log level detection ────────────────────────────────────────────────────────
+// Strict: only explicit markers count (JSON, logfmt, bracketed, line-start).
+// Prose substring heuristics removed — previously "Starting database" matched
+// "success" and "user_error_handler" matched "error".
 type LogLevel = "error" | "warn" | "info" | "debug" | "trace" | "success" | null;
 
-const LEVEL_PATTERNS: [LogLevel, RegExp][] = [
-  ["error",   /\b(error|err|fatal|exception|crash|failed|failure)\b/i],
-  ["warn",    /\b(warn(?:ing)?|deprecated|caution)\b/i],
-  ["success", /\b(compiled|generated|ok|done|started|ready|success(?:ful)?|listening)\b/i],
-  ["info",    /\b(info(?:rmation)?|notice|log)\b/i],
-  ["debug",   /\b(debug|verbose)\b/i],
-  ["trace",   /\b(trace)\b/i],
-];
+function normalizeLevel(token: string): LogLevel {
+  const t = token.toLowerCase();
+  if (t === "error" || t === "err" || t === "erro" || t === "fatal") return "error";
+  if (t === "warn" || t === "warning" || t === "warni") return "warn";
+  if (t === "info" || t === "notice") return "info";
+  if (t === "debug" || t === "debu") return "debug";
+  if (t === "trace") return "trace";
+  if (t === "success" || t === "ok") return "success";
+  return null;
+}
 
-function detectLevel(line: string): LogLevel {
-  // Bracketed level markers get priority — [error], [warning], [info], etc.
-  const bracketed = line.match(/\[(error|err|fatal|warn(?:ing)?|info|debug|trace|notice)\]/i);
-  if (bracketed) {
-    const l = bracketed[1].toLowerCase();
-    if (l === "error" || l === "err" || l === "fatal") return "error";
-    if (l.startsWith("warn")) return "warn";
-    if (l === "info" || l === "notice") return "info";
-    if (l === "debug") return "debug";
-    if (l === "trace") return "trace";
+function detectLevel(text: string): LogLevel {
+  // 1. JSON-style: "level":"error"
+  const j = text.match(/"level"\s*:\s*"([^"]+)"/i);
+  if (j) {
+    const lvl = normalizeLevel(j[1]);
+    if (lvl) return lvl;
   }
 
-  // PREFIX markers: ERROR:, WARN:, INFO: etc. at start or after timestamp
-  const prefix = line.match(/(?:^|\s)(ERROR|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE|SUCCESS)[\s:]/);
-  if (prefix) {
-    const l = prefix[1].toLowerCase();
-    if (l === "error" || l === "fatal") return "error";
-    if (l.startsWith("warn")) return "warn";
-    if (l === "info") return "info";
-    if (l === "debug") return "debug";
-    if (l === "trace") return "trace";
-    if (l === "success") return "success";
+  // 2. logfmt / key=value: level=error
+  const kv = text.match(/\blevel=([a-zA-Z]+)/);
+  if (kv) {
+    const lvl = normalizeLevel(kv[1]);
+    if (lvl) return lvl;
   }
 
-  // Heuristic scan (lower priority, only if no marker found)
-  for (const [level, re] of LEVEL_PATTERNS) {
-    if (re.test(line)) return level;
+  // 3. Bracketed anywhere: [ERROR], [WARN], …
+  const br = text.match(/\[(ERROR|ERR|ERRO|FATAL|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE|SUCCESS)\]/i);
+  if (br) {
+    const lvl = normalizeLevel(br[1]);
+    if (lvl) return lvl;
+  }
+
+  // 4. Line-start level, optionally after a timestamp/logger prefix.
+  //    Matches: "ERROR: foo", "2025-04-24 10:00 ERROR foo",
+  //             "[2025-04-24T10:00:00Z] ERROR foo", "ERRO[0000] …" (docker).
+  //    Rejects prose where level is a mid-sentence word.
+  const ln = text.match(
+    /^(?:\[[^\]]*\]\s+|[\d:\-T.Z/ ]+\s+){0,3}(ERROR|ERRO|FATAL|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE|SUCCESS)\b[\s:\[]/i
+  );
+  if (ln) {
+    const lvl = normalizeLevel(ln[1]);
+    if (lvl) return lvl;
   }
 
   return null;
@@ -84,6 +94,44 @@ const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }>
   success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
 };
 
+// ── Ingest pipeline ───────────────────────────────────────────────────────────
+interface ProcessedLine {
+  text: string;
+  level: LogLevel;
+}
+
+function processLine(raw: string): ProcessedLine | null {
+  const clean = stripAnsi(raw);
+  if (NOISE_RE.test(clean)) return null;
+  return { text: clean, level: detectLevel(clean) };
+}
+
+const MAX_LINES = 10000;
+
+// ── Clipboard with fallback ───────────────────────────────────────────────────
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 // ── Search highlight ───────────────────────────────────────────────────────────
 function highlightLine(line: string, query: string): React.ReactNode {
   if (!query) return line;
@@ -98,7 +146,6 @@ function highlightLine(line: string, query: string): React.ReactNode {
 
 // ── Level filter ──────────────────────────────────────────────────────────────
 type EnabledLevels = Set<NonNullable<LogLevel>>;
-
 const ALL_FILTER_LEVELS: NonNullable<LogLevel>[] = ["error", "warn", "success", "info", "debug"];
 
 const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; activeCls: string }[] = [
@@ -109,52 +156,180 @@ const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; activeCls: stri
   { key: "debug",   label: "DBG",  activeCls: "bg-zinc-700/50 text-zinc-400 border-zinc-600/40" },
 ];
 
+// ── Per-line memoized renderer ────────────────────────────────────────────────
+interface LogLineProps {
+  text: string;
+  level: LogLevel;
+  originalIndex: number;
+  filteredIdx: number;
+  crashed: boolean;
+  query: string;
+  isMatch: boolean;
+  isActiveMatch: boolean;
+  copied: boolean;
+  onCopy: (text: string, idx: number) => void;
+  matchRefMap: React.MutableRefObject<Map<number, HTMLDivElement>>;
+}
+
+const LogLine = memo(function LogLine({
+  text, level, originalIndex, filteredIdx, crashed, query,
+  isMatch, isActiveMatch, copied, onCopy, matchRefMap,
+}: LogLineProps) {
+  const effectiveLevel = crashed ? "error" : level;
+  const textCls = effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-300";
+  const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
+
+  return (
+    <div
+      ref={(el) => {
+        if (isMatch && el) matchRefMap.current.set(filteredIdx, el);
+        else matchRefMap.current.delete(filteredIdx);
+      }}
+      className={`flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start ${
+        isActiveMatch ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20" : ""
+      }`}
+      // contentVisibility lets the browser skip layout/paint for off-screen
+      // lines — cheap virtualization without touching the DOM tree.
+      style={{ contentVisibility: "auto", containIntrinsicSize: "20px" }}
+    >
+      <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">
+        {originalIndex + 1}
+      </span>
+      <span className="w-8 shrink-0 pt-[1px] select-none">
+        {badge && (
+          <span className={`text-[9px] font-medium px-1 py-px rounded border ${badge.cls}`}>
+            {badge.label}
+          </span>
+        )}
+      </span>
+      <span
+        className={`flex-1 min-w-0 text-[11px] leading-5 whitespace-pre-wrap ${textCls}`}
+        style={{ overflowWrap: "anywhere" }}
+      >
+        {highlightLine(text, query)}
+      </span>
+      <button
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onCopy(text, originalIndex)}
+        className={`shrink-0 pt-[2px] transition-opacity select-none ${
+          copied ? "opacity-100" : "opacity-0 group-hover:opacity-60"
+        }`}
+        title="Copy line"
+      >
+        {copied ? (
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400">
+            <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        ) : (
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-zinc-600">
+            <rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+});
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function LogViewer({ appId, appName, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear }: Props) {
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [enabledLevels, setEnabledLevels] = useState<EnabledLevels>(new Set(ALL_FILTER_LEVELS));
   const [followTail, setFollowTail] = useState(true);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const [copiedToast, setCopiedToast] = useState(false);
-  const [diskLogs, setDiskLogs] = useState<string[] | null>(null); // null = loading
+  const [localLogs, setLocalLogs] = useState<ProcessedLine[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const isFirstScroll = useRef(true);
 
-  // Load full log file from disk on mount.
+  // Batch incoming log events per animation frame. Without this each line
+  // triggered its own render — at high log rates React couldn't keep up.
+  const pendingRef = useRef<ProcessedLine[]>([]);
+  const rafRef = useRef<number | null>(null);
+
   useEffect(() => {
-    getAppLogs(appId)
-      .then((lines) => setDiskLogs(lines))
-      .catch(() => setDiskLogs([]));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let cancelled = false;
 
-  // Poll disk every 2s so new lines always appear — this is simpler and more
-  // reliable than the slice-by-index approach, which breaks when the Zustand
-  // buffer is full (trimming keeps length fixed, so slice always returns []).
+    getAppLogs(appId).then((rawLines) => {
+      if (cancelled) return;
+      const processed: ProcessedLine[] = [];
+      for (const raw of rawLines) {
+        const p = processLine(raw);
+        if (p) processed.push(p);
+      }
+      if (processed.length > MAX_LINES) {
+        setTruncated(true);
+        setLocalLogs(processed.slice(processed.length - MAX_LINES));
+      } else {
+        setLocalLogs(processed);
+      }
+    }).catch(() => { if (!cancelled) setLocalLogs([]); });
+
+    let unlisten: (() => void) | undefined;
+
+    function flush() {
+      rafRef.current = null;
+      if (pendingRef.current.length === 0) return;
+      const batch = pendingRef.current;
+      pendingRef.current = [];
+      setLocalLogs((prev) => {
+        const base = prev ?? [];
+        const combined = base.concat(batch);
+        if (combined.length > MAX_LINES) {
+          setTruncated(true);
+          return combined.slice(combined.length - MAX_LINES);
+        }
+        return combined;
+      });
+    }
+
+    if (isTauri) {
+      listen<string>(`app:log:${appId}`, (e) => {
+        const p = processLine(e.payload);
+        if (!p) return;
+        pendingRef.current.push(p);
+        if (rafRef.current === null) {
+          rafRef.current = requestAnimationFrame(flush);
+        }
+      }).then((u) => {
+        if (cancelled) { u(); return; }
+        unlisten = u;
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      pendingRef.current = [];
+    };
+  }, [appId]);
+
+  // Fallback: while the disk read is in flight, render the Zustand capped buffer.
+  const fallbackLogs = useMemo<ProcessedLine[]>(() => {
+    if (localLogs !== null) return [];
+    const out: ProcessedLine[] = [];
+    for (const raw of logs) {
+      const p = processLine(raw);
+      if (p) out.push(p);
+    }
+    return out;
+  }, [localLogs, logs]);
+
+  const allLogs = localLogs ?? fallbackLogs;
+
   useEffect(() => {
-    const id = setInterval(() => {
-      getAppLogs(appId)
-        .then((lines) => {
-          setDiskLogs((prev) => (prev !== null && prev.length === lines.length ? prev : lines));
-        })
-        .catch(() => {});
-    }, 2000);
-    return () => clearInterval(id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Disk is the source of truth for full history. Zustand buffer is the fallback
-  // while the initial disk load is still in flight (diskLogs === null).
-  const allLogs = useMemo(() => {
-    if (diskLogs === null) return logs; // still loading initial snapshot
-    return diskLogs.length > 0 ? diskLogs : logs; // disk empty → Zustand fallback
-  }, [diskLogs, logs]);
-
-  const cleanLogs = useMemo(() => filterNoise(allLogs).map(stripAnsi), [allLogs]);
+    const t = setTimeout(() => setDebouncedQuery(query), 80);
+    return () => clearTimeout(t);
+  }, [query]);
 
   function showCopiedToast() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -162,13 +337,16 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     toastTimer.current = setTimeout(() => setCopiedToast(false), 1500);
   }
 
-  function copyLine(line: string, index: number) {
-    navigator.clipboard.writeText(line).then(() => {
+  const copyLineRef = useRef<(text: string, index: number) => void>(() => {});
+  copyLineRef.current = (text: string, index: number) => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
       setCopiedLine(index);
       showCopiedToast();
       setTimeout(() => setCopiedLine(null), 1200);
     });
-  }
+  };
+  const handleCopyLine = useMemo(() => (text: string, index: number) => copyLineRef.current(text, index), []);
 
   const allLevelsEnabled = enabledLevels.size === ALL_FILTER_LEVELS.length;
 
@@ -176,7 +354,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     setEnabledLevels((prev) => {
       const next = new Set(prev);
       if (next.has(level)) {
-        // Don't allow disabling all levels
         if (next.size === 1) return prev;
         next.delete(level);
       } else {
@@ -190,30 +367,29 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     setEnabledLevels(new Set(ALL_FILTER_LEVELS));
   }
 
+  // Lines without a detected level are always shown — filtering narrows,
+  // never gates unclassified output.
   const filteredLines = useMemo(() => {
-    return cleanLogs
-      .map((line, i) => ({ line, originalIndex: i }))
-      .filter(({ line }) => {
-        if (!allLevelsEnabled) {
-          const level = detectLevel(line);
-          if (level && !enabledLevels.has(level)) return false;
-        }
-        return true;
-      });
-  }, [cleanLogs, enabledLevels, allLevelsEnabled]);
+    const out: { line: ProcessedLine; originalIndex: number }[] = [];
+    for (let i = 0; i < allLogs.length; i++) {
+      const line = allLogs[i];
+      if (!allLevelsEnabled && line.level && !enabledLevels.has(line.level)) continue;
+      out.push({ line, originalIndex: i });
+    }
+    return out;
+  }, [allLogs, enabledLevels, allLevelsEnabled]);
 
-  // Search matches are indices into filteredLines
-  const searchMatches = useMemo(() => {
-    if (!query) return [];
-    const lower = query.toLowerCase();
+  // Use a Set for O(1) isMatch lookup instead of Array.includes in the render loop.
+  const { searchMatches, searchMatchSet } = useMemo(() => {
+    if (!debouncedQuery) return { searchMatches: [] as number[], searchMatchSet: new Set<number>() };
+    const lower = debouncedQuery.toLowerCase();
     const matches: number[] = [];
-    filteredLines.forEach(({ line }, idx) => {
-      if (line.toLowerCase().includes(lower)) matches.push(idx);
-    });
-    return matches;
-  }, [filteredLines, query]);
+    for (let i = 0; i < filteredLines.length; i++) {
+      if (filteredLines[i].line.text.toLowerCase().includes(lower)) matches.push(i);
+    }
+    return { searchMatches: matches, searchMatchSet: new Set(matches) };
+  }, [filteredLines, debouncedQuery]);
 
-  // Clamp active match index when matches change
   useEffect(() => {
     if (searchMatches.length === 0) {
       setActiveMatchIndex(0);
@@ -222,7 +398,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     }
   }, [searchMatches.length, activeMatchIndex]);
 
-  // Scroll to the active match
   const matchLineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   useEffect(() => {
     if (searchMatches.length === 0) return;
@@ -234,17 +409,17 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     }
   }, [activeMatchIndex, searchMatches]);
 
-  function goToNextMatch() {
+  const goToNextMatch = useCallback(() => {
     if (searchMatches.length === 0) return;
     setActiveMatchIndex((prev) => (prev + 1) % searchMatches.length);
-  }
+  }, [searchMatches.length]);
 
-  function goToPrevMatch() {
+  const goToPrevMatch = useCallback(() => {
     if (searchMatches.length === 0) return;
     setActiveMatchIndex((prev) => (prev - 1 + searchMatches.length) % searchMatches.length);
-  }
+  }, [searchMatches.length]);
 
-  const matchCount = query ? searchMatches.length : null;
+  const matchCount = debouncedQuery ? searchMatches.length : null;
 
   useEffect(() => { searchRef.current?.focus(); }, []);
 
@@ -258,7 +433,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         e.preventDefault();
         searchRef.current?.focus();
       }
-      // Navigate search matches when search input is focused
       if (document.activeElement === searchRef.current && query) {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
@@ -277,23 +451,20 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, query, searchMatches]);
+  }, [onClose, query, goToNextMatch, goToPrevMatch]);
 
+  // Tail follow uses "instant" — "smooth" stacks animations at high log rates
+  // and causes the viewport to drift out of sync with the cursor.
   useEffect(() => {
     if (!followTail) return;
-    if (isFirstScroll.current) {
-      isFirstScroll.current = false;
-      logEndRef.current?.scrollIntoView({ behavior: "instant" });
-      return;
-    }
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    logEndRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
   }, [allLogs, followTail]);
 
   function handleMouseUp() {
     const sel = window.getSelection();
-    if (sel && sel.toString().length > 0) {
-      navigator.clipboard.writeText(sel.toString()).then(() => showCopiedToast()).catch(() => {});
+    const text = sel?.toString() ?? "";
+    if (text.length > 0) {
+      void copyToClipboard(text).then((ok) => { if (ok) showCopiedToast(); });
     }
   }
 
@@ -305,16 +476,26 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
     if (atBottom && !followTail) setFollowTail(true);
   }
 
+  async function loadFullHistory() {
+    const raw = await getAppLogs(appId);
+    const processed: ProcessedLine[] = [];
+    for (const line of raw) {
+      const p = processLine(line);
+      if (p) processed.push(p);
+    }
+    setLocalLogs(processed);
+    setTruncated(false);
+  }
+
   return (
     <div className="fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden">
-      {/* Copied toast */}
       <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-[11px] text-emerald-400 shadow-lg transition-all duration-200 pointer-events-none ${copiedToast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}>
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
         Copied
       </div>
-      {/* Header */}
+
       <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.07] shrink-0 select-none">
         <div className="flex items-center gap-2 shrink-0">
           <span className={`w-2 h-2 rounded-full ${
@@ -333,10 +514,9 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
 
         <span className="text-zinc-700 text-[12px]">·</span>
         <span className="text-[11px] text-zinc-600">
-          {diskLogs === null ? "loading…" : `${allLogs.length} lines`}
+          {localLogs === null ? "loading…" : `${allLogs.length} lines${truncated ? " (capped)" : ""}`}
         </span>
 
-        {/* Search */}
         <div className="flex-1 relative max-w-[400px]">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
             <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -390,7 +570,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
 
         <div className="flex-1" />
 
-        {/* Level filter pills */}
         <div className="flex items-center gap-1 shrink-0">
           {FILTER_PILLS.map(({ key, label, activeCls }) => {
             const isActive = enabledLevels.has(key);
@@ -425,7 +604,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
               setFollowTail(false);
             } else {
               setFollowTail(true);
-              logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              logEndRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
             }
           }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${
@@ -443,7 +622,8 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
 
         <button
           onClick={() => {
-            setDiskLogs([]);
+            setLocalLogs([]);
+            setTruncated(false);
             onClear();
           }}
           className="px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-600 hover:text-zinc-300 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.07] transition-colors"
@@ -462,14 +642,27 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         </button>
       </div>
 
-      {/* Log body — explicitly selectable via webkit prefix */}
+      {truncated && (
+        <div className="flex items-center justify-between gap-2 px-4 py-1.5 bg-amber-500/5 border-b border-amber-500/10 text-[11px] text-amber-400/80 shrink-0">
+          <span>
+            Showing last {MAX_LINES.toLocaleString()} lines. Older history is still on disk.
+          </span>
+          <button
+            onClick={() => { void loadFullHistory(); }}
+            className="px-2 py-0.5 rounded text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 transition-colors"
+          >
+            Load full history
+          </button>
+        </div>
+      )}
+
       <div
         ref={containerRef}
         onScroll={handleScroll}
         onMouseUp={handleMouseUp}
         className="flex-1 overflow-y-auto px-4 py-3 font-mono select-text"
       >
-        {diskLogs === null && (
+        {localLogs === null && (
           <p className="text-[12px] text-zinc-600 mb-3 text-center select-none">Loading logs…</p>
         )}
 
@@ -480,66 +673,23 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         ) : (
           <div className="flex flex-col w-full">
             {filteredLines.map(({ line, originalIndex }, filteredIdx) => {
-              const level = crashed ? "error" : detectLevel(line);
-              const textCls = level ? LEVEL_CLASS[level] : "text-zinc-300";
-              const badge = level ? LEVEL_BADGE[level] : null;
-              const isActiveMatch = query && searchMatches.length > 0 && searchMatches[activeMatchIndex] === filteredIdx;
-              const isMatch = query && searchMatches.includes(filteredIdx);
-
+              const isMatch = searchMatchSet.has(filteredIdx);
+              const isActiveMatch = !!debouncedQuery && searchMatches.length > 0 && searchMatches[activeMatchIndex] === filteredIdx;
               return (
-                <div
+                <LogLine
                   key={originalIndex}
-                  ref={(el) => {
-                    if (isMatch && el) matchLineRefs.current.set(filteredIdx, el);
-                    else matchLineRefs.current.delete(filteredIdx);
-                  }}
-                  className={`flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start ${
-                    isActiveMatch ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20" : ""
-                  }`}
-                >
-                  {/* Line number */}
-                  <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">
-                    {originalIndex + 1}
-                  </span>
-
-                  {/* Level badge */}
-                  <span className="w-8 shrink-0 pt-[1px] select-none">
-                    {badge && (
-                      <span className={`text-[9px] font-medium px-1 py-px rounded border ${badge.cls}`}>
-                        {badge.label}
-                      </span>
-                    )}
-                  </span>
-
-                  {/* Log text */}
-                  <span
-                    className={`flex-1 min-w-0 text-[11px] leading-5 whitespace-pre-wrap ${textCls}`}
-                    style={{ overflowWrap: "anywhere" }}
-                  >
-                    {highlightLine(line, query)}
-                  </span>
-
-                  {/* Copy button */}
-                  <button
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => copyLine(line, originalIndex)}
-                    className={`shrink-0 pt-[2px] transition-opacity select-none ${
-                      copiedLine === originalIndex ? "opacity-100" : "opacity-0 group-hover:opacity-60"
-                    }`}
-                    title="Copy line"
-                  >
-                    {copiedLine === originalIndex ? (
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400">
-                        <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    ) : (
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-zinc-600">
-                        <rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-                        <path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                      </svg>
-                    )}
-                  </button>
-                </div>
+                  text={line.text}
+                  level={line.level}
+                  originalIndex={originalIndex}
+                  filteredIdx={filteredIdx}
+                  crashed={!!crashed}
+                  query={debouncedQuery}
+                  isMatch={isMatch}
+                  isActiveMatch={isActiveMatch}
+                  copied={copiedLine === originalIndex}
+                  onCopy={handleCopyLine}
+                  matchRefMap={matchLineRefs}
+                />
               );
             })}
           </div>
@@ -547,7 +697,6 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
         <div ref={logEndRef} />
       </div>
 
-      {/* Footer */}
       <div className="flex items-center gap-3 px-4 py-2 border-t border-white/[0.05] shrink-0 select-none">
         <span className="text-[10px] text-zinc-700 font-mono">
           {(!allLevelsEnabled) ? `Showing ${filteredLines.length} of ${allLogs.length} lines` : `${allLogs.length} lines`}
@@ -560,7 +709,7 @@ export default function LogViewer({ appId, appName, logs, isRunning, isStarting,
           <span className="text-zinc-500/60">● DBG</span>
         </div>
         <span className="flex-1" />
-        <span className="text-[10px] text-zinc-700">Esc to close · ⌘F to search · Enter/↑↓ to navigate matches</span>
+        <span className="text-[10px] text-zinc-700">Esc close · ⌘F search · Enter/↑↓ navigate · select → auto-copy</span>
       </div>
     </div>
   );

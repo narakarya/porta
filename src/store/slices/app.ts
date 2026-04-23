@@ -4,7 +4,7 @@ import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
 import { startMockProcess, stopMockProcess, killMockProcess } from "../../lib/mock-data";
 
-export const MAX_LOG_LINES = 2000;
+export const MAX_LOG_LINES = 10000;
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -33,7 +33,7 @@ export interface AppSlice {
   killApp: (id: string) => Promise<void>;
   clearAppLogs: (id: string) => void;
   dismissPortConflict: (id: string) => void;
-  startTunnel: (id: string) => void;
+  startTunnel: (id: string, providerOverride?: string) => void;
   stopTunnel: (id: string) => void;
   visibleApps: () => App[];
 }
@@ -70,7 +70,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   startAllInWorkspace: async (workspaceId) => {
     const { apps } = get();
     const wsAppIds = apps
-      .filter((a) => a.workspace_id === workspaceId && a.status === "stopped" && a.start_command)
+      .filter((a) => a.workspace_id === workspaceId && a.status === "stopped" && (a.start_command || (a.kind === "docker" && a.docker_image) || (a.kind === "compose" && a.compose_file)))
       .map((a) => a.id);
 
     if (wsAppIds.length === 0) return;
@@ -150,6 +150,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   startApp: async (id) => {
     set((s) => ({
+      apps: s.apps.map((a) => (a.id === id ? { ...a, status: "starting" as const } : a)),
       appLogs: { ...s.appLogs, [id]: [] },
       appExitCode: { ...s.appExitCode, [id]: null },
       appRetryCount: { ...s.appRetryCount, [id]: 0 },
@@ -257,18 +258,22 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   dismissPortConflict: (id) =>
     set((s) => ({ portConflicts: { ...s.portConflicts, [id]: false } })),
 
-  startTunnel: (id) => {
+  startTunnel: (id, providerOverride) => {
     const app = get().apps.find((a) => a.id === id);
     if (!app) return;
+    const provider = providerOverride ?? app.tunnel_provider ?? "cloudflare";
     set((s) => ({
       apps: s.apps.map((a) =>
         a.id === id
-          ? { ...a, tunnel_provider: "cloudflare", tunnel_active: true, tunnel_url: null }
+          ? { ...a, tunnel_provider: provider, tunnel_active: true, tunnel_url: null }
           : a
       ),
       appTunnelErrors: { ...s.appTunnelErrors, [id]: null },
     }));
-    cmd.startTunnel(id, app.port).catch((e: unknown) => {
+    const starter = provider === "tailscale"
+      ? cmd.startTailscaleServe(id, app.port)
+      : cmd.startTunnel(id, app.port);
+    starter.catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
       set((s) => ({
         apps: s.apps.map((a) =>
@@ -280,7 +285,10 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   },
 
   stopTunnel: (id) => {
-    cmd.stopTunnel(id).catch(() => {});
+    const app = get().apps.find((a) => a.id === id);
+    const provider = app?.tunnel_provider ?? "cloudflare";
+    const stopper = provider === "tailscale" ? cmd.stopTailscaleServe(id) : cmd.stopTunnel(id);
+    stopper.catch(() => {});
     set((s) => ({
       apps: s.apps.map((a) =>
         a.id === id ? { ...a, tunnel_active: false, tunnel_url: null } : a

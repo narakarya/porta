@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { exportData, importData, listBackups, restoreBackup, saveFile, revealInFinder, exportFullBackup, importFullBackup, getPortaEnv } from "../../lib/commands";
+import { yieldToFrame } from "../../lib/ui";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -47,6 +48,7 @@ export default function BackupSection() {
     }
     if (!savePath) return;
     setExportStatus("loading");
+    await yieldToFrame();
     try {
       const json = await exportData();
       await saveFile(savePath, json);
@@ -58,16 +60,16 @@ export default function BackupSection() {
     }
   }
 
-  function handleRestore(filename: string) {
+  async function handleRestore(filename: string) {
     if (!window.confirm(`Restore from ${filename}? This will replace your current database. You'll need to reload the app.`)) return;
     setRestoreStatus((prev) => ({ ...prev, [filename]: "loading" }));
-    restoreBackup(filename)
-      .then(() => {
-        setRestoreStatus((prev) => ({ ...prev, [filename]: "success" }));
-      })
-      .catch(() => {
-        setRestoreStatus((prev) => ({ ...prev, [filename]: "error" }));
-      });
+    await yieldToFrame();
+    try {
+      await restoreBackup(filename);
+      setRestoreStatus((prev) => ({ ...prev, [filename]: "success" }));
+    } catch {
+      setRestoreStatus((prev) => ({ ...prev, [filename]: "error" }));
+    }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -113,8 +115,8 @@ export default function BackupSection() {
       });
     }
     if (!savePath) return;
-    // Instant loading after user picks a path
     setFullExportStatus("loading");
+    await yieldToFrame();
     try {
       await exportFullBackup(savePath);
       setFullExportPath(savePath);
@@ -135,8 +137,8 @@ export default function BackupSection() {
     }
     if (typeof selected !== "string" || !selected) return;
     if (!window.confirm(`Import "${selected.split("/").pop()}" and replace all current data? A backup will be created first. You'll need to restart the app.`)) return;
-    // Instant loading after user confirms
     setFullImportStatus("loading");
+    await yieldToFrame();
     try {
       await importFullBackup(selected);
       setFullImportStatus("success");
@@ -186,15 +188,27 @@ export default function BackupSection() {
           <button
             onClick={handleFullExport}
             disabled={fullExportStatus === "loading"}
-            className="px-4 py-2 text-[13px] font-medium bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+            className="px-4 py-2 text-[13px] font-medium bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
           >
+            {fullExportStatus === "loading" && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {fullExportStatus === "loading" ? "Exporting..." : "Export Database"}
           </button>
           <button
             onClick={handleFullImportDialog}
             disabled={fullImportStatus === "loading"}
-            className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors"
+            className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors flex items-center gap-1.5"
           >
+            {fullImportStatus === "loading" && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {fullImportStatus === "loading" ? "Importing..." : "Import Database"}
           </button>
           {fullExportStatus === "success" && fullExportPath && (
@@ -245,8 +259,14 @@ export default function BackupSection() {
           <button
             onClick={handleExport}
             disabled={exportStatus === "loading"}
-            className="self-start px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            className="self-start px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-1.5"
           >
+            {exportStatus === "loading" && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {exportStatus === "loading" ? "Exporting..." : "Export JSON"}
           </button>
           {exportStatus === "success" && exportedPath && (
@@ -316,9 +336,15 @@ export default function BackupSection() {
                     <button
                       onClick={() => handleRestore(filename)}
                       disabled={status === "loading"}
-                      className="px-2.5 py-1 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-not-allowed text-zinc-300 rounded-md transition-colors"
+                      className="px-2.5 py-1 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-not-allowed text-zinc-300 rounded-md transition-colors flex items-center gap-1.5"
                     >
-                      {status === "loading" ? "..." : "Restore"}
+                      {status === "loading" && (
+                        <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                          <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      )}
+                      {status === "loading" ? "Restoring..." : "Restore"}
                     </button>
                   </div>
                 </div>
@@ -355,8 +381,14 @@ export default function BackupSection() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importStatus === "loading"}
-            className="self-start px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            className="self-start px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-1.5"
           >
+            {importStatus === "loading" && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {importStatus === "loading" ? "Importing..." : "Import from file"}
           </button>
           {importStatus === "success" && (

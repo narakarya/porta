@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { startCaddy, reloadCaddy, caddyStatusCheck, regenerateCerts, getLaunchAtLogin, setLaunchAtLogin } from "../../lib/commands";
+import { yieldToFrame } from "../../lib/ui";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -13,6 +14,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
   const [caddyError, setCaddyError] = useState<string | null>(null);
   const [certsLoading, setCertsLoading] = useState(false);
   const [certsStatus, setCertsStatus] = useState<"idle" | "success" | "error">("idle");
+  const [reloadingCaddy, setReloadingCaddy] = useState(false);
   const [launchAtLogin, setLaunchAtLoginState] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -26,6 +28,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
   async function handleStartCaddy() {
     setCaddyLoading(true);
     setCaddyError(null);
+    await yieldToFrame();
     try {
       await startCaddy();
       await reloadCaddy().catch(() => {});
@@ -40,6 +43,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
   async function handleRegenCerts() {
     setCertsLoading(true);
     setCertsStatus("idle");
+    await yieldToFrame();
     try {
       await regenerateCerts();
       setCertsStatus("success");
@@ -47,6 +51,16 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
       setCertsStatus("error");
     } finally {
       setCertsLoading(false);
+    }
+  }
+
+  async function handleReloadCaddy() {
+    setReloadingCaddy(true);
+    await yieldToFrame();
+    try {
+      await reloadCaddy();
+    } catch { /* ignore */ } finally {
+      setReloadingCaddy(false);
     }
   }
 
@@ -93,8 +107,14 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
             <button
               onClick={handleStartCaddy}
               disabled={caddyLoading}
-              className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors shrink-0"
+              className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors shrink-0 flex items-center gap-1.5"
             >
+              {caddyLoading && (
+                <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                  <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
               {caddyLoading ? "Starting…" : "Start Caddy"}
             </button>
           )}
@@ -146,16 +166,29 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
             <button
               onClick={handleRegenCerts}
               disabled={certsLoading}
-              className="px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors flex items-center gap-1.5"
             >
+              {certsLoading && (
+                <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                  <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
               {certsLoading ? "Regenerating…" : "Regenerate SSL Certs"}
             </button>
             {allGood && (
               <button
-                onClick={() => { reloadCaddy().catch(() => {}); }}
-                className="px-3 py-1.5 text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                onClick={handleReloadCaddy}
+                disabled={reloadingCaddy}
+                className="px-3 py-1.5 text-[12px] text-zinc-500 hover:text-zinc-300 disabled:opacity-50 transition-colors flex items-center gap-1.5"
               >
-                Reload Caddy Config
+                {reloadingCaddy && (
+                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                    <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {reloadingCaddy ? "Reloading…" : "Reload Caddy Config"}
               </button>
             )}
           </div>

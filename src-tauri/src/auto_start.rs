@@ -11,7 +11,7 @@ use crate::db;
 pub fn topo_sort_auto_start(all_apps: Vec<db::models::App>) -> Vec<db::models::App> {
     let auto_ids: HashSet<String> = all_apps
         .iter()
-        .filter(|a| a.auto_start && !a.start_command.is_empty())
+        .filter(|a| a.auto_start && (!a.start_command.is_empty() || a.is_docker() || a.is_compose()))
         .map(|a| a.id.clone())
         .collect();
 

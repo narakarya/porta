@@ -2,13 +2,16 @@ use anyhow::{anyhow, Result};
 use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use std::collections::{HashMap, HashSet};
-use std::io::BufReader;
+use std::fs::File;
+use std::io::{BufReader, LineWriter};
 use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
+pub(crate) type SharedLogWriter = Arc<Mutex<LineWriter<File>>>;
 
 pub struct ProcessManager {
     pids: Arc<Mutex<HashMap<String, u32>>>,
@@ -111,15 +114,29 @@ impl ProcessManager {
         if truncate_log {
             // Manual start/restart — clear so this run starts fresh.
             let _ = std::fs::write(&log_path, "");
-        } else {
+        }
+
+        // One persistent append-mode file handle is shared across both reader threads.
+        // LineWriter auto-flushes on each '\n' so the log viewer can still tail in real time,
+        // but we skip the per-line open() syscall that dominated the old hot path.
+        let log_writer: Option<SharedLogWriter> = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok()
+            .map(|f| Arc::new(Mutex::new(LineWriter::new(f))));
+
+        if !truncate_log {
             // Auto-start (Porta boot) — append separator so history is preserved.
-            use std::io::Write as _;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+            if let Some(w) = &log_writer {
+                use std::io::Write as _;
                 let ts = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                let _ = writeln!(f, "\n── Porta restarted (t={ts}) ──");
+                if let Ok(mut g) = w.lock() {
+                    let _ = writeln!(g, "\n── Porta restarted (t={ts}) ──");
+                }
             }
         }
 
@@ -130,52 +147,16 @@ impl ProcessManager {
 
         // stdout reader
         let on_log_out = Arc::clone(&on_log);
-        let log_path_out = log_path.clone();
+        let writer_out = log_writer.clone();
         thread::spawn(move || {
-            use std::io::{BufRead as _, Write as _};
-            let mut reader = BufReader::new(stdout);
-            let mut buf = Vec::new();
-            loop {
-                buf.clear();
-                match reader.read_until(b'\n', &mut buf) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if buf.ends_with(b"\n") { buf.pop(); }
-                        if buf.ends_with(b"\r") { buf.pop(); }
-                        let line = String::from_utf8_lossy(&buf).into_owned();
-                        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&log_path_out) {
-                            let _ = writeln!(f, "{}", line);
-                        }
-                        on_log_out(line);
-                    }
-                    Err(_) => break,
-                }
-            }
+            stream_child_output(stdout, writer_out, on_log_out);
         });
 
         // stderr reader
         let on_log_err = Arc::clone(&on_log);
-        let log_path_err = log_path.clone();
+        let writer_err = log_writer.clone();
         thread::spawn(move || {
-            use std::io::{BufRead as _, Write as _};
-            let mut reader = BufReader::new(stderr);
-            let mut buf = Vec::new();
-            loop {
-                buf.clear();
-                match reader.read_until(b'\n', &mut buf) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if buf.ends_with(b"\n") { buf.pop(); }
-                        if buf.ends_with(b"\r") { buf.pop(); }
-                        let line = String::from_utf8_lossy(&buf).into_owned();
-                        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&log_path_err) {
-                            let _ = writeln!(f, "{}", line);
-                        }
-                        on_log_err(line);
-                    }
-                    Err(_) => break,
-                }
-            }
+            stream_child_output(stderr, writer_err, on_log_err);
         });
 
         // exit watcher — waits for process and fires on_exit(code, intentional)
@@ -246,7 +227,8 @@ impl ProcessManager {
         for i in 0..steps {
             thread::sleep(Duration::from_millis(50));
             if kill(Pid::from_raw(pid as i32), None).is_err() {
-                // Confirmed dead
+                // Confirmed dead — give the OS time to reclaim the socket/port
+                thread::sleep(Duration::from_millis(300));
                 self.pids.lock().unwrap().remove(app_id);
                 return Ok(());
             }
@@ -256,9 +238,9 @@ impl ProcessManager {
             }
         }
 
-        // Final SIGKILL to entire group and a short grace period for the OS to reclaim the port
+        // Final SIGKILL to entire group and grace period for the OS to reclaim the port
         let _ = killpg(pgid, Signal::SIGKILL);
-        thread::sleep(Duration::from_millis(150));
+        thread::sleep(Duration::from_millis(500));
         self.pids.lock().unwrap().remove(app_id);
         Ok(())
     }
@@ -294,8 +276,43 @@ impl ProcessManager {
     }
 
     /// Returns a snapshot of current app_id → pid mappings (for metrics polling).
-    pub fn pids(&self) -> HashMap<String, u32> {
-        self.pids.lock().unwrap().clone()
+    /// Returns `Vec` rather than `HashMap` so the lock is held only for a cheap
+    /// iter+clone; callers that need map semantics can `.into_iter().collect()`.
+    pub fn pids(&self) -> Vec<(String, u32)> {
+        self.pids.lock().unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect()
+    }
+}
+
+/// Drain a child's stdout/stderr pipe line-by-line, persisting to the shared
+/// log writer (if any) and forwarding each line to `on_log` for the frontend.
+pub(crate) fn stream_child_output(
+    pipe: impl std::io::Read,
+    writer: Option<SharedLogWriter>,
+    on_log: Arc<impl Fn(String) + Send + Sync + 'static>,
+) {
+    use std::io::{BufRead as _, Write as _};
+    let mut reader = BufReader::new(pipe);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                if buf.ends_with(b"\n") { buf.pop(); }
+                if buf.ends_with(b"\r") { buf.pop(); }
+                let line = String::from_utf8_lossy(&buf).into_owned();
+                if let Some(w) = &writer {
+                    if let Ok(mut g) = w.lock() {
+                        let _ = writeln!(g, "{}", line);
+                    }
+                }
+                on_log(line);
+            }
+            Err(_) => break,
+        }
     }
 }
 

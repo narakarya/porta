@@ -48,6 +48,24 @@ pub fn set_notifications_enabled(enabled: bool) {
     write_porta_config(&cfg);
 }
 
+#[tauri::command]
+pub fn get_cf_api_token() -> String {
+    read_porta_config()["cf_api_token"].as_str().unwrap_or("").to_string()
+}
+
+#[tauri::command]
+pub fn set_cf_api_token(token: String) {
+    let mut cfg = read_porta_config();
+    if token.trim().is_empty() {
+        if let Some(m) = cfg.as_object_mut() {
+            m.remove("cf_api_token");
+        }
+    } else {
+        cfg["cf_api_token"] = serde_json::json!(token);
+    }
+    write_porta_config(&cfg);
+}
+
 // ── Launch at Login ───────────────────────────────────────────────────────────
 
 #[tauri::command]

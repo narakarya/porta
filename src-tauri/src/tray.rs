@@ -37,7 +37,7 @@ pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &Path) {
     PredefinedMenuItem::separator(app).map(|s| menu.append(&s)).ok();
 
     // Quick actions
-    let has_stopped = apps.iter().any(|a| a.status == "stopped" && !a.start_command.is_empty());
+    let has_stopped = apps.iter().any(|a| a.status == "stopped" && (!a.start_command.is_empty() || a.is_docker() || a.is_compose()));
     let has_running = apps.iter().any(|a| a.status == "running");
     if has_stopped {
         if let Ok(item) = MenuItem::with_id(app, "start-all", "▶ Start All Apps", true, None::<&str>) {
@@ -134,7 +134,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let db = state.db.lock().unwrap();
                     let apps = db.list_apps().unwrap_or_default();
                     drop(db);
-                    for app_data in apps.iter().filter(|a| a.status == "stopped" && !a.start_command.is_empty()) {
+                    for app_data in apps.iter().filter(|a| a.status == "stopped" && (!a.start_command.is_empty() || a.is_docker() || a.is_compose())) {
                         crate::commands::app_lifecycle::start_single(&handle, app_data, true).ok();
                     }
                     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -146,7 +146,15 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let apps = db.list_apps().unwrap_or_default();
                 drop(db);
                 for app_data in apps.iter().filter(|a| a.status == "running") {
-                    state.processes.stop(&app_data.id).ok();
+                    if app_data.is_compose() {
+                        let root = if app_data.root_dir.is_empty() { None } else { Some(app_data.root_dir.as_str()) };
+                        let file = app_data.compose_file.as_deref().unwrap_or("");
+                        state.docker.compose_stop(&app_data.id, file, root).ok();
+                    } else if app_data.is_docker() {
+                        state.docker.stop(&app_data.id).ok();
+                    } else {
+                        state.processes.stop(&app_data.id).ok();
+                    }
                     state.db.lock().unwrap().update_app_status(&app_data.id, "stopped", None).ok();
                     app.emit(&format!("app:exit:{}", app_data.id), 0i32).ok();
                 }
@@ -162,10 +170,18 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
                     if app_data.status == "running" {
                         let state = handle.state::<AppState>();
-                        state.processes.stop(&app_id).ok();
+                        if app_data.is_compose() {
+                            let root = if app_data.root_dir.is_empty() { None } else { Some(app_data.root_dir.as_str()) };
+                            let file = app_data.compose_file.as_deref().unwrap_or("");
+                            state.docker.compose_stop(&app_id, file, root).ok();
+                        } else if app_data.is_docker() {
+                            state.docker.stop(&app_id).ok();
+                        } else {
+                            state.processes.stop(&app_id).ok();
+                        }
                         state.db.lock().unwrap().update_app_status(&app_id, "stopped", None).ok();
                         handle.emit(&format!("app:exit:{}", app_id), 0i32).ok();
-                    } else if !app_data.start_command.is_empty() {
+                    } else if !app_data.start_command.is_empty() || app_data.is_docker() || app_data.is_compose() {
                         crate::commands::app_lifecycle::start_single(&handle, &app_data, true).ok();
                     }
 

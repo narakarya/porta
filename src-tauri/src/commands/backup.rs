@@ -75,6 +75,15 @@ pub fn import_data(
                 port_bindings: a.port_bindings.clone(),
                 env_profiles: vec![],
                 active_profile_id: None,
+                kind: a.kind.clone(),
+                docker_image: a.docker_image.clone(),
+                docker_container_port: a.docker_container_port,
+                docker_args: a.docker_args.clone(),
+                docker_volumes: a.docker_volumes.clone(),
+                compose_file: a.compose_file.clone(),
+                network_share: a.network_share,
+                tunnel_name: a.tunnel_name.clone(),
+                tunnel_custom_hostname: a.tunnel_custom_hostname.clone(),
             };
             db.insert_app(&app).ok();
         }

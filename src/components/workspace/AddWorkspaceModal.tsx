@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
 import ModalWrapper from "../shared/ModalWrapper";
+import { yieldToFrame } from "../../lib/ui";
 
 const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
 
@@ -52,6 +53,7 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
     if (err) { setDomainError(err); return; }
     if (!name) return;
     setSubmitting(true);
+    await yieldToFrame();
     try {
       await addWorkspace(name, domain);
       onClose();
@@ -110,7 +112,12 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
           </button>
           <button type="submit" disabled={submitting || !!domainError}
             className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
-            {submitting && <span className="spinner text-white/70" />}
+            {submitting && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {submitting ? "Creating…" : "Create"}
           </button>
         </div>

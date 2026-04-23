@@ -52,6 +52,17 @@ pub struct Workspace {
     pub deployment: Option<serde_json::Value>,
 }
 
+/// A Caddy route generated from an app's bindings. `ReverseProxy` for normal
+/// apps that own a process on a port; `FileServer` for static apps where Caddy
+/// serves files directly from `root` (no upstream).
+#[derive(Debug, Clone)]
+pub enum Route {
+    ReverseProxy { host: String, port: u16 },
+    FileServer { host: String, root: String },
+}
+
+fn default_app_kind() -> String { "process".into() }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct App {
     pub id: String,
@@ -66,6 +77,43 @@ pub struct App {
     pub pid: Option<u32>,
     pub env_file: Option<String>,
     pub auto_start: bool,
+    /// "process" (default) — Porta spawns start_command and Caddy reverse-proxies to port.
+    /// "static" — no process; Caddy serves files directly from root_dir.
+    /// "docker" — Porta runs a docker container; Caddy reverse-proxies to port (host).
+    #[serde(default = "default_app_kind")]
+    pub kind: String,
+    /// Docker image reference (e.g. "databasus/databasus:latest"). Required when kind="docker".
+    #[serde(default)]
+    pub docker_image: Option<String>,
+    /// Container-internal port. Porta maps host `port` → this port.
+    #[serde(default)]
+    pub docker_container_port: Option<u16>,
+    /// Extra `docker run` args (flags we don't have a dedicated field for). Optional.
+    #[serde(default)]
+    pub docker_args: Option<String>,
+    /// Volume mounts in "source:target" format. Relative `source` paths
+    /// (./foo, ../foo, or bare) are resolved against `root_dir` at start time.
+    #[serde(default)]
+    pub docker_volumes: Vec<String>,
+    /// Path to `docker-compose.yml` for kind="compose". Relative paths resolve
+    /// against `root_dir`.
+    #[serde(default)]
+    pub compose_file: Option<String>,
+    /// If true, Porta attaches this app's container(s) to a shared workspace
+    /// docker network (`porta-ws-<workspace_id>` or `porta-standalone`) so apps
+    /// can reach each other via container names.
+    #[serde(default)]
+    pub network_share: bool,
+    /// Cloudflare named tunnel to run this app through (id or name from
+    /// `cloudflared tunnel list`). If set, Porta uses named-tunnel mode; if
+    /// None, quick `trycloudflare.com` mode.
+    #[serde(default)]
+    pub tunnel_name: Option<String>,
+    /// Display-only hostname the user expects traffic to arrive on (e.g.
+    /// `myapp.example.com`). User must have routed DNS via `cloudflared tunnel
+    /// route dns <name> <hostname>` once.
+    #[serde(default)]
+    pub tunnel_custom_hostname: Option<String>,
     // v0.2 additions
     pub env_vars: HashMap<String, String>,
     pub restart_policy: String,
@@ -130,21 +178,69 @@ impl App {
         }
     }
 
-    /// Returns all (hostname, port) routes for this app — primary binding,
-    /// extra subdomains (mapped to the primary port), and port bindings
-    /// (each with its own port).
-    pub fn all_routes(&self, workspaces: &[Workspace]) -> Vec<(String, u16)> {
+    pub fn is_static(&self) -> bool {
+        self.kind == "static"
+    }
+
+    pub fn is_docker(&self) -> bool {
+        self.kind == "docker"
+    }
+
+    pub fn is_compose(&self) -> bool {
+        self.kind == "compose"
+    }
+
+    /// Name of the docker network this app joins when `network_share` is true.
+    /// Workspace-scoped so apps in different workspaces stay isolated.
+    pub fn workspace_network_name(&self) -> String {
+        match &self.workspace_id {
+            Some(ws) if !ws.is_empty() => format!("porta-ws-{}", ws),
+            _ => "porta-standalone".into(),
+        }
+    }
+
+    /// Returns all Caddy routes for this app. Static apps emit a single
+    /// FileServer route per host (primary + extras) pointing at root_dir;
+    /// process apps emit ReverseProxy routes for primary, extras, and each
+    /// port binding.
+    pub fn all_routes(&self, workspaces: &[Workspace]) -> Vec<Route> {
         let domain = self.effective_domain(workspaces);
         let mut routes = Vec::new();
 
+        if self.is_static() {
+            // Primary host
+            routes.push(Route::FileServer {
+                host: self.resolved_host(workspaces),
+                root: self.root_dir.clone(),
+            });
+            // Extra subdomains (also serve same folder)
+            for sub in &self.extra_subdomains {
+                let trimmed = sub.trim();
+                if !trimmed.is_empty() {
+                    routes.push(Route::FileServer {
+                        host: format!("{}.{}", trimmed, domain),
+                        root: self.root_dir.clone(),
+                    });
+                }
+            }
+            // port_bindings are not meaningful for static apps — skip
+            return routes;
+        }
+
         // Primary binding
-        routes.push((self.resolved_host(workspaces), self.port));
+        routes.push(Route::ReverseProxy {
+            host: self.resolved_host(workspaces),
+            port: self.port,
+        });
 
         // Extra subdomains (existing feature — all map to primary port)
         for sub in &self.extra_subdomains {
             let trimmed = sub.trim();
             if !trimmed.is_empty() {
-                routes.push((format!("{}.{}", trimmed, domain), self.port));
+                routes.push(Route::ReverseProxy {
+                    host: format!("{}.{}", trimmed, domain),
+                    port: self.port,
+                });
             }
         }
 
@@ -157,7 +253,10 @@ impl App {
             let sub = binding.subdomain.as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&fallback_sub);
-            routes.push((format!("{}.{}", sub, binding_domain), binding.port));
+            routes.push(Route::ReverseProxy {
+                host: format!("{}.{}", sub, binding_domain),
+                port: binding.port,
+            });
         }
 
         routes

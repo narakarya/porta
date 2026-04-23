@@ -5,6 +5,8 @@ export interface Workspace {
   deployment: DeploymentConfig | null;
 }
 
+export type AppKind = "process" | "static" | "docker" | "compose";
+
 export interface App {
   id: string;
   workspace_id: string | null;
@@ -18,6 +20,22 @@ export interface App {
   pid: number | null;
   env_file: string | null;
   auto_start: boolean;
+  /** "process" (default) — start_command spawned, Caddy reverse-proxies to port.
+   *  "static" — Caddy file_server serves root_dir directly, no process.
+   *  "docker" — Porta runs a docker container; Caddy reverse-proxies to port. */
+  kind: AppKind;
+  // docker
+  docker_image: string | null;
+  docker_container_port: number | null;
+  docker_args: string | null;
+  docker_volumes: string[];
+  // compose
+  compose_file: string | null;
+  // shared workspace docker network
+  network_share: boolean;
+  // named tunnel — when set, start_tunnel uses `cloudflared tunnel run <name>` instead of a quick tunnel
+  tunnel_name: string | null;
+  tunnel_custom_hostname: string | null;
   // v0.2 additions
   env_vars: Record<string, string>;
   restart_policy: "never" | "always" | "on-failure";
@@ -48,6 +66,7 @@ export type HealthStatus = "healthy" | "unhealthy" | "unknown";
 export interface DetectResult {
   command: string | null;
   source: string;
+  kind: AppKind;
 }
 
 export interface SetupStatus {
@@ -67,11 +86,22 @@ export type AddAppParams = {
   subdomain: string | null;
   start_command: string;
   start_command_source: string;
+  kind: AppKind;
+  docker_image?: string | null;
+  docker_container_port?: number | null;
+  docker_args?: string | null;
+  docker_volumes?: string[];
+  compose_file?: string | null;
+  compose_yaml?: string | null;
+  network_share?: boolean;
+  tunnel_name?: string | null;
+  tunnel_custom_hostname?: string | null;
 };
 
 export type UpdateAppParams = {
   id: string;
   name: string;
+  root_dir?: string;
   port: number;
   subdomain: string | null;
   start_command: string;
@@ -87,6 +117,15 @@ export type UpdateAppParams = {
   port_bindings?: PortBinding[];
   env_profiles?: EnvProfile[];
   active_profile_id?: string | null;
+  docker_image?: string | null;
+  docker_container_port?: number | null;
+  docker_args?: string | null;
+  docker_volumes?: string[];
+  compose_file?: string | null;
+  compose_yaml?: string | null;
+  network_share?: boolean;
+  tunnel_name?: string | null;
+  tunnel_custom_hostname?: string | null;
 };
 
 // ── Services ─────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import { openInEditor } from "../../lib/commands";
 
@@ -177,8 +178,15 @@ export default function CommandPalette({ onOpenSettings }: CommandPaletteProps) 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const { apps, workspaces, startApp, stopApp, selectWorkspace } =
-    usePortaStore();
+  const { apps, workspaces, startApp, stopApp, selectWorkspace } = usePortaStore(
+    useShallow((s) => ({
+      apps: s.apps,
+      workspaces: s.workspaces,
+      startApp: s.startApp,
+      stopApp: s.stopApp,
+      selectWorkspace: s.selectWorkspace,
+    }))
+  );
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);

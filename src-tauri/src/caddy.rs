@@ -2,6 +2,8 @@ use anyhow::Result;
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 
+use crate::db::models::Route;
+
 const CADDY_API: &str = "http://localhost:2019";
 
 pub struct CaddyManager {
@@ -14,6 +16,27 @@ impl Default for CaddyManager {
     }
 }
 
+/// Build a single Caddy `routes` entry for one of our Route variants.
+fn route_to_json(route: &Route) -> Value {
+    match route {
+        Route::ReverseProxy { host, port } => json!({
+            "match": [{ "host": [host] }],
+            "handle": [{
+                "handler": "reverse_proxy",
+                "upstreams": [{ "dial": format!("localhost:{}", port) }]
+            }]
+        }),
+        Route::FileServer { host, root } => json!({
+            "match": [{ "host": [host] }],
+            "handle": [
+                // `vars.root` sets the root that file_server reads from.
+                { "handler": "vars", "root": root },
+                { "handler": "file_server" }
+            ]
+        }),
+    }
+}
+
 impl CaddyManager {
     pub fn new() -> Self {
         let client = Client::builder()
@@ -23,28 +46,23 @@ impl CaddyManager {
         CaddyManager { client }
     }
 
-    pub fn build_config(routes: &[(String, u16)]) -> Value {
+    pub fn build_config(routes: &[Route]) -> Value {
         let has_certs = crate::setup::certs_exist();
         let base = crate::porta_dir();
         let cert_file = base.join("certs").join("test.pem").to_string_lossy().to_string();
         let key_file = base.join("certs").join("test-key.pem").to_string_lossy().to_string();
 
+        let route_json: Vec<Value> = routes.iter().map(route_to_json).collect();
+
         if has_certs {
             // HTTPS server on :443 with mkcert wildcard cert + HTTP→HTTPS redirect on :80
-            let https_routes: Vec<Value> = routes.iter().map(|(host, port)| {
-                json!({
-                    "match": [{ "host": [host] }],
-                    "handle": [{ "handler": "reverse_proxy", "upstreams": [{ "dial": format!("localhost:{}", port) }] }]
-                })
-            }).collect();
-
             json!({
                 "apps": {
                     "http": {
                         "servers": {
                             "porta_https": {
                                 "listen": [":443"],
-                                "routes": https_routes,
+                                "routes": route_json,
                                 // Empty policy = use any available cert (our wildcard *.test)
                                 "tls_connection_policies": [{}]
                             },
@@ -74,19 +92,13 @@ impl CaddyManager {
             })
         } else {
             // Fallback: plain HTTP on :80
-            let caddy_routes: Vec<Value> = routes.iter().map(|(host, port)| {
-                json!({
-                    "match": [{ "host": [host] }],
-                    "handle": [{ "handler": "reverse_proxy", "upstreams": [{ "dial": format!("localhost:{}", port) }] }]
-                })
-            }).collect();
             json!({
-                "apps": { "http": { "servers": { "porta": { "listen": [":80"], "routes": caddy_routes } } } }
+                "apps": { "http": { "servers": { "porta": { "listen": [":80"], "routes": route_json } } } }
             })
         }
     }
 
-    pub fn reload(&self, routes: &[(String, u16)]) -> Result<()> {
+    pub fn reload(&self, routes: &[Route]) -> Result<()> {
         let config = Self::build_config(routes);
         let resp = self.client.post(format!("{}/load", CADDY_API))
             .header("Content-Type", "application/json")
@@ -121,7 +133,10 @@ mod tests {
 
     #[test]
     fn test_build_config_one_route_http() {
-        let config = CaddyManager::build_config(&[("api.test.test".into(), 4001)]);
+        let config = CaddyManager::build_config(&[Route::ReverseProxy {
+            host: "api.test.test".into(),
+            port: 4001,
+        }]);
         // In HTTP mode, routes land in "porta" server
         let servers = &config["apps"]["http"]["servers"];
         // Check at least one server has a route with the right host
@@ -134,5 +149,26 @@ mod tests {
             })
         });
         assert!(found);
+    }
+
+    #[test]
+    fn test_build_config_static_route_uses_file_server() {
+        let config = CaddyManager::build_config(&[Route::FileServer {
+            host: "site.test".into(),
+            root: "/tmp/site".into(),
+        }]);
+        let servers = &config["apps"]["http"]["servers"];
+        let as_obj = servers.as_object().unwrap();
+        let found = as_obj.values().any(|srv| {
+            srv["routes"].as_array().map_or(false, |routes| {
+                routes.iter().any(|r| {
+                    let handlers: Vec<_> = r["handle"].as_array().unwrap().iter()
+                        .map(|h| h["handler"].as_str().unwrap_or(""))
+                        .collect();
+                    handlers.contains(&"file_server") && r["match"][0]["host"][0] == "site.test"
+                })
+            })
+        });
+        assert!(found, "expected a file_server handler for static route");
     }
 }

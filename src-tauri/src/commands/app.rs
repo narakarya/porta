@@ -53,9 +53,31 @@ pub fn add_app(
     subdomain: Option<String>,
     start_command: String,
     start_command_source: String,
+    kind: Option<String>,
+    docker_image: Option<String>,
+    docker_container_port: Option<u16>,
+    docker_args: Option<String>,
+    docker_volumes: Option<Vec<String>>,
+    compose_file: Option<String>,
+    compose_yaml: Option<String>,
+    network_share: Option<bool>,
+    tunnel_name: Option<String>,
+    tunnel_custom_hostname: Option<String>,
 ) -> Result<App, String> {
+    let resolved_kind = kind.unwrap_or_else(|| "process".into());
+    // Static apps are served by Caddy as soon as the route is registered, so
+    // they boot straight into "running" — no separate "Start" step.
+    let initial_status = if resolved_kind == "static" { "running" } else { "stopped" };
+    let app_id = Uuid::new_v4().to_string();
+    // If a pasted YAML was provided, persist it to Porta's managed compose
+    // location and use that path as `compose_file`.
+    let resolved_compose_file = if let Some(yaml) = compose_yaml.as_ref().filter(|s| !s.trim().is_empty()) {
+        Some(super::compose::save_compose_yaml(app_id.clone(), yaml.clone())?)
+    } else {
+        compose_file
+    };
     let app = App {
-        id: Uuid::new_v4().to_string(),
+        id: app_id,
         workspace_id,
         name,
         root_dir,
@@ -63,7 +85,7 @@ pub fn add_app(
         subdomain,
         start_command,
         start_command_source,
-        status: "stopped".into(),
+        status: initial_status.into(),
         pid: None,
         env_file: None,
         auto_start: false,
@@ -82,6 +104,15 @@ pub fn add_app(
         port_bindings: vec![],
         env_profiles: vec![],
         active_profile_id: None,
+        kind: resolved_kind,
+        docker_image,
+        docker_container_port,
+        docker_args,
+        docker_volumes: docker_volumes.unwrap_or_default(),
+        compose_file: resolved_compose_file,
+        network_share: network_share.unwrap_or(false),
+        tunnel_name,
+        tunnel_custom_hostname,
     };
     state
         .db
@@ -100,6 +131,7 @@ pub fn update_app(
     state: State<AppState>,
     id: String,
     name: String,
+    root_dir: Option<String>,
     port: u16,
     subdomain: Option<String>,
     start_command: String,
@@ -115,13 +147,38 @@ pub fn update_app(
     port_bindings: Option<Vec<PortBinding>>,
     env_profiles: Option<Vec<crate::db::models::EnvProfile>>,
     active_profile_id: Option<String>,
+    docker_image: Option<String>,
+    docker_container_port: Option<u16>,
+    docker_args: Option<String>,
+    docker_volumes: Option<Vec<String>>,
+    compose_file: Option<String>,
+    compose_yaml: Option<String>,
+    network_share: Option<bool>,
+    tunnel_name: Option<String>,
+    tunnel_custom_hostname: Option<String>,
 ) -> Result<App, String> {
+    let resolved_compose_file = if let Some(yaml) = compose_yaml.as_ref().filter(|s| !s.trim().is_empty()) {
+        Some(super::compose::save_compose_yaml(id.clone(), yaml.clone())?)
+    } else {
+        compose_file
+    };
+    if let Some(dir) = root_dir.as_deref() {
+        let path = std::path::Path::new(dir);
+        if !path.exists() {
+            return Err(format!("Folder not found: {}", dir));
+        }
+        if !path.is_dir() {
+            return Err(format!("Path is not a folder: {}", dir));
+        }
+    }
     state
         .db
         .lock()
         .unwrap()
         .update_app(
-            &id, &name, port,
+            &id, &name,
+            root_dir.as_deref(),
+            port,
             subdomain.as_deref(),
             &start_command,
             env_file.as_deref(),
@@ -136,6 +193,14 @@ pub fn update_app(
             &port_bindings.unwrap_or_default(),
             &env_profiles.unwrap_or_default(),
             active_profile_id.as_deref(),
+            docker_image.as_deref(),
+            docker_container_port,
+            docker_args.as_deref(),
+            &docker_volumes.unwrap_or_default(),
+            resolved_compose_file.as_deref(),
+            network_share.unwrap_or(false),
+            tunnel_name.as_deref(),
+            tunnel_custom_hostname.as_deref(),
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
@@ -147,8 +212,24 @@ pub fn update_app(
 
 #[tauri::command]
 pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
-    state.processes.stop(&id).ok();
+    let app_data = state.db.lock().unwrap().list_apps().ok()
+        .and_then(|apps| apps.into_iter().find(|a| a.id == id));
+    let is_docker = app_data.as_ref().map(|a| a.is_docker()).unwrap_or(false);
+    let is_compose = app_data.as_ref().map(|a| a.is_compose()).unwrap_or(false);
+    if is_compose {
+        if let Some(ref a) = app_data {
+            let root = if a.root_dir.is_empty() { None } else { Some(a.root_dir.as_str()) };
+            let file = a.compose_file.as_deref().unwrap_or("");
+            state.docker.compose_stop(&id, file, root).ok();
+        }
+    } else if is_docker {
+        state.docker.stop(&id).ok();
+    } else {
+        state.processes.stop(&id).ok();
+    }
     state.db.lock().unwrap().delete_app(&id).map_err(|e| e.to_string())?;
+    // Remove any pasted compose YAML Porta was managing for this app.
+    super::compose::cleanup_managed_compose(&id);
     sync_caddy(&state)?;
     crate::backup::auto_backup(&state.db_path).ok();
     Ok(())

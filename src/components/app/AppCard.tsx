@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { App, Workspace } from "../../types";
 import LogViewer from "./LogViewer";
@@ -8,14 +9,17 @@ import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, type 
 import Tooltip from "../shared/Tooltip";
 import LogToast from "./LogToast";
 import TunnelQuickMenu from "./TunnelQuickMenu";
+import { yieldToFrame } from "../../lib/ui";
 
 interface Props {
   app: App;
   workspace: Workspace | null;
   startOrder?: number;
-  onOpenDetail?: () => void;
-  onOpenTerminal?: () => void;
-  onOpenDeploy?: () => void;
+  // Callbacks take `app` so parents can share one stable ref across all cards
+  // (required for React.memo below to actually skip re-renders).
+  onOpenDetail?: (app: App) => void;
+  onOpenTerminal?: (app: App, startupCommand?: string) => void;
+  onOpenDeploy?: (app: App) => void;
 }
 
 function resolvedHost(app: App, workspace: Workspace | null): string {
@@ -31,33 +35,60 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
   return [primary, ...extras];
 }
 
-export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOpenTerminal, onOpenDeploy }: Props) {
-  const { startApp, stopApp, restartApp, killApp, setupStatus, appLogs, appExitCode, appRetryCount, portConflicts, appRestarting, appTunnelErrors, appMetrics, healthStatuses, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex } =
-    usePortaStore();
-  const metrics = appMetrics[app.id];
-  const health = healthStatuses[app.id];
+function AppCard({ app, workspace, startOrder, onOpenDetail, onOpenTerminal, onOpenDeploy }: Props) {
+  // Actions — stable refs, picked once via shallow compare.
+  const { startApp, stopApp, restartApp, killApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex } = usePortaStore(
+    useShallow((s) => ({
+      startApp: s.startApp,
+      stopApp: s.stopApp,
+      restartApp: s.restartApp,
+      killApp: s.killApp,
+      startTunnel: s.startTunnel,
+      stopTunnel: s.stopTunnel,
+      clearAppLogs: s.clearAppLogs,
+      dismissPortConflict: s.dismissPortConflict,
+      registerToast: s.registerToast,
+      unregisterToast: s.unregisterToast,
+      getToastIndex: s.getToastIndex,
+    }))
+  );
+  // Per-app state slices — component only re-renders when ITS slice changes.
+  const setupStatus = usePortaStore((s) => s.setupStatus);
+  const metrics = usePortaStore((s) => s.appMetrics[app.id]);
+  const health = usePortaStore((s) => s.healthStatuses[app.id]);
+  const appLogs = usePortaStore((s) => s.appLogs[app.id]);
+  const appExitCode = usePortaStore((s) => s.appExitCode[app.id]);
+  const appRetryCount = usePortaStore((s) => s.appRetryCount[app.id]);
+  const portConflicts = usePortaStore((s) => s.portConflicts[app.id]);
+  const appRestarting = usePortaStore((s) => s.appRestarting[app.id]);
+  const appTunnelErrors = usePortaStore((s) => s.appTunnelErrors[app.id]);
 
-  const host = resolvedHost(app, workspace);
-  const hosts = allHosts(app, workspace);
+  // Host computations read app fields that rarely change — memoize so they
+  // don't re-run on unrelated parent state updates.
+  const host = useMemo(() => resolvedHost(app, workspace), [app.custom_domain, app.subdomain, app.name, workspace?.domain]);
+  const hosts = useMemo(() => allHosts(app, workspace), [app.custom_domain, app.subdomain, app.name, app.extra_subdomains, workspace?.domain]);
   const scheme = setupStatus?.certs_generated ? "https" : "http";
+  const isStatic = app.kind === "static";
+  const isDocker = app.kind === "docker";
+  const isCompose = app.kind === "compose";
   const isStarting = app.status === "starting";
   const isRunning = app.status === "running";
   const isActive = isRunning || isStarting; // process is alive
   const isWildcard = (app.subdomain ?? app.name) === "*";
   const extraCount = (app.extra_subdomains ?? []).length;
-  const logs = appLogs[app.id] ?? [];
-  const exitCode = appExitCode[app.id] ?? null;
+  const logs = appLogs ?? [];
+  const exitCode = appExitCode ?? null;
   const crashed = exitCode !== null && exitCode !== 0;
   const hasLogs = logs.length > 0;
   const showLogIcon = isActive || hasLogs; // keep icon visible while running even after clear
-  const retryCount = appRetryCount[app.id] ?? 0;
-  const hasPortConflict = portConflicts[app.id] ?? false;
-  const isRestarting = appRestarting[app.id] ?? false;
-  const tunnelError = appTunnelErrors[app.id] ?? null;
+  const retryCount = appRetryCount ?? 0;
+  const hasPortConflict = portConflicts ?? false;
+  const isRestarting = appRestarting ?? false;
+  const tunnelError = appTunnelErrors ?? null;
 
-  // Ref set synchronously on click — guards visibility across any intermediate Zustand renders
-  const restartClickedRef = useRef(false);
-  useEffect(() => { if (isRunning) restartClickedRef.current = false; }, [isRunning]);
+  // Local state for instant spinner feedback before Zustand's appRestarting propagates
+  const [pendingRestart, setPendingRestart] = useState(false);
+  useEffect(() => { if (isRestarting || isRunning) setPendingRestart(false); }, [isRestarting, isRunning]);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -71,20 +102,23 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
     setTimeout(() => setPortKillFeedback(null), 3000);
   }
 
-  // ── Port availability check for stopped apps ──────────────────────────────
+  // ── Port availability check for stopped apps (process apps only) ─────────
   const [portCheck, setPortCheck] = useState<PortCheckResult | null>(null);
   useEffect(() => {
-    if (isActive) { setPortCheck(null); return; }
+    if (isStatic || isActive) { setPortCheck(null); return; }
     let cancelled = false;
     function check() {
       checkPortAvailable(app.port)
         .then((r) => { if (!cancelled) setPortCheck(r); })
         .catch(() => {});
     }
-    check();
-    const interval = setInterval(check, 10_000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [app.port, isActive]);
+    // Delay initial check (1–3s) so mounting AppCards doesn't fire N parallel
+    // lsof IPC calls during workspace switch. Subsequent checks every 30s are
+    // plenty — this isn't latency-critical info.
+    const startDelay = setTimeout(check, 1000 + Math.random() * 2000);
+    const interval = setInterval(check, 30_000);
+    return () => { cancelled = true; clearTimeout(startDelay); clearInterval(interval); };
+  }, [app.port, isActive, isStatic]);
 
   const [logToastOpen, setLogToastOpen] = useState(false);
   function openToast() { setLogToastOpen(true); registerToast(app.id); }
@@ -125,7 +159,13 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
   }
 
   async function handleStart() {
-    await startApp(app.id);
+    try {
+      await startApp(app.id);
+    } catch (e) {
+      const full = e instanceof Error ? e.message : String(e);
+      const short = full.length > 400 ? `${full.slice(0, 400)}…\n\n(truncated — check logs for full output)` : full;
+      window.alert(`Failed to start ${app.name}:\n\n${short}`);
+    }
   }
 
   return (
@@ -148,11 +188,26 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
 
         <div
           className={`flex-1 min-w-0 ${onOpenDetail ? "cursor-pointer" : ""}`}
-          onClick={onOpenDetail}
+          onClick={onOpenDetail ? () => onOpenDetail(app) : undefined}
         >
           <div className="flex items-center gap-1.5">
             <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
-            {isRunning && health && (
+            {isStatic && (
+              <span className="text-[9px] font-semibold tracking-wider text-blue-300 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded leading-none uppercase">
+                static
+              </span>
+            )}
+            {isDocker && (
+              <span className="text-[9px] font-semibold tracking-wider text-sky-300 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded leading-none uppercase">
+                docker
+              </span>
+            )}
+            {isCompose && (
+              <span className="text-[9px] font-semibold tracking-wider text-teal-300 bg-teal-500/10 border border-teal-500/20 px-1.5 py-0.5 rounded leading-none uppercase">
+                compose
+              </span>
+            )}
+            {!isStatic && isRunning && health && (
               <Tooltip label={health === "healthy" ? "Healthy" : health === "unhealthy" ? "Unhealthy" : "Checking..."} side="top">
                 {health === "healthy" ? (
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-emerald-400">
@@ -198,13 +253,19 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
             )}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <p className="text-[11px] text-zinc-600">port {app.port}</p>
-            {metrics && isRunning && (
+            {isStatic ? (
+              <p className="text-[11px] text-zinc-600 font-mono truncate" title={app.root_dir}>
+                {app.root_dir.split("/").slice(-2).join("/")}
+              </p>
+            ) : (
+              <p className="text-[11px] text-zinc-600">port {app.port}</p>
+            )}
+            {!isStatic && metrics && isRunning && (
               <span className="text-[10px] text-zinc-600 font-mono">
                 {metrics.cpu.toFixed(1)}% · {metrics.mem_mb} MB
               </span>
             )}
-            {portCheck && !portCheck.available && (
+            {!isStatic && portCheck && !portCheck.available && (
               <Tooltip label={`Port ${app.port} in use by ${portCheck.process_name ?? "unknown"} (PID ${portCheck.pid ?? "?"})`}>
                 <span className="text-amber-400">
                   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="inline-block">
@@ -223,11 +284,16 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </div>
         </div>
 
+        {/* ── Icon actions: hidden at rest, fade in on card hover. Keeps the
+             card calm when scanning a long list; reveals controls when the
+             user is interacting with a specific row. */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+
         {/* Deploy button — only if app.deploy_config_path */}
         {app.deploy_config_path && (
           <Tooltip label="Deploy">
             <button
-              onClick={(e) => { e.stopPropagation(); onOpenDeploy?.(); }}
+              onClick={(e) => { e.stopPropagation(); onOpenDeploy?.(app); }}
               className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
             >
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -238,7 +304,8 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </Tooltip>
         )}
 
-        {/* Tunnel quick menu — only shown when app is active, tunnel is connected, or there's an error */}
+        {/* Tunnel quick menu — works for process/docker/compose and static
+            (static routes via Caddy). */}
         <TunnelQuickMenu
           app={app}
           isActive={isActive}
@@ -250,7 +317,7 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
         {/* Terminal button — always shown */}
         <Tooltip label="Open terminal">
           <button
-            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(); }}
+            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(app); }}
             className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -260,8 +327,20 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </button>
         </Tooltip>
 
-        {/* Log icon — always visible when there are logs */}
-        {showLogIcon && (
+        {/* Claude shortcut — open terminal with `claude` auto-running */}
+        <Tooltip label="Open terminal with claude">
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(app, "claude"); }}
+            className="p-1 text-orange-400/70 hover:text-orange-300 hover:bg-orange-500/10 rounded-md transition-colors"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <path d="M3 3.5l2 3-2 3M7 9.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </Tooltip>
+
+        {/* Log icon — process apps only (static apps have no logs) */}
+        {!isStatic && showLogIcon && (
           <Tooltip label={crashed ? "View crash logs" : "View logs"}>
             <button
               onClick={() => setLogViewerOpen(true)}
@@ -279,8 +358,8 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </Tooltip>
         )}
 
-        {/* Open browser — only when fully running and not wildcard */}
-        {isRunning && !isWildcard && (
+        {/* Open browser — when running (or for static, always served) and not wildcard */}
+        {(isRunning || isStatic) && !isWildcard && (
           <div className="relative">
             {extraCount === 0 ? (
               // Single subdomain — plain link
@@ -336,19 +415,30 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           </div>
         )}
 
-        {/* Start / Stop / Restart */}
+        </div>
+        {/* end hover-revealed icon actions */}
+
+        {/* Start / Stop / Restart — process apps only. Static apps are served by
+            Caddy whenever Caddy is up, so there's nothing to start or stop. */}
+        {!isStatic && (
         <div className="flex items-center gap-1">
-          {isActive || isRestarting || restartClickedRef.current ? (
+          {isActive || isRestarting || pendingRestart ? (
             <>
               <button
-                onClick={() => { restartClickedRef.current = true; openToast(); setBannerDismissed(false); restartApp(app.id); }}
-                disabled={isRestarting || isStarting || restartClickedRef.current}
+                onClick={async () => {
+                  setPendingRestart(true);
+                  await yieldToFrame();
+                  openToast();
+                  setBannerDismissed(false);
+                  restartApp(app.id);
+                }}
+                disabled={isRestarting || isStarting || pendingRestart}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
                   text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
                   disabled:text-amber-400/70 disabled:bg-amber-500/10"
                 title="Restart"
               >
-                {isRestarting || restartClickedRef.current ? (
+                {isRestarting || pendingRestart ? (
                   <>
                     <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
                       <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -368,7 +458,7 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
           ) : (
             <button
               onClick={handleStart}
-              disabled={!app.start_command}
+              disabled={!app.start_command && !(isDocker && app.docker_image) && !(isCompose && app.compose_file)}
               className={`px-2.5 py-1 text-[11px] font-medium rounded-md disabled:opacity-30 transition-colors ${
                 crashed
                   ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
@@ -379,6 +469,7 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
             </button>
           )}
         </div>
+        )}
       </div>
 
       {/* ── Port kill feedback ── */}
@@ -482,13 +573,13 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M2.5 4.5l2 1.5-2 1.5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
               onClick: () => openInTerminal(app.root_dir),
             },
-            ...(isActive ? [{
+            ...(!isStatic && isActive ? [{
               label: "Force Kill",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v2M5.5 8v2M1 5.5h2M8 5.5h2M2.5 2.5l1.5 1.5M7 7l1.5 1.5M7 2.5L5.5 4M2.5 8.5L4 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
               onClick: () => setKillConfirm(true),
               danger: true,
             }] : []),
-            ...(!isActive ? [{
+            ...(!isStatic && !isActive ? [{
               label: `Kill port holder (:${app.port})`,
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 5.5h4M5.5 3.5v4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
               onClick: () =>
@@ -529,3 +620,5 @@ export default function AppCard({ app, workspace, startOrder, onOpenDetail, onOp
     </div>
   );
 }
+
+export default memo(AppCard);

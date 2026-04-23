@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { usePortaStore } from "../../store";
-import { checkPortAvailable, type PortCheckResult } from "../../lib/commands";
+import { checkPortAvailable, checkCloudflared, loadComposeYaml, parseComposeString, listCloudflareTunnels, setTunnelConfig, getTailscaleStatus, listTailscaleServes, type CloudflareTunnel, type PortCheckResult, type TailscaleStatus } from "../../lib/commands";
+import YamlEditor from "../shared/YamlEditor";
+import SetupCard from "../shared/SetupCard";
 import type { App, EnvProfile, PortBinding, Workspace } from "../../types";
 import Field from "../shared/Field";
 import EnvVarEditor from "../shared/EnvVarEditor";
 import TunnelStatusBadge from "../shared/TunnelStatusBadge";
+import { yieldToFrame } from "../../lib/ui";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+function volumeTemplate(appName: string): string {
+  const slug = appName.toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") || "app";
+  return `~/projects/docker/volumes/${slug}/data:/data`;
+}
 
 type Section = "general" | "domain" | "environment" | "tunneling" | "danger";
 
@@ -17,11 +25,14 @@ interface Props {
 }
 
 export default function AppSettingsModal({ app, workspace, onClose }: Props) {
-  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus } = usePortaStore();
+  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors } = usePortaStore();
+  const tunnelError = appTunnelErrors[app.id] ?? null;
+  const [tunnelErrorCopied, setTunnelErrorCopied] = useState(false);
   const [section, setSection] = useState<Section>("general");
   const [tunnelUrlCopied, setTunnelUrlCopied] = useState(false);
 
   const [name, setName] = useState(app.name);
+  const [rootDir, setRootDir] = useState(app.root_dir);
   const [port, setPort] = useState(String(app.port));
   const [subdomain, setSubdomain] = useState(app.subdomain ?? "");
   const [extraSubdomains, setExtraSubdomains] = useState<string[]>(app.extra_subdomains ?? []);
@@ -30,6 +41,47 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
   const [customDomain, setCustomDomain] = useState(app.custom_domain ?? "");
 
   const [startCommand, setStartCommand] = useState(app.start_command);
+  const [dockerImage, setDockerImage] = useState(app.docker_image ?? "");
+  const [dockerContainerPort, setDockerContainerPort] = useState(String(app.docker_container_port ?? 80));
+  const [dockerArgs, setDockerArgs] = useState(app.docker_args ?? "");
+  const [dockerVolumes, setDockerVolumes] = useState<string[]>(app.docker_volumes ?? []);
+  const [composeFile, setComposeFile] = useState(app.compose_file ?? "");
+  // Detect if the current compose_file is inside Porta's managed dir — if so,
+  // default the mode to "paste" and load the existing yaml content for edit.
+  const isManagedPath = !!app.compose_file && /\/\.porta(-dev)?\/compose\//.test(app.compose_file);
+  const [composeMode, setComposeMode] = useState<"file" | "paste">(isManagedPath ? "paste" : "file");
+  const [composeYaml, setComposeYaml] = useState("");
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [composeErrorLine, setComposeErrorLine] = useState<number | undefined>(undefined);
+  const [networkShare, setNetworkShare] = useState(app.network_share);
+
+  useEffect(() => {
+    if (app.kind !== "compose" || !isManagedPath || !app.compose_file) return;
+    let cancelled = false;
+    loadComposeYaml(app.compose_file).then((c) => {
+      if (!cancelled) setComposeYaml(c);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [app.kind, app.compose_file, isManagedPath]);
+
+  // Validate pasted YAML on edit.
+  useEffect(() => {
+    if (app.kind !== "compose" || composeMode !== "paste" || !composeYaml.trim()) {
+      setComposeError(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      parseComposeString(composeYaml)
+        .then(() => { setComposeError(null); setComposeErrorLine(undefined); })
+        .catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          setComposeError(msg);
+          const m = msg.match(/line (\d+)/i);
+          setComposeErrorLine(m ? parseInt(m[1], 10) : undefined);
+        });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [composeYaml, composeMode, app.kind]);
   // Health check (from agent-a7a6ec3b)
   const [healthCheckPath, setHealthCheckPath] = useState(app.health_check_path ?? "");
   // Dependencies (from agent-a7a6ec3b)
@@ -53,7 +105,112 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
 
   // Tunneling state (from agent-a02c9388)
   const [tunnelProvider, setTunnelProvider] = useState(app.tunnel_provider ?? "cloudflare");
-  const [tunnelHostname, setTunnelHostname] = useState("");
+  const [tunnelMode, setTunnelMode] = useState<"quick" | "named">(app.tunnel_name ? "named" : "quick");
+  const [tunnelName, setTunnelName] = useState(app.tunnel_name ?? "");
+  const [tunnelHostname, setTunnelHostname] = useState(app.tunnel_custom_hostname ?? "");
+  const [availableTunnels, setAvailableTunnels] = useState<CloudflareTunnel[]>([]);
+  const [tunnelsError, setTunnelsError] = useState<string | null>(null);
+  const [tunnelsLoading, setTunnelsLoading] = useState(false);
+  const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  const [tsStatus, setTsStatus] = useState<TailscaleStatus | null>(null);
+  const [tsLoading, setTsLoading] = useState(false);
+
+  function copyCmd(cmd: string) {
+    navigator.clipboard.writeText(cmd).then(() => {
+      setCopiedCmd(cmd);
+      setTimeout(() => setCopiedCmd(null), 1500);
+    });
+  }
+
+  async function handleConnect() {
+    // Persist provider + tunnel config first so start_tunnel/start_tailscale_serve
+    // sees the latest values — avoids the "you have to Save before Connect" gotcha.
+    const newName = tunnelProvider === "cloudflare" && tunnelMode === "named"
+      ? (tunnelName.trim() || null)
+      : null;
+    const newHost = tunnelProvider === "cloudflare" && tunnelMode === "named"
+      ? (tunnelHostname.trim() || null)
+      : null;
+    const currentProvider = app.tunnel_provider ?? null;
+    const currentName = app.tunnel_name ?? null;
+    const currentHost = app.tunnel_custom_hostname ?? null;
+    if (tunnelProvider !== currentProvider || newName !== currentName || newHost !== currentHost) {
+      try {
+        await setTunnelConfig(app.id, tunnelProvider, newName, newHost);
+      } catch (e) {
+        window.alert(`Failed to save tunnel config: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
+    startTunnel(app.id, tunnelProvider);
+  }
+
+  async function refreshTailscale() {
+    setTsLoading(true);
+    try {
+      const status = await getTailscaleStatus();
+      setTsStatus(status);
+      // Reconcile: if tailscaled already has a serve entry for this app's port,
+      // mark the tunnel active so the UI reflects reality after a Porta restart.
+      if (status.installed && status.running && status.logged_in && status.host) {
+        try {
+          const serves = await listTailscaleServes();
+          const match = serves.find((s) => s.port === app.port);
+          if (match) {
+            const url = match.port === 443 ? `https://${status.host}` : `https://${status.host}:${match.port}`;
+            usePortaStore.setState((s) => ({
+              apps: s.apps.map((a) =>
+                a.id === app.id ? { ...a, tunnel_active: true, tunnel_url: url, tunnel_provider: "tailscale" } : a
+              ),
+            }));
+          }
+        } catch {
+          // Non-fatal — reconcile is best-effort.
+        }
+      }
+    } catch (e) {
+      setTsStatus({
+        installed: false, running: false, logged_in: false, host: null,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setTsLoading(false);
+    }
+  }
+
+  async function refreshTunnels() {
+    setTunnelsLoading(true);
+    setTunnelsError(null);
+    try {
+      const installed = await checkCloudflared();
+      setCloudflaredInstalled(installed);
+      if (!installed) {
+        setAvailableTunnels([]);
+        return;
+      }
+      const list = await listCloudflareTunnels();
+      setAvailableTunnels(list);
+    } catch (e) {
+      setTunnelsError(e instanceof Error ? e.message : String(e));
+      setAvailableTunnels([]);
+    } finally {
+      setTunnelsLoading(false);
+    }
+  }
+
+  // Lazy-load tunnels only when the user actually opens the Tunneling section
+  // in Named mode. Pre-loading on mount was spamming `cloudflared tunnel list`
+  // and made the modal feel slow for non-tunnel use.
+  useEffect(() => {
+    if (section === "tunneling" && tunnelProvider === "cloudflare" && tunnelMode === "named" && cloudflaredInstalled === null) {
+      refreshTunnels();
+    }
+    if (section === "tunneling" && tunnelProvider === "tailscale" && tsStatus === null) {
+      refreshTailscale();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, tunnelMode, tunnelProvider]);
 
   const [deleteTyped, setDeleteTyped] = useState("");
   const deleteInputRef = useRef<HTMLInputElement>(null);
@@ -76,7 +233,8 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     const bDomOk = !b.custom_domain || DOMAIN_RE.test(b.custom_domain);
     return b.label.trim() && bPortOk && bSubOk && bDomOk;
   });
-  const canSave = name.trim() && portValid && subdomainValid && customDomainValid && portBindingsValid;
+  const rootDirOk = (app.kind === "docker" || app.kind === "compose") ? true : !!rootDir.trim();
+  const canSave = name.trim() && rootDirOk && portValid && subdomainValid && customDomainValid && portBindingsValid;
 
   // Environment profiles
   const [envProfiles, setEnvProfiles] = useState<EnvProfile[]>(app.env_profiles ?? []);
@@ -118,6 +276,14 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     setDeleteProfileConfirm(null);
   }, [activeProfileId, app.env_file, app.env_vars]);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   // Port availability check (debounced) — skip if port unchanged from the app's current port
   const [portCheckResult, setPortCheckResult] = useState<PortCheckResult | null>(null);
   useEffect(() => {
@@ -152,6 +318,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     if (!canSave) return;
     setSaving(true);
     setSaveError(null);
+    await yieldToFrame();
     try {
       // Convert env vars array back to Record, skipping empty keys
       const env_vars: Record<string, string> = {};
@@ -177,6 +344,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
       await updateApp({
         id: app.id,
         name: name.trim(),
+        root_dir: rootDir.trim() !== app.root_dir ? rootDir.trim() : undefined,
         port: portNum,
         subdomain: subdomain.trim() || null,
         start_command: startCommand.trim(),
@@ -192,6 +360,15 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
         port_bindings: portBindings,
         env_profiles: finalProfiles,
         active_profile_id: activeProfileId,
+        docker_image: app.kind === "docker" ? (dockerImage.trim() || null) : null,
+        docker_container_port: app.kind === "docker" ? (parseInt(dockerContainerPort, 10) || null) : null,
+        docker_args: app.kind === "docker" ? (dockerArgs.trim() || null) : null,
+        docker_volumes: app.kind === "docker" ? dockerVolumes.filter((v) => v.trim()) : [],
+        compose_file: app.kind === "compose" && composeMode === "file" ? (composeFile.trim() || null) : null,
+        compose_yaml: app.kind === "compose" && composeMode === "paste" ? composeYaml : null,
+        network_share: (app.kind === "docker" || app.kind === "compose") ? networkShare : false,
+        tunnel_name: tunnelMode === "named" ? (tunnelName.trim() || null) : null,
+        tunnel_custom_hostname: tunnelMode === "named" ? (tunnelHostname.trim() || null) : null,
       });
       onClose();
     } catch (e) {
@@ -199,6 +376,17 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function browseRootDir() {
+    let selected: string | null = null;
+    if (isTauri) {
+      const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
+      selected = await openDialog({ directory: true, multiple: false }).catch(() => null) as string | null;
+    } else {
+      selected = window.prompt("Enter project folder path:", rootDir);
+    }
+    if (typeof selected === "string" && selected) setRootDir(selected);
   }
 
   async function browseEnvFile() {
@@ -221,11 +409,16 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     onClose();
   }
 
+  const isStatic = app.kind === "static";
+  const isDocker = app.kind === "docker";
+  const isCompose = app.kind === "compose";
+  // Env vars only apply to processes. Tunneling works for static too — Porta
+  // routes cloudflared through Caddy for those.
   const NAV: { id: Section; label: string }[] = [
     { id: "general",     label: "General" },
     { id: "domain",      label: "Domain" },
-    { id: "environment", label: "Environment" },
-    { id: "tunneling",   label: "Tunneling" },
+    ...(isStatic ? [] : [{ id: "environment" as Section, label: "Environment" }]),
+    { id: "tunneling"   as Section, label: "Tunneling" },
     { id: "danger",      label: "Danger Zone" },
   ];
 
@@ -233,6 +426,16 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
     <div className="fixed inset-0 bg-[#111113] text-zinc-100 font-sans flex h-screen overflow-hidden z-50">
       {/* Drag region */}
       <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
+      {/* Close button */}
+      <button
+        onClick={onClose}
+        className="fixed top-2 right-3 z-20 p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.07] transition-colors no-drag"
+        title="Close (Esc)"
+      >
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M2 2l9 9M11 2L2 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      </button>
 
       {/* Sidebar */}
       <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-8 pb-3 shrink-0">
@@ -255,7 +458,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
         </div>
         <div className="px-4 mb-3">
           <p className="text-[11px] text-zinc-600 truncate">
-            {workspace?.domain ?? "standalone"} · :{app.port}
+            {workspace?.domain ?? "standalone"} · {app.kind === "static" ? "static" : `:${app.port}`}
           </p>
         </div>
 
@@ -293,43 +496,211 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
               </div>
 
               <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+                {isStatic && (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                    <span className="text-[10px] font-semibold tracking-wider text-blue-300 mt-0.5">STATIC</span>
+                    <p className="text-[11px] text-blue-200/80">
+                      Caddy serves files directly from the root directory — no process,
+                      no port, no start command.
+                    </p>
+                  </div>
+                )}
+                {isDocker && (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-sky-500/10 border border-sky-500/20">
+                    <span className="text-[10px] font-semibold tracking-wider text-sky-300 mt-0.5">DOCKER</span>
+                    <p className="text-[11px] text-sky-200/80">
+                      Porta runs container <code className="font-mono">porta-{app.id.slice(0, 8)}…</code>.
+                      Host port maps to the container port below.
+                    </p>
+                  </div>
+                )}
+                {isCompose && (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-teal-500/10 border border-teal-500/20">
+                    <span className="text-[10px] font-semibold tracking-wider text-teal-300 mt-0.5">COMPOSE</span>
+                    <p className="text-[11px] text-teal-200/80">
+                      Porta runs <code className="font-mono">docker compose up/down</code> in project <code className="font-mono">porta-{app.id.slice(0, 8)}…</code>. Port should match what compose publishes.
+                    </p>
+                  </div>
+                )}
                 <Field label="Name">
                   <input spellCheck={false} value={name} onChange={(e) => setName(e.target.value)}
                     className="input-base" placeholder="My App" />
                 </Field>
 
-                <Field label="Port" hint={!portValid && port ? "Must be 1-65535" : undefined}>
-                  <input spellCheck={false} value={port} onChange={(e) => setPort(e.target.value)}
-                    className={`input-base ${!portValid && port ? "border-red-500/50" : ""}`}
-                    placeholder="3000" type="number" min={1} max={65535} />
-                  {portCheckResult && portValid && (
-                    <p className={`text-[10px] mt-1 ${portCheckResult.available ? "text-emerald-400" : "text-amber-400"}`}>
-                      {portCheckResult.available
-                        ? "✓ Port available"
-                        : `⚠ Port in use by ${portCheckResult.process_name ?? "unknown"} (PID ${portCheckResult.pid ?? "?"})`}
+                {!isStatic && (
+                  <Field label={isDocker ? "Host Port" : isCompose ? "Proxy Port" : "Port"} hint={!portValid && port ? "Must be 1-65535" : undefined}>
+                    <input spellCheck={false} value={port} onChange={(e) => setPort(e.target.value)}
+                      className={`input-base ${!portValid && port ? "border-red-500/50" : ""}`}
+                      placeholder="3000" type="number" min={1} max={65535} />
+                    {portCheckResult && portValid && (
+                      <p className={`text-[10px] mt-1 ${portCheckResult.available ? "text-emerald-400" : "text-amber-400"}`}>
+                        {portCheckResult.available
+                          ? "✓ Port available"
+                          : `⚠ Port in use by ${portCheckResult.process_name ?? "unknown"} (PID ${portCheckResult.pid ?? "?"})`}
+                      </p>
+                    )}
+                  </Field>
+                )}
+
+                {isCompose && (
+                  <Field label="Compose Source">
+                    <div className="flex gap-1 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1 mb-2">
+                      {(["paste", "file"] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setComposeMode(m)}
+                          className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
+                            composeMode === m ? "bg-white/[0.08] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                          }`}
+                        >
+                          {m === "paste" ? "Paste YAML" : "File on disk"}
+                        </button>
+                      ))}
+                    </div>
+                    {composeMode === "file" ? (
+                      <>
+                        <input spellCheck={false} value={composeFile} onChange={(e) => setComposeFile(e.target.value)}
+                          className="input-base font-mono text-[12px]" placeholder="docker-compose.yml" />
+                        <p className="text-[10px] text-zinc-600 mt-1">Relative to Root Directory, or absolute.</p>
+                      </>
+                    ) : (
+                      <>
+                        <YamlEditor
+                          value={composeYaml}
+                          onChange={setComposeYaml}
+                          placeholder={`services:\n  app:\n    image: postgres:16\n    ports:\n      - "5432:5432"`}
+                          rows={20}
+                          errorLine={composeErrorLine}
+                          errorMessage={composeError ?? undefined}
+                        />
+                        {composeError && (
+                          <div className="mt-2 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                            {composeError}
+                          </div>
+                        )}
+                        <p className="text-[10px] text-zinc-600 mt-1">
+                          Porta manages <code className="font-mono">~/.porta/compose/&lt;id&gt;/docker-compose.yml</code>. Restart app after edits.
+                        </p>
+                      </>
+                    )}
+                  </Field>
+                )}
+
+                {isDocker && (
+                  <>
+                    <Field label="Image">
+                      <input spellCheck={false} value={dockerImage} onChange={(e) => setDockerImage(e.target.value)}
+                        className="input-base font-mono text-[12px]" placeholder="e.g. postgres:16" />
+                    </Field>
+                    <Field label="Container Port">
+                      <input spellCheck={false} value={dockerContainerPort} onChange={(e) => setDockerContainerPort(e.target.value)}
+                        className="input-base" placeholder="80" type="number" min={1} max={65535} />
+                      <p className="text-[10px] text-zinc-600 mt-1">Internal port the container listens on.</p>
+                    </Field>
+                    <Field label="Volumes">
+                      <div className="flex flex-col gap-1.5">
+                        {dockerVolumes.map((v, i) => (
+                          <div key={i} className="flex gap-2">
+                            <input
+                              spellCheck={false}
+                              value={v}
+                              onChange={(e) => setDockerVolumes((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+                              placeholder="./data:/var/lib/data"
+                              className="input-base flex-1 font-mono text-[12px]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setDockerVolumes((prev) => prev.map((x, j) => (j === i ? volumeTemplate(name) : x)))}
+                              className="px-2.5 text-zinc-500 hover:text-zinc-200 border border-white/[0.08] rounded-lg text-[11px] shrink-0"
+                              title={`Fill with ${volumeTemplate(name)}`}
+                            >
+                              base
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDockerVolumes((prev) => prev.filter((_, j) => j !== i))}
+                              className="px-2.5 text-zinc-500 hover:text-red-400 border border-white/[0.08] rounded-lg text-[14px] shrink-0"
+                              title="Remove"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setDockerVolumes((prev) => [...prev, ""])}
+                          className="self-start px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 border border-dashed border-white/[0.12] rounded-md"
+                        >
+                          + Add volume
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-zinc-600 mt-1">
+                        <code className="font-mono">source:target</code> — relative sources resolve against Root Directory.
+                      </p>
+                    </Field>
+                    <Field label="Extra Args">
+                      <input spellCheck={false} value={dockerArgs} onChange={(e) => setDockerArgs(e.target.value)}
+                        className="input-base font-mono text-[12px]" placeholder="-e DEBUG=true --network my-net" />
+                    </Field>
+                  </>
+                )}
+
+                {!isStatic && !isDocker && !isCompose && (
+                  <Field label="Start Command">
+                    <input spellCheck={false} value={startCommand} onChange={(e) => setStartCommand(e.target.value)}
+                      className="input-base font-mono text-[12px]" placeholder="mix phx.server" />
+                  </Field>
+                )}
+
+                <Field label={isDocker ? "Root Directory (optional)" : isCompose ? "Compose Project Folder" : "Root Directory"}>
+                  <div className="flex gap-2">
+                    <input
+                      spellCheck={false}
+                      value={rootDir}
+                      onChange={(e) => setRootDir(e.target.value)}
+                      className="input-base flex-1 font-mono text-[12px]"
+                      placeholder={isDocker ? "Base for relative volume paths" : isCompose ? "Folder containing compose file" : "/path/to/project"}
+                    />
+                    <button
+                      type="button"
+                      onClick={browseRootDir}
+                      className="px-3 py-2 text-[12px] text-zinc-400 bg-white/[0.05] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] hover:text-zinc-200 transition-colors shrink-0"
+                    >
+                      Browse
+                    </button>
+                  </div>
+                </Field>
+
+                {(isDocker || isCompose) && (
+                  <Field label="Workspace Network">
+                    <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={networkShare}
+                        onChange={(e) => setNetworkShare(e.target.checked)}
+                        className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+                      />
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[12px] text-zinc-200">Join shared network</span>
+                        <span className="text-[11px] text-zinc-500">
+                          Network <code className="font-mono">{app.workspace_id ? `porta-ws-${app.workspace_id.slice(0, 8)}…` : "porta-standalone"}</code>.
+                          Restart app to apply.
+                        </span>
+                      </div>
+                    </label>
+                  </Field>
+                )}
+
+                {!isStatic && (
+                  <Field label="Health Check Path">
+                    <input spellCheck={false} value={healthCheckPath} onChange={(e) => setHealthCheckPath(e.target.value)}
+                      className="input-base" placeholder="/health" />
+                    <p className="text-[10px] text-zinc-600 mt-1">
+                      Leave blank to use port-only detection
                     </p>
-                  )}
-                </Field>
-
-                <Field label="Start Command">
-                  <input spellCheck={false} value={startCommand} onChange={(e) => setStartCommand(e.target.value)}
-                    className="input-base font-mono text-[12px]" placeholder="mix phx.server" />
-                </Field>
-
-                <Field label="Root Directory">
-                  <p className="text-[12px] text-zinc-400 font-mono truncate bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2">
-                    {app.root_dir}
-                  </p>
-                </Field>
-
-                {/* Health check path (from agent-a7a6ec3b) */}
-                <Field label="Health Check Path">
-                  <input spellCheck={false} value={healthCheckPath} onChange={(e) => setHealthCheckPath(e.target.value)}
-                    className="input-base" placeholder="/health" />
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    Leave blank to use port-only detection
-                  </p>
-                </Field>
+                  </Field>
+                )}
               </div>
 
               {/* Start After (dependencies) (from agent-a7a6ec3b) */}
@@ -379,8 +750,14 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   <button
                     onClick={handleSave}
                     disabled={!canSave || saving}
-                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1.5"
                   >
+                    {saving && (
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                        <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
                     {saving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
@@ -584,8 +961,14 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   <button
                     onClick={handleSave}
                     disabled={!canSave || saving}
-                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1.5"
                   >
+                    {saving && (
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                        <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
                     {saving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
@@ -763,8 +1146,14 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   <button
                     onClick={handleSave}
                     disabled={!canSave || saving}
-                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+                    className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1.5"
                   >
+                    {saving && (
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                        <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
                     {saving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
@@ -788,9 +1177,11 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                       <select
                         value={tunnelProvider}
                         onChange={(e) => setTunnelProvider(e.target.value)}
-                        className="w-full appearance-none bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors pr-8 cursor-pointer"
+                        disabled={app.tunnel_active}
+                        className="w-full appearance-none bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors pr-8 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <option value="cloudflare">Cloudflare</option>
+                        <option value="tailscale">Tailscale</option>
                       </select>
                       <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" width="10" height="10" viewBox="0 0 10 10" fill="none">
                         <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -840,18 +1231,245 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   </div>
                 )}
 
-                {!app.tunnel_active && (
-                  <Field label="Public Hostname (optional)">
-                    <input spellCheck={false}
-                      value={tunnelHostname}
-                      onChange={(e) => setTunnelHostname(e.target.value)}
-                      className="input-base font-mono text-[12px]"
-                      placeholder="myapp.example.com"
-                    />
-                    <p className="text-[10px] text-zinc-600 mt-1">
-                      Leave empty for a random <code className="text-zinc-500">*.trycloudflare.com</code> URL.
-                    </p>
+                {!app.tunnel_active && tunnelProvider === "cloudflare" && (
+                  <Field label="Mode">
+                    <div className="flex gap-1 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1 mb-2">
+                      {(["quick", "named"] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setTunnelMode(m)}
+                          className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
+                            tunnelMode === m ? "bg-white/[0.08] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                          }`}
+                        >
+                          {m === "quick" ? "Quick (random URL)" : "Named (custom domain)"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {tunnelMode === "named" && (() => {
+                      const needsInstall = cloudflaredInstalled === false;
+                      const needsLogin =
+                        cloudflaredInstalled === true &&
+                        !!tunnelsError &&
+                        (tunnelsError.toLowerCase().includes("login") ||
+                          tunnelsError.toLowerCase().includes("unauthorized") ||
+                          tunnelsError.toLowerCase().includes("not logged in"));
+                      const needsCreateTunnel =
+                        cloudflaredInstalled === true &&
+                        !tunnelsError &&
+                        availableTunnels.length === 0 &&
+                        !tunnelsLoading;
+
+                      return (
+                        <div className="flex flex-col gap-3 mt-2">
+                          {/* Step 1 — install cloudflared */}
+                          {needsInstall && (
+                            <SetupCard
+                              step={1}
+                              title="Install cloudflared"
+                              body="Porta couldn't find the cloudflared CLI on your machine."
+                              cmd="brew install cloudflare/cloudflare/cloudflared"
+                              copied={copiedCmd}
+                              onCopy={copyCmd}
+                              onRecheck={refreshTunnels}
+                              recheckLabel="I've installed it"
+                            />
+                          )}
+
+                          {/* Step 2 — login */}
+                          {needsLogin && (
+                            <SetupCard
+                              step={2}
+                              title="Log in to Cloudflare"
+                              body="Run this once — opens your browser for the OAuth flow."
+                              cmd="cloudflared login"
+                              copied={copiedCmd}
+                              onCopy={copyCmd}
+                              onRecheck={refreshTunnels}
+                              recheckLabel="I've logged in"
+                            />
+                          )}
+
+                          {/* Step 3 — create first tunnel */}
+                          {needsCreateTunnel && (
+                            <SetupCard
+                              step={3}
+                              title="Create your first tunnel"
+                              body="Give it any name — you'll see it in the dropdown after."
+                              cmd="cloudflared tunnel create porta"
+                              copied={copiedCmd}
+                              onCopy={copyCmd}
+                              onRecheck={refreshTunnels}
+                              recheckLabel="I've created it"
+                            />
+                          )}
+
+                          {/* Ready state — show form */}
+                          {!needsInstall && !needsLogin && !needsCreateTunnel && (
+                            <>
+                              <div>
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-[11px] font-medium text-zinc-400">Cloudflare Tunnel</span>
+                                  <button
+                                    type="button"
+                                    onClick={refreshTunnels}
+                                    disabled={tunnelsLoading}
+                                    className="text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-50"
+                                  >
+                                    {tunnelsLoading ? "Loading…" : "↻ Refresh"}
+                                  </button>
+                                </div>
+                                {tunnelsLoading && availableTunnels.length === 0 ? (
+                                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-zinc-500">
+                                    <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
+                                      <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                    </svg>
+                                    Loading tunnels…
+                                  </div>
+                                ) : availableTunnels.length > 0 ? (
+                                  <div className="relative">
+                                    <select
+                                      value={tunnelName}
+                                      onChange={(e) => setTunnelName(e.target.value)}
+                                      className="w-full appearance-none bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors pr-8 cursor-pointer"
+                                    >
+                                      <option value="">Select a tunnel…</option>
+                                      {availableTunnels.map((t) => (
+                                        <option key={t.id} value={t.name}>
+                                          {t.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                      <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  </div>
+                                ) : (
+                                  <input
+                                    spellCheck={false}
+                                    value={tunnelName}
+                                    onChange={(e) => setTunnelName(e.target.value)}
+                                    className="input-base font-mono text-[12px]"
+                                    placeholder="my-tunnel-name"
+                                  />
+                                )}
+                                {tunnelsError && (
+                                  <p className="text-[10px] text-amber-400 mt-1 font-mono whitespace-pre-wrap">{tunnelsError}</p>
+                                )}
+                              </div>
+
+                              <div>
+                                <span className="text-[11px] font-medium text-zinc-400 block mb-1.5">Hostname</span>
+                                <input
+                                  spellCheck={false}
+                                  value={tunnelHostname}
+                                  onChange={(e) => setTunnelHostname(e.target.value)}
+                                  className="input-base font-mono text-[12px]"
+                                  placeholder="myapp.example.com"
+                                />
+                                <p className="text-[10px] text-zinc-600 mt-1">
+                                  DNS route auto-created on Connect (domain must be in your Cloudflare zone).
+                                </p>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </Field>
+                )}
+
+                {!app.tunnel_active && tunnelProvider === "tailscale" && (() => {
+                  if (tsLoading && tsStatus === null) {
+                    return (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-zinc-500">
+                        <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
+                          <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                        Checking Tailscale…
+                      </div>
+                    );
+                  }
+                  if (!tsStatus || !tsStatus.installed) {
+                    return (
+                      <SetupCard
+                        step={1}
+                        title="Install Tailscale"
+                        body="Porta couldn't find the tailscale CLI. Install Tailscale from tailscale.com/download, or via Homebrew."
+                        cmd="brew install tailscale"
+                        copied={copiedCmd}
+                        onCopy={copyCmd}
+                        onRecheck={refreshTailscale}
+                        recheckLabel="I've installed it"
+                      />
+                    );
+                  }
+                  if (!tsStatus.running || !tsStatus.logged_in) {
+                    return (
+                      <SetupCard
+                        step={2}
+                        title="Start and log in to Tailscale"
+                        body="Open the Tailscale app and sign in, or run:"
+                        cmd="tailscale up"
+                        copied={copiedCmd}
+                        onCopy={copyCmd}
+                        onRecheck={refreshTailscale}
+                        recheckLabel="I've logged in"
+                      />
+                    );
+                  }
+                  const previewHost = tsStatus.host ?? "your-device.tail-xxxx.ts.net";
+                  const previewPort = parseInt(port, 10) || app.port;
+                  const previewUrl = previewPort === 443
+                    ? `https://${previewHost}`
+                    : `https://${previewHost}:${previewPort}`;
+                  return (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span className="text-[11px] text-emerald-300">
+                            Tailscale connected as <span className="font-mono">{previewHost}</span>
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={refreshTailscale}
+                          className="text-[10px] text-emerald-400/70 hover:text-emerald-300 transition-colors"
+                        >
+                          ↻ Refresh
+                        </button>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08]">
+                        <p className="text-[10px] text-zinc-500 mb-1">Your tailnet URL will be:</p>
+                        <p className="font-mono text-[12px] text-zinc-200 break-all">{previewUrl}</p>
+                        <p className="text-[10px] text-zinc-600 mt-2 leading-relaxed">
+                          Only devices logged into your tailnet can reach this URL.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {tunnelError && !app.tunnel_active && (
+                  <div className="relative px-3 py-2 pr-14 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                    {tunnelError}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(tunnelError).then(() => {
+                          setTunnelErrorCopied(true);
+                          setTimeout(() => setTunnelErrorCopied(false), 1500);
+                        });
+                      }}
+                      className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded bg-red-500/20 hover:bg-red-500/30 text-red-200 transition-colors"
+                      style={{ color: tunnelErrorCopied ? "#a3e635" : undefined }}
+                    >
+                      {tunnelErrorCopied ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
                 )}
 
                 <div className="flex gap-2">
@@ -864,10 +1482,16 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                     </button>
                   ) : (
                     <button
-                      onClick={() => startTunnel(app.id)}
-                      className="px-4 py-2 text-[13px] font-medium text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
+                      onClick={handleConnect}
+                      disabled={
+                        (tunnelProvider === "cloudflare" && tunnelMode === "named" && (!tunnelName.trim() || !tunnelHostname.trim())) ||
+                        (tunnelProvider === "tailscale" && (!tsStatus || !tsStatus.installed || !tsStatus.running || !tsStatus.logged_in))
+                      }
+                      className="px-4 py-2 text-[13px] font-medium text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Quick Tunnel
+                      {tunnelProvider === "tailscale"
+                        ? "Connect"
+                        : tunnelMode === "named" ? "Connect" : "Quick Tunnel"}
                     </button>
                   )}
                 </div>

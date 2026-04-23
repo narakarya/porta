@@ -8,6 +8,11 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tidewave()],
+  define: {
+    __BUILD_TAG__: JSON.stringify(
+      new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z"
+    ),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

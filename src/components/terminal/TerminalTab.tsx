@@ -9,12 +9,16 @@ interface Props {
   appId: string;
   rootDir: string;
   visible: boolean;
+  startupCommand?: string | null;
+  onOutput?: () => void;
 }
 
-export default function TerminalTab({ appId, rootDir, visible }: Props) {
+export default function TerminalTab({ appId, rootDir, visible, startupCommand, onOutput }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const onOutputRef = useRef(onOutput);
+  onOutputRef.current = onOutput;
 
   // Force xterm canvas repaint when the tab becomes visible after being hidden.
   // display:none → block doesn't auto-repaint the WebGL/canvas renderer.
@@ -72,7 +76,7 @@ export default function TerminalTab({ appId, rootDir, visible }: Props) {
     requestAnimationFrame(() => {
       fitAddon.fit();
       const dims = fitAddon.proposeDimensions();
-      if (dims) terminalOpen(appId, rootDir, dims.rows, dims.cols).catch(console.error);
+      if (dims) terminalOpen(appId, rootDir, dims.rows, dims.cols, startupCommand ?? null).catch(console.error);
     });
 
     termRef.current = term;
@@ -92,7 +96,9 @@ export default function TerminalTab({ appId, rootDir, visible }: Props) {
     if (isTauri) {
       Promise.all([
         listen<number[]>(`terminal:data:${appId}`, (e) => {
-          if (mounted) term.write(new Uint8Array(e.payload));
+          if (!mounted) return;
+          term.write(new Uint8Array(e.payload));
+          onOutputRef.current?.();
         }),
         listen<void>(`terminal:exit:${appId}`, () => {
           if (mounted) term.writeln("\r\n\x1b[90m— shell exited —\x1b[0m");

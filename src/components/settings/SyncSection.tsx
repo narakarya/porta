@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { gitSyncGetRepo, gitSyncSetRepo, gitSyncTest, gitSyncPush, gitSyncDisconnect } from "../../lib/commands";
+import { yieldToFrame } from "../../lib/ui";
 
 type SyncStatus = "idle" | "connected" | "syncing" | "synced" | "error";
 
@@ -30,7 +31,7 @@ export default function SyncSection() {
     setSaving(true);
     setSyncError(null);
     setSaveSuccess(false);
-    await new Promise((r) => requestAnimationFrame(r));
+    await yieldToFrame();
     try {
       await gitSyncSetRepo(gitRepoUrl.trim());
       setSavedUrl(gitRepoUrl.trim());
@@ -49,7 +50,7 @@ export default function SyncSection() {
     setTesting(true);
     setSyncError(null);
     setTestSuccess(false);
-    await new Promise((r) => requestAnimationFrame(r));
+    await yieldToFrame();
     try {
       await gitSyncTest();
       setTestSuccess(true);
@@ -65,7 +66,7 @@ export default function SyncSection() {
   async function handleSyncNow() {
     setSyncStatus("syncing");
     setSyncError(null);
-    await new Promise((r) => requestAnimationFrame(r));
+    await yieldToFrame();
     try {
       const ts = await gitSyncPush();
       if (ts.startsWith("No changes")) {

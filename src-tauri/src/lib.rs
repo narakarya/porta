@@ -9,6 +9,7 @@ pub mod dns;
 pub mod port_check;
 pub mod port_scanner;
 pub mod process_manager;
+pub mod docker_manager;
 pub mod compose_parser;
 pub mod health;
 pub mod porta_config;
@@ -93,23 +94,60 @@ pub fn run() {
 
     let db = Database::open(db_path.clone()).expect("failed to open database");
 
-    // Mark apps as stopped if their recorded PID is no longer alive.
+    let docker_mgr = docker_manager::DockerManager::new();
+
+    // Mark apps as stopped if their recorded PID/container is no longer alive.
     // This fixes stale "running" state after Porta crashes or is force-quit.
+    // For docker apps whose containers are still running, adopt them so stop/metrics work.
     if let Ok(apps) = db.list_apps() {
         for app in apps.iter().filter(|a| a.status == "running") {
-            let alive = app.pid.is_some_and(|pid| {
-                // kill(pid, 0) = existence check — Ok if process is alive
-                kill(Pid::from_raw(pid as i32), None).is_ok()
-            });
-            if !alive {
+            let alive = if app.is_compose() {
+                // Any container still running under this compose project means it's alive.
+                let project = docker_manager::DockerManager::compose_project(&app.id);
+                std::process::Command::new(docker_manager::docker_bin())
+                    .args(["ps", "-q", "-f", &format!("label=com.docker.compose.project={}", project)])
+                    .output()
+                    .ok()
+                    .map(|o| !o.stdout.is_empty())
+                    .unwrap_or(false)
+            } else if app.is_docker() {
+                let name = docker_manager::DockerManager::container_name(&app.id);
+                std::process::Command::new(docker_manager::docker_bin())
+                    .args(["inspect", "-f", "{{.State.Running}}", &name])
+                    .output()
+                    .ok()
+                    .and_then(|o| {
+                        if o.status.success() {
+                            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|s| s == "true")
+                    .unwrap_or(false)
+            } else {
+                app.pid.is_some_and(|pid| {
+                    kill(Pid::from_raw(pid as i32), None).is_ok()
+                })
+            };
+            if alive {
+                if app.is_docker() || app.is_compose() {
+                    docker_mgr.adopt(&app.id);
+                }
+            } else {
                 db.update_app_status(&app.id, "stopped", None).ok();
             }
         }
     }
 
+    // Re-hydrate Tailscale Serve tracking from tailscaled so Disconnect works
+    // after a Porta restart. No-op if tailscale isn't installed/running.
+    commands::reconcile_on_startup(&db);
+
     let state = AppState {
         db: Mutex::new(db),
         processes: ProcessManager::new(),
+        docker: docker_mgr,
         caddy: CaddyManager::new(),
         db_path: db_path.clone(),
     };
@@ -148,6 +186,7 @@ pub fn run() {
             commands::save_file,
             commands::reveal_in_finder,
             commands::open_in_editor,
+            commands::get_git_status,
             commands::start_app,
             commands::stop_app,
             commands::restart_app,
@@ -166,10 +205,13 @@ pub fn run() {
             commands::get_porta_env,
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
+            commands::get_cf_api_token,
+            commands::set_cf_api_token,
             commands::caddy_status,
             commands::list_available_commands,
             commands::check_kamal,
             commands::kamal_run,
+            commands::kamal_cancel,
             commands::install_kamal,
             commands::parse_kamal_accessories,
             commands::add_deploy_custom_cmd,
@@ -188,8 +230,19 @@ pub fn run() {
             commands::start_service,
             commands::stop_service,
             commands::check_cloudflared,
+            commands::list_cloudflare_tunnels,
+            commands::create_cloudflare_tunnel,
+            commands::delete_cloudflare_tunnel,
+            commands::route_tunnel_dns,
+            commands::list_tunnel_dns,
+            commands::set_tunnel_config,
             commands::start_tunnel,
             commands::stop_tunnel,
+            commands::check_tailscale,
+            commands::tailscale_status,
+            commands::list_tailscale_serves,
+            commands::start_tailscale_serve,
+            commands::stop_tailscale_serve,
             commands::get_launch_at_login,
             commands::set_launch_at_login,
             commands::git_sync_check,
@@ -205,6 +258,9 @@ pub fn run() {
             commands::start_workspace_apps,
             commands::stop_workspace_apps,
             commands::parse_docker_compose,
+            commands::parse_compose_string,
+            commands::save_compose_yaml,
+            commands::load_compose_yaml,
             commands::export_porta_config,
             commands::import_porta_config,
         ])
@@ -250,7 +306,9 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                app.state::<AppState>().processes.stop_all();
+                let state = app.state::<AppState>();
+                state.processes.stop_all();
+                state.docker.stop_all();
             }
         });
 }

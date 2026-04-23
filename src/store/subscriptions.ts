@@ -123,6 +123,13 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         cmd.markAppReady(app.id).catch(() => {});
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
+      // Docker/compose start errors arrive here (image pull fail, invalid yml, etc.)
+      listen<string>(`app:start-failed:${app.id}`, (e) => {
+        const msg = e.payload || "Failed to start";
+        const short = msg.length > 400 ? `${msg.slice(0, 400)}…\n\n(see logs for full output)` : msg;
+        window.alert(`Failed to start ${app.name}:\n\n${short}`);
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
       // Auto-restart: crashed and retrying
       listen<{ exit_code: number; attempt: number; max: number }>(`app:crashed:${app.id}`, (e) => {
         set((s) => ({

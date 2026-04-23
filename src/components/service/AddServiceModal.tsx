@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
 import ModalWrapper from "../shared/ModalWrapper";
+import { yieldToFrame } from "../../lib/ui";
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
@@ -271,6 +272,7 @@ export default function AddServiceModal({ onClose }: Props) {
     e.preventDefault();
     if (!name || !image) return;
     setSubmitting(true);
+    await yieldToFrame();
     try {
       await addService({ name, image, tag, port, env_vars: toEnvRecord(), volumes: toVolumeStrings(), scope });
       onClose();
@@ -424,7 +426,12 @@ export default function AddServiceModal({ onClose }: Props) {
             disabled={submitting || !showForm || !name || !image}
             className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
           >
-            {submitting && <span className="w-3.5 h-3.5 border border-white/50 border-t-transparent rounded-full animate-spin" />}
+            {submitting && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
             {submitting ? "Adding..." : "Add Service"}
           </button>
         </div>

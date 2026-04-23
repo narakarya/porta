@@ -3,11 +3,13 @@ use std::sync::Mutex;
 
 use crate::caddy::CaddyManager;
 use crate::db::Database;
+use crate::docker_manager::DockerManager;
 use crate::process_manager::ProcessManager;
 
 pub struct AppState {
     pub db: Mutex<Database>,
     pub processes: ProcessManager,
+    pub docker: DockerManager,
     pub caddy: CaddyManager,
     pub db_path: PathBuf,
 }

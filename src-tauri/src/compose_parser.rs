@@ -73,8 +73,11 @@ enum RawCommand {
 pub fn parse_compose(path: &str) -> Result<ComposeProject, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path, e))?;
+    parse_compose_str(&content)
+}
 
-    let raw: RawCompose = serde_yaml::from_str(&content)
+pub fn parse_compose_str(content: &str) -> Result<ComposeProject, String> {
+    let raw: RawCompose = serde_yaml::from_str(content)
         .map_err(|e| format!("Failed to parse YAML: {}", e))?;
 
     let raw_services = raw.services.unwrap_or_default();

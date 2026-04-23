@@ -6,6 +6,29 @@ use std::path::Path;
 pub struct DetectResult {
     pub command: String,
     pub source: String,
+    /// "process" (default) or "static". Static is detected when `index.html`
+    /// exists at the root and there is no `package.json`/`yarn.lock`/`pnpm-lock.yaml`
+    /// — i.e. the folder looks like plain HTML rather than a JS project.
+    #[serde(default = "default_kind")]
+    pub kind: String,
+}
+
+fn default_kind() -> String { "process".into() }
+
+/// Returns "static" if the folder looks like a plain static site
+/// (index.html present and no JS/Ruby/Elixir project files), else "process".
+pub fn detect_kind(root: &Path) -> String {
+    let has_index = root.join("index.html").exists();
+    if !has_index {
+        return "process".into();
+    }
+    let has_project_files = root.join("package.json").exists()
+        || root.join("yarn.lock").exists()
+        || root.join("pnpm-lock.yaml").exists()
+        || root.join("mix.exs").exists()
+        || root.join("Gemfile").exists()
+        || root.join("Procfile").exists();
+    if has_project_files { "process".into() } else { "static".into() }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,18 +110,25 @@ pub fn list_commands(root: &Path) -> Vec<CommandSuggestion> {
 }
 
 pub fn detect(root: &Path) -> DetectResult {
+    let kind = detect_kind(root);
+
+    // Static folder — no command needed; Caddy serves it directly.
+    if kind == "static" {
+        return DetectResult { command: "".into(), source: "auto".into(), kind };
+    }
+
     if root.join("mix.exs").exists() {
-        return DetectResult { command: "mix phx.server".into(), source: "auto".into() };
+        return DetectResult { command: "mix phx.server".into(), source: "auto".into(), kind };
     }
 
     if let Ok(raw) = fs::read_to_string(root.join("package.json")) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
             let scripts = &json["scripts"];
             if scripts["dev"].is_string() {
-                return DetectResult { command: "npm run dev".into(), source: "auto".into() };
+                return DetectResult { command: "npm run dev".into(), source: "auto".into(), kind };
             }
             if scripts["start"].is_string() {
-                return DetectResult { command: "npm start".into(), source: "auto".into() };
+                return DetectResult { command: "npm start".into(), source: "auto".into(), kind };
             }
         }
     }
@@ -108,7 +138,7 @@ pub fn detect(root: &Path) -> DetectResult {
             if let Some(line) = content.lines().next() {
                 let cmd = line.split_once(':').map(|(_, v)| v.trim()).unwrap_or("").to_string();
                 if !cmd.is_empty() {
-                    return DetectResult { command: cmd, source: "auto".into() };
+                    return DetectResult { command: cmd, source: "auto".into(), kind };
                 }
             }
         }
@@ -116,11 +146,11 @@ pub fn detect(root: &Path) -> DetectResult {
 
     if let Ok(content) = fs::read_to_string(root.join("Makefile")) {
         if content.contains("\ndev:") || content.starts_with("dev:") {
-            return DetectResult { command: "make dev".into(), source: "auto".into() };
+            return DetectResult { command: "make dev".into(), source: "auto".into(), kind };
         }
     }
 
-    DetectResult { command: "".into(), source: "manual".into() }
+    DetectResult { command: "".into(), source: "manual".into(), kind }
 }
 
 #[cfg(test)]
@@ -168,5 +198,25 @@ mod tests {
         let result = detect(dir.path());
         assert_eq!(result.source, "manual");
         assert_eq!(result.command, "");
+        assert_eq!(result.kind, "process");
+    }
+
+    #[test]
+    fn test_detects_static_when_only_index_html() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
+        let result = detect(dir.path());
+        assert_eq!(result.kind, "static");
+        assert_eq!(result.command, "");
+    }
+
+    #[test]
+    fn test_index_html_with_package_json_is_process() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("index.html"), "<h1>hi</h1>").unwrap();
+        fs::write(dir.path().join("package.json"), r#"{"scripts":{"dev":"vite"}}"#).unwrap();
+        let result = detect(dir.path());
+        assert_eq!(result.kind, "process");
+        assert_eq!(result.command, "npm run dev");
     }
 }

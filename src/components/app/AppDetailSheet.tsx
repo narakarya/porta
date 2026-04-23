@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { App, Workspace } from "../../types";
 import { usePortaStore } from "../../store";
+import { revealInFinder } from "../../lib/commands";
 
 interface Props {
   app: App;
   workspace: Workspace | null;
   onClose: () => void;
   onOpenSettings?: () => void;
-  onOpenTerminal?: () => void;
+  onOpenTerminal?: (startupCommand?: string) => void;
   onOpenDeploy?: () => void;
 }
 
@@ -87,7 +88,7 @@ function OverviewTab({ app, workspace, onOpenSettings, onOpenTerminal, onOpenDep
   app: App;
   workspace: Workspace | null;
   onOpenSettings?: () => void;
-  onOpenTerminal?: () => void;
+  onOpenTerminal?: (startupCommand?: string) => void;
   onOpenDeploy?: () => void;
 }) {
   const domain = app.custom_domain || workspace?.domain || "narakarya.test";
@@ -186,7 +187,7 @@ function OverviewTab({ app, workspace, onOpenSettings, onOpenTerminal, onOpenDep
       <div className="mt-2 flex flex-wrap gap-2">
         {onOpenTerminal && (
           <button
-            onClick={onOpenTerminal}
+            onClick={() => onOpenTerminal()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-zinc-200 text-[12px] transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -197,6 +198,28 @@ function OverviewTab({ app, workspace, onOpenSettings, onOpenTerminal, onOpenDep
             Terminal
           </button>
         )}
+        {onOpenTerminal && (
+          <button
+            onClick={() => onOpenTerminal("claude")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/[0.08] hover:bg-orange-500/[0.14] border border-orange-500/20 text-orange-300 hover:text-orange-200 text-[12px] transition-colors"
+            title="Open terminal and auto-run `claude`"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 2.5h8M2 6h5M2 9.5h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            Open Claude
+          </button>
+        )}
+        <button
+          onClick={() => revealInFinder(app.root_dir).catch(console.error)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-zinc-200 text-[12px] transition-colors"
+          title="Reveal in Finder"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M1.5 3.5h3l1 1h5v5a.5.5 0 01-.5.5H2a.5.5 0 01-.5-.5v-6z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          </svg>
+          Open Folder
+        </button>
         {onOpenDeploy && app.deploy_config_path && (
           <button
             onClick={onOpenDeploy}

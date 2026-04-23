@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { App } from "../../types";
 import { detectStartCommand } from "../../lib/commands";
@@ -55,7 +56,16 @@ function computeStartOrder(apps: { id: string; depends_on: string[] }[]): Record
 }
 
 export default function WorkspaceView() {
-  const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore();
+  const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore(
+    useShallow((s) => ({
+      workspaces: s.workspaces,
+      apps: s.apps,
+      services: s.services,
+      selectedWorkspaceId: s.selectedWorkspaceId,
+      startAllInWorkspace: s.startAllInWorkspace,
+      stopAllInWorkspace: s.stopAllInWorkspace,
+    }))
+  );
   const [showAdd, setShowAdd] = useState(false);
   const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
   const [showImportCompose, setShowImportCompose] = useState(false);
@@ -82,11 +92,25 @@ export default function WorkspaceView() {
   const [activeTerminalAppId, setActiveTerminalAppId] = useState<string | null>(null);
   // Track which apps have ever opened a terminal so their modal stays mounted (preserves PTY sessions)
   const [openedTerminalIds, setOpenedTerminalIds] = useState<Set<string>>(new Set());
+  // One pending session request per app — bumping its id tells the modal to add a new tab
+  const [pendingSessions, setPendingSessions] = useState<Record<string, { id: string; startupCommand: string | null }>>({});
 
-  function openTerminal(app: App) {
+  const openTerminal = useCallback((app: App, startupCommand?: string) => {
     setOpenedTerminalIds((prev) => new Set([...prev, app.id]));
     setActiveTerminalAppId(app.id);
-  }
+    setPendingSessions((prev) => ({
+      ...prev,
+      [app.id]: {
+        id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        startupCommand: startupCommand ?? null,
+      },
+    }));
+  }, []);
+
+  // Stable refs for AppCard callbacks so React.memo can skip re-renders
+  // when a card's props haven't actually changed.
+  const handleOpenDetail = useCallback((app: App) => setDetailApp(app), []);
+  const handleOpenDeploy = useCallback((app: App) => setDeployApp(app), []);
 
   // Handle a dropped folder path: detect start command and open AddAppModal pre-filled
   const handleFolderDrop = useCallback(async (folderPath: string) => {
@@ -174,7 +198,10 @@ export default function WorkspaceView() {
   }, [handleFolderDrop]);
 
   const workspace = workspaces.find((w) => w.id === selectedWorkspaceId) ?? null;
-  const allVisibleApps = apps.filter((a) => a.workspace_id === selectedWorkspaceId);
+  const allVisibleApps = useMemo(
+    () => apps.filter((a) => a.workspace_id === selectedWorkspaceId),
+    [apps, selectedWorkspaceId]
+  );
   const filteredApps = useMemo(() => {
     const q = filterText.toLowerCase().trim();
     if (!q) return allVisibleApps;
@@ -188,7 +215,7 @@ export default function WorkspaceView() {
   const visibleApps = filteredApps;
   const runningCount = allVisibleApps.filter((a) => a.status === "running").length;
   const activeCount = allVisibleApps.filter((a) => a.status === "running" || a.status === "starting").length;
-  const stoppedWithCommand = allVisibleApps.filter((a) => a.status === "stopped" && a.start_command);
+  const stoppedWithCommand = allVisibleApps.filter((a) => a.status === "stopped" && (a.start_command || (a.kind === "docker" && a.docker_image) || (a.kind === "compose" && a.compose_file)));
   const hasStoppedApps = stoppedWithCommand.length > 0;
   const hasActiveApps = activeCount > 0;
   const startOrder = useMemo(() => computeStartOrder(allVisibleApps), [allVisibleApps]);
@@ -366,9 +393,9 @@ export default function WorkspaceView() {
                     app={app}
                     workspace={workspace}
                     startOrder={startOrder[app.id]}
-                    onOpenDetail={() => setDetailApp(app)}
-                    onOpenTerminal={() => openTerminal(app)}
-                    onOpenDeploy={app.deploy_config_path ? () => setDeployApp(app) : undefined}
+                    onOpenDetail={handleOpenDetail}
+                    onOpenTerminal={openTerminal}
+                    onOpenDeploy={app.deploy_config_path ? handleOpenDeploy : undefined}
                   />
                 ))
               )}
@@ -441,8 +468,8 @@ export default function WorkspaceView() {
                 setSettingsApp(liveDetailApp);
                 setDetailApp(null);
               }}
-              onOpenTerminal={() => {
-                openTerminal(liveDetailApp);
+              onOpenTerminal={(startupCommand) => {
+                openTerminal(liveDetailApp, startupCommand);
                 setDetailApp(null);
               }}
               onOpenDeploy={() => {
@@ -468,12 +495,15 @@ export default function WorkspaceView() {
             />
           )}
 
-          {/* One TerminalModal per app that has been opened — each isolated with its own PTY sessions */}
-          {visibleApps.filter((app) => openedTerminalIds.has(app.id)).map((app) => (
+          {/* One TerminalModal per app that has been opened — each isolated with its own PTY sessions.
+              Use the full `apps` list (not `visibleApps`) so switching workspace doesn't unmount
+              a modal whose app now lives in a different workspace — that would kill the PTYs. */}
+          {apps.filter((app) => openedTerminalIds.has(app.id)).map((app) => (
             <TerminalModal
               key={app.id}
               initialApp={app}
               isOpen={activeTerminalAppId === app.id}
+              pendingSession={pendingSessions[app.id] ?? null}
               onClose={() => setActiveTerminalAppId(null)}
             />
           ))}

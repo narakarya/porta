@@ -4,8 +4,9 @@ import SetupSection from "./SetupSection";
 import NotificationsSection from "./NotificationsSection";
 import BackupSection from "./BackupSection";
 import SyncSection from "./SyncSection";
+import TunnelsSection from "./TunnelsSection";
 
-type Section = "setup" | "notifications" | "backup" | "sync";
+type Section = "setup" | "tunnels" | "notifications" | "backup" | "sync";
 
 const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -14,6 +15,16 @@ const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
         <path d="M10 2L3 6v4c0 3.5 3 6.7 7 8 4-1.3 7-4.5 7-8V6l-7-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+      </svg>
+    ),
+  },
+  {
+    id: "tunnels",
+    label: "Tunnels",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <ellipse cx="10" cy="10" rx="8" ry="4" stroke="currentColor" strokeWidth="1.5"/>
+        <ellipse cx="10" cy="10" rx="3" ry="8" stroke="currentColor" strokeWidth="1.5"/>
       </svg>
     ),
   },
@@ -107,11 +118,14 @@ export default function SettingsPage({ onBack }: Props) {
         </nav>
       </aside>
 
-      {/* Content area */}
+      {/* Content area — swaps immediately on nav click. Each section is
+          responsible for its own internal loading/skeleton UI so the target
+          container shows up right away. */}
       <main className="flex-1 overflow-auto pt-10 px-8 pb-8 no-drag">
         {activeSection === "setup" && (
           <SetupSection onOpenWizard={() => setShowSetupWizard(true)} />
         )}
+        {activeSection === "tunnels" && <TunnelsSection />}
         {activeSection === "notifications" && <NotificationsSection />}
         {activeSection === "backup" && <BackupSection />}
         {activeSection === "sync" && <SyncSection />}

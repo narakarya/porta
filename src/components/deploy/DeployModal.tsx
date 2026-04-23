@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { App, Workspace } from "../../types";
-import { checkKamal, kamalRun, installKamal, isTauri, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../../lib/commands";
+import { checkKamal, kamalRun, kamalCancel, installKamal, isTauri, parseKamalAccessories, addDeployCustomCmd, updateDeployCustomCmd, deleteDeployCustomCmd } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import { detectLevel, LEVEL_CLS, LEVEL_BADGE, FILTER_PILLS, highlightLine } from "../../lib/log-utils";
 import { useLogScroll } from "../../hooks/useLogScroll";
@@ -54,9 +54,10 @@ type CmdState = {
   running: boolean;
   exitCode: number | null;
   startedAt: number | null;
+  runId: string | null;
 };
 
-const emptyCmdState = (): CmdState => ({ logs: [], running: false, exitCode: null, startedAt: null });
+const emptyCmdState = (): CmdState => ({ logs: [], running: false, exitCode: null, startedAt: null, runId: null });
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props { app: App; workspace: Workspace | null; onClose: () => void; }
@@ -271,6 +272,16 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
     } else {
       execCommand(cmd);
     }
+  }
+
+  const [stoppingCmdId, setStoppingCmdId] = useState<string | null>(null);
+  function handleStop(cmdId: string) {
+    const runId = cmdStates[cmdId]?.runId;
+    if (!runId) return;
+    setStoppingCmdId(cmdId);
+    kamalCancel(runId).catch(() => {});
+    // Reset the "Stopping…" label after the 2s grace + SIGKILL window.
+    setTimeout(() => setStoppingCmdId(prev => prev === cmdId ? null : prev), 2500);
   }
 
   function handleConfirm() {
@@ -548,32 +559,48 @@ export default function DeployModal({ app, workspace, onClose }: Props) {
               </button>
             </>}
 
-            {/* Run / New Session button */}
-            <button
-              onClick={() => handleSidebarRun(selectedCmd)}
-              disabled={!kamalStatus.installed || kamalStatus.checking}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors shrink-0 disabled:opacity-40 ${
-                pendingCmdId === selectedCmdId
-                  ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
-                  : isInteractive
-                  ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-                  : "bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
-              }`}
-            >
-              {isSelectedRunning ? (
-                <span className="w-2.5 h-2.5 border border-blue-400/60 border-t-transparent rounded-full animate-spin" />
-              ) : isInteractive ? (
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1" y="1" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-                  <path d="M3 4l1.5 1.5L3 7M5.5 7H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              ) : (
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M2.5 1.5l6 3.5-6 3.5V1.5z" fill="currentColor"/>
-                </svg>
-              )}
-              {pendingCmdId === selectedCmdId ? "Confirm?" : isInteractive ? (consoleKey > 0 ? "New Session" : "Open Console") : "Run"}
-            </button>
+            {/* Run / Stop / New Session button */}
+            {isSelectedRunning && !isInteractive ? (
+              <button
+                onClick={() => handleStop(selectedCmdId)}
+                disabled={stoppingCmdId === selectedCmdId}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors shrink-0 bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Stop (SIGINT → SIGKILL after 2s)"
+              >
+                {stoppingCmdId === selectedCmdId ? (
+                  <span className="w-2.5 h-2.5 border border-red-400/60 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                    <rect x="2" y="2" width="6" height="6" rx="0.5"/>
+                  </svg>
+                )}
+                {stoppingCmdId === selectedCmdId ? "Stopping…" : "Stop"}
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSidebarRun(selectedCmd)}
+                disabled={!kamalStatus.installed || kamalStatus.checking}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors shrink-0 disabled:opacity-40 ${
+                  pendingCmdId === selectedCmdId
+                    ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
+                    : isInteractive
+                    ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+                    : "bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
+                }`}
+              >
+                {isInteractive ? (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <rect x="1" y="1" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                    <path d="M3 4l1.5 1.5L3 7M5.5 7H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M2.5 1.5l6 3.5-6 3.5V1.5z" fill="currentColor"/>
+                  </svg>
+                )}
+                {pendingCmdId === selectedCmdId ? "Confirm?" : isInteractive ? (consoleKey > 0 ? "New Session" : "Open Console") : "Run"}
+              </button>
+            )}
 
             {/* Clear */}
             <button

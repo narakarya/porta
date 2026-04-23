@@ -1,6 +1,7 @@
 use tauri::{Emitter, Manager, State};
 
 use crate::app_state::AppState;
+use crate::db::models::Route;
 use crate::setup::SetupStatus;
 
 /// Collect all unique domains that need SSL certs: workspace domains + app custom domains.
@@ -35,10 +36,13 @@ pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let apps = db.list_apps().map_err(|e| e.to_string())?;
-    let routes: Vec<(String, u16)> = apps
+    let mut routes: Vec<Route> = apps
         .iter()
         .flat_map(|a| a.all_routes(&workspaces))
         .collect();
+    // Append tailnet aliases for static apps currently served via Tailscale —
+    // these let Caddy match requests coming in on `<machine>.<tailnet>.ts.net`.
+    routes.extend(crate::commands::static_alias_routes(&db));
 
     // Collect all domains that need certs (workspace + app custom_domain + binding custom_domains)
     let mut domains: Vec<String> = workspaces.iter().map(|w| w.domain.clone()).collect();
