@@ -1194,6 +1194,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                   <TunnelStatusBadge
                     tunnelActive={app.tunnel_active}
                     tunnelUrl={app.tunnel_url}
+                    provider={app.tunnel_provider}
                     className="mt-4"
                   />
                 </div>

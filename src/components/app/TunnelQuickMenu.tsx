@@ -17,10 +17,20 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
 
   if (!isActive && !app.tunnel_active && !tunnelError) return null;
 
+  const provider = app.tunnel_provider;
+  const connectedColor = provider === "tailscale"
+    ? "text-emerald-400 hover:bg-emerald-500/10"
+    : "text-orange-400 hover:bg-orange-500/10";
+  const connectedTooltip = provider === "tailscale"
+    ? "Tailscale connected"
+    : provider === "cloudflare"
+    ? "Cloudflare tunnel connected"
+    : "Tunnel connected";
+
   return (
     <div className="relative">
       <Tooltip
-        label={tunnelError ? "Tunnel failed" : app.tunnel_active && app.tunnel_url ? "Tunnel connected" : app.tunnel_active ? "Connecting…" : "Quick Tunnel"}
+        label={tunnelError ? "Tunnel failed" : app.tunnel_active && app.tunnel_url ? connectedTooltip : app.tunnel_active ? "Connecting…" : "Quick Tunnel"}
       >
         <button
           onClick={(e) => { e.stopPropagation(); setTunnelMenuOpen((v) => !v); }}
@@ -28,7 +38,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
             tunnelError
               ? "text-red-400 hover:bg-red-500/10"
               : app.tunnel_active && app.tunnel_url
-              ? "text-sky-400 hover:bg-sky-500/10"
+              ? connectedColor
               : app.tunnel_active
               ? "text-amber-400 hover:bg-amber-500/10"
               : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
@@ -38,7 +48,21 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
             <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
               <path d="M6.5 1.5A5 5 0 1 1 1.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
+          ) : app.tunnel_active && provider === "tailscale" ? (
+            // Tailscale mesh-network dot pattern
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <circle cx="3" cy="3" r="1" fill="currentColor"/>
+              <circle cx="6.5" cy="3" r="1" fill="currentColor"/>
+              <circle cx="10" cy="3" r="1" fill="currentColor"/>
+              <circle cx="3" cy="6.5" r="1" fill="currentColor"/>
+              <circle cx="6.5" cy="6.5" r="1" fill="currentColor"/>
+              <circle cx="10" cy="6.5" r="1" fill="currentColor"/>
+              <circle cx="3" cy="10" r="1" fill="currentColor"/>
+              <circle cx="6.5" cy="10" r="1" fill="currentColor"/>
+              <circle cx="10" cy="10" r="1" fill="currentColor"/>
+            </svg>
           ) : (
+            // Cloudflare-style cloud
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
               <path d="M4 5.5a3.5 3.5 0 0 1 5 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
               <path d="M2.5 4a5.5 5.5 0 0 1 8 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -56,8 +80,11 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
             {app.tunnel_active && app.tunnel_url ? (
               <>
                 <div className="px-3 py-2 border-b border-white/[0.06]">
-                  <p className="text-[10px] text-zinc-500 mb-1">Tunnel URL</p>
-                  <p className="text-[11px] font-mono text-sky-300 truncate">{app.tunnel_url}</p>
+                  <p className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${provider === "tailscale" ? "bg-emerald-400" : "bg-orange-400"}`} />
+                    {provider === "tailscale" ? "Tailnet URL" : "Tunnel URL"}
+                  </p>
+                  <p className={`text-[11px] font-mono truncate ${provider === "tailscale" ? "text-emerald-300" : "text-orange-300"}`}>{app.tunnel_url}</p>
                 </div>
                 <button
                   onClick={() => {
@@ -93,7 +120,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
               </>
             ) : app.tunnel_active ? (
               <div className="px-3 py-3">
-                <TunnelStatusBadge tunnelActive={app.tunnel_active} tunnelUrl={app.tunnel_url} />
+                <TunnelStatusBadge tunnelActive={app.tunnel_active} tunnelUrl={app.tunnel_url} provider={app.tunnel_provider} />
               </div>
             ) : tunnelError ? (
               <>

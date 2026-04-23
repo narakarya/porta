@@ -6,6 +6,30 @@ use tauri::{Emitter, Manager};
 use crate::app_state::AppState;
 use crate::db::{Database, models::Route};
 
+/// Categorize a Tailscale CLI error message into an actionable hint. Callers
+/// already have the raw stderr; this adds a one-line suggestion so the UI can
+/// render a direct fix button without re-parsing on the frontend.
+fn annotate_ts_error(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    if lower.contains("funnel") && (lower.contains("not enabled") || lower.contains("not allowed") || lower.contains("node attr") || lower.contains("policy")) {
+        return format!(
+            "{}\n\nFunnel isn't enabled on this tailnet. Enable it at:\n  https://login.tailscale.com/admin/settings/features",
+            raw
+        );
+    }
+    if lower.contains("not logged in") || lower.contains("needslogin") || lower.contains("logged out") {
+        return format!("{}\n\nRun `tailscale login` or open the Tailscale app to authenticate.", raw);
+    }
+    if lower.contains("connect to local tailscaled") || lower.contains("daemon") || lower.contains("no such file or directory") {
+        return format!("{}\n\nTailscale daemon isn't running. Open the Tailscale app or run `tailscale up`.", raw);
+    }
+    if lower.contains("no such serve") || lower.contains("not found") {
+        // Idempotent-ish — surface a gentler phrasing.
+        return "No matching serve entry (already removed).".into();
+    }
+    raw.to_string()
+}
+
 /// Per-app tracking: (tailnet HTTPS port, is_funnel). `is_funnel=true` means
 /// this was started via `tailscale funnel` (public), so Disconnect must use
 /// `funnel off` rather than `serve off`. Not persisted — reconciled from the
@@ -281,7 +305,7 @@ pub fn start_tailscale_serve(
     let tailnet_host = match status.host.as_ref() {
         Some(h) => h.clone(),
         None => {
-            let msg = "Tailscale is not running or not logged in. Run `tailscale up` first.".to_string();
+            let msg = annotate_ts_error("Tailscale is not running or not logged in.");
             app_handle
                 .emit(
                     &format!("app:tunnel:{}", id),
@@ -348,13 +372,7 @@ pub fn start_tailscale_serve(
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let err_text = if !stderr.is_empty() { stderr } else { stdout };
-        let hint = if err_text.contains("not logged in") || err_text.contains("NeedsLogin") {
-            format!("{}\n\nRun `tailscale login` to authenticate.", err_text)
-        } else if err_text.contains("daemon") {
-            format!("{}\n\nStart the Tailscale app or run `tailscale up`.", err_text)
-        } else {
-            err_text
-        };
+        let hint = annotate_ts_error(&err_text);
         // Roll back static alias if we added one.
         if is_static_app {
             static_aliases().lock().unwrap().remove(&id);
@@ -491,4 +509,80 @@ pub fn reset_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(), String
         );
     }
     Ok(())
+}
+
+/// Poll `tailscale serve/funnel status` every N seconds. When an entry appears
+/// or disappears out-of-band (user ran `tailscale serve` from a terminal, or
+/// removed one manually), emit `app:tunnel:{id}` so the UI stays in sync
+/// without the user clicking Refresh.
+pub fn spawn_tailscale_poller(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        // Track what we last told the frontend so we only emit on transitions.
+        // Maps app_id → (active, url). If the value changes, we emit.
+        let mut last_state: HashMap<String, (bool, Option<String>)> = HashMap::new();
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+
+            // Skip work when tailscale isn't installed — avoids spawning a Command every 15s on machines without it.
+            if find_tailscale().is_none() {
+                continue;
+            }
+
+            let status = tailscale_status();
+            let host = match status.host.as_ref() {
+                Some(h) if status.running && status.logged_in => h.clone(),
+                _ => {
+                    // Daemon down or not logged in — mark anything we previously
+                    // reported active as inactive.
+                    let previously_active: Vec<String> = last_state
+                        .iter()
+                        .filter(|(_, (active, _))| *active)
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in previously_active {
+                        last_state.insert(id.clone(), (false, None));
+                        let _ = app.emit(
+                            &format!("app:tunnel:{}", id),
+                            serde_json::json!({ "active": false, "url": null }),
+                        );
+                    }
+                    continue;
+                }
+            };
+
+            let serves = match list_tailscale_serves() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let state = app.state::<AppState>();
+            let apps = match state.db.lock().unwrap().list_apps() {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+
+            // Build the current picture: for each app, is it being served? with what URL?
+            let mut current: HashMap<String, (bool, Option<String>)> = HashMap::new();
+            for app_row in &apps {
+                let serving = serves.iter().find(|s| s.port == assign_tailnet_port(app_row.port));
+                let url = serving.map(|s| {
+                    if s.port == 443 { format!("https://{}", host) } else { format!("https://{}:{}", host, s.port) }
+                });
+                current.insert(app_row.id.clone(), (serving.is_some(), url));
+            }
+
+            // Diff and emit. Only changed apps get notified to avoid event spam.
+            for (id, (active, url)) in &current {
+                let prev = last_state.get(id).cloned().unwrap_or((false, None));
+                if &prev != &(*active, url.clone()) {
+                    let _ = app.emit(
+                        &format!("app:tunnel:{}", id),
+                        serde_json::json!({ "active": *active, "url": url }),
+                    );
+                }
+            }
+            last_state = current;
+        }
+    });
 }

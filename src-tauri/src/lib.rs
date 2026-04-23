@@ -165,6 +165,7 @@ pub fn run() {
             tray::setup_tray(app)?;
             auto_start::spawn_auto_start(app);
             metrics::spawn_metrics_poller(app.handle().clone());
+            commands::spawn_tailscale_poller(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

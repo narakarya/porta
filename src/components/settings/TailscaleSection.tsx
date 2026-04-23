@@ -42,6 +42,37 @@ export default function TailscaleSection() {
     refresh();
   }, [refresh]);
 
+  // Auto-refresh every 30s so enabling Funnel in the admin console or running
+  // manual `tailscale serve` commands reflect without the user clicking Refresh.
+  // Pauses when the tab/window is hidden to avoid wasted work.
+  useEffect(() => {
+    let intervalId: number | undefined;
+    function startInterval() {
+      if (intervalId !== undefined) return;
+      intervalId = window.setInterval(refresh, 30_000);
+    }
+    function stopInterval() {
+      if (intervalId !== undefined) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refresh();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    }
+    if (document.visibilityState === "visible") startInterval();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopInterval();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refresh]);
+
   function copyCmd(cmd: string) {
     navigator.clipboard.writeText(cmd).then(() => {
       setCopiedCmd(cmd);
