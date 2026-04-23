@@ -481,16 +481,20 @@ export const getTailscaleStatus = (): Promise<TailscaleStatus> =>
 export interface TailscaleServeEntry {
   port: number;
   upstream: string;
+  funnel: boolean;
 }
 
 export const listTailscaleServes = (): Promise<TailscaleServeEntry[]> =>
   isTauri ? invoke("list_tailscale_serves") : Promise.resolve([]);
 
-export const startTailscaleServe = (id: string, port: number): Promise<void> =>
-  isTauri ? invoke("start_tailscale_serve", { id, port }) : Promise.resolve();
+export const startTailscaleServe = (id: string, port: number, funnel = false): Promise<void> =>
+  isTauri ? invoke("start_tailscale_serve", { id, port, funnel }) : Promise.resolve();
 
 export const stopTailscaleServe = (id: string): Promise<void> =>
   isTauri ? invoke("stop_tailscale_serve", { id }) : Promise.resolve();
+
+export const resetTailscaleServes = (): Promise<void> =>
+  isTauri ? invoke("reset_tailscale_serves") : Promise.resolve();
 
 // ── Launch at Login ───────────────────────────────────────────────────────────
 

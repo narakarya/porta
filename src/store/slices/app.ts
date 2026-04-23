@@ -33,7 +33,7 @@ export interface AppSlice {
   killApp: (id: string) => Promise<void>;
   clearAppLogs: (id: string) => void;
   dismissPortConflict: (id: string) => void;
-  startTunnel: (id: string, providerOverride?: string) => void;
+  startTunnel: (id: string, providerOverride?: string, funnel?: boolean) => void;
   stopTunnel: (id: string) => void;
   visibleApps: () => App[];
 }
@@ -258,7 +258,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   dismissPortConflict: (id) =>
     set((s) => ({ portConflicts: { ...s.portConflicts, [id]: false } })),
 
-  startTunnel: (id, providerOverride) => {
+  startTunnel: (id, providerOverride, funnel) => {
     const app = get().apps.find((a) => a.id === id);
     if (!app) return;
     const provider = providerOverride ?? app.tunnel_provider ?? "cloudflare";
@@ -271,7 +271,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       appTunnelErrors: { ...s.appTunnelErrors, [id]: null },
     }));
     const starter = provider === "tailscale"
-      ? cmd.startTailscaleServe(id, app.port)
+      ? cmd.startTailscaleServe(id, app.port, funnel ?? false)
       : cmd.startTunnel(id, app.port);
     starter.catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);

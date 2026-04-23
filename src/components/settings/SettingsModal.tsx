@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import SetupWizard from "../setup/SetupWizard";
 import TunnelsSection from "./TunnelsSection";
+import TailscaleSection from "./TailscaleSection";
 
 interface Props {
   onClose: () => void;
 }
 
-type Section = "setup" | "tunnels";
+type Section = "setup" | "tunnels" | "tailscale";
 
 export default function SettingsModal({ onClose }: Props) {
   const [showSetup, setShowSetup] = useState(false);
@@ -26,7 +27,8 @@ export default function SettingsModal({ onClose }: Props) {
 
   const NAV: { id: Section; label: string }[] = [
     { id: "setup", label: "Setup" },
-    { id: "tunnels", label: "Tunnels" },
+    { id: "tunnels", label: "Cloudflare" },
+    { id: "tailscale", label: "Tailscale" },
   ];
 
   return (
@@ -86,6 +88,7 @@ export default function SettingsModal({ onClose }: Props) {
               </div>
             )}
             {section === "tunnels" && <TunnelsSection />}
+            {section === "tailscale" && <TailscaleSection />}
           </div>
         </div>
       </div>

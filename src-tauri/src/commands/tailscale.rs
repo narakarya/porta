@@ -6,11 +6,12 @@ use tauri::{Emitter, Manager};
 use crate::app_state::AppState;
 use crate::db::{Database, models::Route};
 
-/// Per-app assigned tailnet HTTPS port so repeated start/stop is idempotent and
-/// disambiguates multiple apps served on the same host. Not persisted — we
-/// reconcile against `tailscale serve status` at runtime.
-fn active_serves() -> &'static Mutex<HashMap<String, u16>> {
-    static T: OnceLock<Mutex<HashMap<String, u16>>> = OnceLock::new();
+/// Per-app tracking: (tailnet HTTPS port, is_funnel). `is_funnel=true` means
+/// this was started via `tailscale funnel` (public), so Disconnect must use
+/// `funnel off` rather than `serve off`. Not persisted — reconciled from the
+/// daemon at runtime.
+fn active_serves() -> &'static Mutex<HashMap<String, (u16, bool)>> {
+    static T: OnceLock<Mutex<HashMap<String, (u16, bool)>>> = OnceLock::new();
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -74,7 +75,11 @@ pub fn reconcile_on_startup(db: &Database) {
                 upstream_port == Some(app.port) && ts_port == assign_tailnet_port(app.port)
             };
             if is_match {
-                active_serves().lock().unwrap().insert(app.id.clone(), ts_port);
+                // Startup reconciliation can't tell apart serve vs funnel from
+                // `serve status --json` alone; default to serve and accept that
+                // a mislabeled entry for Funnel still stops correctly because
+                // `serve --https=<port> off` removes funnel entries too.
+                active_serves().lock().unwrap().insert(app.id.clone(), (ts_port, false));
             }
         }
     }
@@ -191,21 +196,13 @@ pub fn tailscale_status() -> TailscaleStatus {
 pub struct TailscaleServeEntry {
     pub port: u16,
     pub upstream: String,
+    pub funnel: bool,
 }
 
-#[tauri::command]
-pub fn list_tailscale_serves() -> Result<Vec<TailscaleServeEntry>, String> {
-    let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
-    let out = std::process::Command::new(&ts)
-        .args(["serve", "status", "--json"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    // Empty config returns non-zero on older versions; treat JSON parse success as authoritative.
-    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or(serde_json::Value::Null);
+fn parse_web_entries(value: &serde_json::Value, funnel: bool) -> Vec<TailscaleServeEntry> {
     let mut entries = Vec::new();
     if let Some(web) = value.get("Web").and_then(|w| w.as_object()) {
         for (host_port, cfg) in web {
-            // host_port shape: "<host>:<port>"
             let port: u16 = host_port.rsplit(':').next()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(0);
@@ -215,7 +212,47 @@ pub fn list_tailscale_serves() -> Result<Vec<TailscaleServeEntry>, String> {
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            entries.push(TailscaleServeEntry { port, upstream });
+            entries.push(TailscaleServeEntry { port, upstream, funnel });
+        }
+    }
+    entries
+}
+
+#[tauri::command]
+pub fn list_tailscale_serves() -> Result<Vec<TailscaleServeEntry>, String> {
+    let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
+    // `serve status --json` returns BOTH serve and funnel entries; funnel flag is
+    // encoded via the separate `funnel status --json` call — we merge the two.
+    let serve_out = std::process::Command::new(&ts)
+        .args(["serve", "status", "--json"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let funnel_out = std::process::Command::new(&ts)
+        .args(["funnel", "status", "--json"])
+        .output()
+        .ok();
+
+    let serve_value: serde_json::Value = serde_json::from_slice(&serve_out.stdout).unwrap_or(serde_json::Value::Null);
+    let funnel_value: serde_json::Value = funnel_out
+        .as_ref()
+        .and_then(|o| serde_json::from_slice(&o.stdout).ok())
+        .unwrap_or(serde_json::Value::Null);
+
+    // Build a set of (host, port) pairs that are funnel-backed so we can tag them.
+    let mut funnel_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(web) = funnel_value.get("Web").and_then(|w| w.as_object()) {
+        for k in web.keys() {
+            funnel_keys.insert(k.clone());
+        }
+    }
+
+    let mut entries = parse_web_entries(&serve_value, false);
+    for e in &mut entries {
+        // Match against any funnel host:port suffix ending with the same port —
+        // hostnames always match the same node, so the port discriminator is
+        // enough in practice.
+        if funnel_keys.iter().any(|k| k.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) == Some(e.port)) {
+            e.funnel = true;
         }
     }
     Ok(entries)
@@ -229,7 +266,13 @@ fn assign_tailnet_port(app_port: u16) -> u16 {
 }
 
 #[tauri::command]
-pub fn start_tailscale_serve(id: String, port: u16, app_handle: tauri::AppHandle) -> Result<(), String> {
+pub fn start_tailscale_serve(
+    id: String,
+    port: u16,
+    funnel: Option<bool>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let use_funnel = funnel.unwrap_or(false);
     let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
 
     // Resolve tailnet hostname upfront — we need it both for the final URL and,
@@ -286,10 +329,12 @@ pub fn start_tailscale_serve(id: String, port: u16, app_handle: tauri::AppHandle
         format!("http://localhost:{}", port)
     };
 
-    // Apply the serve config. `--bg` persists it in the tailscaled daemon.
+    // Apply the serve/funnel config. `--bg` persists it in the tailscaled daemon.
+    // Funnel exposes publicly; serve is tailnet-only. Same flag surface otherwise.
+    let subcommand = if use_funnel { "funnel" } else { "serve" };
     let out = std::process::Command::new(&ts)
         .args([
-            "serve",
+            subcommand,
             "--bg",
             "--https",
             &tailnet_port.to_string(),
@@ -331,7 +376,7 @@ pub fn start_tailscale_serve(id: String, port: u16, app_handle: tauri::AppHandle
         format!("https://{}:{}", tailnet_host, tailnet_port)
     };
 
-    active_serves().lock().unwrap().insert(id.clone(), tailnet_port);
+    active_serves().lock().unwrap().insert(id.clone(), (tailnet_port, use_funnel));
 
     app_handle
         .emit(
@@ -347,25 +392,27 @@ pub fn start_tailscale_serve(id: String, port: u16, app_handle: tauri::AppHandle
 pub fn stop_tailscale_serve(id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
 
-    let port = active_serves().lock().unwrap().remove(&id);
+    let tracked = active_serves().lock().unwrap().remove(&id);
     // If we don't have a tracked port (e.g. app was started in a previous Porta
     // session), fall back to the app's local port — that's what we'd have assigned.
-    let tailnet_port = match port {
-        Some(p) => p,
+    let (tailnet_port, was_funnel) = match tracked {
+        Some((p, f)) => (p, f),
         None => {
             let state = app_handle.state::<AppState>();
             let db = state.db.lock().unwrap();
-            db.list_apps().ok()
+            let port = db.list_apps().ok()
                 .and_then(|apps| apps.into_iter().find(|a| a.id == id))
                 .map(|a| assign_tailnet_port(a.port))
-                .unwrap_or(0)
+                .unwrap_or(0);
+            (port, false)
         }
     };
 
     if tailnet_port != 0 {
+        let subcommand = if was_funnel { "funnel" } else { "serve" };
         let out = std::process::Command::new(&ts)
             .args([
-                "serve",
+                subcommand,
                 "--https",
                 &tailnet_port.to_string(),
                 "--set-path",
@@ -408,5 +455,40 @@ pub fn stop_tailscale_serve(id: String, app_handle: tauri::AppHandle) -> Result<
             serde_json::json!({ "active": false, "url": null }),
         )
         .ok();
+    Ok(())
+}
+
+/// Wipe ALL Tailscale Serve and Funnel config from the daemon. Used from the
+/// global Settings page as an escape hatch when state gets weird.
+#[tauri::command]
+pub fn reset_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
+    // Best-effort both — `reset` on one doesn't clear the other.
+    let _ = std::process::Command::new(&ts).args(["serve", "reset"]).output();
+    let _ = std::process::Command::new(&ts).args(["funnel", "reset"]).output();
+
+    // Collect app IDs we need to notify about, under lock, then release before emit.
+    let ids: Vec<String> = {
+        let mut map = active_serves().lock().unwrap();
+        let ids = map.keys().cloned().collect();
+        map.clear();
+        ids
+    };
+    let static_ids: Vec<String> = {
+        let mut map = static_aliases().lock().unwrap();
+        let ids = map.keys().cloned().collect();
+        map.clear();
+        ids
+    };
+    if !static_ids.is_empty() {
+        let state = app_handle.state::<AppState>();
+        let _ = crate::commands::sync_caddy(&state);
+    }
+    for id in ids.iter().chain(static_ids.iter()) {
+        let _ = app_handle.emit(
+            &format!("app:tunnel:{}", id),
+            serde_json::json!({ "active": false, "url": null }),
+        );
+    }
     Ok(())
 }

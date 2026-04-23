@@ -243,6 +243,7 @@ pub fn run() {
             commands::list_tailscale_serves,
             commands::start_tailscale_serve,
             commands::stop_tailscale_serve,
+            commands::reset_tailscale_serves,
             commands::get_launch_at_login,
             commands::set_launch_at_login,
             commands::git_sync_check,

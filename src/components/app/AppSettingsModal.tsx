@@ -115,6 +115,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [tsStatus, setTsStatus] = useState<TailscaleStatus | null>(null);
   const [tsLoading, setTsLoading] = useState(false);
+  const [tsFunnel, setTsFunnel] = useState(false);
 
   function copyCmd(cmd: string) {
     navigator.clipboard.writeText(cmd).then(() => {
@@ -143,7 +144,7 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
         return;
       }
     }
-    startTunnel(app.id, tunnelProvider);
+    startTunnel(app.id, tunnelProvider, tunnelProvider === "tailscale" ? tsFunnel : undefined);
   }
 
   async function refreshTailscale() {
@@ -1443,12 +1444,28 @@ export default function AppSettingsModal({ app, workspace, onClose }: Props) {
                         </button>
                       </div>
                       <div className="px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08]">
-                        <p className="text-[10px] text-zinc-500 mb-1">Your tailnet URL will be:</p>
+                        <p className="text-[10px] text-zinc-500 mb-1">Your URL will be:</p>
                         <p className="font-mono text-[12px] text-zinc-200 break-all">{previewUrl}</p>
                         <p className="text-[10px] text-zinc-600 mt-2 leading-relaxed">
-                          Only devices logged into your tailnet can reach this URL.
+                          {tsFunnel
+                            ? "Funnel exposes this publicly to the internet. Anyone with the URL can access it."
+                            : "Only devices logged into your tailnet can reach this URL."}
                         </p>
                       </div>
+                      <label className="flex items-start gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={tsFunnel}
+                          onChange={(e) => setTsFunnel(e.target.checked)}
+                          className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-orange-500 focus:ring-orange-500/30 focus:ring-offset-0"
+                        />
+                        <div className="flex-1">
+                          <p className="text-[12px] text-zinc-200">Expose publicly via Funnel</p>
+                          <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">
+                            Share to the public internet instead of just your tailnet. Requires Funnel to be enabled in your Tailscale admin console.
+                          </p>
+                        </div>
+                      </label>
                     </div>
                   );
                 })()}

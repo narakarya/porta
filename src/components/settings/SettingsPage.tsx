@@ -5,8 +5,9 @@ import NotificationsSection from "./NotificationsSection";
 import BackupSection from "./BackupSection";
 import SyncSection from "./SyncSection";
 import TunnelsSection from "./TunnelsSection";
+import TailscaleSection from "./TailscaleSection";
 
-type Section = "setup" | "tunnels" | "notifications" | "backup" | "sync";
+type Section = "setup" | "tunnels" | "tailscale" | "notifications" | "backup" | "sync";
 
 const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -20,11 +21,28 @@ const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "tunnels",
-    label: "Tunnels",
+    label: "Cloudflare",
     icon: (
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
         <ellipse cx="10" cy="10" rx="8" ry="4" stroke="currentColor" strokeWidth="1.5"/>
         <ellipse cx="10" cy="10" rx="3" ry="8" stroke="currentColor" strokeWidth="1.5"/>
+      </svg>
+    ),
+  },
+  {
+    id: "tailscale",
+    label: "Tailscale",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <circle cx="5" cy="5" r="1.5" fill="currentColor"/>
+        <circle cx="10" cy="5" r="1.5" fill="currentColor"/>
+        <circle cx="15" cy="5" r="1.5" fill="currentColor"/>
+        <circle cx="5" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="15" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="5" cy="15" r="1.5" fill="currentColor"/>
+        <circle cx="10" cy="15" r="1.5" fill="currentColor"/>
+        <circle cx="15" cy="15" r="1.5" fill="currentColor"/>
       </svg>
     ),
   },
@@ -126,6 +144,7 @@ export default function SettingsPage({ onBack }: Props) {
           <SetupSection onOpenWizard={() => setShowSetupWizard(true)} />
         )}
         {activeSection === "tunnels" && <TunnelsSection />}
+        {activeSection === "tailscale" && <TailscaleSection />}
         {activeSection === "notifications" && <NotificationsSection />}
         {activeSection === "backup" && <BackupSection />}
         {activeSection === "sync" && <SyncSection />}
