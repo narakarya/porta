@@ -23,10 +23,11 @@ export const createWorkspaceSlice: StateCreator<AllSlices, [], [], WorkspaceSlic
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const [workspaces, apps, services] = await Promise.all([
+      const [workspaces, apps, services, serviceTemplates] = await Promise.all([
         cmd.listWorkspaces(),
         cmd.listApps(),
         cmd.listServices().catch(() => [] as import("../../types").Service[]),
+        cmd.listServiceTemplates().catch(() => [] as import("../../types").ServiceTemplate[]),
       ]);
       const currentId = get().selectedWorkspaceId;
       const selectedWorkspaceId =
@@ -42,7 +43,7 @@ export const createWorkspaceSlice: StateCreator<AllSlices, [], [], WorkspaceSlic
           appStartedAt[app.id] = Date.now();
         }
       }
-      set({ workspaces, apps, services, selectedWorkspaceId, loading: false, appStartedAt });
+      set({ workspaces, apps, services, serviceTemplates, selectedWorkspaceId, loading: false, appStartedAt });
 
       if (isTauri) {
         const { MAX_LOG_LINES } = await import("../index");

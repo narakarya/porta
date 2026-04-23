@@ -21,6 +21,9 @@ pub use tailscale::*;
 mod service;
 pub use service::*;
 
+mod service_template;
+pub use service_template::*;
+
 mod setup;
 pub use setup::*;
 

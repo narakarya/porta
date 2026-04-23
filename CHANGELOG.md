@@ -4,6 +4,24 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0-beta] — 2026-04-24
+
+Third beta focused on Tailscale polish and Docker service spawn ergonomics.
+
+### Added
+- **Tailscale Funnel support**: public exposure for Tailscale-served apps,
+  with provider icons, auto-refresh, and actionable error hints.
+- **Global settings section** for Tailscale and notification preferences.
+- **Service preset versions**: curated version dropdown per preset (Postgres,
+  MySQL, Redis, Mongo, MariaDB, RabbitMQ) via `<datalist>` — users can also
+  still type custom tags.
+- **Multi-version spawn**: picking a preset whose image already runs
+  auto-suggests a unique name, free host port, and per-instance volume
+  sources, plus a banner explaining what was adjusted.
+- **User-defined service templates**: save the current service form as a
+  reusable template, surfaced alongside built-in presets in the grid. Delete
+  via inline hover button. Stored in `~/.porta/config.json`.
+
 ## [0.2.0-beta] — 2026-04-24
 
 Second beta with a large batch of UX, deploy, and infra improvements.

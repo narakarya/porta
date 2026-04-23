@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
+import type { ServiceTemplate } from "../../types";
 import ModalWrapper from "../shared/ModalWrapper";
 import { yieldToFrame } from "../../lib/ui";
 
@@ -17,6 +18,7 @@ interface Preset {
   icon: string;
   image: string;
   tag: string;
+  versions: string[]; // curated tag suggestions; user can still type custom
   port: number;
   env_vars: Record<string, string>;
   volumes: string[];
@@ -27,7 +29,8 @@ const PRESETS: Preset[] = [
     label: "PostgreSQL",
     icon: "🐘",
     image: "postgres",
-    tag: "16",
+    tag: "17",
+    versions: ["17", "17-alpine", "16", "16-alpine", "15", "15-alpine", "14", "13"],
     port: 5432,
     env_vars: { POSTGRES_PASSWORD: "postgres", POSTGRES_USER: "postgres", POSTGRES_DB: "app" },
     volumes: ["pgdata:/var/lib/postgresql/data"],
@@ -37,6 +40,7 @@ const PRESETS: Preset[] = [
     icon: "🐬",
     image: "mysql",
     tag: "8",
+    versions: ["8.4", "8.0", "8", "5.7"],
     port: 3306,
     env_vars: { MYSQL_ROOT_PASSWORD: "root", MYSQL_DATABASE: "app" },
     volumes: ["mysqldata:/var/lib/mysql"],
@@ -46,6 +50,7 @@ const PRESETS: Preset[] = [
     icon: "⚡",
     image: "redis",
     tag: "7-alpine",
+    versions: ["7", "7-alpine", "6", "6-alpine"],
     port: 6379,
     env_vars: {},
     volumes: ["redisdata:/data"],
@@ -55,6 +60,7 @@ const PRESETS: Preset[] = [
     icon: "🍃",
     image: "mongo",
     tag: "7",
+    versions: ["7", "7-jammy", "6", "5"],
     port: 27017,
     env_vars: { MONGO_INITDB_ROOT_USERNAME: "root", MONGO_INITDB_ROOT_PASSWORD: "root" },
     volumes: ["mongodata:/data/db"],
@@ -64,6 +70,7 @@ const PRESETS: Preset[] = [
     icon: "🦭",
     image: "mariadb",
     tag: "11",
+    versions: ["11", "10.11", "10.6"],
     port: 3306,
     env_vars: { MARIADB_ROOT_PASSWORD: "root", MARIADB_DATABASE: "app" },
     volumes: ["mariadbdata:/var/lib/mysql"],
@@ -73,6 +80,7 @@ const PRESETS: Preset[] = [
     icon: "🐇",
     image: "rabbitmq",
     tag: "3-management-alpine",
+    versions: ["3-management-alpine", "3-management", "3-alpine", "3"],
     port: 5672,
     env_vars: { RABBITMQ_DEFAULT_USER: "admin", RABBITMQ_DEFAULT_PASS: "admin" },
     volumes: [],
@@ -82,6 +90,7 @@ const PRESETS: Preset[] = [
     icon: "🗄️",
     image: "minio/minio",
     tag: "latest",
+    versions: ["latest"],
     port: 9000,
     env_vars: { MINIO_ROOT_USER: "minioadmin", MINIO_ROOT_PASSWORD: "minioadmin" },
     volumes: ["miniodata:/data"],
@@ -91,6 +100,7 @@ const PRESETS: Preset[] = [
     icon: "📦",
     image: "",
     tag: "latest",
+    versions: [],
     port: 8080,
     env_vars: {},
     volumes: [],
@@ -231,27 +241,120 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
 
 interface Props { onClose: () => void; }
 
+function sanitizeVolumeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+type PresetEntry = Preset & { userTemplateId?: string };
+
 export default function AddServiceModal({ onClose }: Props) {
-  const { workspaces, addService } = usePortaStore();
+  const {
+    workspaces,
+    services,
+    serviceTemplates,
+    addService,
+    saveServiceTemplate,
+    deleteServiceTemplate,
+  } = usePortaStore();
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
   const [tag, setTag] = useState("latest");
+  const [versions, setVersions] = useState<string[]>([]);
   const [port, setPort] = useState<number>(8080);
   const [envRows, setEnvRows] = useState<EnvRow[]>([]);
   const [volRows, setVolRows] = useState<VolRow[]>([]);
   const [scope, setScope] = useState<"global" | string>("global");
   const [submitting, setSubmitting] = useState(false);
+  const [collisionHint, setCollisionHint] = useState<string | null>(null);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [templateLabel, setTemplateLabel] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
+  // Combined preset grid: built-ins first, then user templates, then Custom (escape hatch).
+  const allPresets = useMemo<PresetEntry[]>(() => {
+    const builtins = PRESETS.slice(0, -1);
+    const custom = PRESETS[PRESETS.length - 1];
+    const userEntries: PresetEntry[] = serviceTemplates.map((t) => ({
+      label: t.label,
+      icon: t.icon,
+      image: t.image,
+      tag: t.tag,
+      versions: t.versions,
+      port: t.port,
+      env_vars: t.env_vars,
+      volumes: t.volumes,
+      userTemplateId: t.id,
+    }));
+    return [...builtins, ...userEntries, custom];
+  }, [serviceTemplates]);
 
   function selectPreset(index: number) {
-    const p = PRESETS[index];
+    const p = allPresets[index];
     setSelectedPreset(index);
-    setName(p.label === "Custom" ? "" : p.label);
+    setEditingTemplateId(p.userTemplateId ?? null);
+    setSaveAsTemplate(false);
+    setTemplateLabel(p.label);
     setImage(p.image);
     setTag(p.tag);
-    setPort(p.port);
+    setVersions(p.versions);
     setEnvRows(envRowsFromRecord(p.env_vars));
-    setVolRows(volRowsFromStrings(p.volumes));
+
+    if (p.label === "Custom") {
+      setName("");
+      setPort(p.port);
+      setVolRows(volRowsFromStrings(p.volumes));
+      setCollisionHint(null);
+      return;
+    }
+
+    // Detect collisions with existing services sharing the same image, then
+    // auto-suggest a unique name, free port, and per-instance volume sources.
+    const sameImage = services.filter((s) => s.image === p.image);
+    const takenNames = new Set(services.map((s) => s.name));
+    const takenPorts = new Set(services.map((s) => s.port));
+
+    let suggestedName = p.label;
+    if (sameImage.length > 0) {
+      const byTag = `${p.label}-${p.tag}`;
+      if (!takenNames.has(byTag)) {
+        suggestedName = byTag;
+      } else {
+        let n = 2;
+        while (takenNames.has(`${p.label}-${n}`)) n++;
+        suggestedName = `${p.label}-${n}`;
+      }
+    }
+
+    let suggestedPort = p.port;
+    while (takenPorts.has(suggestedPort)) suggestedPort++;
+
+    const nameChanged = suggestedName !== p.label;
+    const suggestedVolumes = nameChanged
+      ? p.volumes.map((v) => {
+          const idx = v.indexOf(":");
+          const src = v.slice(0, idx);
+          const tgt = v.slice(idx + 1);
+          return `${sanitizeVolumeName(suggestedName)}-${src}:${tgt}`;
+        })
+      : p.volumes;
+
+    setName(suggestedName);
+    setPort(suggestedPort);
+    setVolRows(volRowsFromStrings(suggestedVolumes));
+
+    if (sameImage.length > 0) {
+      const parts: string[] = [];
+      if (nameChanged) parts.push(`name → ${suggestedName}`);
+      if (suggestedPort !== p.port) parts.push(`port → ${suggestedPort}`);
+      setCollisionHint(
+        parts.length > 0
+          ? `${sameImage.length} existing ${p.image} service — adjusted ${parts.join(", ")}`
+          : null,
+      );
+    } else {
+      setCollisionHint(null);
+    }
   }
 
   function toEnvRecord(): Record<string, string> {
@@ -274,10 +377,37 @@ export default function AddServiceModal({ onClose }: Props) {
     setSubmitting(true);
     await yieldToFrame();
     try {
-      await addService({ name, image, tag, port, env_vars: toEnvRecord(), volumes: toVolumeStrings(), scope });
+      const envRecord = toEnvRecord();
+      const volumeStrings = toVolumeStrings();
+      if (saveAsTemplate && templateLabel.trim()) {
+        const currentPreset = selectedPreset !== null ? allPresets[selectedPreset] : null;
+        const template: ServiceTemplate = {
+          id: editingTemplateId ?? `tpl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+          label: templateLabel.trim(),
+          icon: currentPreset?.icon ?? "📦",
+          image,
+          tag,
+          versions: currentPreset?.versions ?? [],
+          port,
+          env_vars: envRecord,
+          volumes: volumeStrings,
+        };
+        await saveServiceTemplate(template);
+      }
+      await addService({ name, image, tag, port, env_vars: envRecord, volumes: volumeStrings, scope });
       onClose();
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDeleteTemplate(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    if (!window.confirm("Delete this template?")) return;
+    await deleteServiceTemplate(id);
+    if (selectedPreset !== null && allPresets[selectedPreset]?.userTemplateId === id) {
+      setSelectedPreset(null);
+      setEditingTemplateId(null);
     }
   }
 
@@ -299,25 +429,40 @@ export default function AddServiceModal({ onClose }: Props) {
         <div className="flex flex-col gap-2">
           <span className={labelCls}>Pick a preset</span>
           <div className="grid grid-cols-4 gap-1.5">
-            {PRESETS.map((p, i) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => selectPreset(i)}
-                className={`flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-all duration-100 ${
-                  selectedPreset === i
-                    ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
-                    : "bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200"
-                }`}
-              >
-                <span className="text-[14px] mb-0.5">{p.icon}</span>
-                <p className="text-[11px] font-medium leading-tight">{p.label}</p>
-                {p.image && (
-                  <p className="text-[10px] text-zinc-600 mt-0.5 leading-tight truncate w-full">
-                    {p.image}:{p.tag}
-                  </p>
+            {allPresets.map((p, i) => (
+              <div key={p.userTemplateId ?? `builtin-${p.label}`} className="relative group">
+                <button
+                  type="button"
+                  onClick={() => selectPreset(i)}
+                  className={`w-full flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-all duration-100 ${
+                    selectedPreset === i
+                      ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                      : p.userTemplateId
+                        ? "bg-emerald-500/[0.04] border-emerald-500/15 text-zinc-400 hover:bg-emerald-500/[0.08] hover:text-zinc-200"
+                        : "bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200"
+                  }`}
+                >
+                  <span className="text-[14px] mb-0.5">{p.icon}</span>
+                  <p className="text-[11px] font-medium leading-tight truncate w-full">{p.label}</p>
+                  {p.image && (
+                    <p className="text-[10px] text-zinc-600 mt-0.5 leading-tight truncate w-full">
+                      {p.image}:{p.tag}
+                    </p>
+                  )}
+                </button>
+                {p.userTemplateId && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteTemplate(e, p.userTemplateId!)}
+                    title="Delete template"
+                    className="absolute top-1 right-1 p-1 rounded bg-zinc-900/80 text-zinc-500 hover:text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <svg width="9" height="9" viewBox="0 0 11 11" fill="none">
+                      <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                    </svg>
+                  </button>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -326,6 +471,12 @@ export default function AddServiceModal({ onClose }: Props) {
         {showForm && (
           <>
             <div className="h-px bg-white/[0.05]" />
+
+            {collisionHint && (
+              <div className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/15 rounded-lg px-3 py-2">
+                {collisionHint}
+              </div>
+            )}
 
             {/* Name + Image + Tag */}
             <div className="flex flex-col gap-3">
@@ -355,16 +506,22 @@ export default function AddServiceModal({ onClose }: Props) {
                     spellCheck={false}
                   />
                 </label>
-                <label className="flex flex-col gap-1.5 w-24">
-                  <span className={labelCls}>Tag</span>
+                <label className="flex flex-col gap-1.5 w-28">
+                  <span className={labelCls}>Version</span>
                   <input
                     value={tag}
                     onChange={(e) => setTag(e.target.value)}
                     placeholder="latest"
+                    list={versions.length > 0 ? `versions-${selectedPreset}` : undefined}
                     className={inputCls}
                     autoComplete="off"
                     spellCheck={false}
                   />
+                  {versions.length > 0 && (
+                    <datalist id={`versions-${selectedPreset}`}>
+                      {versions.map((v) => <option key={v} value={v} />)}
+                    </datalist>
+                  )}
                 </label>
                 <label className="flex flex-col gap-1.5 w-24">
                   <span className={labelCls}>Port</span>
@@ -409,6 +566,29 @@ export default function AddServiceModal({ onClose }: Props) {
                 </select>
               </label>
             )}
+
+            {/* Save as template */}
+            <div className="flex flex-col gap-1.5 pt-1 border-t border-white/[0.05]">
+              <label className="flex items-center gap-2 text-[12px] text-zinc-400 cursor-pointer select-none pt-3">
+                <input
+                  type="checkbox"
+                  checked={saveAsTemplate}
+                  onChange={(e) => setSaveAsTemplate(e.target.checked)}
+                  className="accent-blue-500"
+                />
+                {editingTemplateId ? "Update this template" : "Save as template for reuse"}
+              </label>
+              {saveAsTemplate && (
+                <input
+                  value={templateLabel}
+                  onChange={(e) => setTemplateLabel(e.target.value)}
+                  placeholder="Template name"
+                  className={inputCls}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              )}
+            </div>
           </>
         )}
 

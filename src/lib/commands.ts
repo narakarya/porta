@@ -7,6 +7,7 @@ import type {
   Workspace,
   Service,
   AddServiceParams,
+  ServiceTemplate,
   CustomDeployCmd,
   HealthStatus,
 } from "../types";
@@ -621,3 +622,26 @@ export const deleteDeployCustomCmd = (appId: string, cmdId: string): Promise<voi
   isTauri
     ? invoke("delete_deploy_custom_cmd", { appId, cmdId })
     : Promise.reject(new Error("delete_deploy_custom_cmd not available in browser mode"));
+
+// ── Service Templates ────────────────────────────────────────────────────────
+
+let _mockTemplateStore: ServiceTemplate[] = [];
+
+export const listServiceTemplates = (): Promise<ServiceTemplate[]> =>
+  isTauri
+    ? invoke("list_service_templates")
+    : Promise.resolve([..._mockTemplateStore]);
+
+export const saveServiceTemplate = (template: ServiceTemplate): Promise<ServiceTemplate> => {
+  if (isTauri) return invoke("save_service_template", { template });
+  const idx = _mockTemplateStore.findIndex((t) => t.id === template.id);
+  if (idx === -1) _mockTemplateStore.push(template);
+  else _mockTemplateStore[idx] = template;
+  return Promise.resolve(template);
+};
+
+export const deleteServiceTemplate = (id: string): Promise<void> => {
+  if (isTauri) return invoke("delete_service_template", { id });
+  _mockTemplateStore = _mockTemplateStore.filter((t) => t.id !== id);
+  return Promise.resolve();
+};

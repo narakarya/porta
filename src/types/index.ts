@@ -153,6 +153,18 @@ export type AddServiceParams = {
   scope: "global" | string;
 };
 
+export interface ServiceTemplate {
+  id: string;
+  label: string;
+  icon: string;
+  image: string;
+  tag: string;
+  versions: string[];
+  port: number;
+  env_vars: Record<string, string>;
+  volumes: string[];
+}
+
 // ── Port Bindings ────────────────────────────────────────────────────────────
 
 export interface PortBinding {
