@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "./store";
 import { startCaddy, listCloudflareTunnels, getCfApiToken, listTunnelDns } from "./lib/commands";
 import { setCachedTunnels, setCachedDnsRoutes } from "./lib/tunnelCache";
+import { checkForUpdate } from "./lib/updater";
 import Layout from "./components/layout/Layout";
 import WorkspaceView from "./components/workspace/WorkspaceView";
 import SetupWizard from "./components/setup/SetupWizard";
@@ -31,6 +32,9 @@ export default function App() {
     loadSettings();
 
     const healthInterval = setInterval(() => refreshHealth(), 30_000);
+
+    // Check for app updates shortly after startup (silent if none / offline).
+    const updateCheck = setTimeout(() => { void checkForUpdate(); }, 5000);
 
     // Pre-warm tunnel cache in the background so opening Settings → Tunnels
     // is instant (shows cached list immediately, refreshes in background).
@@ -73,6 +77,7 @@ export default function App() {
     return () => {
       clearInterval(healthInterval);
       clearTimeout(prewarmDelay);
+      clearTimeout(updateCheck);
     };
   }, []);
 
