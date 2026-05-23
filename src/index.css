@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-[#111113] text-zinc-100 select-none overflow-hidden;
+    font-size: 13px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-zinc-700 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-zinc-600; }
+}
+
+.drag-region { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+@layer components {
+  .input-base {
+    @apply w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100
+           placeholder:text-zinc-700 outline-none focus:border-blue-500/50 transition-colors;
+  }
+  /* Themed select that hides the native macOS chevron and renders our own.
+     Use this on every <select> instead of input-base — input-base leaves the
+     OS up/down spinner visible on a webkit dropdown. */
+  .select-base {
+    @apply w-full bg-[#111113] border border-white/[0.08] rounded-lg pl-3 pr-7 py-2 text-[13px] text-zinc-100
+           outline-none focus:border-blue-500/50 transition-colors cursor-pointer disabled:opacity-50;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10' fill='none'><path d='M2 3.5L5 6.5L8 3.5' stroke='%23a1a1aa' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 10px;
+  }
+  /* Hide webkit number spinner — used on inline value inputs (e.g. CF zone
+     settings) where the OS spinner clashes with the dark theme. */
+  .number-no-spin::-webkit-outer-spin-button,
+  .number-no-spin::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .number-no-spin {
+    -moz-appearance: textfield;
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid transparent;
+  border-top-color: currentColor;
+  border-right-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
