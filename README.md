@@ -99,6 +99,21 @@ git push origin v0.5.62
 
 The workflow builds a universal binary, signs the updater artifacts, and publishes the `.dmg` plus `latest.json` to GitHub Releases. The CI verifies the three versions match the tag before building.
 
+### Apple code signing & notarization (optional)
+
+By default builds are **unsigned**, so first launch hits a Gatekeeper warning. To ship notarized builds that open cleanly, add these repo secrets (requires an Apple Developer account) — the workflow picks them up automatically:
+
+| Secret | What |
+| --- | --- |
+| `APPLE_CERTIFICATE` | base64 of the exported Developer ID `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | password for that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)` |
+| `APPLE_ID` | Apple ID email |
+| `APPLE_PASSWORD` | app-specific password for that Apple ID |
+| `APPLE_TEAM_ID` | 10-character team ID |
+
+Until they're set, signing is skipped and the build still succeeds.
+
 ## License
 
 MIT
