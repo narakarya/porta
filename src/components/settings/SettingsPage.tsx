@@ -12,6 +12,7 @@ const CloudflareSection = lazy(() => import("./CloudflareSection"));
 const TailscaleSection = lazy(() => import("./TailscaleSection"));
 const DiskUsageSection = lazy(() => import("./DiskUsageSection"));
 const ExtensionsSection = lazy(() => import("./ExtensionsSection"));
+const AboutSection = lazy(() => import("./AboutSection"));
 
 function SectionFallback() {
   return (
@@ -23,7 +24,7 @@ function SectionFallback() {
   );
 }
 
-type Section = "setup" | "cloudflare" | "tailscale" | "notifications" | "backup" | "disk" | "extensions";
+type Section = "setup" | "cloudflare" | "tailscale" | "notifications" | "backup" | "disk" | "extensions" | "about";
 
 const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -100,6 +101,17 @@ const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
         <path d="M8 3h4v2c0 1.1.9 2 2 2s2-.9 2-2V3h2a1 1 0 011 1v2.5h-2c-1.1 0-2 .9-2 2s.9 2 2 2H19V13a1 1 0 01-1 1h-2v-2c0-1.1-.9-2-2-2s-2 .9-2 2v2H9a1 1 0 01-1-1v-2.5h2c1.1 0 2-.9 2-2s-.9-2-2-2H8V4a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+      </svg>
+    ),
+  },
+  {
+    id: "about",
+    label: "About",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M10 9v4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="10" cy="6.5" r="0.5" fill="currentColor" stroke="currentColor" strokeWidth="0.6"/>
       </svg>
     ),
   },
@@ -209,6 +221,11 @@ export default function SettingsPage({ onBack }: Props) {
           {visited.has("extensions") && (
             <div hidden={activeSection !== "extensions"}>
               <ExtensionsSection />
+            </div>
+          )}
+          {visited.has("about") && (
+            <div hidden={activeSection !== "about"}>
+              <AboutSection />
             </div>
           )}
         </Suspense>
