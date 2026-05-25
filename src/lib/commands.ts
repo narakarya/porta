@@ -1356,6 +1356,9 @@ export const installExtensionFromFolder = (path: string): Promise<ExtensionInfo>
 export const installExtensionFromGithub = (url: string): Promise<ExtensionInfo> =>
   isTauri ? invoke("install_extension_from_github", { url }) : Promise.reject(new Error("not available"));
 
+export const updateExtension = (id: string): Promise<ExtensionInfo> =>
+  isTauri ? invoke("update_extension", { id }) : Promise.reject(new Error("not available"));
+
 export const setExtensionEnabled = (id: string, enabled: boolean): Promise<void> =>
   isTauri ? invoke("set_extension_enabled_cmd", { id, enabled }) : Promise.resolve();
 

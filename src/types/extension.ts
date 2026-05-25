@@ -58,6 +58,8 @@ export interface ExtensionInfo {
   contributes_app_actions: ExtensionActionContrib[];
   permissions: string[];
   activate_on: string[];
+  /** Remote install source (GitHub url/ref); null for local-folder installs */
+  source?: string | null;
 }
 
 // ── portaBridge types (injected into extension iframes) ─────────────────────

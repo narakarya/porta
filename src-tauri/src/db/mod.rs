@@ -169,6 +169,8 @@ impl Database {
                 installed_at INTEGER NOT NULL DEFAULT 0
             );
         ")?;
+        // Remote install source (GitHub url/ref); NULL for local-folder installs.
+        let _ = self.conn.execute("ALTER TABLE extensions ADD COLUMN source TEXT", []);
 
         Ok(())
     }
