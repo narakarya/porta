@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - "v*"
+  # Manual release: bumps the three version files, commits to main, tags, and
+  # builds — all in one run. No need to bump/tag locally.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v prefix, e.g. 0.5.64"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,10 +23,35 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Manual dispatch bumps + tags on main; tag pushes build the tag as-is.
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve release tag (bump + commit + tag on manual dispatch)
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ inputs.version }}"; V="${V#v}"
+            node -e "const f='package.json',j=require('./'+f);j.version='$V';require('fs').writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+            node -e "const f='src-tauri/tauri.conf.json',j=require('./'+f);j.version='$V';require('fs').writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+            perl -0pi -e "s/^version = \"[^\"]*\"/version = \"$V\"/m" src-tauri/Cargo.toml
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore: release v$V"
+            git tag "v$V"
+            git push origin HEAD:main
+            git push origin "v$V"
+            echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Verify version sync (tag == package.json == tauri.conf.json == Cargo.toml)
+        env:
+          REL_TAG: ${{ steps.resolve.outputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${REL_TAG#v}"
           PKG=$(node -p "require('./package.json').version")
           CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
           CARGO=$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
@@ -74,10 +107,10 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Porta ${{ github.ref_name }}"
+          tagName: ${{ steps.resolve.outputs.tag }}
+          releaseName: "Porta ${{ steps.resolve.outputs.tag }}"
           releaseBody: "See the full commit history for this release on GitHub."
           releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+          prerelease: ${{ contains(steps.resolve.outputs.tag, 'beta') || contains(steps.resolve.outputs.tag, 'alpha') || contains(steps.resolve.outputs.tag, 'rc') }}
           includeUpdaterJson: true
           args: --target universal-apple-darwin
