@@ -3,6 +3,7 @@ import {
   listExtensions,
   installExtensionFromFolder,
   installExtensionFromGithub,
+  updateExtension,
   setExtensionEnabled,
   uninstallExtension,
 } from "../../lib/commands";
@@ -15,6 +16,8 @@ export default function ExtensionsSection() {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubInstalling, setGithubInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
 
   const reload = async () => {
@@ -69,6 +72,28 @@ export default function ExtensionsSection() {
       setError(String(e));
     } finally {
       setGithubInstalling(false);
+    }
+  };
+
+  const handleUpdate = async (id: string) => {
+    const prevVersion = extensions.find((e) => e.id === id)?.version;
+    setUpdatingId(id);
+    setError(null);
+    setNotice(null);
+    try {
+      const ext = await updateExtension(id);
+      setExtensions((prev) =>
+        prev.map((e) => (e.id === ext.id ? ext : e)).sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setNotice(
+        prevVersion && prevVersion !== ext.version
+          ? `${ext.name} updated v${prevVersion} → v${ext.version}`
+          : `${ext.name} is up to date (v${ext.version})`,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -172,6 +197,16 @@ export default function ExtensionsSection() {
         </div>
       )}
 
+      {notice && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-emerald-400 mt-0.5 shrink-0">
+            <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4"/>
+            <path d="M4 6l1.5 1.5L8.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <p className="text-[11px] text-emerald-400">{notice}</p>
+        </div>
+      )}
+
       {/* Extension list */}
       {loading ? (
         <div className="flex flex-col gap-2">
@@ -196,6 +231,8 @@ export default function ExtensionsSection() {
             <ExtensionCard
               key={ext.id}
               ext={ext}
+              updating={updatingId === ext.id}
+              onUpdate={() => handleUpdate(ext.id)}
               onToggle={handleToggle}
               onUninstall={() => setConfirmUninstall(ext.id)}
             />
@@ -236,10 +273,14 @@ export default function ExtensionsSection() {
 
 function ExtensionCard({
   ext,
+  updating,
+  onUpdate,
   onToggle,
   onUninstall,
 }: {
   ext: ExtensionInfo;
+  updating: boolean;
+  onUpdate: () => void;
   onToggle: (id: string, enabled: boolean) => void;
   onUninstall: () => void;
 }) {
@@ -270,6 +311,27 @@ function ExtensionCard({
 
       {/* Actions */}
       <div className="flex items-center gap-2 shrink-0">
+        {/* Update from source (GitHub installs only) */}
+        {ext.source && (
+          <button
+            onClick={onUpdate}
+            disabled={updating}
+            className="p-1.5 rounded-md text-zinc-600 hover:text-violet-400 hover:bg-violet-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={`Update from ${ext.source}`}
+          >
+            {updating ? (
+              <svg className="animate-spin" width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M5.5 1A4.5 4.5 0 1 1 1 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M9.5 5.5A4 4 0 1 1 5.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                <path d="M9.5 1.5v4h-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </button>
+        )}
+
         {/* Enable/disable toggle */}
         <button
           onClick={() => onToggle(ext.id, !ext.enabled)}

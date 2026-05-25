@@ -110,12 +110,19 @@ pub struct LoadedExtension {
     /// Absolute path to the main HTML file.
     pub main_path: std::path::PathBuf,
     pub enabled: bool,
+    /// Remote install source (GitHub url/ref); None for local-folder installs.
+    pub source: Option<String>,
 }
 
 impl LoadedExtension {
-    pub fn new(manifest: ExtensionManifest, folder: std::path::PathBuf, enabled: bool) -> Self {
+    pub fn new(
+        manifest: ExtensionManifest,
+        folder: std::path::PathBuf,
+        enabled: bool,
+        source: Option<String>,
+    ) -> Self {
         let main_path = folder.join(&manifest.main);
-        Self { manifest, path: folder, main_path, enabled }
+        Self { manifest, path: folder, main_path, enabled, source }
     }
 
     /// Serialized form sent to the frontend.
@@ -132,6 +139,7 @@ impl LoadedExtension {
             contributes_app_actions: self.manifest.contributes.app_actions.clone(),
             permissions: self.manifest.permissions.clone(),
             activate_on: self.manifest.activate_on.clone(),
+            source: self.source.clone(),
         }
     }
 }
@@ -150,4 +158,6 @@ pub struct ExtensionInfo {
     pub contributes_app_actions: Vec<ActionContrib>,
     pub permissions: Vec<String>,
     pub activate_on: Vec<String>,
+    /// Remote install source (GitHub url/ref); None for local-folder installs.
+    pub source: Option<String>,
 }

@@ -20,7 +20,7 @@ pub fn scan_extensions(db: &Database) -> Vec<LoadedExtension> {
         return vec![];
     }
 
-    let enabled_map = load_enabled_map(db);
+    let state_map = load_extension_state(db);
 
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
@@ -39,10 +39,13 @@ pub fn scan_extensions(db: &Database) -> Vec<LoadedExtension> {
         }
         match ExtensionManifest::load_from_dir(&path) {
             Ok(manifest) => {
-                let enabled = enabled_map.get(&manifest.id).copied().unwrap_or(true);
+                let (enabled, source) = state_map
+                    .get(&manifest.id)
+                    .cloned()
+                    .unwrap_or((true, None));
                 // Persist if not already tracked
                 let _ = upsert_extension(db, &manifest.id, &path, enabled);
-                loaded.push(LoadedExtension::new(manifest, path, enabled));
+                loaded.push(LoadedExtension::new(manifest, path, enabled, source));
             }
             Err(e) => {
                 eprintln!("[extensions] Skipping {:?}: {}", path.file_name().unwrap_or_default(), e);
@@ -54,23 +57,37 @@ pub fn scan_extensions(db: &Database) -> Vec<LoadedExtension> {
     loaded
 }
 
-/// Load enabled/disabled state for all known extensions from DB.
-fn load_enabled_map(db: &Database) -> std::collections::HashMap<String, bool> {
+/// Load enabled state + install source for all known extensions from DB.
+fn load_extension_state(db: &Database) -> std::collections::HashMap<String, (bool, Option<String>)> {
     let mut map = std::collections::HashMap::new();
-    let result = db.conn.prepare(
-        "SELECT id, enabled FROM extensions"
-    );
+    let result = db.conn.prepare("SELECT id, enabled, source FROM extensions");
     if let Ok(mut stmt) = result {
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, bool>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
         });
         if let Ok(rows) = rows {
             for row in rows.flatten() {
-                map.insert(row.0, row.1);
+                map.insert(row.0, (row.1, row.2));
             }
         }
     }
     map
+}
+
+/// Look up the remote install source for an extension, if any.
+pub fn get_extension_source(db: &Database, id: &str) -> Option<String> {
+    db.conn
+        .query_row(
+            "SELECT source FROM extensions WHERE id = ?1",
+            rusqlite::params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
 }
 
 fn upsert_extension(db: &Database, id: &str, path: &std::path::Path, enabled: bool) -> Result<()> {
@@ -113,7 +130,13 @@ pub fn uninstall_extension(db: &Database, id: &str) -> Result<()> {
 
 /// Install an extension from a source folder path.
 /// Validates the manifest, copies to extensions_dir/{id}/, persists to DB.
-pub fn install_from_folder(db: &Database, src: &std::path::Path) -> Result<LoadedExtension> {
+/// `source` records the remote origin (GitHub url/ref) so the extension can be
+/// updated later; pass None for local-folder installs.
+pub fn install_from_folder(
+    db: &Database,
+    src: &std::path::Path,
+    source: Option<&str>,
+) -> Result<LoadedExtension> {
     let manifest = ExtensionManifest::load_from_dir(src)?;
     let _ = std::fs::create_dir_all(extensions_dir());
     let dest = extensions_dir().join(&manifest.id);
@@ -125,12 +148,12 @@ pub fn install_from_folder(db: &Database, src: &std::path::Path) -> Result<Loade
     copy_dir_recursive(src, &dest)?;
 
     db.conn.execute(
-        "INSERT OR REPLACE INTO extensions (id, path, enabled, installed_at)
-         VALUES (?1, ?2, 1, strftime('%s','now'))",
-        rusqlite::params![&manifest.id, dest.to_string_lossy()],
+        "INSERT OR REPLACE INTO extensions (id, path, enabled, installed_at, source)
+         VALUES (?1, ?2, 1, strftime('%s','now'), ?3)",
+        rusqlite::params![&manifest.id, dest.to_string_lossy(), source],
     )?;
 
-    Ok(LoadedExtension::new(manifest, dest, true))
+    Ok(LoadedExtension::new(manifest, dest, true, source.map(|s| s.to_string())))
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {

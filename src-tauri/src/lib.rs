@@ -366,6 +366,7 @@ pub fn run() {
             commands::rescan_extensions,
             commands::install_extension_from_folder,
             commands::install_extension_from_github,
+            commands::update_extension,
             commands::set_extension_enabled_cmd,
             commands::uninstall_extension_cmd,
             commands::extension_shell_run,
