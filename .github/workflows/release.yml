@@ -87,28 +87,21 @@ jobs:
           # Updater signature (minisign) — required for auto-update. Already configured.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple code signing + notarization (optional, OFF by default).
-          # Gated behind the repo variable ENABLE_APPLE_SIGNING == 'true' so that
-          # inherited *org-level* APPLE_* secrets don't accidentally trigger a
-          # codesign attempt with a cert that isn't valid for this app (which
-          # fails `security import` and breaks the build). When the flag is unset
-          # these resolve to empty strings and Tauri skips signing — build
-          # succeeds unsigned, as before.
+          # Apple code signing + notarization: intentionally NOT wired here.
           #
-          # To enable: set repo variable ENABLE_APPLE_SIGNING=true and add the
-          # repo secrets below (needs an Apple Developer account):
-          #   APPLE_CERTIFICATE           base64 of the Developer ID .p12 export
-          #   APPLE_CERTIFICATE_PASSWORD  password for that .p12
-          #   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
-          #   APPLE_ID                    Apple ID email
-          #   APPLE_PASSWORD              app-specific password for that Apple ID
-          #   APPLE_TEAM_ID               10-char team ID
-          APPLE_CERTIFICATE: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          # These env vars must stay UNDEFINED when signing is off. Mapping them
+          # to an empty string still *defines* the variable, and tauri-bundler
+          # treats a defined (even empty) APPLE_CERTIFICATE as "import this cert"
+          # → runs `security import` with empty data → fails the build. So we
+          # leave them out entirely; the build is unsigned (open via right-click
+          # → Open once on first launch), exactly like earlier releases.
+          #
+          # To enable signing later, add a dedicated signed-release workflow (or
+          # a job guarded by an environment) that sets these only when present:
+          #   APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
+          #   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # Do NOT add them as plain `KEY: ${{ secrets.X }}` lines — inherited
+          # org-level secrets would re-break the unsigned build.
         with:
           tagName: ${{ steps.resolve.outputs.tag }}
           releaseName: "Porta ${{ steps.resolve.outputs.tag }}"
