@@ -87,25 +87,28 @@ jobs:
           # Updater signature (minisign) — required for auto-update. Already configured.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple code signing + notarization (optional). When these secrets are
-          # set, Tauri's bundler signs the .app with the Developer ID cert and
-          # notarizes it via notarytool, so macOS opens it without a Gatekeeper
-          # warning. When unset, they resolve to empty strings and Tauri skips
-          # signing — the build still succeeds (unsigned, as before).
+          # Apple code signing + notarization (optional, OFF by default).
+          # Gated behind the repo variable ENABLE_APPLE_SIGNING == 'true' so that
+          # inherited *org-level* APPLE_* secrets don't accidentally trigger a
+          # codesign attempt with a cert that isn't valid for this app (which
+          # fails `security import` and breaks the build). When the flag is unset
+          # these resolve to empty strings and Tauri skips signing — build
+          # succeeds unsigned, as before.
           #
-          # To enable, add these repo secrets (needs an Apple Developer account):
+          # To enable: set repo variable ENABLE_APPLE_SIGNING=true and add the
+          # repo secrets below (needs an Apple Developer account):
           #   APPLE_CERTIFICATE           base64 of the Developer ID .p12 export
           #   APPLE_CERTIFICATE_PASSWORD  password for that .p12
           #   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
           #   APPLE_ID                    Apple ID email
           #   APPLE_PASSWORD              app-specific password for that Apple ID
           #   APPLE_TEAM_ID               10-char team ID
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ vars.ENABLE_APPLE_SIGNING == 'true' && secrets.APPLE_TEAM_ID || '' }}
         with:
           tagName: ${{ steps.resolve.outputs.tag }}
           releaseName: "Porta ${{ steps.resolve.outputs.tag }}"
