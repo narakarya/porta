@@ -45,6 +45,8 @@ export interface UpdaterInfo {
   downloaded: number;
 }
 
+export type TerminalPlacement = "modal" | "panel";
+
 export interface UiSlice {
   setupStatus: SetupStatus | null;
   loading: boolean;
@@ -56,6 +58,10 @@ export interface UiSlice {
   updaterPhase: UpdaterPhase;
   updaterInfo: UpdaterInfo | null;
   updaterError: string | null;
+  /** Where the terminal renders: full-screen modal vs. bottom-docked panel. */
+  terminalPlacement: TerminalPlacement;
+  /** Panel-mode height as a fraction of the viewport (0.15 – 0.92). */
+  terminalPanelHeight: number;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -66,6 +72,23 @@ export interface UiSlice {
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[]) => void;
   closeExtensionSidebar: () => void;
+  setTerminalPlacement: (p: TerminalPlacement) => void;
+  setTerminalPanelHeight: (frac: number) => void;
+}
+
+const LS_PLACEMENT = "porta.terminal.placement";
+const LS_PANEL_HEIGHT = "porta.terminal.panelHeight";
+
+function loadPlacement(): TerminalPlacement {
+  if (typeof localStorage === "undefined") return "modal";
+  const v = localStorage.getItem(LS_PLACEMENT);
+  return v === "panel" ? "panel" : "modal";
+}
+
+function loadPanelHeight(): number {
+  if (typeof localStorage === "undefined") return 0.4;
+  const n = parseFloat(localStorage.getItem(LS_PANEL_HEIGHT) || "");
+  return Number.isFinite(n) && n >= 0.15 && n <= 0.92 ? n : 0.4;
 }
 
 export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get) => ({
@@ -79,6 +102,8 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterPhase: "idle",
   updaterInfo: null,
   updaterError: null,
+  terminalPlacement: loadPlacement(),
+  terminalPanelHeight: loadPanelHeight(),
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -119,4 +144,14 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     set({ extensionSidebar: { appId, extensions } }),
 
   closeExtensionSidebar: () => set({ extensionSidebar: null }),
+
+  setTerminalPlacement: (p) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_PLACEMENT, p);
+    set({ terminalPlacement: p });
+  },
+  setTerminalPanelHeight: (frac) => {
+    const clamped = Math.max(0.15, Math.min(0.92, frac));
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_PANEL_HEIGHT, String(clamped));
+    set({ terminalPanelHeight: clamped });
+  },
 });

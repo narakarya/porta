@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { usePortaStore } from "../../store";
 import type { App } from "../../types";
 import TerminalTab from "./TerminalTab";
 
@@ -36,6 +38,17 @@ function newId(prefix: string) {
 }
 
 export default function TerminalModal({ initialApp, isOpen, onClose, pendingSession }: Props) {
+  // Placement is persisted in UI slice (localStorage-backed) so the user
+  // doesn't have to re-dock the terminal every session.
+  const { placement, panelHeight, setPlacement, setPanelHeight } = usePortaStore(
+    useShallow((s) => ({
+      placement: s.terminalPlacement,
+      panelHeight: s.terminalPanelHeight,
+      setPlacement: s.setTerminalPlacement,
+      setPanelHeight: s.setTerminalPanelHeight,
+    })),
+  );
+
   const [tabs, setTabs] = useState<TabSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
@@ -261,8 +274,50 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
 
   const canSplit = !!activeTab && activeTab.panes.length < 2;
 
+  // Drag-to-resize for panel mode. Records the last height seen during
+  // the drag so it can be committed on mouseup (closure over React state
+  // would capture the start value, not the running one).
+  function beginResize(e: React.MouseEvent) {
+    if (placement !== "panel") return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = panelHeight;
+    let lastH = startH;
+    const onMove = (ev: MouseEvent) => {
+      const delta = (startY - ev.clientY) / window.innerHeight;
+      lastH = Math.max(0.15, Math.min(0.92, startH + delta));
+      setPanelHeight(lastH);
+    };
+    const onUp = () => {
+      setPanelHeight(lastH); // commit final value to localStorage
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  const containerClass = placement === "panel"
+    ? "fixed left-0 right-0 bottom-0 z-50 bg-[#111113] flex flex-col border-t-2 border-white/[0.12] shadow-[0_-12px_28px_rgba(0,0,0,0.45)]"
+    : "fixed inset-0 z-50 bg-[#111113] flex flex-col";
+
+  const containerStyle: React.CSSProperties = {
+    display: isOpen ? undefined : "none",
+    ...(placement === "panel" ? { height: `${panelHeight * 100}vh` } : {}),
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-[#111113] flex flex-col" style={{ display: isOpen ? undefined : "none" }}>
+    <div className={containerClass} style={containerStyle}>
+      {/* Resize handle — only rendered in panel mode. The 8px target gives
+          a comfortable grab area; the visible 2px line at the top edge of
+          the panel matches the border. */}
+      {placement === "panel" && (
+        <div
+          onMouseDown={beginResize}
+          className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize"
+          title="Drag to resize"
+        />
+      )}
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.08] shrink-0">
         <span className="text-[14px] font-semibold text-zinc-100 font-mono">Terminal</span>
@@ -308,6 +363,25 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
           title="Show searchable text transcript"
         >
           Filter
+        </button>
+        <button
+          onClick={() => setPlacement(placement === "modal" ? "panel" : "modal")}
+          className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
+          title={placement === "modal" ? "Dock to bottom" : "Expand to full screen"}
+        >
+          {placement === "modal" ? (
+            // Icon: bottom panel — outline rectangle with bottom band
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <rect x="1.5" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M1.5 8h10" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+          ) : (
+            // Icon: full-screen — outline rectangle filled
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <rect x="1.5" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M1.5 4h10" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+          )}
         </button>
         <button
           onClick={onClose}
