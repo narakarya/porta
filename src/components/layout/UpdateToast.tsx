@@ -53,10 +53,27 @@ export default function UpdateToast() {
 
   if (phase === "available" && info) {
     title = `Porta ${info.version} available`;
+    // Body may be a bullet list of commit subjects. Render the first
+    // ~5 lines so the toast stays compact; the GitHub release page
+    // carries the full log.
+    const bullets = (info.body ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .slice(0, 5);
     detail = (
-      <p className="text-[11px] text-zinc-500 mt-1">
-        You're on {info.currentVersion}. {info.body ? info.body.split("\n")[0].slice(0, 90) : ""}
-      </p>
+      <div className="mt-1">
+        <p className="text-[11px] text-zinc-500">You're on {info.currentVersion}.</p>
+        {bullets.length > 0 && (
+          <ul className="mt-1.5 space-y-0.5 max-h-28 overflow-y-auto pr-1">
+            {bullets.map((line, i) => (
+              <li key={i} className="text-[11px] text-zinc-400 leading-snug">
+                {line.startsWith("- ") ? line.slice(2) : line}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     );
     actions = (
       <>

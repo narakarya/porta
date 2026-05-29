@@ -191,10 +191,36 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Generate changelog notes from commits
+        id: notes
+        run: |
+          set -euo pipefail
+          # Resolve the previous version tag (sorted by semver). `grep -B1`
+          # peeks at the line above the current tag in the sorted list.
+          PREV=$(git tag --list 'v*' --sort=v:refname | grep -B1 -F "$TAG" | head -1 || true)
+          if [ -z "$PREV" ] || [ "$PREV" = "$TAG" ]; then
+            NOTES=$'Initial release'
+          else
+            # Bullet list of commit subjects since the last release. Cap at
+            # 30 to keep the toast and release body readable; full log stays
+            # on the GitHub commits page for archaeology.
+            NOTES=$(git log --pretty=format:'- %s' "${PREV}..${TAG}" | head -30)
+            if [ -z "$NOTES" ]; then NOTES=$'No commit log entries between '"$PREV"' and '"$TAG"; fi
+          fi
+          printf '%s\n' "$NOTES" > /tmp/release-notes.txt
+          echo "── Generated notes ──"
+          cat /tmp/release-notes.txt
+
       - name: Fetch arch signatures + compose latest.json
         run: |
           set -euo pipefail
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          NOTES=$(cat /tmp/release-notes.txt)
 
           # The .sig asset names follow `Porta_<arch>.app.tar.gz.sig` in
           # Tauri 2 (`aarch64` for ARM, `x64`/`x86_64` for Intel). We resolve
@@ -229,13 +255,14 @@ jobs:
           jq -n \
             --arg version  "$TAG" \
             --arg pub_date "$PUB_DATE" \
+            --arg notes    "$NOTES" \
             --arg arm_sig  "$arm_sig" \
             --arg arm_url  "$base/$arm_bundle_name" \
             --arg intel_sig "$intel_sig" \
             --arg intel_url "$base/$intel_bundle_name" \
             '{
               version:  $version,
-              notes:    "See the full commit history for this release on GitHub.",
+              notes:    $notes,
               pub_date: $pub_date,
               platforms: {
                 "darwin-aarch64": { signature: $arm_sig,   url: $arm_url },
@@ -249,6 +276,14 @@ jobs:
       - name: Upload latest.json to release
         run: |
           gh release upload "$TAG" --repo "$REPO" latest.json --clobber
+
+      - name: Update release body with generated changelog
+        # The release body was set to a placeholder during build. Now that
+        # we've computed the actual commit-derived notes, replace it so the
+        # GitHub Releases page shows the same content the in-app updater
+        # toast reads from latest.json.
+        run: |
+          gh release edit "$TAG" --repo "$REPO" --notes-file /tmp/release-notes.txt
 
       - name: Publish release (drop draft flag)
         # Only now do we make the release visible as "latest" on GitHub. The

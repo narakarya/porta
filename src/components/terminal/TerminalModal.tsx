@@ -397,8 +397,13 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
       {/* ── Body: tab sidebar + terminal area ───────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* Tab sidebar */}
-        <div className="w-[180px] shrink-0 border-r border-white/[0.06] flex flex-col">
-          <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-0.5">
+        <div className="w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col">
+          <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-0.5">
+            <div className="flex items-center gap-1 px-2 mb-1 mt-2">
+              <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest">
+                Sessions
+              </span>
+            </div>
             {tabs.map((tab) => {
               const isActive = activeId === tab.id;
               const isEditing = editingTabId === tab.id;
@@ -408,10 +413,10 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
                   key={tab.id}
                   onClick={() => !isEditing && setActiveId(tab.id)}
                   onDoubleClick={() => startRename(tab)}
-                  className={`group flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors ${
+                  className={`group flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] font-medium cursor-pointer transition-colors ${
                     isActive
-                      ? "bg-white/[0.09] text-zinc-100"
-                      : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05]"
+                      ? "bg-white/10 text-zinc-100"
+                      : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]"
                   }`}
                 >
                   {busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Activity" />}
