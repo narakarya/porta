@@ -97,10 +97,24 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       listen<number>(`app:exit:${app.id}`, (e) => {
+        // Guard against a stale exit racing a fresh start. Docker restart
+        // does stop+rm then immediately runs the new container with the same
+        // name — the *old* exit watcher fires `app:exit:0` AFTER `app:starting`
+        // for the new run has already arrived. Without this guard, that
+        // overwrites the optimistic "starting" status back to "stopped" and
+        // the UI flashes "Start" until `app:ready` finally fires seconds
+        // later. Compare the current store snapshot, not the closure-captured
+        // app object, which is from the moment we subscribed.
+        const current = get().apps.find((a) => a.id === app.id);
+        const inFlightStart = current?.status === "starting";
         const { [app.id]: _, ...restStartedAt } = get().appStartedAt;
         set((s) => ({
           apps: s.apps.map((a) =>
-            a.id === app.id ? { ...a, status: "stopped" as const, pid: null } : a
+            a.id === app.id
+              ? inFlightStart
+                ? a  // keep "starting" — the new run is still booting
+                : { ...a, status: "stopped" as const, pid: null }
+              : a
           ),
           appExitCode: { ...s.appExitCode, [app.id]: e.payload },
           appStartedAt: restStartedAt,
@@ -109,7 +123,24 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           // "restarting" forever even though the process is gone.
           appRestarting: { ...s.appRestarting, [app.id]: false },
         }));
-        cmd.markAppStopped(app.id).catch(() => {});
+        // Only mirror "stopped" to the DB when we actually transitioned —
+        // otherwise we'd race the start's own `update_app_status("starting")`.
+        if (!inFlightStart) {
+          cmd.markAppStopped(app.id).catch(() => {});
+        }
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+      // The backend emits `app:starting:{id}` from `start_single` right after
+      // it flips the DB to "starting" — listening here lets us re-assert the
+      // "starting" status if a stale `app:exit` from the old run wins the
+      // race and momentarily flips us to "stopped".
+      listen(`app:starting:${app.id}`, () => {
+        set((s) => ({
+          apps: s.apps.map((a) =>
+            a.id === app.id ? { ...a, status: "starting" as const } : a
+          ),
+          appExitCode: { ...s.appExitCode, [app.id]: null },
+        }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       listen(`app:ready:${app.id}`, () => {

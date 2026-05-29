@@ -124,6 +124,11 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         appRetryCount: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: 0 }), s.appRetryCount),
         appRestarting: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: false }), s.appRestarting),
         appStartedAt: restStartedAt,
+        // Intentional stop wipes any stale crash code so the button label
+        // resets to "Start" — without this, a previously crashed app keeps
+        // showing "Restart" forever after a bulk stop (esp. compose stacks
+        // where no app:exit follows to clear it).
+        appExitCode: wsAppIds.reduce((acc, id) => ({ ...acc, [id]: null }), s.appExitCode),
       };
     });
   },
@@ -206,6 +211,11 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         appRetryCount: { ...s.appRetryCount, [id]: 0 },
         appRestarting: { ...s.appRestarting, [id]: false },
         appStartedAt: restStartedAt,
+        // Intentional stop wipes any stale crash code. Without this, an app
+        // that previously crashed (exitCode != 0) keeps showing "Restart" as
+        // the Start button label even after the user clicks Stop — for
+        // compose apps this sticks forever since no app:exit follows.
+        appExitCode: { ...s.appExitCode, [id]: null },
       };
     });
     if (isTauri) {
@@ -271,7 +281,11 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
           a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
         ),
         appRetryCount: { ...s.appRetryCount, [id]: 0 },
+        appRestarting: { ...s.appRestarting, [id]: false },
         appStartedAt: restStartedAt,
+        // Same reasoning as stopApp — force-kill is intentional, clear any
+        // prior crash code so the button doesn't keep saying "Restart".
+        appExitCode: { ...s.appExitCode, [id]: null },
       };
     });
   },
