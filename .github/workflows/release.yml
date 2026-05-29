@@ -62,10 +62,19 @@ jobs:
             exit 1
           fi
 
-      - name: Pre-create release shell
-        # Eliminates the race where both matrix jobs call `gh release create`
-        # simultaneously — by the time tauri-action looks up the tag, the
-        # release already exists and it just appends assets to it.
+      - name: Pre-create release shell (as draft)
+        # Two reasons for `--draft`:
+        # 1. Eliminates the race where both matrix jobs call `gh release
+        #    create` simultaneously — when tauri-action looks up the tag the
+        #    draft is already there, so it just appends assets.
+        # 2. Crucially, a draft release is NOT "latest" on GitHub. Without
+        #    this, the moment the first matrix job uploads an asset the
+        #    release becomes "latest" even though latest.json hasn't been
+        #    written yet — and every running Porta client fetching
+        #    `releases/latest/download/latest.json` would 404 until
+        #    merge-updater finishes. With the draft, the *previous*
+        #    published release stays "latest" and clients keep working
+        #    until merge-updater publishes this one.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.resolve.outputs.tag }}
@@ -74,6 +83,7 @@ jobs:
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" \
               --repo "$REPO" \
+              --draft \
               --title "Porta $TAG" \
               --notes "See the full commit history for this release on GitHub."
           else
@@ -145,7 +155,10 @@ jobs:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: "Porta ${{ needs.prepare.outputs.tag }}"
           releaseBody: "See the full commit history for this release on GitHub."
-          releaseDraft: false
+          # Keep the release as a draft so it doesn't become "latest" on
+          # GitHub until merge-updater has written latest.json. tauri-action
+          # honours this by passing `--draft` to the underlying gh call.
+          releaseDraft: true
           prerelease: ${{ contains(needs.prepare.outputs.tag, 'beta') || contains(needs.prepare.outputs.tag, 'alpha') || contains(needs.prepare.outputs.tag, 'rc') }}
           # No latest.json from individual jobs — see merge-updater below.
           includeUpdaterJson: false
@@ -224,3 +237,12 @@ jobs:
       - name: Upload latest.json to release
         run: |
           gh release upload "$TAG" --repo "$REPO" latest.json --clobber
+
+      - name: Publish release (drop draft flag)
+        # Only now do we make the release visible as "latest" on GitHub. The
+        # draft → published transition is atomic from the client's point of
+        # view: all assets (both arches' DMGs + bundles + signatures + the
+        # merged latest.json) appear at once, so the updater can fetch
+        # latest.json in the same poll where it first sees the release.
+        run: |
+          gh release edit "$TAG" --repo "$REPO" --draft=false
