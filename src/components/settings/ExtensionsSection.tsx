@@ -270,11 +270,24 @@ export default function ExtensionsSection() {
           ))}
         </div>
       ) : extensions.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-12 text-zinc-600">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" className="opacity-40">
-            <path d="M13 5h6v3c0 1.7 1.3 3 3 3s3-1.3 3-3V5h4a2 2 0 012 2v5h-3c-1.7 0-3 1.3-3 3s1.3 3 3 3h3v5a2 2 0 01-2 2h-4v-3c0-1.7-1.3-3-3-3s-3 1.3-3 3v3h-5a2 2 0 01-2-2v-5h3c1.7 0 3-1.3 3-3s-1.3-3-3-3H8V7a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-          </svg>
-          <p className="text-[12px]">No extensions installed</p>
+        <div className="flex flex-col items-center gap-2 py-10 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center text-zinc-600">
+            <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+              <path d="M13 5h6v3c0 1.7 1.3 3 3 3s3-1.3 3-3V5h4a2 2 0 012 2v5h-3c-1.7 0-3 1.3-3 3s1.3 3 3 3h3v5a2 2 0 01-2 2h-4v-3c0-1.7-1.3-3-3-3s-3 1.3-3 3v3h-5a2 2 0 01-2-2v-5h3c1.7 0 3-1.3 3-3s-1.3-3-3-3H8V7a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <p className="text-[13px] text-zinc-300">No extensions installed</p>
+          <p className="text-[11px] text-zinc-500 max-w-xs">
+            Use the install actions above. Try{" "}
+            <button
+              onClick={() => setGithubUrl("narakarya/porta:extensions-bundled/git-manager")}
+              className="font-mono text-zinc-400 hover:text-zinc-200 underline decoration-dotted underline-offset-2"
+              title="Click to fill the GitHub URL above"
+            >
+              narakarya/porta:extensions-bundled/git-manager
+            </button>{" "}
+            for the bundled Git Manager.
+          </p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
