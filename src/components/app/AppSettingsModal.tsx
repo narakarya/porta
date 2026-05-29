@@ -11,6 +11,7 @@ import EnvVarEditor from "../shared/EnvVarEditor";
 import TunnelStatusBadge from "../shared/TunnelStatusBadge";
 import CloudflareAccessPanel from "./CloudflareAccessPanel";
 import HealthSection from "./HealthSection";
+import DangerSection from "./sections/DangerSection";
 import { yieldToFrame } from "../../lib/ui";
 import psl from "psl";
 
@@ -397,8 +398,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, tunnelMode, tunnelProvider]);
 
-  const [deleteTyped, setDeleteTyped] = useState("");
-  const deleteInputRef = useRef<HTMLInputElement>(null);
+  // Delete-confirm state (typed app name + ref) moved into DangerSection.
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -700,7 +700,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
   }
 
   async function handleDelete() {
-    if (deleteTyped !== app.name) return;
+    // DangerSection enforces the "type the app name" gate before calling
+    // this — accepting the call here means the user confirmed.
     await deleteApp(app.id);
     onClose();
   }
@@ -2143,42 +2144,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
           )}
 
           {section === "danger" && (
-            <>
-              <div>
-                <h1 className="text-[16px] font-semibold text-zinc-100">Danger Zone</h1>
-                <p className="text-[12px] text-zinc-500 mt-1">Irreversible actions — proceed carefully.</p>
-              </div>
-
-              <div className="flex flex-col gap-3 p-5 rounded-xl bg-red-500/[0.04] border border-red-500/20">
-                <div>
-                  <p className="text-[13px] font-semibold text-red-400">Delete this app</p>
-                  <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
-                    Removes the app from Porta. The files on disk won't be deleted.
-                  </p>
-                </div>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[11px] text-zinc-500">
-                    Type <span className="text-zinc-300 font-mono">{app.name}</span> to confirm
-                  </span>
-                  <input spellCheck={false}
-                    ref={deleteInputRef}
-                    value={deleteTyped}
-                    onChange={(e) => setDeleteTyped(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleDelete()}
-                    placeholder={app.name}
-                    className="input-base focus:border-red-500/60"
-                    autoComplete="off"
-                  />
-                </label>
-                <button
-                  onClick={handleDelete}
-                  disabled={deleteTyped !== app.name}
-                  className="self-start px-4 py-2 text-[13px] font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:opacity-40 transition-colors"
-                >
-                  Delete App
-                </button>
-              </div>
-            </>
+            <DangerSection appName={app.name} onConfirmDelete={handleDelete} />
           )}
         </div>
       </div>
