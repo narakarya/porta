@@ -10,6 +10,8 @@ import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
 import CommandPalette from "./components/layout/CommandPalette";
 import UpdateToast from "./components/layout/UpdateToast";
+import ErrorBoundary from "./components/layout/ErrorBoundary";
+import HelpModal from "./components/layout/HelpModal";
 
 type Page = "main" | "settings";
 
@@ -26,6 +28,23 @@ export default function App() {
   const [page, setPage] = useState<Page>("main");
   const [caddyAutoStartFailed, setCaddyAutoStartFailed] = useState(false);
   const [caddyBannerDismissed, setCaddyBannerDismissed] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // ⌘? opens the keyboard cheatsheet. macOS treats Shift+/ as `?`, so we
+  // check `e.key === "?"` rather than parsing modifiers from the slash key.
+  // Skipped when focus is in an input so typing `?` mid-message works.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== "?") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+      e.preventDefault();
+      setHelpOpen((v) => !v);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     checkSetup();
@@ -105,10 +124,10 @@ export default function App() {
   }, [page]);
 
   return (
-    <>
+    <ErrorBoundary>
       <div hidden={page !== "main"}>
         <SetupWizard />
-        <CommandPalette onOpenSettings={() => setPage("settings")} />
+        <CommandPalette onOpenSettings={() => setPage("settings")} onShowShortcuts={() => setHelpOpen(true)} />
 
         <Layout onOpenSettings={() => setPage("settings")}>
           {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
@@ -145,6 +164,7 @@ export default function App() {
           a download started from Settings stays visible after the user
           switches back to Main. */}
       <UpdateToast />
-    </>
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+    </ErrorBoundary>
   );
 }

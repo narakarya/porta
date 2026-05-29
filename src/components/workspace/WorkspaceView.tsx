@@ -6,6 +6,7 @@ import { detectStartCommand } from "../../lib/commands";
 import AppCard from "../app/AppCard";
 import type { AddAppDefaultValues } from "../app/AddAppModal";
 import ServiceCard from "../service/ServiceCard";
+import SelectionBar from "./SelectionBar";
 
 // Modals are lazy-loaded — they're large (AppSettingsModal alone is 2k+
 // lines) and only mount when the user actually opens them. Eager imports
@@ -76,6 +77,22 @@ export default function WorkspaceView() {
   const setFilterText = (text: string) => setFilterByWs((prev) => ({ ...prev, [selectedWorkspaceId ?? "__standalone"]: text }));
   const filterRef = useRef<HTMLInputElement>(null);
 
+  // Bulk selection state. Set instead of array so toggle is O(1) and we
+  // can pass selected ids to SelectionBar by spreading. Cleared on
+  // workspace switch so a stale selection from another ws doesn't haunt
+  // the new view.
+  const [selectedAppIds, setSelectedAppIds] = useState<Set<string>>(new Set());
+  useEffect(() => { setSelectedAppIds(new Set()); }, [selectedWorkspaceId]);
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedAppIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedAppIds(new Set()), []);
+
   useEffect(() => {
     function isInEditableContext(target: EventTarget | null): boolean {
       const el = target as HTMLElement | null;
@@ -92,6 +109,12 @@ export default function WorkspaceView() {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); filterRef.current?.focus(); }
       if (e.key === "/" && !isInEditableContext(e.target)) { e.preventDefault(); filterRef.current?.focus(); }
       if (e.key === "Escape" && document.activeElement === filterRef.current) { filterRef.current?.blur(); setFilterText(""); }
+      // Esc anywhere else clears bulk selection — non-destructive, mirrors
+      // common multi-select UIs (Finder, Mail). Skipped when focus is in
+      // the filter (handled above) or any input so typing remains uninterrupted.
+      if (e.key === "Escape" && !isInEditableContext(e.target)) {
+        setSelectedAppIds((prev) => (prev.size === 0 ? prev : new Set()));
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -381,17 +404,37 @@ export default function WorkspaceView() {
                 </button>
               </div>
             ) : (
-              visibleApps.map((app) => (
-                <AppCard
-                  key={app.id}
-                  app={app}
-                  workspace={workspace}
-                  startOrder={startOrder[app.id]}
-                  onOpenSettings={handleOpenSettings}
-                  onOpenTerminal={openTerminal}
-                  onOpenDeploy={app.deploy_config_path ? handleOpenDeploy : undefined}
-                />
-              ))
+              visibleApps.map((app) => {
+                const isSelected = selectedAppIds.has(app.id);
+                return (
+                  <div
+                    key={app.id}
+                    // Capture-phase listener so cmd/ctrl+click toggles
+                    // selection *before* the AppCard's own click handlers
+                    // (open Settings, etc.) see the event. AppCard stays
+                    // unmodified — its existing internal stopPropagation
+                    // on action buttons isn't affected because we only
+                    // hijack the modifier-click path.
+                    onClickCapture={(e) => {
+                      if (e.metaKey || e.ctrlKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleSelection(app.id);
+                      }
+                    }}
+                    className={`rounded-xl transition-shadow ${isSelected ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-[#0a0a0c]" : ""}`}
+                  >
+                    <AppCard
+                      app={app}
+                      workspace={workspace}
+                      startOrder={startOrder[app.id]}
+                      onOpenSettings={handleOpenSettings}
+                      onOpenTerminal={openTerminal}
+                      onOpenDeploy={app.deploy_config_path ? handleOpenDeploy : undefined}
+                    />
+                  </div>
+                );
+              })
             )}
           </div>
 
@@ -504,6 +547,7 @@ export default function WorkspaceView() {
           </div>
       </>
 
+      <SelectionBar selectedIds={[...selectedAppIds]} onClear={clearSelection} />
     </div>
   );
 }

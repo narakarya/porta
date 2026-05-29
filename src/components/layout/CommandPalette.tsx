@@ -5,6 +5,7 @@ import { openInEditor } from "../../lib/commands";
 
 interface CommandPaletteProps {
   onOpenSettings: () => void;
+  onShowShortcuts?: () => void;
 }
 
 type CommandSection = "Recent" | "Apps" | "Workspaces" | "Actions";
@@ -173,7 +174,7 @@ function StatusDot({ color }: { color: string }) {
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export default function CommandPalette({ onOpenSettings }: CommandPaletteProps) {
+export default function CommandPalette({ onOpenSettings, onShowShortcuts }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -305,11 +306,24 @@ export default function CommandPalette({ onOpenSettings }: CommandPaletteProps) 
       label: "Open Settings",
       section: "Actions",
       icon: "⚙",
+      hint: "⌘,",
       run: tracked("open-settings", () => onOpenSettings()),
     });
 
+    if (onShowShortcuts) {
+      cmds.push({
+        id: "show-shortcuts",
+        label: "Show keyboard shortcuts",
+        section: "Actions",
+        icon: "⌘",
+        hint: "⌘?",
+        searchTokens: "help cheatsheet keys",
+        run: tracked("show-shortcuts", () => onShowShortcuts()),
+      });
+    }
+
     return cmds;
-  }, [apps, workspaces, startApp, stopApp, selectWorkspace, onOpenSettings, tracked]);
+  }, [apps, workspaces, startApp, stopApp, selectWorkspace, onOpenSettings, onShowShortcuts, tracked]);
 
   // Build filtered + scored results
   const { sections, flatItems } = useMemo(() => {
