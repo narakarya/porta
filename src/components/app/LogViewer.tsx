@@ -199,6 +199,7 @@ function serviceDotClass(state: string): string {
 interface LogLineProps {
   text: string;
   level: LogLevel;
+  isContinuation: boolean;
   originalIndex: number;
   filteredIdx: number;
   crashed: boolean;
@@ -211,11 +212,17 @@ interface LogLineProps {
 }
 
 const LogLine = memo(function LogLine({
-  text, level, originalIndex, filteredIdx, crashed, query,
+  text, level, isContinuation, originalIndex, filteredIdx, crashed, query,
   isMatch, isActiveMatch, copied, onCopy, matchRefMap,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
-  const textCls = effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-300";
+  // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
+  // entry above it — render it muted and nested so the block reads as one unit.
+  const textCls = crashed
+    ? LEVEL_CLASS.error
+    : isContinuation
+      ? "text-zinc-500"
+      : effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-300";
   const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
 
   return (
@@ -242,7 +249,9 @@ const LogLine = memo(function LogLine({
         )}
       </span>
       <span
-        className={`flex-1 min-w-0 text-[11px] leading-5 whitespace-pre-wrap ${textCls}`}
+        className={`flex-1 min-w-0 text-[11px] leading-5 whitespace-pre-wrap ${textCls} ${
+          isContinuation ? "border-l border-zinc-700/40 pl-2" : ""
+        }`}
         style={{ overflowWrap: "anywhere" }}
       >
         {highlightLine(text, query)}
@@ -504,6 +513,25 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   function resetLevels() {
     setEnabledLevels(new Set(ALL_FILTER_LEVELS));
   }
+
+  // Continuation detection — "orphan inheritance" over the raw stream order.
+  // A level-less, non-blank line that trails a leveled entry (or another
+  // continuation of one) belongs to it: Ecto's `SELECT …` and `↳ caller`
+  // lines attach to the `[debug] QUERY` header above. A blank line resets
+  // the chain, and standalone level-less stdout (no leveled header above)
+  // is never treated as a continuation. Computed on the full pre-filter
+  // array so adjacency reflects physical stream order.
+  const continuationFlags = useMemo(() => {
+    const flags = new Array<boolean>(allLogs.length).fill(false);
+    let chainAlive = false;
+    for (let i = 0; i < allLogs.length; i++) {
+      const { text, level } = allLogs[i];
+      if (text.trim() === "") { chainAlive = false; continue; }
+      if (level) { chainAlive = true; continue; }
+      if (chainAlive) flags[i] = true;
+    }
+    return flags;
+  }, [allLogs]);
 
   // Lines without a detected level are always shown — filtering narrows,
   // never gates unclassified output.
@@ -863,6 +891,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   key={originalIndex}
                   text={line.text}
                   level={line.level}
+                  isContinuation={continuationFlags[originalIndex]}
                   originalIndex={originalIndex}
                   filteredIdx={filteredIdx}
                   crashed={!!crashed}
