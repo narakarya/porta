@@ -33,6 +33,67 @@ function injectIntoHtml(html: string, bridgeScript: string, baseHref: string): s
   return `<head>\n${injection}\n</head>\n${html}`;
 }
 
+/**
+ * Inline external <link rel="stylesheet"> and <script src> tags directly
+ * into the HTML by reading their contents via the extension-file IPC.
+ *
+ * Why this instead of relying on the iframe's `<base href>` + tauri://
+ * asset URLs: Tauri 2's asset protocol is off by default in this app
+ * (`tauri.conf.json` has no `assetProtocol.enable`), so any relative
+ * fetch from a srcdoc iframe returns 404 silently. Extensions then load
+ * the HTML scaffold without their JS/CSS — visible as "tabs without
+ * style, panes blank below" once the user actually opens the panel.
+ *
+ * Inlining sidesteps that protocol entirely. Only files inside the
+ * extensions directory are readable via `readExtensionFile`, so the
+ * trust boundary is identical to the previous approach.
+ */
+async function inlineExternalAssets(html: string, mainPath: string): Promise<string> {
+  // Directory of the main HTML — relative paths in <link>/<script> resolve
+  // against this, mirroring what a real browser would do with <base>.
+  const dir = mainPath.substring(0, mainPath.lastIndexOf("/") + 1);
+
+  // Skip URLs that are http(s) / data: / absolute on disk — those are
+  // either remote (and would need their own permission story we don't
+  // grant) or already abs paths we shouldn't re-root under `dir`.
+  const isInlineable = (href: string) =>
+    !/^(https?:|data:|file:|\/\/)/i.test(href);
+
+  let out = html;
+
+  // <link rel="stylesheet" href="X"> → <style>...</style>
+  const linkRe = /<link\b([^>]*?)\brel=["']stylesheet["']([^>]*)>/gi;
+  const linkTags = [...html.matchAll(linkRe)];
+  for (const m of linkTags) {
+    const hrefMatch = m[0].match(/\bhref=["']([^"']+)["']/i);
+    if (!hrefMatch || !isInlineable(hrefMatch[1])) continue;
+    try {
+      const css = await readExtensionFile(dir + hrefMatch[1]);
+      out = out.replace(m[0], `<style data-inlined-from="${hrefMatch[1]}">\n${css}\n</style>`);
+    } catch {
+      // Leave the original tag in place; user-facing failure will be no
+      // styles applied, which is what they'd see anyway without this fix.
+    }
+  }
+
+  // <script src="X"></script> → <script>...</script>
+  const scriptRe = /<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)><\/script>/gi;
+  const scriptTags = [...html.matchAll(scriptRe)];
+  for (const m of scriptTags) {
+    const src = m[2];
+    if (!isInlineable(src)) continue;
+    try {
+      const js = await readExtensionFile(dir + src);
+      out = out.replace(m[0], `<script data-inlined-from="${src}">\n${js}\n</script>`);
+    } catch {
+      // Same: leave the tag; iframe will hit the asset-protocol wall and
+      // the extension won't activate, but at least it won't be silent.
+    }
+  }
+
+  return out;
+}
+
 export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleChange, onToast }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
@@ -51,18 +112,28 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     let cancelled = false;
     setSrcDoc(null);
     setLoadError(null);
-    readExtensionFile(extension.main_path)
-      .then((html) => {
+    (async () => {
+      try {
+        const rawHtml = await readExtensionFile(extension.main_path);
         if (cancelled) return;
+        // Inline external <link> stylesheets and <script src> bundles
+        // first, so the resulting srcDoc is self-contained and doesn't
+        // depend on the (disabled) asset protocol for relative fetches.
+        const inlined = await inlineExternalAssets(rawHtml, extension.main_path);
+        if (cancelled) return;
+        // `baseHref` is still useful for *any* surviving relative URL
+        // (e.g. images referenced from the inlined CSS); they'll fail
+        // unless the asset protocol is later turned on, but at least
+        // they get a stable base to resolve against.
         const mainUrl = convertFileSrc(extension.main_path);
         const baseHref = mainUrl.substring(0, mainUrl.lastIndexOf("/") + 1);
         const bridgeScript = createBridgeScript(bridgeApp, extension.id);
-        setSrcDoc(injectIntoHtml(html, bridgeScript, baseHref));
-      })
-      .catch((e) => {
+        setSrcDoc(injectIntoHtml(inlined, bridgeScript, baseHref));
+      } catch (e) {
         if (cancelled) return;
         setLoadError(String(e));
-      });
+      }
+    })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extension.main_path, extension.id, reloadKey]);
