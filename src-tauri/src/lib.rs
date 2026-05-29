@@ -17,6 +17,7 @@ pub mod compose_parser;
 pub mod health;
 pub mod log_rotation;
 pub mod porta_config;
+pub mod menu;
 pub mod metrics;
 pub mod setup;
 pub mod tray;
@@ -176,6 +177,7 @@ pub fn run() {
                 restore_window_state(&w);
             }
             tray::setup_tray(app)?;
+            menu::setup_app_menu(app)?;
             auto_start::spawn_auto_start(app);
             metrics::spawn_metrics_poller(app.handle().clone());
             commands::spawn_tailscale_poller(app.handle().clone());
