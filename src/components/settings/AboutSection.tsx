@@ -1,24 +1,46 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { getVersion } from "@tauri-apps/api/app";
-import { checkForUpdate } from "../../lib/updater";
+import { usePortaStore } from "../../store";
+import { checkForUpdate, restartForUpdate, startUpdateDownload } from "../../lib/updater";
 
 export default function AboutSection() {
   const [version, setVersion] = useState<string>("");
-  const [checking, setChecking] = useState(false);
+  const { phase, info } = usePortaStore(
+    useShallow((s) => ({ phase: s.updaterPhase, info: s.updaterInfo })),
+  );
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
 
-  async function handleCheck() {
-    if (checking) return;
-    setChecking(true);
-    try {
-      // silent: false → shows a dialog whether or not an update is available
-      await checkForUpdate({ silent: false });
-    } finally {
-      setChecking(false);
+  // Button behaviour is phase-driven so it stays in sync with the global
+  // toast and with any auto-check still in flight. Without this, clicking
+  // the button mid-download spawned a second `check()` and the user got
+  // either a duplicate prompt or a re-download from zero.
+  const isWorking =
+    phase === "checking" ||
+    phase === "downloading" ||
+    phase === "installing" ||
+    phase === "restarting";
+
+  const label = (() => {
+    switch (phase) {
+      case "checking":    return "Checking…";
+      case "available":   return "Download update";
+      case "downloading": return "Downloading…";
+      case "installing":  return "Installing…";
+      case "ready":       return "Restart to apply";
+      case "restarting":  return "Restarting…";
+      default:            return "Check for updates";
     }
+  })();
+
+  async function handleClick() {
+    if (phase === "available") return void startUpdateDownload();
+    if (phase === "ready")     return void restartForUpdate();
+    if (isWorking)             return; // already in flight, the toast covers UI
+    await checkForUpdate({ silent: false });
   }
 
   return (
@@ -36,14 +58,17 @@ export default function AboutSection() {
             <p className="text-[13px] font-medium text-zinc-200">Porta</p>
             <p className="text-[11px] text-zinc-500 mt-0.5">
               Version <span className="font-mono text-zinc-400">{version || "…"}</span>
+              {phase === "ready" && info && (
+                <span className="ml-2 text-emerald-400">→ {info.version} pending restart</span>
+              )}
             </p>
           </div>
           <button
-            onClick={handleCheck}
-            disabled={checking}
+            onClick={handleClick}
+            disabled={isWorking}
             className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg transition-colors shrink-0"
           >
-            {checking ? "Checking…" : "Check for updates"}
+            {label}
           </button>
         </div>
 
@@ -51,7 +76,8 @@ export default function AboutSection() {
 
         <p className="text-[11px] text-zinc-500 leading-relaxed">
           Porta checks for updates automatically on launch. When a new version is
-          published, it'll prompt you to download and restart.
+          available, a toast appears at the bottom-right with download + restart
+          controls — no native popup, no double prompts.
         </p>
       </div>
     </div>

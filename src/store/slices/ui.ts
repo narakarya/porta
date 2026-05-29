@@ -9,6 +9,42 @@ export type ExtensionSidebarState = {
   extensions: ExtensionInfo[];
 };
 
+/**
+ * App-updater state machine. Lives in the store so any component (the
+ * Settings → About button, the global toast, future menubar UI…) sees the
+ * same phase and can't kick off a second download while one is in flight.
+ *
+ * Transitions:
+ *   idle → checking → idle             (no update found)
+ *   idle → checking → available        (update found, awaiting user confirm)
+ *   available → downloading → installing → ready
+ *   ready → restarting                  (user clicks Restart)
+ *   any → error                          (with `updaterError` set; user can retry)
+ *
+ * Once we hit `ready`, the binary has been swapped on disk — re-checking
+ * would just return the same update and re-download for nothing, so callers
+ * should short-circuit and offer Restart instead.
+ */
+export type UpdaterPhase =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "installing"
+  | "ready"
+  | "restarting"
+  | "error";
+
+export interface UpdaterInfo {
+  version: string;
+  currentVersion: string;
+  body: string | null;
+  /** Total bytes from the `Started` event; 0 until that fires. */
+  total: number;
+  /** Cumulative bytes received from `Progress` events. */
+  downloaded: number;
+}
+
 export interface UiSlice {
   setupStatus: SetupStatus | null;
   loading: boolean;
@@ -17,6 +53,9 @@ export interface UiSlice {
   notificationsEnabled: boolean;
   imageUpdateNotifyEnabled: boolean;
   extensionSidebar: ExtensionSidebarState | null;
+  updaterPhase: UpdaterPhase;
+  updaterInfo: UpdaterInfo | null;
+  updaterError: string | null;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -37,6 +76,9 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
   extensionSidebar: null,
+  updaterPhase: "idle",
+  updaterInfo: null,
+  updaterError: null,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();

@@ -9,6 +9,7 @@ import WorkspaceView from "./components/workspace/WorkspaceView";
 import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
 import CommandPalette from "./components/layout/CommandPalette";
+import UpdateToast from "./components/layout/UpdateToast";
 
 type Page = "main" | "settings";
 
@@ -140,6 +141,10 @@ export default function App() {
           <SettingsPage onBack={() => setPage("main")} />
         </div>
       )}
+      {/* Global toast for the updater — always mounted regardless of page so
+          a download started from Settings stays visible after the user
+          switches back to Main. */}
+      <UpdateToast />
     </>
   );
 }
