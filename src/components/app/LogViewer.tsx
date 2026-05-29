@@ -104,6 +104,18 @@ const LEVEL_CLASS: Record<NonNullable<LogLevel>, string> = {
   success: "text-emerald-400",
 };
 
+// Left rail tint for continuation lines — ties a nested block (SQL body,
+// `↳` caller) back to the severity of its leveled header without coloring
+// the body text itself.
+const LEVEL_RAIL: Record<NonNullable<LogLevel>, string> = {
+  error:   "border-red-500/30",
+  warn:    "border-amber-500/30",
+  info:    "border-blue-500/30",
+  debug:   "border-zinc-600/40",
+  trace:   "border-zinc-700/40",
+  success: "border-emerald-500/30",
+};
+
 const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
   error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
   warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
@@ -200,6 +212,7 @@ interface LogLineProps {
   text: string;
   level: LogLevel;
   isContinuation: boolean;
+  ownerLevel: LogLevel;
   originalIndex: number;
   filteredIdx: number;
   crashed: boolean;
@@ -212,18 +225,21 @@ interface LogLineProps {
 }
 
 const LogLine = memo(function LogLine({
-  text, level, isContinuation, originalIndex, filteredIdx, crashed, query,
+  text, level, isContinuation, ownerLevel, originalIndex, filteredIdx, crashed, query,
   isMatch, isActiveMatch, copied, onCopy, matchRefMap,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
-  // entry above it — render it muted and nested so the block reads as one unit.
+  // entry above it — render the body muted but tint the left rail with the
+  // owner's level so the block reads as one unit tied to its severity.
   const textCls = crashed
     ? LEVEL_CLASS.error
     : isContinuation
       ? "text-zinc-500"
       : effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-300";
   const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
+  const railLevel = crashed ? "error" : ownerLevel;
+  const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
 
   return (
     <div
@@ -250,7 +266,7 @@ const LogLine = memo(function LogLine({
       </span>
       <span
         className={`flex-1 min-w-0 text-[11px] leading-5 whitespace-pre-wrap ${textCls} ${
-          isContinuation ? "border-l border-zinc-700/40 pl-2" : ""
+          isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
         style={{ overflowWrap: "anywhere" }}
       >
@@ -517,33 +533,40 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   // Continuation detection — "orphan inheritance" over the raw stream order.
   // A level-less, non-blank line that trails a leveled entry (or another
   // continuation of one) belongs to it: Ecto's `SELECT …` and `↳ caller`
-  // lines attach to the `[debug] QUERY` header above. A blank line resets
-  // the chain, and standalone level-less stdout (no leveled header above)
-  // is never treated as a continuation. Computed on the full pre-filter
-  // array so adjacency reflects physical stream order.
-  const continuationFlags = useMemo(() => {
-    const flags = new Array<boolean>(allLogs.length).fill(false);
-    let chainAlive = false;
+  // lines attach to the `[debug] QUERY` header above. We record the owning
+  // level so the line inherits its parent's severity for both rail tint and
+  // filtering. A blank line resets the chain, and standalone level-less
+  // stdout (no leveled header above) is never a continuation. Computed on
+  // the full pre-filter array so adjacency reflects physical stream order.
+  const lineMeta = useMemo(() => {
+    const meta = allLogs.map(() => ({ isContinuation: false, ownerLevel: null as LogLevel }));
+    let chainLevel: LogLevel = null;
     for (let i = 0; i < allLogs.length; i++) {
       const { text, level } = allLogs[i];
-      if (text.trim() === "") { chainAlive = false; continue; }
-      if (level) { chainAlive = true; continue; }
-      if (chainAlive) flags[i] = true;
+      if (text.trim() === "") { chainLevel = null; continue; }
+      if (level) { chainLevel = level; continue; }
+      if (chainLevel) meta[i] = { isContinuation: true, ownerLevel: chainLevel };
     }
-    return flags;
+    return meta;
   }, [allLogs]);
 
-  // Lines without a detected level are always shown — filtering narrows,
-  // never gates unclassified output.
+  // Standalone level-less lines are always shown — filtering narrows, never
+  // gates unclassified output. A continuation, however, inherits its parent's
+  // level: hide the header and its nested body goes with it, so a filtered
+  // view never strands an orphan SQL body or `↳ caller` under nothing.
   const filteredLines = useMemo(() => {
     const out: { line: ProcessedLine; originalIndex: number }[] = [];
     for (let i = 0; i < allLogs.length; i++) {
       const line = allLogs[i];
-      if (!allLevelsEnabled && line.level && !enabledLevels.has(line.level)) continue;
+      if (!allLevelsEnabled) {
+        const meta = lineMeta[i];
+        const effLevel = meta.isContinuation ? meta.ownerLevel : line.level;
+        if (effLevel && !enabledLevels.has(effLevel)) continue;
+      }
       out.push({ line, originalIndex: i });
     }
     return out;
-  }, [allLogs, enabledLevels, allLevelsEnabled]);
+  }, [allLogs, lineMeta, enabledLevels, allLevelsEnabled]);
 
   // Use a Set for O(1) isMatch lookup instead of Array.includes in the render loop.
   const { searchMatches, searchMatchSet } = useMemo(() => {
@@ -891,7 +914,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   key={originalIndex}
                   text={line.text}
                   level={line.level}
-                  isContinuation={continuationFlags[originalIndex]}
+                  isContinuation={lineMeta[originalIndex].isContinuation}
+                  ownerLevel={lineMeta[originalIndex].ownerLevel}
                   originalIndex={originalIndex}
                   filteredIdx={filteredIdx}
                   crashed={!!crashed}
