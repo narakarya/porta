@@ -30,8 +30,8 @@ const GROUPS: Group[] = [
   {
     title: "Workspace",
     items: [
-      { keys: ["⌘", "Click"], desc: "Toggle selection on an app card" },
-      { keys: ["Esc"],         desc: "Clear selection" },
+      { keys: ["⌘", "Click"], desc: "Toggle selection on an app or service card" },
+      { keys: ["Esc"],         desc: "Clear all selections (apps + services)" },
     ],
   },
   {

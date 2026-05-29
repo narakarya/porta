@@ -7,6 +7,7 @@ import AppCard from "../app/AppCard";
 import type { AddAppDefaultValues } from "../app/AddAppModal";
 import ServiceCard from "../service/ServiceCard";
 import SelectionBar from "./SelectionBar";
+import ServiceSelectionBar from "./ServiceSelectionBar";
 
 // Modals are lazy-loaded — they're large (AppSettingsModal alone is 2k+
 // lines) and only mount when the user actually opens them. Eager imports
@@ -84,7 +85,11 @@ export default function WorkspaceView() {
   // workspace switch so a stale selection from another ws doesn't haunt
   // the new view.
   const [selectedAppIds, setSelectedAppIds] = useState<Set<string>>(new Set());
-  useEffect(() => { setSelectedAppIds(new Set()); }, [selectedWorkspaceId]);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setSelectedAppIds(new Set());
+    setSelectedServiceIds(new Set());
+  }, [selectedWorkspaceId]);
   const toggleSelection = useCallback((id: string) => {
     setSelectedAppIds((prev) => {
       const next = new Set(prev);
@@ -93,7 +98,16 @@ export default function WorkspaceView() {
       return next;
     });
   }, []);
+  const toggleServiceSelection = useCallback((id: string) => {
+    setSelectedServiceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const clearSelection = useCallback(() => setSelectedAppIds(new Set()), []);
+  const clearServiceSelection = useCallback(() => setSelectedServiceIds(new Set()), []);
 
   useEffect(() => {
     function isInEditableContext(target: EventTarget | null): boolean {
@@ -113,9 +127,11 @@ export default function WorkspaceView() {
       if (e.key === "Escape" && document.activeElement === filterRef.current) { filterRef.current?.blur(); setFilterText(""); }
       // Esc anywhere else clears bulk selection — non-destructive, mirrors
       // common multi-select UIs (Finder, Mail). Skipped when focus is in
-      // the filter (handled above) or any input so typing remains uninterrupted.
+      // the filter (handled above) or any input so typing remains
+      // uninterrupted. Clears both app and service selections together.
       if (e.key === "Escape" && !isInEditableContext(e.target)) {
         setSelectedAppIds((prev) => (prev.size === 0 ? prev : new Set()));
+        setSelectedServiceIds((prev) => (prev.size === 0 ? prev : new Set()));
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -492,9 +508,24 @@ export default function WorkspaceView() {
                 </button>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  {visibleServices.map((svc) => (
-                    <ServiceCard key={svc.id} service={svc} />
-                  ))}
+                  {visibleServices.map((svc) => {
+                    const isSelected = selectedServiceIds.has(svc.id);
+                    return (
+                      <div
+                        key={svc.id}
+                        onClickCapture={(e) => {
+                          if (e.metaKey || e.ctrlKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleServiceSelection(svc.id);
+                          }
+                        }}
+                        className={`rounded-xl transition-shadow ${isSelected ? "ring-2 ring-violet-400/60 ring-offset-1 ring-offset-[#0a0a0c]" : ""}`}
+                      >
+                        <ServiceCard service={svc} />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -578,6 +609,7 @@ export default function WorkspaceView() {
       </>
 
       <SelectionBar selectedIds={[...selectedAppIds]} onClear={clearSelection} />
+      <ServiceSelectionBar selectedIds={[...selectedServiceIds]} onClear={clearServiceSelection} />
     </div>
   );
 }

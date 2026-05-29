@@ -28,26 +28,50 @@ function ServiceCard({ service }: Props) {
 
   /**
    * Pick a CLI client to recommend for `docker exec` based on the image
-   * name. The match is loose (substring) so `postgres:16`, `bitnami/postgresql`,
-   * and `pgvector/pgvector` all hit the postgres branch.
+   * name. The match is loose (substring) so `postgres:16`,
+   * `bitnami/postgresql`, and `pgvector/pgvector` all hit the postgres
+   * branch.
    *
    * Returns null for images we don't recognise; the Connect button only
    * appears when this is non-null, so the user isn't tempted to click
    * something that'd just open a bash shell.
+   *
+   * Order matters — `valkey` must come before `redis` since valkey images
+   * sometimes carry the word "redis" in their tag, and we want the
+   * dedicated `valkey-cli` path first.
    */
   function connectCommand(): string | null {
     if (!service.container_id) return null;
-    const containerName = `porta-${service.id}`;
+    const c = `porta-${service.id}`;
     const img = service.image.toLowerCase();
+
     if (img.includes("postgres") || img.includes("postgis") || img.includes("pgvector")) {
-      return `docker exec -it ${containerName} psql -U postgres`;
+      return `docker exec -it ${c} psql -U postgres`;
     }
-    if (img.includes("mariadb")) return `docker exec -it ${containerName} mariadb -u root`;
-    if (img.includes("mysql"))   return `docker exec -it ${containerName} mysql -u root`;
-    if (img.includes("redis"))   return `docker exec -it ${containerName} redis-cli`;
-    if (img.includes("mongo"))   return `docker exec -it ${containerName} mongosh`;
-    if (img.includes("rabbitmq")) return `docker exec -it ${containerName} rabbitmqctl status`;
-    if (img.includes("clickhouse")) return `docker exec -it ${containerName} clickhouse-client`;
+    if (img.includes("mariadb")) return `docker exec -it ${c} mariadb -u root`;
+    if (img.includes("mysql"))   return `docker exec -it ${c} mysql -u root`;
+    if (img.includes("valkey"))  return `docker exec -it ${c} valkey-cli`;
+    if (img.includes("dragonfly")) return `docker exec -it ${c} redis-cli`;
+    if (img.includes("redis"))   return `docker exec -it ${c} redis-cli`;
+    if (img.includes("mongo"))   return `docker exec -it ${c} mongosh`;
+    if (img.includes("rabbitmq")) return `docker exec -it ${c} rabbitmqctl status`;
+    if (img.includes("clickhouse")) return `docker exec -it ${c} clickhouse-client`;
+    if (img.includes("etcd"))     return `docker exec -it ${c} etcdctl get / --prefix --keys-only`;
+    if (img.includes("nats"))     return `docker exec -it ${c} nats stream ls`;
+    if (img.includes("cassandra")) return `docker exec -it ${c} cqlsh`;
+    if (img.includes("scylla"))   return `docker exec -it ${c} cqlsh`;
+    if (img.includes("influxdb")) return `docker exec -it ${c} influx`;
+    if (img.includes("neo4j"))    return `docker exec -it ${c} cypher-shell -u neo4j`;
+    // HTTP-based services — copy a curl probe instead of an interactive
+    // shell. Reading the live indexes/buckets/health beats `bash` for the
+    // 90% case of "is it actually responding?"
+    if (img.includes("elasticsearch") || img.includes("opensearch")) {
+      return `curl -s http://localhost:${service.port}/_cat/indices?v`;
+    }
+    if (img.includes("meilisearch")) return `curl -s http://localhost:${service.port}/indexes`;
+    if (img.includes("typesense"))   return `curl -s http://localhost:${service.port}/collections`;
+    if (img.includes("qdrant"))      return `curl -s http://localhost:${service.port}/collections`;
+    if (img.includes("minio"))       return `curl -s http://localhost:${service.port}/minio/health/live`;
     return null;
   }
   const cmd = connectCommand();
