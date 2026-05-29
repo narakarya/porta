@@ -170,6 +170,37 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     Ok(())
 }
 
+/// Reject subpaths that could escape the archive root after we join them.
+///
+/// The archive is extracted under a TempDir we control, then we join the
+/// subpath onto that root. Without validation a value like `../etc` would
+/// resolve outside the tempdir and `..` segments through `Path::join` ignore
+/// the parent. Refuse anything that:
+///   - is absolute (`/etc/...`) — handled by `trim_start_matches('/')` at
+///     install time, but reject here so the error is upfront.
+///   - contains a parent (`..`) segment.
+///   - contains a backslash (Windows separator — not used in repo paths and
+///     can confuse `Path::join` on Windows builds).
+///   - contains a NUL byte (defence-in-depth; would fail at FS-call time
+///     anyway but better to refuse early with a clear message).
+fn validate_subpath(sub: &str) -> Result<()> {
+    if sub.starts_with('/') {
+        anyhow::bail!("subpath must be relative, got '{}'", sub);
+    }
+    if sub.contains('\0') {
+        anyhow::bail!("subpath contains NUL byte");
+    }
+    if sub.contains('\\') {
+        anyhow::bail!("subpath contains backslash '{}'", sub);
+    }
+    for seg in sub.split('/') {
+        if seg == ".." {
+            anyhow::bail!("subpath escapes archive root with '..' in '{}'", sub);
+        }
+    }
+    Ok(())
+}
+
 /// Parse a GitHub URL or shorthand into (owner, repo, branch, subpath).
 /// Accepts:
 ///   https://github.com/owner/repo
@@ -183,7 +214,8 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 /// The `:subpath` suffix lets one repo host multiple extensions in
 /// subfolders (e.g. `extensions-bundled/git-manager`). When set, the loader
 /// downloads the whole archive but reads `porta.json` from the subpath
-/// instead of the archive root.
+/// instead of the archive root. The subpath is validated via
+/// `validate_subpath` to ensure it can't escape the archive root.
 fn parse_github_ref(input: &str) -> Result<(String, String, String, Option<String>)> {
     let input = input.trim();
     if let Some(rest) = input.strip_prefix("https://github.com/") {
@@ -194,7 +226,10 @@ fn parse_github_ref(input: &str) -> Result<(String, String, String, Option<Strin
             let (repo_part, branch_tail) = rest.split_at(idx);
             let after_tree = branch_tail.trim_start_matches("/tree/");
             let (branch, subpath) = match after_tree.split_once('/') {
-                Some((b, s)) if !s.is_empty() => (b.to_string(), Some(s.to_string())),
+                Some((b, s)) if !s.is_empty() => {
+                    validate_subpath(s)?;
+                    (b.to_string(), Some(s.to_string()))
+                }
                 _ => (after_tree.to_string(), None),
             };
             let mut parts = repo_part.splitn(2, '/');
@@ -212,7 +247,10 @@ fn parse_github_ref(input: &str) -> Result<(String, String, String, Option<Strin
     // a branch like `feat/foo:sub` doesn't get its colon eaten by the
     // @branch parse.
     let (input, subpath) = match input.split_once(':') {
-        Some((head, sub)) if !sub.is_empty() => (head, Some(sub.to_string())),
+        Some((head, sub)) if !sub.is_empty() => {
+            validate_subpath(sub)?;
+            (head, Some(sub.to_string()))
+        }
         _ => (input, None),
     };
     if let Some((repo_part, branch)) = input.split_once('@') {
@@ -295,5 +333,98 @@ pub fn startup_load_extensions(extensions: &ExtensionsState, db: &Database) {
     let loaded = scan_extensions(db);
     if let Ok(mut guard) = extensions.lock() {
         *guard = loaded;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_subpath ─────────────────────────────────────────────────
+
+    #[test]
+    fn validate_subpath_accepts_normal_paths() {
+        assert!(validate_subpath("extensions-bundled/git-manager").is_ok());
+        assert!(validate_subpath("a").is_ok());
+        assert!(validate_subpath("a/b/c").is_ok());
+        assert!(validate_subpath("with.dots/and-dashes_etc").is_ok());
+    }
+
+    #[test]
+    fn validate_subpath_rejects_absolute() {
+        let err = validate_subpath("/etc/passwd").unwrap_err().to_string();
+        assert!(err.contains("must be relative"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_subpath_rejects_parent_segments() {
+        for case in ["../etc", "a/../b", "foo/..", ".."] {
+            let err = validate_subpath(case).unwrap_err().to_string();
+            assert!(err.contains("escapes archive root"), "expected reject for {case}, got: {err}");
+        }
+    }
+
+    #[test]
+    fn validate_subpath_rejects_nul_and_backslash() {
+        assert!(validate_subpath("a\0b").is_err());
+        assert!(validate_subpath("a\\b").is_err());
+    }
+
+    #[test]
+    fn validate_subpath_does_not_reject_single_dot() {
+        // `.` is the current directory — harmless, equivalent to no subpath.
+        assert!(validate_subpath(".").is_ok());
+        assert!(validate_subpath("./a").is_ok());
+    }
+
+    // ── parse_github_ref ─────────────────────────────────────────────────
+
+    #[test]
+    fn parse_shorthand_owner_repo() {
+        let (owner, repo, branch, sub) = parse_github_ref("foo/bar").unwrap();
+        assert_eq!((owner.as_str(), repo.as_str(), branch.as_str()), ("foo", "bar", "main"));
+        assert!(sub.is_none());
+    }
+
+    #[test]
+    fn parse_shorthand_with_branch() {
+        let (_, _, branch, sub) = parse_github_ref("foo/bar@feature/x").unwrap();
+        assert_eq!(branch, "feature/x");
+        assert!(sub.is_none());
+    }
+
+    #[test]
+    fn parse_shorthand_with_subpath() {
+        let (_, _, branch, sub) = parse_github_ref("foo/bar:ext/git-manager").unwrap();
+        assert_eq!(branch, "main");
+        assert_eq!(sub.as_deref(), Some("ext/git-manager"));
+    }
+
+    #[test]
+    fn parse_shorthand_with_branch_and_subpath() {
+        let (_, _, branch, sub) = parse_github_ref("foo/bar@dev:ext/a").unwrap();
+        assert_eq!(branch, "dev");
+        assert_eq!(sub.as_deref(), Some("ext/a"));
+    }
+
+    #[test]
+    fn parse_url_with_tree_branch_and_subpath() {
+        let (owner, repo, branch, sub) =
+            parse_github_ref("https://github.com/foo/bar/tree/main/sub/path").unwrap();
+        assert_eq!((owner.as_str(), repo.as_str(), branch.as_str()), ("foo", "bar", "main"));
+        assert_eq!(sub.as_deref(), Some("sub/path"));
+    }
+
+    #[test]
+    fn parse_url_without_tree() {
+        let (_, _, branch, sub) = parse_github_ref("https://github.com/foo/bar").unwrap();
+        assert_eq!(branch, "main");
+        assert!(sub.is_none());
+    }
+
+    #[test]
+    fn parse_rejects_traversal_in_subpath() {
+        assert!(parse_github_ref("foo/bar:../escape").is_err());
+        assert!(parse_github_ref("https://github.com/foo/bar/tree/main/../escape").is_err());
     }
 }
