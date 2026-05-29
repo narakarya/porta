@@ -75,9 +75,8 @@ export default function AboutSection() {
         <div className="h-px bg-white/[0.05]" />
 
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          Porta checks for updates automatically on launch. When a new version is
-          available, a toast appears at the bottom-right with download + restart
-          controls — no native popup, no double prompts.
+          Porta checks for updates automatically on launch. New versions are
+          announced inline with download and restart controls.
         </p>
       </div>
     </div>
