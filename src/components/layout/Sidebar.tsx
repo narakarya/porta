@@ -383,6 +383,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </svg>
           <span>Settings</span>
         </button>
+        <SidebarStatusRow onOpenSettings={onOpenSettings} />
         <div className="px-2 pt-1 text-[9px] text-zinc-700 font-mono select-text" title="Version">
           v{__BUILD_TAG__}
         </div>
@@ -429,5 +430,57 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         {editingService && <ServiceSettingsModal service={editingService} onClose={() => setEditingService(null)} />}
       </Suspense>
     </aside>
+  );
+}
+
+/**
+ * Compact status row that lives between the Settings button and the
+ * version label. Shows a single coloured dot reflecting the worst sidecar
+ * state — green when Caddy + dnsmasq are both running, amber when
+ * something's installed but not running, red when something's missing
+ * entirely. Clicking jumps to Settings so the user can act on it.
+ *
+ * Tooltip carries the breakdown so the dot stays compact.
+ */
+function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const setupStatus = usePortaStore((s) => s.setupStatus);
+  if (!setupStatus) return null;
+
+  // Order matters: missing > installed-but-stopped > all-green. The first
+  // condition that matches wins, so a critical issue surfaces first.
+  const issues: string[] = [];
+  if (!setupStatus.caddy_installed)     issues.push("Caddy not installed");
+  else if (!setupStatus.caddy_running)  issues.push("Caddy stopped");
+  if (!setupStatus.dnsmasq_installed)   issues.push("dnsmasq not installed");
+  if (!setupStatus.mkcert_installed)    issues.push("mkcert not installed");
+  if (!setupStatus.certs_generated)     issues.push("TLS certs not generated");
+
+  const tone: "ok" | "warn" | "bad" =
+    !setupStatus.caddy_installed || !setupStatus.dnsmasq_installed || !setupStatus.mkcert_installed
+      ? "bad"
+      : issues.length > 0
+        ? "warn"
+        : "ok";
+
+  const dotClass =
+    tone === "ok"   ? "bg-emerald-400" :
+    tone === "warn" ? "bg-amber-400 pulse-dot" :
+                      "bg-red-400 pulse-dot";
+
+  const label =
+    tone === "ok"   ? "All systems go" :
+    issues.length === 1 ? issues[0] :
+                          `${issues.length} issues`;
+
+  return (
+    <Tooltip label={issues.length > 0 ? issues.join("\n") : "Caddy + dnsmasq + mkcert all OK"}>
+      <button
+        onClick={onOpenSettings}
+        className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[11px] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.05] transition-all duration-100"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
+        <span className="truncate">{label}</span>
+      </button>
+    </Tooltip>
   );
 }
