@@ -60,12 +60,13 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal, onOpenDeploy }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
       restartApp: s.restartApp,
       killApp: s.killApp,
+      cloneApp: s.cloneApp,
       startTunnel: s.startTunnel,
       stopTunnel: s.stopTunnel,
       clearAppLogs: s.clearAppLogs,
@@ -843,6 +844,18 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal, o
                   .catch((e) => showPortFeedback(false, String(e).replace("Error: ", ""))),
               danger: true,
             }] : []),
+            "separator",
+            {
+              label: "Copy host",
+              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5h7M5.5 2v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.2"/></svg>,
+              onClick: () => navigator.clipboard.writeText(host).catch(() => {}),
+              disabled: isWildcard,
+            },
+            {
+              label: "Duplicate",
+              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3" width="6.5" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 3V1.5h6v6H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+              onClick: () => cloneApp(app.id).catch(() => {}),
+            },
             "separator",
             ...(onOpenSettings ? [{
               label: "App Settings",
