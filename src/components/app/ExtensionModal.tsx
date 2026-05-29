@@ -59,9 +59,9 @@ export default function ExtensionModal({ app, extension, onClose }: Props) {
             className="p-1 text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
             title="Reload extension"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M10 5.5A4 4 0 1 1 8.8 2.7" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-              <path d="M10 1.5v3H7" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M13 8a5 5 0 1 1-1.7-3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M13 2v4h-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
 
