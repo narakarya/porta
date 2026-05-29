@@ -170,49 +170,70 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     Ok(())
 }
 
-/// Parse a GitHub URL or shorthand into (owner, repo, branch).
+/// Parse a GitHub URL or shorthand into (owner, repo, branch, subpath).
 /// Accepts:
 ///   https://github.com/owner/repo
 ///   https://github.com/owner/repo/tree/branch
+///   https://github.com/owner/repo/tree/branch/sub/path
 ///   owner/repo
 ///   owner/repo@branch
-fn parse_github_ref(input: &str) -> Result<(String, String, String)> {
+///   owner/repo:sub/path
+///   owner/repo@branch:sub/path
+///
+/// The `:subpath` suffix lets one repo host multiple extensions in
+/// subfolders (e.g. `extensions-bundled/git-manager`). When set, the loader
+/// downloads the whole archive but reads `porta.json` from the subpath
+/// instead of the archive root.
+fn parse_github_ref(input: &str) -> Result<(String, String, String, Option<String>)> {
     let input = input.trim();
     if let Some(rest) = input.strip_prefix("https://github.com/") {
         let rest = rest.trim_end_matches('/');
-        // Check for /tree/branch suffix
+        // /tree/branch[/sub/path] suffix: branch is the first path segment
+        // after /tree/, everything beyond is the subpath.
         if let Some(idx) = rest.find("/tree/") {
             let (repo_part, branch_tail) = rest.split_at(idx);
-            let branch = branch_tail.trim_start_matches("/tree/").to_string();
+            let after_tree = branch_tail.trim_start_matches("/tree/");
+            let (branch, subpath) = match after_tree.split_once('/') {
+                Some((b, s)) if !s.is_empty() => (b.to_string(), Some(s.to_string())),
+                _ => (after_tree.to_string(), None),
+            };
             let mut parts = repo_part.splitn(2, '/');
             let owner = parts.next().ok_or_else(|| anyhow::anyhow!("invalid GitHub URL"))?.to_string();
             let repo = parts.next().ok_or_else(|| anyhow::anyhow!("invalid GitHub URL"))?.to_string();
-            return Ok((owner, repo, branch));
+            return Ok((owner, repo, branch, subpath));
         }
         // No branch: owner/repo only
         let mut parts = rest.splitn(2, '/');
         let owner = parts.next().ok_or_else(|| anyhow::anyhow!("invalid GitHub URL"))?.to_string();
         let repo = parts.next().ok_or_else(|| anyhow::anyhow!("invalid GitHub URL"))?.to_string();
-        return Ok((owner, repo, "main".to_string()));
+        return Ok((owner, repo, "main".to_string(), None));
     }
-    // Shorthand: owner/repo or owner/repo@branch
+    // Shorthand: `owner/repo[@branch][:subpath]`. Pull the subpath first so
+    // a branch like `feat/foo:sub` doesn't get its colon eaten by the
+    // @branch parse.
+    let (input, subpath) = match input.split_once(':') {
+        Some((head, sub)) if !sub.is_empty() => (head, Some(sub.to_string())),
+        _ => (input, None),
+    };
     if let Some((repo_part, branch)) = input.split_once('@') {
         let mut parts = repo_part.splitn(2, '/');
         let owner = parts.next().ok_or_else(|| anyhow::anyhow!("expected owner/repo@branch"))?.to_string();
         let repo = parts.next().ok_or_else(|| anyhow::anyhow!("expected owner/repo@branch"))?.to_string();
-        return Ok((owner, repo, branch.to_string()));
+        return Ok((owner, repo, branch.to_string(), subpath));
     }
     let mut parts = input.splitn(2, '/');
     let owner = parts.next().ok_or_else(|| anyhow::anyhow!("expected owner/repo"))?.to_string();
     let repo = parts.next().ok_or_else(|| anyhow::anyhow!("expected owner/repo"))?.to_string();
-    Ok((owner, repo, "main".to_string()))
+    Ok((owner, repo, "main".to_string(), subpath))
 }
 
 /// Download a GitHub repo zip and extract it to a TempDir.
-/// Returns (TempDir, path_to_extracted_root) — keep TempDir alive until done.
-/// Separating download from DB persist avoids holding MutexGuard across await.
+/// Returns `(TempDir, path_to_extension_root)` — keep TempDir alive until done.
+/// `path_to_extension_root` is the archive root, or `archive_root/<subpath>`
+/// when the URL specified one. Separating download from DB persist avoids
+/// holding MutexGuard across await.
 pub async fn download_github_to_temp(url: &str) -> Result<(tempfile::TempDir, PathBuf)> {
-    let (owner, repo, branch) = parse_github_ref(url)?;
+    let (owner, repo, branch, subpath) = parse_github_ref(url)?;
     let zip_url = format!(
         "https://github.com/{}/{}/archive/refs/heads/{}.zip",
         owner, repo, branch
@@ -251,7 +272,17 @@ pub async fn download_github_to_temp(url: &str) -> Result<(tempfile::TempDir, Pa
         }
     }
 
-    let root = tmp.path().to_path_buf();
+    // Point the caller at the subpath inside the archive when set, so
+    // install_from_folder finds porta.json in the right place. A trim on
+    // leading slashes lets `:/path` and `:path` both work.
+    let mut root = tmp.path().to_path_buf();
+    if let Some(sub) = subpath {
+        let cleaned = sub.trim_start_matches('/');
+        root = root.join(cleaned);
+        if !root.exists() {
+            anyhow::bail!("Subpath '{}' not found in archive {}-{}.zip", cleaned, repo, branch);
+        }
+    }
     Ok((tmp, root))
 }
 
