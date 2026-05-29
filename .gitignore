@@ -36,3 +36,6 @@ dist-ssr
 # Local response dumps / archives
 *.jsonl
 *.zip
+
+# AI-generated specs/plans (brainstorming/writing-plans output) — keep local, never track
+docs/superpowers/
