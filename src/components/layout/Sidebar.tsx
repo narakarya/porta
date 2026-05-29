@@ -438,7 +438,10 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
  * version label. Shows a single coloured dot reflecting the worst sidecar
  * state — green when Caddy + dnsmasq are both running, amber when
  * something's installed but not running, red when something's missing
- * entirely. Clicking jumps to Settings so the user can act on it.
+ * entirely. When there's something to act on (warn/bad) the row is a
+ * button that jumps to Settings; when all systems are go it's plain text
+ * — no misleading affordance, since the Settings button already sits
+ * right above it.
  *
  * Tooltip carries the breakdown so the dot stays compact.
  */
@@ -472,13 +475,29 @@ function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
     issues.length === 1 ? issues[0] :
                           `${issues.length} issues`;
 
+  const dot = <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />;
+
+  // All green → plain, non-interactive row. There's nothing to act on, and
+  // the Settings button above already covers navigation.
+  if (tone === "ok") {
+    return (
+      <Tooltip label="Caddy + dnsmasq + mkcert all OK">
+        <div className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[11px] text-zinc-600">
+          {dot}
+          <span className="truncate">{label}</span>
+        </div>
+      </Tooltip>
+    );
+  }
+
+  // Something to fix → clickable, jumps to Settings.
   return (
-    <Tooltip label={issues.length > 0 ? issues.join("\n") : "Caddy + dnsmasq + mkcert all OK"}>
+    <Tooltip label={issues.join("\n")}>
       <button
         onClick={onOpenSettings}
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[11px] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.05] transition-all duration-100"
       >
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
+        {dot}
         <span className="truncate">{label}</span>
       </button>
     </Tooltip>
