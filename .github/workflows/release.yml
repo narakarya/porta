@@ -92,12 +92,17 @@ jobs:
 
   # ─── 2. Build per-arch in parallel ────────────────────────────────────────
   #
-  # macos-latest is M1+ (ARM); macos-13 is the last Intel Mac runner GitHub
-  # provides. Each runs a native build of its own architecture so we avoid
-  # cross-compilation slowdowns. Disable `includeUpdaterJson` here — the
-  # two jobs would otherwise race on `latest.json` and the second to upload
-  # would clobber the other's platform entry. The merge job at the end
-  # reconstructs a combined `latest.json` from both signatures.
+  # Both jobs run on macos-latest (Apple Silicon). The aarch64 build is
+  # native; the x86_64 build cross-compiles from ARM. We tried using
+  # macos-13 for native Intel and the runner queued for 3+ hours — the
+  # free-tier Intel image is too contested to rely on. Cross-compiling
+  # adds maybe 30% to the Intel build time but the runners are always
+  # available.
+  #
+  # Disable `includeUpdaterJson` here — the two jobs would otherwise race
+  # on `latest.json` and the second to upload would clobber the other's
+  # platform entry. The merge job at the end reconstructs a combined
+  # `latest.json` from both signatures.
   build:
     name: Build (${{ matrix.label }})
     needs: prepare
@@ -106,12 +111,10 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-latest
             label: Apple Silicon
           - target: x86_64-apple-darwin
-            runner: macos-13
             label: Intel
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
