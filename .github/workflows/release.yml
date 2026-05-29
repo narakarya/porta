@@ -16,6 +16,15 @@ on:
 permissions:
   contents: write
 
+# Opt every JavaScript-based action in this workflow into the Node.js 24
+# runtime. GitHub starts forcing Node 24 on 2026-06-02 and removes Node 20
+# entirely on 2026-09-16; setting this now silences the deprecation warning
+# and means we don't have to re-bump individual `@vN` action tags every
+# time an upstream cuts a Node-24-only release.
+# See: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   # ─── 1. Resolve the tag (and create it on manual dispatch) ────────────────
   prepare:
