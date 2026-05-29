@@ -12,6 +12,7 @@ import SelectionBar from "./SelectionBar";
 // lines) and only mount when the user actually opens them. Eager imports
 // were forcing all this code to parse on initial app load.
 const AddAppModal = lazy(() => import("../app/AddAppModal"));
+const AddServiceModal = lazy(() => import("../service/AddServiceModal"));
 const ImportComposeModal = lazy(() => import("./ImportComposeModal"));
 const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
 const DeployModal = lazy(() => import("../deploy/DeployModal"));
@@ -68,6 +69,7 @@ export default function WorkspaceView() {
     }))
   );
   const [showAdd, setShowAdd] = useState(false);
+  const [showAddService, setShowAddService] = useState(false);
   const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
   const [showImportCompose, setShowImportCompose] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -460,20 +462,41 @@ export default function WorkspaceView() {
             </button>
           </div>
 
-          {/* Services */}
-          {visibleServices.length > 0 && (
+          {/* Services — always rendered so the "+ Add Service" affordance is
+              discoverable even with zero services in this workspace. Hidden
+              entirely only on the standalone view to keep that simple. */}
+          {workspace && (
             <div className="mt-8">
               <div className="flex items-end justify-between mb-3">
-                <h2 className="text-[14px] font-semibold text-zinc-300">Services</h2>
-                <span className="text-[11px] text-zinc-500 mb-0.5">
-                  {visibleServices.filter((s) => s.status === "running").length}/{visibleServices.length} running
-                </span>
+                <div className="flex items-baseline gap-2.5">
+                  <h2 className="text-[14px] font-semibold text-zinc-300">Services</h2>
+                  {visibleServices.length > 0 && (
+                    <span className="text-[11px] text-zinc-500">
+                      {visibleServices.filter((s) => s.status === "running").length}/{visibleServices.length} running
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setShowAddService(true)}
+                  className="px-2 py-0.5 text-[10px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
+                >
+                  + Service
+                </button>
               </div>
-              <div className="flex flex-col gap-1.5">
-                {visibleServices.map((svc) => (
-                  <ServiceCard key={svc.id} service={svc} />
-                ))}
-              </div>
+              {visibleServices.length === 0 ? (
+                <button
+                  onClick={() => setShowAddService(true)}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-zinc-600 hover:text-zinc-400 transition-all"
+                >
+                  Add a database, cache, or message broker
+                </button>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {visibleServices.map((svc) => (
+                    <ServiceCard key={svc.id} service={svc} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -493,6 +516,13 @@ export default function WorkspaceView() {
               <ImportComposeModal
                 workspaceId={selectedWorkspaceId}
                 onClose={() => setShowImportCompose(false)}
+              />
+            )}
+
+            {showAddService && (
+              <AddServiceModal
+                defaultScope={selectedWorkspaceId ?? "global"}
+                onClose={() => setShowAddService(false)}
               />
             )}
 

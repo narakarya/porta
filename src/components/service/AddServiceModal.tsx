@@ -239,7 +239,15 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
 
 // ── Main modal ────────────────────────────────────────────────────────────────
 
-interface Props { onClose: () => void; }
+interface Props {
+  onClose: () => void;
+  /**
+   * Pre-select the scope dropdown. Callers opening the modal from inside a
+   * workspace pass that workspace's id so the new service stays scoped to
+   * it by default; the user can still flip it to global in the form.
+   */
+  defaultScope?: "global" | string;
+}
 
 function sanitizeVolumeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -247,7 +255,7 @@ function sanitizeVolumeName(s: string): string {
 
 type PresetEntry = Preset & { userTemplateId?: string };
 
-export default function AddServiceModal({ onClose }: Props) {
+export default function AddServiceModal({ onClose, defaultScope }: Props) {
   const {
     workspaces,
     services,
@@ -264,7 +272,7 @@ export default function AddServiceModal({ onClose }: Props) {
   const [port, setPort] = useState<number>(8080);
   const [envRows, setEnvRows] = useState<EnvRow[]>([]);
   const [volRows, setVolRows] = useState<VolRow[]>([]);
-  const [scope, setScope] = useState<"global" | string>("global");
+  const [scope, setScope] = useState<"global" | string>(defaultScope ?? "global");
   const [submitting, setSubmitting] = useState(false);
   const [collisionHint, setCollisionHint] = useState<string | null>(null);
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
