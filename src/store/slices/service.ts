@@ -16,6 +16,7 @@ export interface ServiceSlice {
   deleteService: (id: string) => Promise<void>;
   startService: (id: string) => void;
   stopService: (id: string) => Promise<void>;
+  restartService: (id: string) => Promise<void>;
   clearServiceLogs: (id: string) => void;
   reorderServices: (fromIndex: number, toIndex: number) => void;
 
@@ -105,6 +106,16 @@ export const createServiceSlice: StateCreator<AllSlices, [], [], ServiceSlice> =
         svc.id === id ? { ...svc, status: "stopped" as const, container_id: null } : svc
       ),
     }));
+  },
+
+  restartService: async (id) => {
+    // Stop is synchronous in the IPC — once cmd.stopService returns the
+    // container is gone. Then re-run the existing startService path so we
+    // share its pull → run → log-stream flow (no need to duplicate the
+    // logic here). If stop succeeds and start fails, status returns to
+    // "stopped" via the cmd.startService error handler.
+    await get().stopService(id);
+    await get().startService(id);
   },
 
   clearServiceLogs: (id) =>

@@ -12,10 +12,11 @@ const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
 interface Props { service: Service; }
 
 function ServiceCard({ service }: Props) {
-  const { startService, stopService, clearServiceLogs } = usePortaStore(
+  const { startService, stopService, restartService, clearServiceLogs } = usePortaStore(
     useShallow((s) => ({
       startService: s.startService,
       stopService: s.stopService,
+      restartService: s.restartService,
       clearServiceLogs: s.clearServiceLogs,
     }))
   );
@@ -23,6 +24,41 @@ function ServiceCard({ service }: Props) {
   const [logsOpen, setLogsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [connectCopied, setConnectCopied] = useState(false);
+
+  /**
+   * Pick a CLI client to recommend for `docker exec` based on the image
+   * name. The match is loose (substring) so `postgres:16`, `bitnami/postgresql`,
+   * and `pgvector/pgvector` all hit the postgres branch.
+   *
+   * Returns null for images we don't recognise; the Connect button only
+   * appears when this is non-null, so the user isn't tempted to click
+   * something that'd just open a bash shell.
+   */
+  function connectCommand(): string | null {
+    if (!service.container_id) return null;
+    const containerName = `porta-${service.id}`;
+    const img = service.image.toLowerCase();
+    if (img.includes("postgres") || img.includes("postgis") || img.includes("pgvector")) {
+      return `docker exec -it ${containerName} psql -U postgres`;
+    }
+    if (img.includes("mariadb")) return `docker exec -it ${containerName} mariadb -u root`;
+    if (img.includes("mysql"))   return `docker exec -it ${containerName} mysql -u root`;
+    if (img.includes("redis"))   return `docker exec -it ${containerName} redis-cli`;
+    if (img.includes("mongo"))   return `docker exec -it ${containerName} mongosh`;
+    if (img.includes("rabbitmq")) return `docker exec -it ${containerName} rabbitmqctl status`;
+    if (img.includes("clickhouse")) return `docker exec -it ${containerName} clickhouse-client`;
+    return null;
+  }
+  const cmd = connectCommand();
+
+  function copyConnectCommand() {
+    if (!cmd) return;
+    navigator.clipboard.writeText(cmd).then(() => {
+      setConnectCopied(true);
+      setTimeout(() => setConnectCopied(false), 1800);
+    });
+  }
 
   const isRunning = service.status === "running";
   const isPulling = service.status === "pulling";
@@ -110,18 +146,48 @@ function ServiceCard({ service }: Props) {
                 </svg>
               </button>
             )}
+            {/* Connect button — copies the appropriate `docker exec` CLI
+                command for the recognized service kind. Hidden when the
+                container isn't running or the image is unknown. */}
+            {isRunning && cmd && (
+              <button
+                onClick={(e) => { e.stopPropagation(); copyConnectCommand(); }}
+                title={connectCopied ? "Copied!" : `Copy: ${cmd}`}
+                className="p-1.5 text-zinc-500 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors"
+              >
+                {connectCopied ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6l3 3 5-6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M3 2h7a1 1 0 011 1v7M2 3v8a1 1 0 001 1h7M5 5l-2 2 2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
+            )}
           </div>
 
-          {/* Start / Stop */}
-          <div className={`flex items-center transition-opacity ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+          {/* Start / Stop / Restart */}
+          <div className={`flex items-center gap-1 transition-opacity ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
             {isActive ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); stopService(service.id); }}
-                disabled={isPulling || isStarting}
-                className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-40"
-              >
-                Stop
-              </button>
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); restartService(service.id); }}
+                  disabled={isPulling || isStarting}
+                  className="px-2.5 py-1 text-[11px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors disabled:opacity-40"
+                  title="Restart this service"
+                >
+                  Restart
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); stopService(service.id); }}
+                  disabled={isPulling || isStarting}
+                  className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-40"
+                >
+                  Stop
+                </button>
+              </>
             ) : (
               <button
                 onClick={(e) => { e.stopPropagation(); startService(service.id); }}

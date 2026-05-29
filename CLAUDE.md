@@ -56,3 +56,24 @@ npm run tauri build
 - Branch utama: `main`
 - Worktrees agent (`.claude/worktrees/agent-*`) jangan di-commit — sudah di global gitignore.
 - Versi dilacak di `package.json` + `src-tauri/tauri.conf.json` + `src-tauri/Cargo.toml` — bump bertiga.
+
+## Local build perf (sccache)
+
+Cold `cargo build` ~5 menit untuk Tauri stack (387 crates). Pasang sccache
+sekali untuk potong ~50–70% setelah build pertama:
+
+```bash
+brew install sccache
+echo 'export RUSTC_WRAPPER=sccache' >> ~/.zshrc
+source ~/.zshrc
+
+# Verifikasi:
+sccache --show-stats        # cache hit/miss counters
+```
+
+`RUSTC_WRAPPER` env-based dibanding `.cargo/config.toml` supaya CI yang
+gak punya sccache binary tidak break — kalau env-nya nggak diset, cargo
+pakai rustc langsung.
+
+Setelah `cargo clean` + rebuild, sccache mestinya hit > 95% untuk
+dependencies; cuma porta crate sendiri yang fresh-compile.
