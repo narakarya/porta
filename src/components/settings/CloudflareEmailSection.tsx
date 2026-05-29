@@ -277,7 +277,9 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
             </div>
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] divide-y divide-white/[0.04] overflow-hidden">
               {destinations.length === 0 ? (
-                <div className="px-3 py-3 text-center text-[11px] text-zinc-500">No destinations yet.</div>
+                <div className="px-3 py-4 text-center text-[11px] text-zinc-500">
+                  No destinations yet — add one below to receive forwards.
+                </div>
               ) : destinations.map((d) => (
                 <div key={d.tag} className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -331,7 +333,9 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 <div className="text-right">Action</div>
               </div>
               {rules.length === 0 ? (
-                <div className="px-3 py-3 text-center text-[11px] text-zinc-500">No rules yet.</div>
+                <div className="px-3 py-4 text-center text-[11px] text-zinc-500">
+                  No rules yet — add a forward to route mail from this zone.
+                </div>
               ) : rules.map((r) => (
                 <div key={r.tag} className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 items-center text-[12px] text-zinc-200">
                   <code className="font-mono text-[11.5px] truncate" title={r.matcher_value}>{r.matcher_value}</code>

@@ -91,8 +91,16 @@ export default function ExtensionSidebar() {
         {/* Extension list */}
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
           {sidebar.extensions.length === 0 && (
-            <div className="flex items-center justify-center h-full">
-              <span className="text-[11px] text-zinc-600">No extensions available</span>
+            <div className="flex flex-col items-center justify-center h-full px-3 text-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-zinc-600">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M5.5 1.5h3v1.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V1.5H12a1 1 0 011 1V4h-1.5C10.7 4 10 4.7 10 5.5s.7 1.5 1.5 1.5H13v1.5a1 1 0 01-1 1h-1.5v-1.5C10.5 7.2 9.8 6.5 9 6.5s-1.5.7-1.5 1.5v1.5H6a1 1 0 01-1-1V7H3.5C2.7 7 2 6.3 2 5.5S2.7 4 3.5 4H5V2.5a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-snug">No extensions match this app</p>
+              <p className="text-[10px] text-zinc-600 leading-snug">
+                Install one from Settings → Extensions. Built-in: <code className="text-zinc-500 font-mono">git-manager</code>.
+              </p>
             </div>
           )}
           {sidebar.extensions.map((ext) => (
