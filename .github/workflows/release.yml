@@ -4,12 +4,12 @@ on:
   push:
     tags:
       - "v*"
-  # Manual release: bumps the three version files, commits to main, tags, and
-  # builds — all in one run. No need to bump/tag locally.
+  # Manual release: bumps the three version files, commits to main, tags, then
+  # the matrix builds pick up the new tag. No need to bump/tag locally.
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without the v prefix, e.g. 0.5.64"
+        description: "Release version without the v prefix, e.g. 0.5.69"
         required: true
         type: string
 
@@ -17,14 +17,15 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    name: Build macOS (Universal)
-    runs-on: macos-latest
-
+  # ─── 1. Resolve the tag (and create it on manual dispatch) ────────────────
+  prepare:
+    name: Prepare tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # Manual dispatch bumps + tags on main; tag pushes build the tag as-is.
           ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
           fetch-depth: 0
 
@@ -61,52 +62,165 @@ jobs:
             exit 1
           fi
 
+      - name: Pre-create release shell
+        # Eliminates the race where both matrix jobs call `gh release create`
+        # simultaneously — by the time tauri-action looks up the tag, the
+        # release already exists and it just appends assets to it.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --title "Porta $TAG" \
+              --notes "See the full commit history for this release on GitHub."
+          else
+            echo "Release $TAG already exists, skipping create."
+          fi
+
+  # ─── 2. Build per-arch in parallel ────────────────────────────────────────
+  #
+  # macos-latest is M1+ (ARM); macos-13 is the last Intel Mac runner GitHub
+  # provides. Each runs a native build of its own architecture so we avoid
+  # cross-compilation slowdowns. Disable `includeUpdaterJson` here — the
+  # two jobs would otherwise race on `latest.json` and the second to upload
+  # would clobber the other's platform entry. The merge job at the end
+  # reconstructs a combined `latest.json` from both signatures.
+  build:
+    name: Build (${{ matrix.label }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            label: Apple Silicon
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            label: Intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Setup Rust stable + universal targets
+      - name: Setup Rust stable + ${{ matrix.target }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Per-target cache so the two matrix jobs don't fight for the same
+          # key. A stable prefix means a version bump that only touches
+          # Porta's own version line still restores most deps.
+          prefix-key: porta-${{ matrix.target }}
 
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Build and publish release
+      - name: Build and upload arch-specific bundle
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signature (minisign) — required for auto-update. Already configured.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Apple code signing + notarization: intentionally NOT wired here.
-          #
-          # These env vars must stay UNDEFINED when signing is off. Mapping them
-          # to an empty string still *defines* the variable, and tauri-bundler
-          # treats a defined (even empty) APPLE_CERTIFICATE as "import this cert"
-          # → runs `security import` with empty data → fails the build. So we
-          # leave them out entirely; the build is unsigned (open via right-click
-          # → Open once on first launch), exactly like earlier releases.
-          #
-          # To enable signing later, add a dedicated signed-release workflow (or
-          # a job guarded by an environment) that sets these only when present:
-          #   APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
-          #   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
-          # Do NOT add them as plain `KEY: ${{ secrets.X }}` lines — inherited
-          # org-level secrets would re-break the unsigned build.
+          # See the long note in v0.5.66 / commit fbd1ec3 for why these env
+          # vars must stay UNDEFINED (not even empty strings). Build is
+          # unsigned; open via right-click → Open the first time.
         with:
-          tagName: ${{ steps.resolve.outputs.tag }}
-          releaseName: "Porta ${{ steps.resolve.outputs.tag }}"
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: "Porta ${{ needs.prepare.outputs.tag }}"
           releaseBody: "See the full commit history for this release on GitHub."
           releaseDraft: false
-          prerelease: ${{ contains(steps.resolve.outputs.tag, 'beta') || contains(steps.resolve.outputs.tag, 'alpha') || contains(steps.resolve.outputs.tag, 'rc') }}
-          includeUpdaterJson: true
-          args: --target universal-apple-darwin
+          prerelease: ${{ contains(needs.prepare.outputs.tag, 'beta') || contains(needs.prepare.outputs.tag, 'alpha') || contains(needs.prepare.outputs.tag, 'rc') }}
+          # No latest.json from individual jobs — see merge-updater below.
+          includeUpdaterJson: false
+          args: --target ${{ matrix.target }}
+
+  # ─── 3. Construct the combined latest.json ────────────────────────────────
+  #
+  # Once both arch builds are in the release, list their .sig assets and
+  # write a single latest.json that points the Tauri updater at the right
+  # bundle for each platform. Without this, end users on the "other" arch
+  # would either get no update or download the wrong binary.
+  merge-updater:
+    name: Merge updater manifest
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Fetch arch signatures + compose latest.json
+        run: |
+          set -euo pipefail
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # The .sig asset names follow `Porta_<arch>.app.tar.gz.sig` in
+          # Tauri 2 (`aarch64` for ARM, `x64`/`x86_64` for Intel). We resolve
+          # them by listing release assets rather than hardcoding the exact
+          # names so a future Tauri rename doesn't silently break us.
+          assets=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+          echo "Found assets:"
+          echo "$assets"
+
+          arm_sig_name=$(echo "$assets" | grep -E 'aarch64.*\.app\.tar\.gz\.sig$' | head -1 || true)
+          intel_sig_name=$(echo "$assets" | grep -E '(x64|x86_64).*\.app\.tar\.gz\.sig$' | head -1 || true)
+          if [ -z "$arm_sig_name" ] || [ -z "$intel_sig_name" ]; then
+            echo "::error::Missing signature asset. arm='$arm_sig_name' intel='$intel_sig_name'"
+            exit 1
+          fi
+          arm_bundle_name="${arm_sig_name%.sig}"
+          intel_bundle_name="${intel_sig_name%.sig}"
+
+          base="https://github.com/$REPO/releases/download/$TAG"
+
+          # Download the .sig files (their full file contents are what goes
+          # into latest.json's `signature` field — not a URL).
+          mkdir -p /tmp/sigs
+          gh release download "$TAG" --repo "$REPO" --pattern "$arm_sig_name"   --dir /tmp/sigs
+          gh release download "$TAG" --repo "$REPO" --pattern "$intel_sig_name" --dir /tmp/sigs
+
+          # `$(cat …)` strips trailing newlines; the append-x trick preserves
+          # them so the signature byte-for-byte matches what minisign emitted.
+          arm_sig=$(cat "/tmp/sigs/$arm_sig_name"; echo x); arm_sig="${arm_sig%x}"
+          intel_sig=$(cat "/tmp/sigs/$intel_sig_name"; echo x); intel_sig="${intel_sig%x}"
+
+          jq -n \
+            --arg version  "$TAG" \
+            --arg pub_date "$PUB_DATE" \
+            --arg arm_sig  "$arm_sig" \
+            --arg arm_url  "$base/$arm_bundle_name" \
+            --arg intel_sig "$intel_sig" \
+            --arg intel_url "$base/$intel_bundle_name" \
+            '{
+              version:  $version,
+              notes:    "See the full commit history for this release on GitHub.",
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $arm_sig,   url: $arm_url },
+                "darwin-x86_64":  { signature: $intel_sig, url: $intel_url }
+              }
+            }' > latest.json
+
+          echo "── latest.json ──"
+          cat latest.json
+
+      - name: Upload latest.json to release
+        run: |
+          gh release upload "$TAG" --repo "$REPO" latest.json --clobber
