@@ -58,6 +58,24 @@ export function checkForUpdate(opts: { silent?: boolean } = {}): Promise<void> {
   return activeCheck;
 }
 
+// Throttle for background auto-checks (startup / interval / window-focus) so
+// returning to the window repeatedly doesn't hammer the release server. Manual
+// checks from the menu bypass this entirely.
+let lastAutoCheckAt = 0;
+const AUTO_CHECK_MIN_GAP_MS = 2 * 60 * 60 * 1000; // 2h
+
+/**
+ * Silent, throttled update check for background triggers. Safe to call often
+ * (on every window focus) — it no-ops if the last auto-check was under 2h ago.
+ * Surfaces an update only via the existing toast; says nothing when current.
+ */
+export function autoCheckForUpdate(): void {
+  const now = Date.now();
+  if (now - lastAutoCheckAt < AUTO_CHECK_MIN_GAP_MS) return;
+  lastAutoCheckAt = now;
+  void checkForUpdate({ silent: true });
+}
+
 async function runUpdateCheck({ silent = true }: { silent?: boolean }): Promise<void> {
   const phase = usePortaStore.getState().updaterPhase;
 

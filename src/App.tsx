@@ -3,7 +3,9 @@ import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "./store";
 import { startCaddy, listCloudflareTunnels, getCfApiToken, listTunnelDns } from "./lib/commands";
 import { setCachedTunnels, setCachedDnsRoutes } from "./lib/tunnelCache";
-import { checkForUpdate } from "./lib/updater";
+import { autoCheckForUpdate, checkForUpdate } from "./lib/updater";
+import { listen } from "@tauri-apps/api/event";
+import { isTauri } from "./lib/commands";
 import Layout from "./components/layout/Layout";
 import WorkspaceView from "./components/workspace/WorkspaceView";
 import SetupWizard from "./components/setup/SetupWizard";
@@ -54,7 +56,18 @@ export default function App() {
     const healthInterval = setInterval(() => refreshHealth(), 30_000);
 
     // Check for app updates shortly after startup (silent if none / offline).
-    const updateCheck = setTimeout(() => { void checkForUpdate(); }, 5000);
+    const updateCheck = setTimeout(() => autoCheckForUpdate(), 5000);
+
+    // Periodic background re-check so a window left open for days still learns
+    // about new releases without a restart. Silent — the toast only appears if
+    // there's an update. (autoCheckForUpdate throttles to ≥2h, so this and the
+    // focus trigger below can't double-fire.)
+    const updateInterval = setInterval(() => autoCheckForUpdate(), 6 * 60 * 60 * 1000);
+
+    // Re-check when the user returns to Porta after working elsewhere — the
+    // common "left it open since yesterday" case. Throttled inside the helper.
+    const onFocus = () => autoCheckForUpdate();
+    window.addEventListener("focus", onFocus);
 
     // Pre-warm tunnel cache in the background so opening Settings → Tunnels
     // is instant (shows cached list immediately, refreshes in background).
@@ -96,9 +109,23 @@ export default function App() {
 
     return () => {
       clearInterval(healthInterval);
+      clearInterval(updateInterval);
       clearTimeout(prewarmDelay);
       clearTimeout(updateCheck);
+      window.removeEventListener("focus", onFocus);
     };
+  }, []);
+
+  // Native app-menu actions (Porta → Check for Updates… / Settings…) arrive as
+  // events emitted from Rust (src-tauri/src/menu.rs). The manual check runs
+  // non-silently so "you're up to date" gives feedback instead of a dead click.
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = [
+      listen("menu://check-for-updates", () => { void checkForUpdate({ silent: false }); }),
+      listen("menu://open-settings", () => setPage("settings")),
+    ];
+    return () => { unlisten.forEach((p) => void p.then((un) => un())); };
   }, []);
 
   // Auto-start Caddy silently if installed but not running
