@@ -18,6 +18,7 @@ export default function ExtensionsSection() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingAll, setUpdatingAll] = useState<{ index: number; total: number } | null>(null);
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
 
   const reload = async () => {
@@ -97,6 +98,38 @@ export default function ExtensionsSection() {
     }
   };
 
+  /**
+   * Sequentially update every extension that has a remote source. Skips
+   * local-folder installs (they have no `source` to re-fetch from). Each
+   * step is independent — if one fails, we capture the error and keep
+   * going so a single bad remote doesn't strand the rest.
+   */
+  const handleUpdateAll = async () => {
+    const updatable = extensions.filter((e) => e.source);
+    if (updatable.length === 0) return;
+    setError(null);
+    setNotice(null);
+    const failed: string[] = [];
+    const bumped: string[] = [];
+    for (let i = 0; i < updatable.length; i++) {
+      const ext = updatable[i];
+      setUpdatingAll({ index: i + 1, total: updatable.length });
+      try {
+        const updated = await updateExtension(ext.id);
+        if (updated.version !== ext.version) bumped.push(`${updated.name} → v${updated.version}`);
+        setExtensions((prev) =>
+          prev.map((e) => (e.id === updated.id ? updated : e)).sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      } catch (e) {
+        failed.push(`${ext.name}: ${String(e).replace(/^Error: /, "")}`);
+      }
+    }
+    setUpdatingAll(null);
+    if (failed.length > 0) setError(failed.join(" · "));
+    if (bumped.length > 0) setNotice(`Updated: ${bumped.join(", ")}`);
+    else if (failed.length === 0) setNotice("All extensions are up to date");
+  };
+
   const handleToggle = async (id: string, enabled: boolean) => {
     try {
       await setExtensionEnabled(id, enabled);
@@ -117,14 +150,32 @@ export default function ExtensionsSection() {
     }
   };
 
+  // Only extensions installed from a remote source can be re-fetched —
+  // local-folder installs have no URL to pull from.
+  const updatableCount = extensions.filter((e) => e.source).length;
+
   return (
     <div className="flex flex-col gap-6 max-w-2xl">
       {/* Header */}
-      <div>
-        <h1 className="text-[15px] font-semibold text-zinc-100 mb-1">Extensions</h1>
-        <p className="text-[12px] text-zinc-500">
-          Install custom extensions to add functionality to Porta.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[15px] font-semibold text-zinc-100 mb-1">Extensions</h1>
+          <p className="text-[12px] text-zinc-500">
+            Install custom extensions to add functionality to Porta.
+          </p>
+        </div>
+        {updatableCount > 0 && (
+          <button
+            onClick={handleUpdateAll}
+            disabled={!!updatingAll || !!updatingId}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={`Re-fetch every extension installed from a remote source (${updatableCount})`}
+          >
+            {updatingAll
+              ? `Updating ${updatingAll.index}/${updatingAll.total}…`
+              : `Update all (${updatableCount})`}
+          </button>
+        )}
       </div>
 
       {/* Install actions */}
