@@ -1252,6 +1252,7 @@ fn is_provisionally_ok(s: &ContainerState) -> bool {
 
 /// Roll back a failed compose update: revert the compose file tags, force
 /// recreate affected services, and (optionally) restore volume contents.
+#[allow(clippy::too_many_arguments)]
 async fn rollback_compose(
     app: &tauri::AppHandle,
     id: &str,

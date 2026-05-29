@@ -78,7 +78,7 @@ pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &Path) {
                 if let Ok(item) = MenuItem::with_id(
                     app,
                     format!("toggle-{}", app_data.id),
-                    &format!("{} — {}", label, action),
+                    format!("{} — {}", label, action),
                     true,
                     None::<&str>,
                 ) {
@@ -100,7 +100,7 @@ pub fn rebuild_tray_menu(app: &tauri::AppHandle, db_path: &Path) {
                 if let Ok(item) = MenuItem::with_id(
                     app,
                     format!("toggle-{}", app_data.id),
-                    &format!("{} — {}", label, action),
+                    format!("{} — {}", label, action),
                     true,
                     None::<&str>,
                 ) {

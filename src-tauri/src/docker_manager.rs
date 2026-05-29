@@ -313,7 +313,7 @@ impl DockerManager {
     pub fn stop_and_wait(&self, app_id: &str, timeout_ms: u64) -> Result<()> {
         self.stopping.lock().unwrap().insert(app_id.to_string());
         let name = Self::container_name(app_id);
-        let grace = (timeout_ms / 1000).max(1).min(30);
+        let grace = (timeout_ms / 1000).clamp(1, 30);
         let _ = Command::new(docker_bin())
             .args(["stop", "-t", &grace.to_string(), &name])
             .output();

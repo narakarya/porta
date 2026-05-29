@@ -22,7 +22,7 @@ pub fn startup_caddy_sync(app: &tauri::AppHandle) {
             if let Ok(entries) = std::fs::read_dir(&log_dir) {
                 for entry in entries.flatten() {
                     let p = entry.path();
-                    if p.extension().map_or(false, |e| e == "log") {
+                    if p.extension().is_some_and(|e| e == "log") {
                         let _ = std::fs::write(&p, "");
                     }
                 }

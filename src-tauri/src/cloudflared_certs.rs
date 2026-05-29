@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 ///
 /// `<zone>` is the registrable domain (eTLD+1 per the Public Suffix List), so
 /// `porta.narakarya.com` and `app.narakarya.com` both resolve to `narakarya.com.pem`.
-
 const CERT_DIR_NAME: &str = "porta-certs";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

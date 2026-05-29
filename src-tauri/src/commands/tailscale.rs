@@ -735,7 +735,7 @@ pub fn spawn_tailscale_poller(app: tauri::AppHandle) {
             // Diff and emit. Only changed apps get notified to avoid event spam.
             for (id, (active, url)) in &current {
                 let prev = last_state.get(id).cloned().unwrap_or((false, None));
-                if &prev != &(*active, url.clone()) {
+                if prev != (*active, url.clone()) {
                     let _ = app.emit(
                         &format!("app:tunnel:{}", id),
                         serde_json::json!({ "active": *active, "url": url }),

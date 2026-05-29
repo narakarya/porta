@@ -113,6 +113,7 @@ pub struct EnvFileInfo {
 ///   - `.env`, `.env.<anything>` (covers `.env.dev`, `.env.production`, `.env.dev.local`, …)
 ///   - `.envrc` (direnv)
 ///   - `<anything>.env` (covers `dev.env`, `test.env`)
+///
 /// Excludes editor backup/swap leftovers: trailing `~`, `.swp`, `.bak`, `.orig`,
 /// `.tmp` (our own atomic-write temp). Also excludes obvious dotfiles that
 /// just happen to start with `.env` like `.environment` (must be exactly `.env`
@@ -484,7 +485,7 @@ mod tests {
     #[test]
     fn sort_key_orders_common_first() {
         let mut names = vec![".env.dev", ".env", ".envrc", ".env.example", "zzz.env"];
-        names.sort_by(|a, b| env_file_sort_key(a).cmp(&env_file_sort_key(b)));
+        names.sort_by_key(|a| env_file_sort_key(a));
         assert_eq!(names, vec![".env", ".env.example", ".envrc", ".env.dev", "zzz.env"]);
     }
 }

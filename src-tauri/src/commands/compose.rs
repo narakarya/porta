@@ -147,7 +147,7 @@ fn patch_image_tag_in_yaml(
                 in_target = false;
                 target_indent = None;
             } else if in_services {
-                let svc_block_indent = services_indent.map(|i| i).unwrap_or(0);
+                let svc_block_indent = services_indent.unwrap_or(0);
                 if indent <= svc_block_indent && !trimmed.is_empty() && !trimmed.starts_with('#') {
                     // Left services: block.
                     in_services = false;

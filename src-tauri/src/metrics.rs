@@ -85,7 +85,7 @@ fn collect_tree_metrics(sys: &System, root_pid: Pid) -> (f32, u64) {
     }
 
     // Collect all descendant processes (children, grandchildren, etc.)
-    for (_, proc) in sys.processes() {
+    for proc in sys.processes().values() {
         if is_descendant_of(sys, proc.pid(), root_pid) {
             total_cpu += proc.cpu_usage();
             total_mem += proc.memory();

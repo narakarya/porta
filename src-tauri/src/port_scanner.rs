@@ -19,7 +19,7 @@ mod tests {
         let port = find_available_port(&[], 3000, 9999);
         assert!(port.is_some());
         let p = port.unwrap();
-        assert!(p >= 3000 && p <= 9999);
+        assert!((3000..=9999).contains(&p));
     }
 
     #[test]

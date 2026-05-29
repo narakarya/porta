@@ -163,7 +163,7 @@ fn collect_loggers(routes: &[Route]) -> (Value, Value) {
     let mut server_logs = serde_json::Map::new();
     let mut logger_names_map = serde_json::Map::new();
     let mut default_logger_seen = false;
-    for (_id, (logger, hosts)) in &per_app {
+    for (logger, hosts) in per_app.values() {
         for host in hosts {
             logger_names_map.insert(host.clone(), Value::String(logger.clone()));
         }
@@ -331,7 +331,7 @@ mod tests {
         // Check at least one server has a route with the right host
         let as_obj = servers.as_object().unwrap();
         let found = as_obj.values().any(|srv| {
-            srv["routes"].as_array().map_or(false, |routes| {
+            srv["routes"].as_array().is_some_and(|routes| {
                 routes.iter().any(|r| {
                     r["match"][0]["host"][0] == "api.test.test"
                 })
@@ -351,7 +351,7 @@ mod tests {
         let servers = &config["apps"]["http"]["servers"];
         let as_obj = servers.as_object().unwrap();
         let found = as_obj.values().any(|srv| {
-            srv["routes"].as_array().map_or(false, |routes| {
+            srv["routes"].as_array().is_some_and(|routes| {
                 routes.iter().any(|r| {
                     let handlers: Vec<_> = r["handle"].as_array().unwrap().iter()
                         .map(|h| h["handler"].as_str().unwrap_or(""))
