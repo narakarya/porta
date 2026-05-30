@@ -101,7 +101,6 @@ export default function App() {
       () => import("./components/app/AppSettingsModal"),
       () => import("./components/app/LogViewer"),
       () => import("./components/app/AddAppModal"),
-      () => import("./components/deploy/DeployModal"),
       () => import("./components/settings/CloudflareSection"),
       () => import("./components/settings/CloudflareZoneSection"),
       () => import("./components/settings/CloudflareEmailSection"),

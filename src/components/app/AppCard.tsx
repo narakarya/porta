@@ -31,7 +31,6 @@ interface Props {
   // (required for React.memo below to actually skip re-renders).
   onOpenSettings?: (app: App) => void;
   onOpenTerminal?: (app: App, startupCommand?: string) => void;
-  onOpenDeploy?: (app: App) => void;
 }
 
 function formatUptime(startedAt: number, now: number): string {
@@ -58,7 +57,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
   return [primary, ...extras];
 }
 
-function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal, onOpenDeploy }: Props) {
+function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }: Props) {
   // Actions — stable refs, picked once via shallow compare.
   const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar } = usePortaStore(
     useShallow((s) => ({
@@ -503,21 +502,6 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal, o
              card calm when scanning a long list; reveals controls when the
              user is interacting with a specific row. */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-
-        {/* Deploy button — only if app.deploy_config_path */}
-        {app.deploy_config_path && (
-          <Tooltip label="Deploy">
-            <button
-              onClick={(e) => { e.stopPropagation(); onOpenDeploy?.(app); }}
-              className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M6.5 1.5C6.5 1.5 9.5 2 10.5 5c.5 1.5.5 3 0 4L9 8.5l-1.5 3-1.5-3L4.5 9.5c-.5-1-.5-2.5 0-4C5.5 2 6.5 1.5 6.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                <circle cx="6.5" cy="5.5" r="1" stroke="currentColor" strokeWidth="1.2"/>
-              </svg>
-            </button>
-          </Tooltip>
-        )}
 
         {/* Tunnel quick menu — works for process/docker/compose and static
             (static routes via Caddy). */}

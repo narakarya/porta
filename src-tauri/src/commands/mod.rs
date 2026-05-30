@@ -6,8 +6,6 @@ pub use terminal::*;
 pub(crate) mod settings;
 pub use settings::*;
 
-mod deploy;
-pub use deploy::*;
 mod extension_storage;
 pub use extension_storage::*;
 

@@ -16,7 +16,6 @@ const AddAppModal = lazy(() => import("../app/AddAppModal"));
 const AddServiceModal = lazy(() => import("../service/AddServiceModal"));
 const ImportComposeModal = lazy(() => import("./ImportComposeModal"));
 const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
-const DeployModal = lazy(() => import("../deploy/DeployModal"));
 const TerminalModal = lazy(() => import("../terminal/TerminalModal"));
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -139,7 +138,6 @@ export default function WorkspaceView() {
   }, []);
   const [settingsApp, setSettingsApp] = useState<App | null>(null);
   const [savedToast, setSavedToast] = useState(false);
-  const [deployApp, setDeployApp] = useState<App | null>(null);
   const [activeTerminalAppId, setActiveTerminalAppId] = useState<string | null>(null);
   // Track which apps have ever opened a terminal so their modal stays mounted (preserves PTY sessions)
   const [openedTerminalIds, setOpenedTerminalIds] = useState<Set<string>>(new Set());
@@ -161,7 +159,6 @@ export default function WorkspaceView() {
   // Stable refs for AppCard callbacks so React.memo can skip re-renders
   // when a card's props haven't actually changed.
   const handleOpenSettings = useCallback((app: App) => setSettingsApp(app), []);
-  const handleOpenDeploy = useCallback((app: App) => setDeployApp(app), []);
 
   // Handle a dropped folder path: detect start command and open AddAppModal pre-filled
   const handleFolderDrop = useCallback(async (folderPath: string) => {
@@ -448,7 +445,6 @@ export default function WorkspaceView() {
                       startOrder={startOrder[app.id]}
                       onOpenSettings={handleOpenSettings}
                       onOpenTerminal={openTerminal}
-                      onOpenDeploy={app.deploy_config_path ? handleOpenDeploy : undefined}
                     />
                   </div>
                 );
@@ -569,14 +565,6 @@ export default function WorkspaceView() {
                   setSavedToast(true);
                   window.setTimeout(() => setSavedToast(false), 2000);
                 }}
-              />
-            )}
-
-            {deployApp && (
-              <DeployModal
-                app={deployApp}
-                workspace={workspaces.find((w) => w.id === deployApp.workspace_id) ?? null}
-                onClose={() => setDeployApp(null)}
               />
             )}
 

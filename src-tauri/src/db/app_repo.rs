@@ -2,7 +2,7 @@ use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashMap;
 
-use super::models::{self, App, CustomDeployCmd};
+use super::models::{self, App};
 use super::Database;
 
 impl Database {
@@ -65,7 +65,6 @@ impl Database {
                     start_command, start_command_source, status, pid,
                     env_file, auto_start, env_vars, restart_policy, max_retries,
                     health_check_path, depends_on, extra_subdomains,
-                    COALESCE(deploy_custom_commands, '[]'),
                     custom_domain,
                     COALESCE(port_bindings, '[]'),
                     COALESCE(env_profiles, '[]'),
@@ -96,32 +95,30 @@ impl Database {
             let depends_on: Vec<String> = serde_json::from_str(&depends_on_str).unwrap_or_default();
             let extra_subdomains_str: String = row.get::<_, Option<String>>(17)?.unwrap_or_else(|| "[]".into());
             let extra_subdomains: Vec<String> = serde_json::from_str(&extra_subdomains_str).unwrap_or_default();
-            let custom_cmds_str: String = row.get::<_, Option<String>>(18)?.unwrap_or_else(|| "[]".into());
-            let deploy_custom_commands: Vec<models::CustomDeployCmd> = serde_json::from_str(&custom_cmds_str).unwrap_or_default();
-            let custom_domain: Option<String> = row.get(19)?;
-            let port_bindings_str: String = row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "[]".into());
+            let custom_domain: Option<String> = row.get(18)?;
+            let port_bindings_str: String = row.get::<_, Option<String>>(19)?.unwrap_or_else(|| "[]".into());
             let port_bindings: Vec<models::PortBinding> = serde_json::from_str(&port_bindings_str).unwrap_or_default();
-            let env_profiles_str: String = row.get::<_, Option<String>>(21)?.unwrap_or_else(|| "[]".into());
+            let env_profiles_str: String = row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "[]".into());
             let env_profiles: Vec<models::EnvProfile> = serde_json::from_str(&env_profiles_str).unwrap_or_default();
-            let active_profile_id: Option<String> = row.get(22)?;
-            let kind: String = row.get(23)?;
-            let docker_image: Option<String> = row.get(24)?;
-            let docker_container_port: Option<u16> = row.get(25)?;
-            let docker_args: Option<String> = row.get(26)?;
-            let docker_volumes_str: String = row.get::<_, Option<String>>(27)?.unwrap_or_else(|| "[]".into());
+            let active_profile_id: Option<String> = row.get(21)?;
+            let kind: String = row.get(22)?;
+            let docker_image: Option<String> = row.get(23)?;
+            let docker_container_port: Option<u16> = row.get(24)?;
+            let docker_args: Option<String> = row.get(25)?;
+            let docker_volumes_str: String = row.get::<_, Option<String>>(26)?.unwrap_or_else(|| "[]".into());
             let docker_volumes: Vec<String> = serde_json::from_str(&docker_volumes_str).unwrap_or_default();
-            let compose_file: Option<String> = row.get(28)?;
-            let network_share: bool = row.get::<_, i32>(29).map(|v| v != 0).unwrap_or(false);
-            let tunnel_name: Option<String> = row.get(30)?;
-            let tunnel_custom_hostname: Option<String> = row.get(31)?;
-            let tunnel_provider: Option<String> = row.get(32)?;
-            let tunnel_auto_start: bool = row.get::<_, i32>(33).map(|v| v != 0).unwrap_or(false);
-            let basic_auth_enabled: bool = row.get::<_, i32>(34).map(|v| v != 0).unwrap_or(false);
-            let basic_auth_username: Option<String> = row.get(35)?;
-            let basic_auth_password_hash: Option<String> = row.get(36)?;
+            let compose_file: Option<String> = row.get(27)?;
+            let network_share: bool = row.get::<_, i32>(28).map(|v| v != 0).unwrap_or(false);
+            let tunnel_name: Option<String> = row.get(29)?;
+            let tunnel_custom_hostname: Option<String> = row.get(30)?;
+            let tunnel_provider: Option<String> = row.get(31)?;
+            let tunnel_auto_start: bool = row.get::<_, i32>(32).map(|v| v != 0).unwrap_or(false);
+            let basic_auth_enabled: bool = row.get::<_, i32>(33).map(|v| v != 0).unwrap_or(false);
+            let basic_auth_username: Option<String> = row.get(34)?;
+            let basic_auth_password_hash: Option<String> = row.get(35)?;
             let basic_auth_password_set = basic_auth_password_hash.is_some();
-            let tunnel_alias_domain: Option<String> = row.get(37)?;
-            let tunnel_alias_rewrite_host: bool = row.get::<_, i32>(38).map(|v| v != 0).unwrap_or(true);
+            let tunnel_alias_domain: Option<String> = row.get(36)?;
+            let tunnel_alias_rewrite_host: bool = row.get::<_, i32>(37).map(|v| v != 0).unwrap_or(true);
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -146,8 +143,6 @@ impl Database {
                 tunnel_auto_start,
                 tunnel_url: None,
                 tunnel_active: false,
-                deploy_config_path: None,
-                deploy_custom_commands,
                 port_bindings,
                 env_profiles,
                 active_profile_id,
@@ -294,28 +289,6 @@ impl Database {
                 params![binding.port, id],
             )?;
         }
-        Ok(())
-    }
-
-    pub fn get_deploy_custom_cmds(&self, app_id: &str) -> Result<Vec<CustomDeployCmd>> {
-        let raw: String = self.conn.query_row(
-            "SELECT COALESCE(deploy_custom_commands, '[]') FROM apps WHERE id = ?1",
-            params![app_id],
-            |r| r.get(0),
-        )?;
-        Ok(serde_json::from_str(&raw).unwrap_or_default())
-    }
-
-    pub fn set_deploy_custom_cmds(
-        &self,
-        app_id: &str,
-        cmds: &[CustomDeployCmd],
-    ) -> Result<()> {
-        let json = serde_json::to_string(cmds).unwrap_or_else(|_| "[]".into());
-        self.conn.execute(
-            "UPDATE apps SET deploy_custom_commands = ?1 WHERE id = ?2",
-            params![json, app_id],
-        )?;
         Ok(())
     }
 

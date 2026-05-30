@@ -58,9 +58,6 @@ export interface App {
   tunnel_auto_start: boolean;
   tunnel_url: string | null;
   tunnel_active: boolean;
-  // deploy
-  deploy_config_path: string | null;
-  deploy_custom_commands: CustomDeployCmd[];
   // basic auth — opt-in HTTP Basic Auth in front of the Caddy route.
   basic_auth_enabled: boolean;
   basic_auth_username: string | null;
@@ -290,11 +287,4 @@ export interface EnvProfile {
   name: string;
   env_file: string | null;
   env_vars: Record<string, string>;
-}
-
-export interface CustomDeployCmd {
-  id: string;
-  label: string;
-  args: string[];
-  interactive: boolean;
 }
