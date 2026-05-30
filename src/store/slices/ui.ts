@@ -74,6 +74,15 @@ export interface UiSlice {
   terminalPlacement: TerminalPlacement;
   /** Panel-mode height as a fraction of the viewport (0.15 – 0.92). */
   terminalPanelHeight: number;
+  /**
+   * Monotonic counter bumped whenever an extension's on-disk state may
+   * have changed (install / update / uninstall / toggle from anywhere).
+   * Consumers — like Settings → Extensions — use this as a useEffect
+   * dependency to re-fetch their list. Without it, a Settings panel
+   * left open while the user updates an extension from the in-app
+   * sidebar showed stale version numbers until reload.
+   */
+  extensionListVersion: number;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -88,6 +97,8 @@ export interface UiSlice {
   clearSettingsSection: () => void;
   setTerminalPlacement: (p: TerminalPlacement) => void;
   setTerminalPanelHeight: (frac: number) => void;
+  /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
+  bumpExtensionList: () => void;
 }
 
 const LS_PLACEMENT = "porta.terminal.placement";
@@ -119,6 +130,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterError: null,
   terminalPlacement: loadPlacement(),
   terminalPanelHeight: loadPanelHeight(),
+  extensionListVersion: 0,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -172,4 +184,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     if (typeof localStorage !== "undefined") localStorage.setItem(LS_PANEL_HEIGHT, String(clamped));
     set({ terminalPanelHeight: clamped });
   },
+
+  bumpExtensionList: () => set((s) => ({ extensionListVersion: s.extensionListVersion + 1 })),
 });

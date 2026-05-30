@@ -1,8 +1,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::extensions::loader::{download_github_to_temp, get_extension_source, install_from_folder, set_extension_enabled, uninstall_extension};
-use crate::extensions::manifest::ExtensionInfo;
+use crate::extensions::loader::{download_github_to_temp, get_extension_source, install_from_folder, set_extension_enabled, set_extension_source, uninstall_extension};
+use crate::extensions::manifest::{ExtensionInfo, ExtensionManifest};
 
 /// List all installed extensions (enabled and disabled).
 #[tauri::command]
@@ -80,6 +80,14 @@ pub async fn update_extension(
     // Download + extract (async, no lock held).
     let (_tmp_dir, src_path) = download_github_to_temp(&source).await.map_err(|e| e.to_string())?;
 
+    let manifest = ExtensionManifest::load_from_dir(&src_path).map_err(|e| e.to_string())?;
+    if manifest.id != id {
+        return Err(format!(
+            "Source manifest id is `{}`, but this extension is `{id}`. Install it as a new extension instead.",
+            manifest.id
+        ));
+    }
+
     // Reinstall from extracted dir, preserving the source.
     let loaded = {
         let db = state.db.lock().unwrap();
@@ -111,6 +119,31 @@ pub fn set_extension_enabled_cmd(
         ext.enabled = enabled;
     }
     Ok(())
+}
+
+/// Change the remote source used by Update. Empty values clear the source.
+#[tauri::command]
+pub fn set_extension_source_cmd(
+    id: String,
+    source: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ExtensionInfo, String> {
+    let source = source.and_then(|s| {
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    });
+
+    let db = state.db.lock().unwrap();
+    set_extension_source(&db, &id, source.as_deref()).map_err(|e| e.to_string())?;
+    drop(db);
+
+    let mut guard = state.extensions.lock().unwrap();
+    let ext = guard
+        .iter_mut()
+        .find(|e| e.manifest.id == id)
+        .ok_or_else(|| "Extension not found".to_string())?;
+    ext.source = source;
+    Ok(ext.to_info())
 }
 
 /// Install an extension by copying a local folder into the extensions directory.

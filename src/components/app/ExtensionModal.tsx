@@ -44,15 +44,12 @@ export default function ExtensionModal({ app, extension, onClose }: Props) {
     >
       <div className="flex flex-col flex-1 m-4 md:m-8 bg-[#1c1c1e] border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.07] shrink-0 select-none">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.07] shrink-0 select-none">
           <ExtensionIcon extension={extension} size="sm" />
 
-          <div className="flex flex-col">
-            <span className="text-[13px] font-semibold text-zinc-200 leading-tight">{title}</span>
-            <span className="text-[10px] text-zinc-600 leading-tight">{app.name} · {extension.version}</span>
-          </div>
-
-          <div className="flex-1" />
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-zinc-200 leading-tight">
+            {title}
+          </span>
 
           <button
             onClick={handleReload}

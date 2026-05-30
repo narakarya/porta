@@ -17,13 +17,14 @@ type SidebarToast = { message: string; kind: "success" | "error" } | null;
 const SEARCH_THRESHOLD = 6;
 
 export default function ExtensionSidebar() {
-  const { sidebar, apps, open, close, openSettingsSection } = usePortaStore(
+  const { sidebar, apps, open, close, openSettingsSection, bumpExtensionList } = usePortaStore(
     useShallow((s) => ({
       sidebar: s.extensionSidebar,
       apps: s.apps,
       open: s.openExtensionSidebar,
       close: s.closeExtensionSidebar,
       openSettingsSection: s.openSettingsSection,
+      bumpExtensionList: s.bumpExtensionList,
     }))
   );
 
@@ -48,7 +49,9 @@ export default function ExtensionSidebar() {
     []
   );
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [updatingAll, setUpdatingAll] = useState(false);
+  // null while idle; { index, total } during a sequential update-all run so
+  // we can show progress text in the header (instead of a tiny spinning icon).
+  const [updatingAll, setUpdatingAll] = useState<{ index: number; total: number } | null>(null);
   const [query, setQuery] = useState("");
 
   // Close modal when sidebar switches to a different app
@@ -118,6 +121,7 @@ export default function ExtensionSidebar() {
     try {
       const updated = await updateExtension(ext.id);
       await refetchList();
+      bumpExtensionList();   // notify Settings → Extensions to re-fetch
       showToast(
         updated.version !== prev
           ? `${ext.name} v${prev}→v${updated.version}`
@@ -137,12 +141,11 @@ export default function ExtensionSidebar() {
       showToast("Nothing to update");
       return;
     }
-    setUpdatingAll(true);
     const bumped: string[] = [];
     const failed: string[] = [];
     for (let i = 0; i < targets.length; i++) {
       const ext = targets[i];
-      showToast(`Updating ${i + 1}/${targets.length}…`);
+      setUpdatingAll({ index: i + 1, total: targets.length });
       try {
         const updated = await updateExtension(ext.id);
         if (updated.version !== ext.version) {
@@ -153,7 +156,8 @@ export default function ExtensionSidebar() {
       }
     }
     await refetchList();
-    setUpdatingAll(false);
+    bumpExtensionList();   // notify Settings → Extensions to re-fetch
+    setUpdatingAll(null);
     if (failed.length) showToast(`Failed: ${failed.join(", ")}`, "error");
     else if (bumped.length) showToast(`Updated: ${bumped.join(", ")}`);
     else showToast("Everything up to date");
@@ -170,34 +174,37 @@ export default function ExtensionSidebar() {
             <span className="text-[10px] text-zinc-600 truncate leading-tight">{app.name}</span>
           </div>
           {sidebar.extensions.some((e) => e.source) && (
-            <button
-              onClick={updateAll}
-              disabled={updatingAll}
-              className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0 disabled:opacity-40"
-              title="Update all extensions"
-            >
-              <svg
-                className={updatingAll ? "animate-spin" : ""}
-                width="13"
-                height="13"
-                viewBox="0 0 16 16"
-                fill="none"
+            updatingAll ? (
+              // Active progress text — clearer than a tiny spinning icon.
+              <span
+                className="shrink-0 text-[10px] font-medium text-violet-300/90 tabular-nums px-1.5 py-0.5 rounded bg-violet-500/10"
+                title={`Updating extension ${updatingAll.index} of ${updatingAll.total}`}
               >
-                <path
-                  d="M8 2v7M5 6.5l3 3 3-3"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M3 11.5v1a1 1 0 001 1h8a1 1 0 001-1v-1"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+                {updatingAll.index}/{updatingAll.total}
+              </span>
+            ) : (
+              <button
+                onClick={updateAll}
+                className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0"
+                title="Update all extensions"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M8 2v7M5 6.5l3 3 3-3"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M3 11.5v1a1 1 0 001 1h8a1 1 0 001-1v-1"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            )
           )}
           <button
             onClick={reloadExtensions}
@@ -216,13 +223,8 @@ export default function ExtensionSidebar() {
             title="Manage extensions"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" />
-              <path
-                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
+              <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5 6h6M5 8h6M5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
           <button
@@ -270,72 +272,81 @@ export default function ExtensionSidebar() {
               </p>
             </div>
           )}
-          {visible.map((ext) => (
-            <div
-              key={ext.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setActiveExt(ext)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setActiveExt(ext);
-                }
-              }}
-              className="w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer"
-            >
-              <div className="flex items-start gap-2.5">
-                <div className="mt-0.5">
-                  <ExtensionIcon extension={ext} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline justify-between gap-1">
-                    <span className="text-[12px] font-medium text-zinc-200 truncate">{ext.name}</span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-[10px] text-zinc-600">v{ext.version}</span>
-                      {ext.source && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateOne(ext);
-                          }}
-                          disabled={updatingId === ext.id}
-                          className="p-0.5 text-zinc-600 hover:text-violet-300 hover:bg-white/[0.06] rounded transition-colors disabled:opacity-40"
-                          title="Update extension"
-                        >
-                          <svg
-                            className={updatingId === ext.id ? "animate-spin" : ""}
-                            width="12"
-                            height="12"
-                            viewBox="0 0 16 16"
-                            fill="none"
-                          >
-                            <path
-                              d="M13 8a5 5 0 1 1-1.7-3.7"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M13 2v4h-4"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
+          {visible.map((ext) => {
+            const isUpdating = updatingId === ext.id;
+            return (
+              <div
+                key={ext.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveExt(ext)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setActiveExt(ext);
+                  }
+                }}
+                aria-busy={isUpdating}
+                className="relative w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer overflow-hidden"
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5">
+                    <ExtensionIcon extension={ext} />
                   </div>
-                  {ext.description && (
-                    <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="text-[12px] font-medium text-zinc-200 truncate">{ext.name}</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {!isUpdating && (
+                          <span className="text-[10px] text-zinc-600 tabular-nums">
+                            v{ext.version}
+                          </span>
+                        )}
+                        {ext.source && !isUpdating && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateOne(ext);
+                            }}
+                            className="p-0.5 text-zinc-600 hover:text-violet-300 hover:bg-white/[0.06] rounded transition-colors"
+                            title="Update extension"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                              <path
+                                d="M13 8a5 5 0 1 1-1.7-3.7"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                              <path
+                                d="M13 2v4h-4"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {isUpdating ? (
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-medium text-violet-300/90 leading-none">
+                          <span className="spinner !w-2.5 !h-2.5 !border" aria-hidden="true" />
+                          <span className="truncate">Updating extension</span>
+                        </div>
+                        <div className="loading-sweep rounded-full" />
+                      </div>
+                    ) : ext.description && (
+                      <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {toast && (

@@ -108,6 +108,15 @@ pub fn set_extension_enabled(db: &Database, id: &str, enabled: bool) -> Result<(
     Ok(())
 }
 
+/// Persist the remote install source used by Update.
+pub fn set_extension_source(db: &Database, id: &str, source: Option<&str>) -> Result<()> {
+    db.conn.execute(
+        "UPDATE extensions SET source = ?1 WHERE id = ?2",
+        rusqlite::params![source, id],
+    )?;
+    Ok(())
+}
+
 /// Remove extension record from DB and delete its folder.
 pub fn uninstall_extension(db: &Database, id: &str) -> Result<()> {
     // Get path first

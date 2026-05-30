@@ -31,6 +31,12 @@ let cachedUpdate: Update | null = null;
 // Coalesces concurrent check calls — second caller awaits the same Promise.
 let activeCheck: Promise<void> | null = null;
 
+// Native updater checks can hang on network/release-metadata failures. Keep a
+// generation token so a timed-out or dismissed check cannot update the UI later
+// if the underlying plugin promise eventually resolves.
+let checkGeneration = 0;
+const UPDATE_CHECK_TIMEOUT_MS = 20_000;
+
 // Guard against double-clicking "Download" while a download is already in
 // flight. Cleared on completion (ready/error).
 let downloadInFlight = false;
@@ -52,10 +58,12 @@ function setPhase(phase: UpdaterPhase, patch: Record<string, unknown> = {}) {
  */
 export function checkForUpdate(opts: { silent?: boolean } = {}): Promise<void> {
   if (activeCheck) return activeCheck;
-  activeCheck = runUpdateCheck(opts).finally(() => {
-    activeCheck = null;
+  const generation = ++checkGeneration;
+  const promise = runUpdateCheck(opts, generation).finally(() => {
+    if (activeCheck === promise) activeCheck = null;
   });
-  return activeCheck;
+  activeCheck = promise;
+  return promise;
 }
 
 // Throttle for background auto-checks (startup / interval / window-focus) so
@@ -76,7 +84,25 @@ export function autoCheckForUpdate(): void {
   void checkForUpdate({ silent: true });
 }
 
-async function runUpdateCheck({ silent = true }: { silent?: boolean }): Promise<void> {
+function isCurrentCheck(generation: number): boolean {
+  return generation === checkGeneration;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error("Update check timed out")), ms);
+  });
+  promise.catch(() => {});
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) window.clearTimeout(timer);
+  });
+}
+
+async function runUpdateCheck(
+  { silent = true }: { silent?: boolean },
+  generation: number,
+): Promise<void> {
   const phase = usePortaStore.getState().updaterPhase;
 
   // If we already have a downloaded update, surface that — no point asking
@@ -90,13 +116,20 @@ async function runUpdateCheck({ silent = true }: { silent?: boolean }): Promise<
 
   let upd: Update | null;
   try {
-    upd = await check();
+    upd = await withTimeout(check(), UPDATE_CHECK_TIMEOUT_MS);
   } catch (e) {
+    if (!isCurrentCheck(generation)) return;
     const msg = e instanceof Error ? e.message : String(e);
+    if (silent && msg === "Update check timed out") {
+      setPhase("idle", { updaterError: null, updaterInfo: null });
+      return;
+    }
     setPhase("error", { updaterError: msg, updaterInfo: null });
     if (!silent) await message(`Could not check for updates:\n${msg}`, { title: "Porta", kind: "error" });
     return;
   }
+
+  if (!isCurrentCheck(generation)) return;
 
   if (!upd) {
     setPhase("idle", { updaterInfo: null, updaterError: null });
@@ -190,7 +223,11 @@ export async function restartForUpdate(): Promise<void> {
  */
 export function dismissUpdater(): void {
   const phase = usePortaStore.getState().updaterPhase;
-  if (phase === "available" || phase === "error") {
+  if (phase === "checking") {
+    checkGeneration++;
+    activeCheck = null;
+    setPhase("idle", { updaterError: null, updaterInfo: null });
+  } else if (phase === "available" || phase === "error") {
     setPhase("idle", { updaterError: null });
   }
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { getVersion } from "@tauri-apps/api/app";
 import { usePortaStore } from "../../store";
-import { checkForUpdate, restartForUpdate, startUpdateDownload } from "../../lib/updater";
+import { checkForUpdate, dismissUpdater, restartForUpdate, startUpdateDownload } from "../../lib/updater";
 
 export default function AboutSection() {
   const [version, setVersion] = useState<string>("");
@@ -19,14 +19,13 @@ export default function AboutSection() {
   // the button mid-download spawned a second `check()` and the user got
   // either a duplicate prompt or a re-download from zero.
   const isWorking =
-    phase === "checking" ||
     phase === "downloading" ||
     phase === "installing" ||
     phase === "restarting";
 
   const label = (() => {
     switch (phase) {
-      case "checking":    return "Checking…";
+      case "checking":    return "Cancel check";
       case "available":   return "Download update";
       case "downloading": return "Downloading…";
       case "installing":  return "Installing…";
@@ -37,6 +36,7 @@ export default function AboutSection() {
   })();
 
   async function handleClick() {
+    if (phase === "checking")  return void dismissUpdater();
     if (phase === "available") return void startUpdateDownload();
     if (phase === "ready")     return void restartForUpdate();
     if (isWorking)             return; // already in flight, the toast covers UI

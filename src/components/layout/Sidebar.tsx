@@ -384,9 +384,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           <span>Settings</span>
         </button>
         <SidebarStatusRow onOpenSettings={onOpenSettings} />
-        <div className="px-2 pt-1 text-[9px] text-zinc-700 font-mono select-text" title="Version">
-          v{__BUILD_TAG__}
-        </div>
       </div>
 
       {contextMenu && (
@@ -434,20 +431,21 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 }
 
 /**
- * Compact status row that lives between the Settings button and the
- * version label. Shows a single coloured dot reflecting the worst sidecar
- * state — green when Caddy + dnsmasq are both running, amber when
- * something's installed but not running, red when something's missing
- * entirely. When there's something to act on (warn/bad) the row is a
- * button that jumps to Settings; when all systems are go it's plain text
- * — no misleading affordance, since the Settings button already sits
- * right above it.
- *
- * Tooltip carries the breakdown so the dot stays compact.
+ * Compact status/version row. The dot carries system state via tooltip; the
+ * text stays focused on the app version.
  */
 function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
   const setupStatus = usePortaStore((s) => s.setupStatus);
-  if (!setupStatus) return null;
+  if (!setupStatus) {
+    return (
+      <Tooltip label={`System status unavailable\nPorta ${__BUILD_TAG__}`}>
+        <div className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 font-mono select-text">
+          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-600" />
+          <span className="truncate">v{__BUILD_TAG__}</span>
+        </div>
+      </Tooltip>
+    );
+  }
 
   // Order matters: missing > installed-but-stopped > all-green. The first
   // condition that matches wins, so a critical issue surfaces first.
@@ -470,19 +468,16 @@ function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
     tone === "warn" ? "bg-amber-400 pulse-dot" :
                       "bg-red-400 pulse-dot";
 
-  const label =
-    tone === "ok"   ? "All systems go" :
-    issues.length === 1 ? issues[0] :
-                          `${issues.length} issues`;
+  const label = `v${__BUILD_TAG__}`;
+  const tooltip =
+    tone === "ok" ? `All systems go\nPorta ${__BUILD_TAG__}` : `${issues.join("\n")}\nPorta ${__BUILD_TAG__}`;
 
   const dot = <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />;
 
-  // All green → plain, non-interactive row. There's nothing to act on, and
-  // the Settings button above already covers navigation.
   if (tone === "ok") {
     return (
-      <Tooltip label="Caddy + dnsmasq + mkcert all OK">
-        <div className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[11px] text-zinc-600">
+      <Tooltip label={tooltip}>
+        <div className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 font-mono select-text">
           {dot}
           <span className="truncate">{label}</span>
         </div>
@@ -490,12 +485,11 @@ function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
     );
   }
 
-  // Something to fix → clickable, jumps to Settings.
   return (
-    <Tooltip label={issues.join("\n")}>
+    <Tooltip label={tooltip}>
       <button
         onClick={onOpenSettings}
-        className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[11px] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.05] transition-all duration-100"
+        className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 hover:text-zinc-500 hover:bg-white/[0.05] transition-all duration-100 font-mono"
       >
         {dot}
         <span className="truncate">{label}</span>
