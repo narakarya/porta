@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import { detectAppTags, getExtensionsForApp, rescanExtensions } from "../../lib/commands";
@@ -6,6 +6,8 @@ import type { ExtensionInfo } from "../../types/extension";
 import { ExtensionIcon } from "./ExtensionIcon";
 
 const ExtensionModal = lazy(() => import("../app/ExtensionModal"));
+
+type SidebarToast = { message: string; kind: "success" | "error" } | null;
 
 export default function ExtensionSidebar() {
   const { sidebar, apps, open, close } = usePortaStore(
@@ -19,6 +21,24 @@ export default function ExtensionSidebar() {
 
   const [activeExt, setActiveExt] = useState<ExtensionInfo | null>(null);
   const [reloading, setReloading] = useState(false);
+  const [toast, setToast] = useState<SidebarToast>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  const showToast = useCallback(
+    (message: string, kind: "success" | "error" = "success") => {
+      setToast({ message, kind });
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+      toastTimer.current = window.setTimeout(() => setToast(null), 2800);
+    },
+    []
+  );
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    },
+    []
+  );
 
   // Close modal when sidebar switches to a different app
   useEffect(() => { setActiveExt(null); }, [sidebar?.appId]);
@@ -42,15 +62,31 @@ export default function ExtensionSidebar() {
   if (!app) return null;
   const currentApp = app;
 
+  async function refetchList(): Promise<ExtensionInfo[]> {
+    const tags = currentApp.root_dir
+      ? await detectAppTags(currentApp.root_dir).catch(() => [] as string[])
+      : [];
+    const exts = await getExtensionsForApp(currentApp.kind, tags);
+    open(currentApp.id, exts);
+    setActiveExt((current) =>
+      current ? exts.find((ext) => ext.id === current.id) ?? null : null
+    );
+    return exts;
+  }
+
   async function reloadExtensions() {
     if (reloading) return;
     setReloading(true);
     try {
       await rescanExtensions();
-      const tags = currentApp.root_dir ? await detectAppTags(currentApp.root_dir).catch(() => [] as string[]) : [];
-      const exts = await getExtensionsForApp(currentApp.kind, tags).catch(() => [] as ExtensionInfo[]);
-      open(currentApp.id, exts);
-      setActiveExt((current) => current ? exts.find((ext) => ext.id === current.id) ?? null : null);
+      const exts = await refetchList();
+      showToast(
+        exts.length === 0
+          ? "No extensions match this app"
+          : `${exts.length} extension${exts.length === 1 ? "" : "s"} loaded`
+      );
+    } catch {
+      showToast("Reload failed", "error");
     } finally {
       setReloading(false);
     }
@@ -126,6 +162,18 @@ export default function ExtensionSidebar() {
             </button>
           ))}
         </div>
+
+        {toast && (
+          <div
+            className={`mx-2 mb-2 px-3 py-2 rounded-lg text-[11px] font-medium shrink-0 ${
+              toast.kind === "success"
+                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
+                : "bg-red-500/15 text-red-300 border border-red-500/20"
+            }`}
+          >
+            {toast.message}
+          </div>
+        )}
       </div>
 
       {activeExt && (
