@@ -46,6 +46,7 @@ export default function ExtensionSidebar() {
     []
   );
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingAll, setUpdatingAll] = useState(false);
 
   // Close modal when sidebar switches to a different app
   useEffect(() => { setActiveExt(null); }, [sidebar?.appId]);
@@ -64,6 +65,7 @@ export default function ExtensionSidebar() {
   }, [sidebar, activeExt, close]);
 
   if (!sidebar) return null;
+  const currentSidebar = sidebar;
 
   const app = apps.find((a) => a.id === sidebar.appId);
   if (!app) return null;
@@ -118,6 +120,35 @@ export default function ExtensionSidebar() {
     }
   }
 
+  async function updateAll() {
+    if (updatingAll) return;
+    const targets = currentSidebar.extensions.filter((e) => e.source);
+    if (targets.length === 0) {
+      showToast("Nothing to update");
+      return;
+    }
+    setUpdatingAll(true);
+    const bumped: string[] = [];
+    const failed: string[] = [];
+    for (let i = 0; i < targets.length; i++) {
+      const ext = targets[i];
+      showToast(`Updating ${i + 1}/${targets.length}…`);
+      try {
+        const updated = await updateExtension(ext.id);
+        if (updated.version !== ext.version) {
+          bumped.push(`${ext.name} v${ext.version}→v${updated.version}`);
+        }
+      } catch {
+        failed.push(ext.name);
+      }
+    }
+    await refetchList();
+    setUpdatingAll(false);
+    if (failed.length) showToast(`Failed: ${failed.join(", ")}`, "error");
+    else if (bumped.length) showToast(`Updated: ${bumped.join(", ")}`);
+    else showToast("Everything up to date");
+  }
+
   return (
     <>
       <div className="fixed top-11 right-0 bottom-0 w-[260px] flex flex-col bg-[#111113] border-l border-white/[0.06] z-40 shadow-[-8px_0_24px_rgba(0,0,0,0.35)]">
@@ -128,6 +159,36 @@ export default function ExtensionSidebar() {
             <span className="text-[12px] font-semibold text-zinc-200 leading-tight">Extensions</span>
             <span className="text-[10px] text-zinc-600 truncate leading-tight">{app.name}</span>
           </div>
+          {sidebar.extensions.some((e) => e.source) && (
+            <button
+              onClick={updateAll}
+              disabled={updatingAll}
+              className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0 disabled:opacity-40"
+              title="Update all extensions"
+            >
+              <svg
+                className={updatingAll ? "animate-spin" : ""}
+                width="13"
+                height="13"
+                viewBox="0 0 16 16"
+                fill="none"
+              >
+                <path
+                  d="M8 2v7M5 6.5l3 3 3-3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M3 11.5v1a1 1 0 001 1h8a1 1 0 001-1v-1"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
           <button
             onClick={reloadExtensions}
             disabled={reloading}
