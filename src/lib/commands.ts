@@ -8,7 +8,6 @@ import type {
   Service,
   AddServiceParams,
   ServiceTemplate,
-  CustomDeployCmd,
   HealthStatus,
   ImageUpdateInfo,
   UpdateRisk,
@@ -203,7 +202,7 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_auto_start: false, tunnel_url: null, tunnel_active: false, deploy_config_path: null, deploy_custom_commands: [], kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null, basic_auth_enabled: false, basic_auth_username: null, basic_auth_password_set: false } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_auto_start: false, tunnel_url: null, tunnel_active: false, kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null, basic_auth_enabled: false, basic_auth_username: null, basic_auth_password_set: false } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>
@@ -1184,53 +1183,6 @@ export const importPortaConfig = (srcPath: string): Promise<void> =>
 
 export const regenerateCerts = (): Promise<void> =>
   isTauri ? invoke("regenerate_certs") : Promise.resolve();
-
-// ── Kamal deployment ──────────────────────────────────────────────────────────
-
-export const checkKamal = (): Promise<{ installed: boolean; version: string | null }> =>
-  isTauri
-    ? invoke("check_kamal")
-    : Promise.resolve({ installed: false, version: null });
-
-export const kamalRun = (
-  appId: string,
-  configPath: string,
-  args: string[],
-  runId: string,
-): Promise<void> =>
-  isTauri
-    ? invoke("kamal_run", { appId, configPath, args, runId })
-    : Promise.reject(new Error("kamal_run not available in browser mode"));
-
-export const kamalCancel = (runId: string): Promise<void> =>
-  isTauri
-    ? invoke("kamal_cancel", { runId })
-    : Promise.resolve();
-
-export const installKamal = (appId: string, runId: string): Promise<void> =>
-  isTauri
-    ? invoke("install_kamal", { appId, runId })
-    : Promise.reject(new Error("install_kamal not available in browser mode"));
-
-export const parseKamalAccessories = (configPath: string): Promise<string[]> =>
-  isTauri
-    ? invoke("parse_kamal_accessories", { configPath })
-    : Promise.resolve([]);
-
-export const addDeployCustomCmd = (appId: string, cmd: CustomDeployCmd): Promise<void> =>
-  isTauri
-    ? invoke("add_deploy_custom_cmd", { appId, cmd })
-    : Promise.reject(new Error("add_deploy_custom_cmd not available in browser mode"));
-
-export const updateDeployCustomCmd = (appId: string, cmd: CustomDeployCmd): Promise<void> =>
-  isTauri
-    ? invoke("update_deploy_custom_cmd", { appId, cmd })
-    : Promise.reject(new Error("update_deploy_custom_cmd not available in browser mode"));
-
-export const deleteDeployCustomCmd = (appId: string, cmdId: string): Promise<void> =>
-  isTauri
-    ? invoke("delete_deploy_custom_cmd", { appId, cmdId })
-    : Promise.reject(new Error("delete_deploy_custom_cmd not available in browser mode"));
 
 // ── Service Templates ────────────────────────────────────────────────────────
 
