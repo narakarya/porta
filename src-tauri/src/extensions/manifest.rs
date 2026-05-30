@@ -99,6 +99,52 @@ impl ExtensionManifest {
     pub fn has_shell_permission(&self) -> bool {
         self.permissions.iter().any(|p| p == "shell")
     }
+
+    /// Returns true if this extension requires interactive terminal (PTY) permission.
+    pub fn has_terminal_permission(&self) -> bool {
+        self.permissions.iter().any(|p| p == "terminal")
+    }
+
+    /// Returns true if this extension requires key-value storage permission.
+    pub fn has_storage_permission(&self) -> bool {
+        self.permissions.iter().any(|p| p == "storage")
+    }
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::ExtensionManifest;
+
+    fn manifest_with(perms: &[&str]) -> ExtensionManifest {
+        ExtensionManifest {
+            id: "x".into(),
+            name: "x".into(),
+            version: "0.0.0".into(),
+            description: String::new(),
+            author: None,
+            activate_on: vec![],
+            contributes: Default::default(),
+            permissions: perms.iter().map(|s| s.to_string()).collect(),
+            main: "index.html".into(),
+            min_porta_version: None,
+            homepage: None,
+            repository: None,
+        }
+    }
+
+    #[test]
+    fn detects_terminal_and_storage_permissions() {
+        let m = manifest_with(&["shell", "terminal", "storage"]);
+        assert!(m.has_terminal_permission());
+        assert!(m.has_storage_permission());
+        assert!(m.has_shell_permission());
+
+        let none = manifest_with(&["shell"]);
+        assert!(!none.has_terminal_permission());
+        assert!(!none.has_storage_permission());
+
+        assert!(!manifest_with(&["terminal"]).has_shell_permission());
+    }
 }
 
 /// Runtime representation stored in AppState.
