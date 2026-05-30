@@ -72,3 +72,28 @@
   50% { opacity: 0.35; }
 }
 .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* Sweeping indeterminate progress bar — used by the extension sidebar
+   while an Update is in flight. A short violet bar travels left-to-right
+   under a translucent rail, so the user sees "still working" without the
+   awkward 12px icon spin we used to do. */
+@keyframes loading-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.loading-sweep {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: rgba(167, 139, 250, 0.12);
+  border-radius: 999px;
+}
+.loading-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 28%;
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.95), transparent);
+  animation: loading-sweep 1.25s ease-in-out infinite;
+}
