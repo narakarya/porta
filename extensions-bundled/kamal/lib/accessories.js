@@ -6,7 +6,7 @@ export function parseAccessories(yamlText) {
   const lines = String(yamlText).split("\n");
   let i = 0;
   for (; i < lines.length; i++) {
-    if (/^accessories:\s*$/.test(lines[i])) break;
+    if (/^accessories:\s*(#.*)?$/.test(lines[i])) break;
   }
   if (i >= lines.length) return [];
   i++;
@@ -14,11 +14,12 @@ export function parseAccessories(yamlText) {
   let childIndent = null;
   for (; i < lines.length; i++) {
     const line = lines[i];
-    if (/^\s*$/.test(line)) continue;            // skip blank
+    if (/^\s*$/.test(line)) continue;             // skip blank
+    if (/^\s*#/.test(line)) continue;             // skip comment lines
     const indent = line.length - line.trimStart().length;
-    if (indent === 0) break;                      // back to top level → done
+    if (indent === 0) break;                       // back to top level → done
     if (childIndent === null) childIndent = indent;
-    if (indent !== childIndent) continue;         // deeper (accessory props) → skip
+    if (indent !== childIndent) continue;          // deeper (accessory props) → skip
     const m = line.trimStart().match(/^([A-Za-z0-9_-]+):/);
     if (m) names.push(m[1]);
   }
