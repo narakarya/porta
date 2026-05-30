@@ -9,6 +9,16 @@ export type ExtensionSidebarState = {
   extensions: ExtensionInfo[];
 };
 
+export type SettingsSection =
+  | "setup"
+  | "cloudflare"
+  | "tailscale"
+  | "notifications"
+  | "backup"
+  | "disk"
+  | "extensions"
+  | "about";
+
 /**
  * App-updater state machine. Lives in the store so any component (the
  * Settings → About button, the global toast, future menubar UI…) sees the
@@ -55,6 +65,8 @@ export interface UiSlice {
   notificationsEnabled: boolean;
   imageUpdateNotifyEnabled: boolean;
   extensionSidebar: ExtensionSidebarState | null;
+  /** One-shot request to open Settings on a specific section; consumed by SettingsPage. */
+  settingsSection: SettingsSection | null;
   updaterPhase: UpdaterPhase;
   updaterInfo: UpdaterInfo | null;
   updaterError: string | null;
@@ -72,6 +84,8 @@ export interface UiSlice {
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[]) => void;
   closeExtensionSidebar: () => void;
+  openSettingsSection: (section: SettingsSection) => void;
+  clearSettingsSection: () => void;
   setTerminalPlacement: (p: TerminalPlacement) => void;
   setTerminalPanelHeight: (frac: number) => void;
 }
@@ -99,6 +113,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
   extensionSidebar: null,
+  settingsSection: null,
   updaterPhase: "idle",
   updaterInfo: null,
   updaterError: null,
@@ -144,6 +159,9 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     set({ extensionSidebar: { appId, extensions } }),
 
   closeExtensionSidebar: () => set({ extensionSidebar: null }),
+
+  openSettingsSection: (section) => set({ settingsSection: section }),
+  clearSettingsSection: () => set({ settingsSection: null }),
 
   setTerminalPlacement: (p) => {
     if (typeof localStorage !== "undefined") localStorage.setItem(LS_PLACEMENT, p);
