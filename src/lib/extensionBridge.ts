@@ -282,7 +282,13 @@ export function createMessageHandler(
           const [cmd, opts] = args as [string, { cwd?: string; timeout?: number }];
           result = await onShellRun(cmd, opts ?? {});
         } else if (method.startsWith("storage.")) {
-          const sub = method.slice("storage.".length) as "get" | "set" | "remove" | "keys";
+          const sub = method.slice("storage.".length);
+          if (sub !== "get" && sub !== "set" && sub !== "remove" && sub !== "keys") {
+            throw new Error(`Unknown storage method: ${sub}`);
+          }
+          if ((sub === "get" || sub === "set" || sub === "remove") && typeof args[0] !== "string") {
+            throw new Error(`storage.${sub}: key must be a string`);
+          }
           result = await onStorage(sub, args);
         } else {
           throw new Error(`Unknown portaBridge method: ${method}`);
