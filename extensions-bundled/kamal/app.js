@@ -23,10 +23,12 @@ const runShell = (cmd) => bridge.shell.run(cmd);
 
 const SEARCH_THRESHOLD = 12; // show the filter box once the list is long
 
-// Exact command from src-tauri/src/commands/deploy.rs `install_kamal`.
-// (That command falls back to `gem install kamal --user-install` when the
-// gemdir isn't writable; the primary command is `gem install kamal`.)
-const INSTALL_CMD = "gem install kamal";
+// Mirrors src-tauri/src/commands/deploy.rs `install_kamal`: use
+// `gem install kamal` when the gemdir is writable, else fall back to
+// `gem install kamal --user-install`. The extension can't call libc, so the
+// writability check is done in shell.
+const INSTALL_CMD =
+  'if [ -w "$(gem env gemdir 2>/dev/null)" ]; then gem install kamal; else gem install kamal --user-install; fi';
 
 const state = {
   installed: false,
@@ -90,6 +92,8 @@ async function runCommand(cmd) {
   state.selectedId = cmd.id;
   const t = freshTerminal();
   await t.open(state.workDir);
+  // PTY stdin is always wired (KamalTerminal forwards keystrokes), so interactive
+  // commands work without branching on cmd.interactive.
   t.run(cmd.args);
   renderStatus();
   renderSidebar();
@@ -138,9 +142,9 @@ function commandMatches(cmd) {
 }
 
 function renderSidebar() {
-  sidebarEl.innerHTML = "";
-
+  // No-config path: full rebuild is fine (no persistent search box).
   if (!state.configPath) {
+    sidebarEl.innerHTML = "";
     sidebarEl.append(el("div", { className: "notice", textContent: "No deploy.yml found under " + rootDir }));
     const input = el("input", { className: "cfg-input", placeholder: "/path/to/deploy.yml" });
     const save = el("button", { className: "btn", textContent: "Set config path" });
@@ -154,15 +158,34 @@ function renderSidebar() {
     return;
   }
 
-  if (state.commands.length >= SEARCH_THRESHOLD) {
-    const search = el("input", { className: "search", placeholder: "Filter commands…", value: state.search });
-    search.oninput = (e) => { state.search = e.target.value; renderSidebar(); };
-    sidebarEl.append(search);
+  // Build the stable shell (search box + list container) once. Recreating the
+  // search input on every keystroke would drop focus, so it lives across
+  // renderCommandList() calls.
+  let listEl = document.getElementById("sidebar-list");
+  if (!listEl) {
+    sidebarEl.innerHTML = "";
+    if (state.commands.length >= SEARCH_THRESHOLD) {
+      const search = el("input", {
+        id: "sidebar-search", className: "search",
+        placeholder: "Filter commands…", value: state.search,
+      });
+      search.oninput = (e) => { state.search = e.target.value; renderCommandList(); };
+      sidebarEl.append(search);
+    }
+    listEl = el("div", { id: "sidebar-list" });
+    sidebarEl.append(listEl);
   }
+  renderCommandList();
+}
+
+function renderCommandList() {
+  const listEl = document.getElementById("sidebar-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
 
   const groups = groupCommands(state.commands.filter(commandMatches));
   for (const [group, cmds] of groups) {
-    sidebarEl.append(el("div", { className: "group-header", textContent: group }));
+    listEl.append(el("div", { className: "group-header", textContent: group }));
     for (const cmd of cmds) {
       const row = el("div", {
         className: "cmd-row" + (cmd.id === state.selectedId ? " selected" : ""),
@@ -177,15 +200,15 @@ function renderSidebar() {
         del.onclick = async (e) => { e.stopPropagation(); await custom.remove(id); await rebuildCommands(); renderSidebar(); };
         row.append(edit, del);
       }
-      sidebarEl.append(row);
+      listEl.append(row);
     }
   }
 
   const addCustom = el("button", { className: "btn add-custom", textContent: "＋ Custom command" });
   addCustom.onclick = () => openCustomForm("");
-  sidebarEl.append(addCustom);
+  listEl.append(addCustom);
 
-  if (state.editingCustomId !== null) sidebarEl.append(renderCustomForm());
+  if (state.editingCustomId !== null) listEl.append(renderCustomForm());
 }
 
 let _editDraft = null;
@@ -205,15 +228,14 @@ function renderCustomForm() {
   const form = el("div", { className: "custom-form" });
   const label = el("input", { className: "cf-label", placeholder: "Label", value: _editDraft.label });
   const args = el("input", { className: "cf-args", placeholder: "args e.g. console", value: _editDraft.args });
-  const interactiveWrap = el("label", { className: "cf-interactive" });
-  const interactive = el("input", { type: "checkbox", checked: _editDraft.interactive });
-  interactiveWrap.append(interactive, document.createTextNode(" interactive"));
   const save = el("button", { className: "btn", textContent: "Save" });
   save.onclick = async () => {
     const payload = {
       label: label.value.trim(),
       args: args.value.trim().split(/\s+/).filter(Boolean),
-      interactive: interactive.checked,
+      // PTY always forwards stdin, so there's no interactive branch; keep the
+      // field for data parity (CustomStore defaults it).
+      interactive: false,
     };
     if (!payload.label || payload.args.length === 0) return;
     if (state.editingCustomId) await custom.update(state.editingCustomId, payload);
@@ -224,7 +246,7 @@ function renderCustomForm() {
   };
   const cancel = el("button", { className: "btn", textContent: "Cancel" });
   cancel.onclick = () => { state.editingCustomId = null; renderSidebar(); };
-  form.append(label, args, interactiveWrap, save, cancel);
+  form.append(label, args, save, cancel);
   return form;
 }
 
@@ -233,18 +255,26 @@ async function reload() {
   await loadConfig();
   await rebuildCommands();
   renderStatus();
+  // Reload isn't triggered by typing, so a clean rebuild is safe and lets the
+  // search-box shell reflect a changed command count / threshold crossing.
+  sidebarEl.innerHTML = "";
   renderSidebar();
 }
 
 async function main() {
-  renderStatus();
-  sidebarEl.append(el("div", { className: "loading", textContent: "Loading…" }));
-  await checkKamal();
-  await reload();
+  try {
+    renderStatus();
+    sidebarEl.append(el("div", { className: "loading", textContent: "Loading…" }));
+    await checkKamal();
+    await reload();
 
-  // Keep the terminal sized to its container.
-  const ro = new ResizeObserver(() => { if (term) term.resize(); });
-  ro.observe(termHostEl);
+    // Keep the terminal sized to its container.
+    const ro = new ResizeObserver(() => { if (term) term.resize(); });
+    ro.observe(termHostEl);
+  } catch (err) {
+    sidebarEl.innerHTML = "";
+    sidebarEl.append(el("div", { className: "notice", textContent: "Load failed: " + (err && err.message ? err.message : String(err)) }));
+  }
 }
 
 main();
