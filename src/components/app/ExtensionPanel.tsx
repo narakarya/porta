@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   extensionShellRun,
   readExtensionFile,
@@ -7,12 +8,18 @@ import {
   extensionStorageSet,
   extensionStorageRemove,
   extensionStorageKeys,
+  terminalOpen,
+  terminalWrite,
+  terminalResize,
+  terminalClose,
 } from "../../lib/commands";
 import {
   createBridgeScript,
   createMessageHandler,
   emitEventToIframe,
   type ShellSpawnHandler,
+  type BridgeTerminalDataMessage,
+  type BridgeTerminalExitMessage,
 } from "../../lib/extensionBridge";
 import type { ExtensionInfo } from "../../types/extension";
 import type { App } from "../../types";
@@ -103,6 +110,7 @@ async function inlineExternalAssets(html: string, mainPath: string): Promise<str
 
 export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleChange, onToast }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const termUnlistenRef = useRef<Map<string, Array<() => void>>>(new Map());
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -190,6 +198,46 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     [extension.id],
   );
 
+  const handleTerminal = useCallback(
+    async (method: "open" | "write" | "resize" | "close", args: unknown[]): Promise<void> => {
+      if (!extension.permissions.includes("terminal")) {
+        throw new Error(`Extension '${extension.id}' does not have 'terminal' permission`);
+      }
+      const rawId = args[0] as string;
+      const termId = `ext:${extension.id}:${rawId}`;
+      if (method === "open") {
+        const opts = (args[1] ?? {}) as { cwd?: string; rows?: number; cols?: number };
+        const cwd = opts.cwd ?? app.root_dir;
+        if (!cwd.startsWith(app.root_dir)) {
+          throw new Error(`cwd '${cwd}' is outside app root_dir '${app.root_dir}'`);
+        }
+        const dataUn = await listen<number[]>(`terminal:data:${termId}`, (e) => {
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "porta:terminal-data", termId: rawId, bytes: e.payload } satisfies BridgeTerminalDataMessage,
+            "*",
+          );
+        });
+        const exitUn = await listen<void>(`terminal:exit:${termId}`, () => {
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "porta:terminal-exit", termId: rawId } satisfies BridgeTerminalExitMessage,
+            "*",
+          );
+        });
+        termUnlistenRef.current.set(termId, [dataUn, exitUn]);
+        await terminalOpen(termId, cwd, opts.rows ?? 24, opts.cols ?? 80);
+      } else if (method === "write") {
+        await terminalWrite(termId, args[1] as number[]);
+      } else if (method === "resize") {
+        await terminalResize(termId, args[1] as number, args[2] as number);
+      } else if (method === "close") {
+        await terminalClose(termId);
+        termUnlistenRef.current.get(termId)?.forEach((fn) => fn());
+        termUnlistenRef.current.delete(termId);
+      }
+    },
+    [extension.id, extension.permissions, app.root_dir],
+  );
+
   const handleToast = useCallback(
     (msg: string, kind: "info" | "success" | "error") => onToast?.(msg, kind),
     [onToast],
@@ -208,10 +256,22 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       handleToast,
       handleSetTitle,
       handleStorage,
+      handleTerminal,
     );
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage]);
+  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage, handleTerminal]);
+
+  useEffect(() => {
+    const map = termUnlistenRef.current;
+    return () => {
+      for (const [termId, fns] of map.entries()) {
+        terminalClose(termId).catch(() => {});
+        fns.forEach((fn) => fn());
+      }
+      map.clear();
+    };
+  }, []);
 
   const prevStatusRef = useRef(app.status);
   useEffect(() => {

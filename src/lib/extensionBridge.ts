@@ -50,11 +50,24 @@ export type BridgeSpawnDoneMessage = {
   error?: string;
 };
 
+export type BridgeTerminalDataMessage = {
+  type: "porta:terminal-data";
+  termId: string;
+  bytes: number[];
+};
+
+export type BridgeTerminalExitMessage = {
+  type: "porta:terminal-exit";
+  termId: string;
+};
+
 export type ParentMessage =
   | BridgeResultMessage
   | BridgeEventMessage
   | BridgeStreamMessage
-  | BridgeSpawnDoneMessage;
+  | BridgeSpawnDoneMessage
+  | BridgeTerminalDataMessage
+  | BridgeTerminalExitMessage;
 
 export type IframeMessage =
   | BridgeCallMessage
@@ -76,6 +89,8 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
   const _spawnHandlers = new Map(); // callId → { callbacks, acc }
   let _callId = 0;
   const _listeners = {};
+  const _termData = new Map(); // termId → Set<fn>
+  const _termExit = new Map(); // termId → Set<fn>
 
   function _call(method, args) {
     return new Promise((resolve, reject) => {
@@ -118,6 +133,17 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
         h.acc.stderr.push(data.line);
         if (h.callbacks.onStderr) { try { h.callbacks.onStderr(data.line); } catch(e) {} }
       }
+    }
+
+    if (data.type === 'porta:terminal-data') {
+      const set = _termData.get(data.termId);
+      if (set) set.forEach((fn) => fn(new Uint8Array(data.bytes)));
+      return;
+    }
+    if (data.type === 'porta:terminal-exit') {
+      const set = _termExit.get(data.termId);
+      if (set) set.forEach((fn) => fn());
+      return;
     }
 
     if (data.type === 'porta:spawn-done') {
@@ -188,6 +214,22 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
       remove(key) { return _call('storage.remove', [key]); },
       keys() { return _call('storage.keys', []); },
     },
+    terminal: {
+      open(termId, opts) { return _call('terminal.open', [termId, opts || {}]); },
+      write(termId, bytes) { return _call('terminal.write', [termId, Array.from(bytes)]); },
+      resize(termId, rows, cols) { return _call('terminal.resize', [termId, rows, cols]); },
+      close(termId) { return _call('terminal.close', [termId]); },
+      onData(termId, fn) {
+        if (!_termData.has(termId)) _termData.set(termId, new Set());
+        _termData.get(termId).add(fn);
+        return () => { const s = _termData.get(termId); if (s) s.delete(fn); };
+      },
+      onExit(termId, fn) {
+        if (!_termExit.has(termId)) _termExit.set(termId, new Set());
+        _termExit.get(termId).add(fn);
+        return () => { const s = _termExit.get(termId); if (s) s.delete(fn); };
+      },
+    },
   };
 
   window.portaBridge = window.__portaBridge;
@@ -222,6 +264,7 @@ export function createMessageHandler(
   onToast: (msg: string, kind: "info" | "success" | "error") => void,
   onSetTitle: (title: string) => void,
   onStorage: (method: "get" | "set" | "remove" | "keys", args: unknown[]) => Promise<unknown>,
+  onTerminal: (method: "open" | "write" | "resize" | "close", args: unknown[]) => Promise<void>,
 ) {
   return async function handleMessage(e: MessageEvent) {
     // Sandboxed iframes have null origin — also accept same-origin calls.
@@ -290,6 +333,13 @@ export function createMessageHandler(
             throw new Error(`storage.${sub}: key must be a string`);
           }
           result = await onStorage(sub, args);
+        } else if (method.startsWith("terminal.")) {
+          const sub = method.slice("terminal.".length);
+          if (sub !== "open" && sub !== "write" && sub !== "resize" && sub !== "close") {
+            throw new Error(`Unknown terminal method: ${sub}`);
+          }
+          await onTerminal(sub, args);
+          result = null;
         } else {
           throw new Error(`Unknown portaBridge method: ${method}`);
         }
