@@ -14,6 +14,8 @@ const ExtensionModal = lazy(() => import("../app/ExtensionModal"));
 
 type SidebarToast = { message: string; kind: "success" | "error" } | null;
 
+const SEARCH_THRESHOLD = 6;
+
 export default function ExtensionSidebar() {
   const { sidebar, apps, open, close, openSettingsSection } = usePortaStore(
     useShallow((s) => ({
@@ -47,6 +49,7 @@ export default function ExtensionSidebar() {
   );
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updatingAll, setUpdatingAll] = useState(false);
+  const [query, setQuery] = useState("");
 
   // Close modal when sidebar switches to a different app
   useEffect(() => { setActiveExt(null); }, [sidebar?.appId]);
@@ -70,6 +73,13 @@ export default function ExtensionSidebar() {
   const app = apps.find((a) => a.id === sidebar.appId);
   if (!app) return null;
   const currentApp = app;
+
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? sidebar.extensions.filter((e) =>
+        `${e.name} ${e.description ?? ""} ${e.id}`.toLowerCase().includes(q)
+      )
+    : sidebar.extensions;
 
   async function refetchList(): Promise<ExtensionInfo[]> {
     const tags = currentApp.root_dir
@@ -226,6 +236,18 @@ export default function ExtensionSidebar() {
           </button>
         </div>
 
+        {sidebar.extensions.length > SEARCH_THRESHOLD && (
+          <div className="px-2 pt-2 shrink-0">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search extensions"
+              className="w-full px-2.5 py-1.5 text-[11px] bg-white/[0.04] border border-white/[0.06] rounded-md text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500/30"
+            />
+          </div>
+        )}
+
         {/* Extension list */}
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
           {sidebar.extensions.length === 0 && (
@@ -241,7 +263,14 @@ export default function ExtensionSidebar() {
               </p>
             </div>
           )}
-          {sidebar.extensions.map((ext) => (
+          {sidebar.extensions.length > 0 && visible.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full px-3 text-center">
+              <p className="text-[11px] text-zinc-500 leading-snug">
+                No extensions match "{query}"
+              </p>
+            </div>
+          )}
+          {visible.map((ext) => (
             <div
               key={ext.id}
               role="button"
