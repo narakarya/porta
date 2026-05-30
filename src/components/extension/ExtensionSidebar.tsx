@@ -291,6 +291,7 @@ export default function ExtensionSidebar() {
                     setActiveExt(ext);
                   }
                 }}
+                aria-busy={isUpdating}
                 className={`relative w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer overflow-hidden ${isUpdating ? "pb-3.5" : ""}`}
               >
                 <div className="flex items-start gap-2.5">
@@ -301,9 +302,11 @@ export default function ExtensionSidebar() {
                     <div className="flex items-baseline justify-between gap-1">
                       <span className="text-[12px] font-medium text-zinc-200 truncate">{ext.name}</span>
                       <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-[10px] text-zinc-600 tabular-nums">
-                          {isUpdating ? "updating…" : `v${ext.version}`}
-                        </span>
+                        {!isUpdating && (
+                          <span className="text-[10px] text-zinc-600 tabular-nums">
+                            v{ext.version}
+                          </span>
+                        )}
                         {ext.source && !isUpdating && (
                           <button
                             onClick={(e) => {
@@ -333,7 +336,12 @@ export default function ExtensionSidebar() {
                         )}
                       </div>
                     </div>
-                    {ext.description && (
+                    {isUpdating ? (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-violet-300/90">
+                        <span className="spinner !w-2.5 !h-2.5 !border" aria-hidden="true" />
+                        <span className="truncate">Updating extension</span>
+                      </div>
+                    ) : ext.description && (
                       <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
                     )}
                   </div>
