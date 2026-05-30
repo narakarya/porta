@@ -33,7 +33,7 @@ export interface ExtensionManifest {
   /** Which apps this extension activates for. Supports glob-style wildcards. */
   activateOn: string[];
   contributes: ExtensionContributes;
-  /** Required Porta permissions: "shell" | "fs:read" */
+  /** Required Porta permissions: "shell" | "terminal" | "storage" | "fs:read" */
   permissions: string[];
   /** Relative path to the main HTML entry point (e.g. "dist/index.html") */
   main: string;
@@ -109,5 +109,19 @@ export interface PortaBridge {
   };
   events: {
     on(event: PortaEvent, handler: (payload: unknown) => void): () => void;
+  };
+  storage: {
+    get(key: string): Promise<unknown>;
+    set(key: string, value: unknown): Promise<void>;
+    remove(key: string): Promise<void>;
+    keys(): Promise<string[]>;
+  };
+  terminal: {
+    open(termId: string, opts?: { cwd?: string; rows?: number; cols?: number }): Promise<void>;
+    write(termId: string, bytes: Uint8Array | number[]): Promise<void>;
+    resize(termId: string, rows: number, cols: number): Promise<void>;
+    close(termId: string): Promise<void>;
+    onData(termId: string, fn: (bytes: Uint8Array) => void): () => void;
+    onExit(termId: string, fn: () => void): () => void;
   };
 }
