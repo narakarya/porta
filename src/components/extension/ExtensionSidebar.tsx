@@ -17,13 +17,14 @@ type SidebarToast = { message: string; kind: "success" | "error" } | null;
 const SEARCH_THRESHOLD = 6;
 
 export default function ExtensionSidebar() {
-  const { sidebar, apps, open, close, openSettingsSection } = usePortaStore(
+  const { sidebar, apps, open, close, openSettingsSection, bumpExtensionList } = usePortaStore(
     useShallow((s) => ({
       sidebar: s.extensionSidebar,
       apps: s.apps,
       open: s.openExtensionSidebar,
       close: s.closeExtensionSidebar,
       openSettingsSection: s.openSettingsSection,
+      bumpExtensionList: s.bumpExtensionList,
     }))
   );
 
@@ -118,6 +119,7 @@ export default function ExtensionSidebar() {
     try {
       const updated = await updateExtension(ext.id);
       await refetchList();
+      bumpExtensionList();   // notify Settings → Extensions to re-fetch
       showToast(
         updated.version !== prev
           ? `${ext.name} v${prev}→v${updated.version}`
@@ -153,6 +155,7 @@ export default function ExtensionSidebar() {
       }
     }
     await refetchList();
+    bumpExtensionList();   // notify Settings → Extensions to re-fetch
     setUpdatingAll(false);
     if (failed.length) showToast(`Failed: ${failed.join(", ")}`, "error");
     else if (bumped.length) showToast(`Updated: ${bumped.join(", ")}`);

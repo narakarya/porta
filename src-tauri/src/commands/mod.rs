@@ -8,6 +8,8 @@ pub use settings::*;
 
 mod deploy;
 pub use deploy::*;
+mod extension_storage;
+pub use extension_storage::*;
 
 mod tunnel;
 pub use tunnel::*;

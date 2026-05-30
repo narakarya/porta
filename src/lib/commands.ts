@@ -1381,6 +1381,19 @@ export const extensionShellRun = (
       })
     : Promise.reject(new Error("extension_shell_run not available in browser mode"));
 
+// ── Extension storage (per-extension KV) ────────────────────────────────────
+export const extensionStorageGet = (extensionId: string, key: string): Promise<unknown> =>
+  isTauri ? invoke("extension_storage_get", { extensionId, key }) : Promise.resolve(null);
+
+export const extensionStorageSet = (extensionId: string, key: string, value: unknown): Promise<void> =>
+  isTauri ? invoke("extension_storage_set", { extensionId, key, value }) : Promise.resolve();
+
+export const extensionStorageRemove = (extensionId: string, key: string): Promise<void> =>
+  isTauri ? invoke("extension_storage_remove", { extensionId, key }) : Promise.resolve();
+
+export const extensionStorageKeys = (extensionId: string): Promise<string[]> =>
+  isTauri ? invoke("extension_storage_keys", { extensionId }) : Promise.resolve([]);
+
 export const readExtensionFile = (path: string): Promise<string> =>
   isTauri
     ? invoke("read_extension_file", { path })

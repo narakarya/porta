@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePortaStore } from "../../store";
 import {
   listExtensions,
   installExtensionFromFolder,
@@ -30,7 +31,11 @@ export default function ExtensionsSection() {
     }
   };
 
-  useEffect(() => { reload(); }, []);
+  // Re-fetch whenever the global extension-list version bumps (e.g. the
+  // user updated an extension from the in-app sidebar while Settings was
+  // open). Without this dep, Settings showed stale versions until reload.
+  const extensionListVersion = usePortaStore((s) => s.extensionListVersion);
+  useEffect(() => { reload(); }, [extensionListVersion]);
 
   const handleInstallFromFolder = async () => {
     setError(null);

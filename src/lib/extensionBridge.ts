@@ -182,6 +182,12 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
         };
       },
     },
+    storage: {
+      get(key) { return _call('storage.get', [key]); },
+      set(key, value) { return _call('storage.set', [key, value]); },
+      remove(key) { return _call('storage.remove', [key]); },
+      keys() { return _call('storage.keys', []); },
+    },
   };
 
   window.portaBridge = window.__portaBridge;
@@ -215,6 +221,7 @@ export function createMessageHandler(
   onShellSpawn: ShellSpawnHandler,
   onToast: (msg: string, kind: "info" | "success" | "error") => void,
   onSetTitle: (title: string) => void,
+  onStorage: (method: "get" | "set" | "remove" | "keys", args: unknown[]) => Promise<unknown>,
 ) {
   return async function handleMessage(e: MessageEvent) {
     // Sandboxed iframes have null origin — also accept same-origin calls.
@@ -274,6 +281,9 @@ export function createMessageHandler(
         if (method === "shell.run") {
           const [cmd, opts] = args as [string, { cwd?: string; timeout?: number }];
           result = await onShellRun(cmd, opts ?? {});
+        } else if (method.startsWith("storage.")) {
+          const sub = method.slice("storage.".length) as "get" | "set" | "remove" | "keys";
+          result = await onStorage(sub, args);
         } else {
           throw new Error(`Unknown portaBridge method: ${method}`);
         }

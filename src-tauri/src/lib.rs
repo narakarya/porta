@@ -373,6 +373,10 @@ pub fn run() {
             commands::uninstall_extension_cmd,
             commands::extension_shell_run,
             commands::extension_shell_spawn,
+            commands::extension_storage_get,
+            commands::extension_storage_set,
+            commands::extension_storage_remove,
+            commands::extension_storage_keys,
             commands::read_extension_file,
         ])
         .on_window_event(|window, event| {
