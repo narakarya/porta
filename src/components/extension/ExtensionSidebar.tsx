@@ -287,7 +287,7 @@ export default function ExtensionSidebar() {
                   }
                 }}
                 aria-busy={isUpdating}
-                className={`relative w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer overflow-hidden ${isUpdating ? "pb-4" : ""}`}
+                className="relative w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer overflow-hidden"
               >
                 <div className="flex items-start gap-2.5">
                   <div className="mt-0.5">
@@ -332,21 +332,18 @@ export default function ExtensionSidebar() {
                       </div>
                     </div>
                     {isUpdating ? (
-                      <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-violet-300/90">
-                        <span className="spinner !w-2.5 !h-2.5 !border" aria-hidden="true" />
-                        <span className="truncate">Updating extension</span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-medium text-violet-300/90 leading-none">
+                          <span className="spinner !w-2.5 !h-2.5 !border" aria-hidden="true" />
+                          <span className="truncate">Updating extension</span>
+                        </div>
+                        <div className="loading-sweep rounded-full" />
                       </div>
                     ) : ext.description && (
                       <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
                     )}
                   </div>
                 </div>
-                {/* Sweeping progress bar pinned to the card bottom while
-                    an update is in flight — replaces the awkward 12px
-                    icon spin. */}
-                {isUpdating && (
-                  <div className="loading-sweep absolute bottom-0 left-[-1px] right-[-1px]" />
-                )}
               </div>
             );
           })}
