@@ -92,7 +92,9 @@ pub fn extension_storage_remove(
 ) -> Result<(), String> {
     check_storage_permission(&extension_id, &state)?;
     let mut map = read_store(&extension_id)?;
-    map.remove(&key);
+    if map.remove(&key).is_none() {
+        return Ok(());
+    }
     write_store(&extension_id, &map)
 }
 
