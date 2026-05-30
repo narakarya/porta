@@ -18,7 +18,6 @@ export default function UpdateToast() {
   );
 
   if (phase === "idle") return null;
-  if (phase === "checking") return null; // brief, no need to flash a toast
 
   const formatBytes = (n: number) => {
     if (!n) return "0 B";
@@ -41,6 +40,7 @@ export default function UpdateToast() {
   const dotColor =
     phase === "ready"        ? "bg-emerald-400" :
     phase === "error"        ? "bg-red-400" :
+    phase === "checking"     ? "bg-blue-400 pulse-dot" :
     phase === "downloading"  ? "bg-blue-400 pulse-dot" :
     phase === "installing"   ? "bg-amber-400 pulse-dot" :
     phase === "restarting"   ? "bg-blue-400 pulse-dot" :
@@ -51,7 +51,22 @@ export default function UpdateToast() {
   let detail: React.ReactNode = null;
   let actions: React.ReactNode = null;
 
-  if (phase === "available" && info) {
+  if (phase === "checking") {
+    title = "Checking for updates";
+    detail = (
+      <p className="text-[11px] text-zinc-500 mt-1">
+        Contacting the release server.
+      </p>
+    );
+    actions = (
+      <button
+        onClick={dismissUpdater}
+        className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
+      >
+        Cancel
+      </button>
+    );
+  } else if (phase === "available" && info) {
     title = `Porta ${info.version} available`;
     // Body may be a bullet list of commit subjects. Render the first
     // ~5 lines so the toast stays compact; the GitHub release page
@@ -163,7 +178,7 @@ export default function UpdateToast() {
   // For `ready` we deliberately omit a close button — the entire affordance
   // to consume the update is that "Restart now" button. Letting users dismiss
   // would strand them on a downloaded-but-not-launched build.
-  const showClose = phase === "available" || phase === "error";
+  const showClose = phase === "checking" || phase === "available" || phase === "error";
 
   return (
     <div
