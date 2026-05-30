@@ -280,11 +280,11 @@ export default function ExtensionsSection() {
           <p className="text-[11px] text-zinc-500 max-w-xs">
             Use the install actions above. Try{" "}
             <button
-              onClick={() => setGithubUrl("narakarya/porta:extensions-bundled/git-manager")}
+              onClick={() => setGithubUrl("narakarya/porta-git-manager")}
               className="font-mono text-zinc-400 hover:text-zinc-200 underline decoration-dotted underline-offset-2"
               title="Click to fill the GitHub URL above"
             >
-              narakarya/porta:extensions-bundled/git-manager
+              narakarya/porta-git-manager
             </button>{" "}
             for the bundled Git Manager.
           </p>
