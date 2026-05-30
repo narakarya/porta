@@ -1,7 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
-import { detectAppTags, getExtensionsForApp, rescanExtensions } from "../../lib/commands";
+import {
+  detectAppTags,
+  getExtensionsForApp,
+  rescanExtensions,
+  updateExtension,
+} from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
 import { ExtensionIcon } from "./ExtensionIcon";
 
@@ -40,6 +45,7 @@ export default function ExtensionSidebar() {
     },
     []
   );
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   // Close modal when sidebar switches to a different app
   useEffect(() => { setActiveExt(null); }, [sidebar?.appId]);
@@ -90,6 +96,25 @@ export default function ExtensionSidebar() {
       showToast("Reload failed", "error");
     } finally {
       setReloading(false);
+    }
+  }
+
+  async function updateOne(ext: ExtensionInfo) {
+    if (updatingId) return;
+    setUpdatingId(ext.id);
+    const prev = ext.version;
+    try {
+      const updated = await updateExtension(ext.id);
+      await refetchList();
+      showToast(
+        updated.version !== prev
+          ? `${ext.name} v${prev}→v${updated.version}`
+          : `${ext.name} already up to date`
+      );
+    } catch {
+      showToast(`Update failed: ${ext.name}`, "error");
+    } finally {
+      setUpdatingId(null);
     }
   }
 
@@ -156,10 +181,18 @@ export default function ExtensionSidebar() {
             </div>
           )}
           {sidebar.extensions.map((ext) => (
-            <button
+            <div
               key={ext.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setActiveExt(ext)}
-              className="w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setActiveExt(ext);
+                }
+              }}
+              className="w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer"
             >
               <div className="flex items-start gap-2.5">
                 <div className="mt-0.5">
@@ -168,14 +201,50 @@ export default function ExtensionSidebar() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline justify-between gap-1">
                     <span className="text-[12px] font-medium text-zinc-200 truncate">{ext.name}</span>
-                    <span className="text-[10px] text-zinc-600 shrink-0">v{ext.version}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-zinc-600">v{ext.version}</span>
+                      {ext.source && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateOne(ext);
+                          }}
+                          disabled={updatingId === ext.id}
+                          className="p-0.5 text-zinc-600 hover:text-violet-300 hover:bg-white/[0.06] rounded transition-colors disabled:opacity-40"
+                          title="Update extension"
+                        >
+                          <svg
+                            className={updatingId === ext.id ? "animate-spin" : ""}
+                            width="12"
+                            height="12"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                          >
+                            <path
+                              d="M13 8a5 5 0 1 1-1.7-3.7"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M13 2v4h-4"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {ext.description && (
                     <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
                   )}
                 </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
 
