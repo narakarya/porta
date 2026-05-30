@@ -18,16 +18,22 @@ import HelpModal from "./components/layout/HelpModal";
 type Page = "main" | "settings";
 
 export default function App() {
-  const { load, checkSetup, loadSettings, refreshHealth } = usePortaStore(
+  const { load, checkSetup, loadSettings, refreshHealth, settingsSection } = usePortaStore(
     useShallow((s) => ({
       load: s.load,
       checkSetup: s.checkSetup,
       loadSettings: s.loadSettings,
       refreshHealth: s.refreshHealth,
+      settingsSection: s.settingsSection,
     }))
   );
   const setupStatus = usePortaStore((s) => s.setupStatus);
   const [page, setPage] = useState<Page>("main");
+  // A sidebar/deep-link request to open a specific Settings section also opens
+  // the Settings page. SettingsPage consumes the section and clears it.
+  useEffect(() => {
+    if (settingsSection) setPage("settings");
+  }, [settingsSection]);
   const [caddyAutoStartFailed, setCaddyAutoStartFailed] = useState(false);
   const [caddyBannerDismissed, setCaddyBannerDismissed] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
