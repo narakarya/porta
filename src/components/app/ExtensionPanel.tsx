@@ -203,13 +203,19 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       if (!extension.permissions.includes("terminal")) {
         throw new Error(`Extension '${extension.id}' does not have 'terminal' permission`);
       }
+      if (!extension.enabled) {
+        throw new Error(`Extension '${extension.id}' is disabled`);
+      }
       const rawId = args[0] as string;
       const termId = `ext:${extension.id}:${rawId}`;
       if (method === "open") {
         termUnlistenRef.current.get(termId)?.forEach((fn) => fn());
         const opts = (args[1] ?? {}) as { cwd?: string; rows?: number; cols?: number };
         const cwd = opts.cwd ?? app.root_dir;
-        if (cwd !== app.root_dir && !cwd.startsWith(app.root_dir + "/")) {
+        if (
+          cwd.split("/").includes("..") ||
+          (cwd !== app.root_dir && !cwd.startsWith(app.root_dir + "/"))
+        ) {
           throw new Error(`cwd '${cwd}' is outside app root_dir '${app.root_dir}'`);
         }
         const dataUn = await listen<number[]>(`terminal:data:${termId}`, (e) => {
@@ -236,7 +242,7 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
         termUnlistenRef.current.delete(termId);
       }
     },
-    [extension.id, extension.permissions, app.root_dir],
+    [extension.id, extension.enabled, extension.permissions, app.root_dir],
   );
 
   const handleToast = useCallback(
