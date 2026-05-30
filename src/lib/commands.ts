@@ -1362,6 +1362,9 @@ export const updateExtension = (id: string): Promise<ExtensionInfo> =>
 export const setExtensionEnabled = (id: string, enabled: boolean): Promise<void> =>
   isTauri ? invoke("set_extension_enabled_cmd", { id, enabled }) : Promise.resolve();
 
+export const setExtensionSource = (id: string, source: string | null): Promise<ExtensionInfo> =>
+  isTauri ? invoke("set_extension_source_cmd", { id, source }) : Promise.reject(new Error("not available"));
+
 export const uninstallExtension = (id: string): Promise<void> =>
   isTauri ? invoke("uninstall_extension_cmd", { id }) : Promise.resolve();
 

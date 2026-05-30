@@ -78,22 +78,21 @@
    under a translucent rail, so the user sees "still working" without the
    awkward 12px icon spin we used to do. */
 @keyframes loading-sweep {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(400%); }
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(220%); }
 }
 .loading-sweep {
   position: relative;
   height: 2px;
   overflow: hidden;
   background: rgba(167, 139, 250, 0.12);
-  border-radius: 999px;
 }
 .loading-sweep::after {
   content: "";
   position: absolute;
   inset: 0;
   display: block;
-  width: 28%;
+  width: 46%;
   background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.95), transparent);
   animation: loading-sweep 1.25s ease-in-out infinite;
 }

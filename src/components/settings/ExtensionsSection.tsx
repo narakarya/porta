@@ -6,6 +6,7 @@ import {
   installExtensionFromGithub,
   updateExtension,
   setExtensionEnabled,
+  setExtensionSource,
   uninstallExtension,
 } from "../../lib/commands";
 import type { ExtensionInfo } from "../../lib/commands";
@@ -20,6 +21,7 @@ export default function ExtensionsSection() {
   const [notice, setNotice] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updatingAll, setUpdatingAll] = useState<{ index: number; total: number } | null>(null);
+  const [editingSource, setEditingSource] = useState<{ id: string; value: string } | null>(null);
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
 
   const reload = async () => {
@@ -139,6 +141,23 @@ export default function ExtensionsSection() {
     try {
       await setExtensionEnabled(id, enabled);
       setExtensions((prev) => prev.map((e) => (e.id === id ? { ...e, enabled } : e)));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleSaveSource = async () => {
+    if (!editingSource) return;
+    const value = editingSource.value.trim();
+    setError(null);
+    setNotice(null);
+    try {
+      const ext = await setExtensionSource(editingSource.id, value || null);
+      setExtensions((prev) =>
+        prev.map((e) => (e.id === ext.id ? ext : e)).sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setNotice(value ? `${ext.name} source updated` : `${ext.name} source cleared`);
+      setEditingSource(null);
     } catch (e) {
       setError(String(e));
     }
@@ -302,10 +321,59 @@ export default function ExtensionsSection() {
               ext={ext}
               updating={updatingId === ext.id}
               onUpdate={() => handleUpdate(ext.id)}
+              onEditSource={() => setEditingSource({ id: ext.id, value: ext.source ?? "" })}
               onToggle={handleToggle}
               onUninstall={() => setConfirmUninstall(ext.id)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Edit source */}
+      {editingSource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-xl p-5 w-[420px] flex flex-col gap-4 shadow-2xl">
+            <div className="flex flex-col gap-1">
+              <p className="text-[13px] font-semibold text-zinc-100">Edit extension source</p>
+              <p className="text-[12px] text-zinc-500">
+                Updates will re-fetch from this GitHub repo or shorthand.
+              </p>
+            </div>
+            <input
+              autoFocus
+              type="text"
+              value={editingSource.value}
+              onChange={(e) => setEditingSource({ ...editingSource, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveSource();
+                if (e.key === "Escape") setEditingSource(null);
+              }}
+              placeholder="owner/repo or https://github.com/owner/repo"
+              className="w-full px-3 py-2 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500/30"
+            />
+            <div className="flex gap-2 justify-between">
+              <button
+                onClick={() => setEditingSource({ ...editingSource, value: "" })}
+                className="px-3 py-1.5 rounded-lg text-[12px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors"
+              >
+                Clear source
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditingSource(null)}
+                  className="px-3 py-1.5 rounded-lg text-[12px] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveSource}
+                  className="px-3 py-1.5 rounded-lg text-[12px] bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/20 transition-colors"
+                >
+                  Save source
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -344,12 +412,14 @@ function ExtensionCard({
   ext,
   updating,
   onUpdate,
+  onEditSource,
   onToggle,
   onUninstall,
 }: {
   ext: ExtensionInfo;
   updating: boolean;
   onUpdate: () => void;
+  onEditSource: () => void;
   onToggle: (id: string, enabled: boolean) => void;
   onUninstall: () => void;
 }) {
@@ -375,7 +445,19 @@ function ExtensionCard({
         {ext.description && (
           <p className="text-[11px] text-zinc-500 truncate mt-0.5">{ext.description}</p>
         )}
-        <p className="text-[10px] text-zinc-700 font-mono mt-0.5">{ext.id}</p>
+        <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+          <p className="text-[10px] text-zinc-700 font-mono truncate">{ext.source ?? ext.id}</p>
+          <button
+            onClick={onEditSource}
+            className="p-0.5 rounded text-zinc-700 hover:text-violet-400 hover:bg-violet-500/10 transition-colors shrink-0"
+            title={ext.source ? "Edit update source" : "Add update source"}
+          >
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+              <path d="M7.8 2.2 9.8 4.2 4.4 9.6H2.4V7.6L7.8 2.2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <path d="M7 3l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Actions */}

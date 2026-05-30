@@ -223,13 +223,8 @@ export default function ExtensionSidebar() {
             title="Manage extensions"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" />
-              <path
-                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
+              <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5 6h6M5 8h6M5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
           <button
@@ -292,7 +287,7 @@ export default function ExtensionSidebar() {
                   }
                 }}
                 aria-busy={isUpdating}
-                className={`relative w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer overflow-hidden ${isUpdating ? "pb-3.5" : ""}`}
+                className={`relative w-full text-left p-3 rounded-lg border border-white/[0.05] hover:bg-white/[0.04] hover:border-violet-500/20 transition-colors group cursor-pointer overflow-hidden ${isUpdating ? "pb-4" : ""}`}
               >
                 <div className="flex items-start gap-2.5">
                   <div className="mt-0.5">
@@ -337,7 +332,7 @@ export default function ExtensionSidebar() {
                       </div>
                     </div>
                     {isUpdating ? (
-                      <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-violet-300/90">
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-violet-300/90">
                         <span className="spinner !w-2.5 !h-2.5 !border" aria-hidden="true" />
                         <span className="truncate">Updating extension</span>
                       </div>
@@ -350,7 +345,7 @@ export default function ExtensionSidebar() {
                     an update is in flight — replaces the awkward 12px
                     icon spin. */}
                 {isUpdating && (
-                  <div className="loading-sweep absolute bottom-0 left-0 right-0 rounded-b-lg" />
+                  <div className="loading-sweep absolute bottom-0 left-[-1px] right-[-1px]" />
                 )}
               </div>
             );
