@@ -206,9 +206,10 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       const rawId = args[0] as string;
       const termId = `ext:${extension.id}:${rawId}`;
       if (method === "open") {
+        termUnlistenRef.current.get(termId)?.forEach((fn) => fn());
         const opts = (args[1] ?? {}) as { cwd?: string; rows?: number; cols?: number };
         const cwd = opts.cwd ?? app.root_dir;
-        if (!cwd.startsWith(app.root_dir)) {
+        if (cwd !== app.root_dir && !cwd.startsWith(app.root_dir + "/")) {
           throw new Error(`cwd '${cwd}' is outside app root_dir '${app.root_dir}'`);
         }
         const dataUn = await listen<number[]>(`terminal:data:${termId}`, (e) => {
