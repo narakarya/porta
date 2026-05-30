@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { extensionShellRun, readExtensionFile } from "../../lib/commands";
+import {
+  extensionShellRun,
+  readExtensionFile,
+  extensionStorageGet,
+  extensionStorageSet,
+  extensionStorageRemove,
+  extensionStorageKeys,
+} from "../../lib/commands";
 import {
   createBridgeScript,
   createMessageHandler,
@@ -170,6 +177,19 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     [app.id, extension.id],
   );
 
+  const handleStorage = useCallback(
+    (method: "get" | "set" | "remove" | "keys", args: unknown[]): Promise<unknown> => {
+      switch (method) {
+        case "get":    return extensionStorageGet(extension.id, args[0] as string);
+        case "set":    return extensionStorageSet(extension.id, args[0] as string, args[1]);
+        case "remove": return extensionStorageRemove(extension.id, args[0] as string);
+        case "keys":   return extensionStorageKeys(extension.id);
+        default:       return Promise.resolve();
+      }
+    },
+    [extension.id],
+  );
+
   const handleToast = useCallback(
     (msg: string, kind: "info" | "success" | "error") => onToast?.(msg, kind),
     [onToast],
@@ -187,10 +207,11 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       handleShellSpawn,
       handleToast,
       handleSetTitle,
+      handleStorage,
     );
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle]);
+  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage]);
 
   const prevStatusRef = useRef(app.status);
   useEffect(() => {
