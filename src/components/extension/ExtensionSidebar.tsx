@@ -10,12 +10,13 @@ const ExtensionModal = lazy(() => import("../app/ExtensionModal"));
 type SidebarToast = { message: string; kind: "success" | "error" } | null;
 
 export default function ExtensionSidebar() {
-  const { sidebar, apps, open, close } = usePortaStore(
+  const { sidebar, apps, open, close, openSettingsSection } = usePortaStore(
     useShallow((s) => ({
       sidebar: s.extensionSidebar,
       apps: s.apps,
       open: s.openExtensionSidebar,
       close: s.closeExtensionSidebar,
+      openSettingsSection: s.openSettingsSection,
     }))
   );
 
@@ -111,6 +112,21 @@ export default function ExtensionSidebar() {
             <svg className={reloading ? "animate-spin" : ""} width="13" height="13" viewBox="0 0 16 16" fill="none">
               <path d="M13 8a5 5 0 1 1-1.7-3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M13 2v4h-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={() => openSettingsSection("extensions")}
+            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0"
+            title="Manage extensions"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" />
+              <path
+                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
           <button
