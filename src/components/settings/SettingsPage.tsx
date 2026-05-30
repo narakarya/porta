@@ -1,5 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import SetupWizard from "../setup/SetupWizard";
+import { usePortaStore } from "../../store";
+import { useShallow } from "zustand/react/shallow";
+import type { SettingsSection as Section } from "../../store/slices/ui";
 
 // Code-split each section so the Settings page can paint the sidebar
 // instantly. Without this, opening Settings forced a synchronous parse of
@@ -24,7 +27,6 @@ function SectionFallback() {
   );
 }
 
-type Section = "setup" | "cloudflare" | "tailscale" | "notifications" | "backup" | "disk" | "extensions" | "about";
 
 const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -122,7 +124,19 @@ interface Props {
 }
 
 export default function SettingsPage({ onBack }: Props) {
+  const { settingsSection, clearSettingsSection } = usePortaStore(
+    useShallow((s) => ({
+      settingsSection: s.settingsSection,
+      clearSettingsSection: s.clearSettingsSection,
+    }))
+  );
   const [activeSection, setActiveSection] = useState<Section>("setup");
+  useEffect(() => {
+    if (settingsSection) {
+      setActiveSection(settingsSection);
+      clearSettingsSection();
+    }
+  }, [settingsSection, clearSettingsSection]);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   // Sections that have ever been visited stay mounted so re-clicking a nav
   // item is instant — fixes the lag on each Cloudflare click. Tabs not yet
