@@ -2,14 +2,6 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustomDeployCmd {
-    pub id: String,
-    pub label: String,
-    pub args: Vec<String>,
-    pub interactive: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvProfile {
     pub id: String,
     pub name: String,
@@ -162,13 +154,6 @@ pub struct App {
     pub tunnel_url: Option<String>,
     #[serde(default)]
     pub tunnel_active: bool,
-    /// Computed at runtime (not stored in DB). Set by list_apps to the first
-    /// deploy.yml found under the app's root_dir.
-    #[serde(default)]
-    pub deploy_config_path: Option<String>,
-    /// User-defined custom deploy commands, stored as JSON in DB.
-    #[serde(default)]
-    pub deploy_custom_commands: Vec<CustomDeployCmd>,
     /// Extra port bindings — each gets its own Caddy route with a separate port.
     #[serde(default)]
     pub port_bindings: Vec<PortBinding>,
@@ -482,8 +467,6 @@ mod tests {
             tunnel_auto_start: false,
             tunnel_url: None,
             tunnel_active: false,
-            deploy_config_path: None,
-            deploy_custom_commands: vec![],
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,

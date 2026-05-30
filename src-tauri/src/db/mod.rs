@@ -228,8 +228,6 @@ mod tests {
             tunnel_auto_start: false,
             tunnel_url: None,
             tunnel_active: false,
-            deploy_config_path: None,
-            deploy_custom_commands: vec![],
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,
@@ -277,8 +275,6 @@ mod tests {
             tunnel_auto_start: false,
             tunnel_url: None,
             tunnel_active: false,
-            deploy_config_path: None,
-            deploy_custom_commands: vec![],
             port_bindings: vec![
                 models::PortBinding {
                     id: "b1".into(),
@@ -342,8 +338,6 @@ mod tests {
             tunnel_auto_start: false,
             tunnel_url: None,
             tunnel_active: false,
-            deploy_config_path: None,
-            deploy_custom_commands: vec![],
             port_bindings: vec![],
             env_profiles: vec![],
             active_profile_id: None,

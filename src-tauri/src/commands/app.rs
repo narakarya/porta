@@ -9,20 +9,7 @@ use super::setup::sync_caddy;
 
 #[tauri::command]
 pub fn list_apps(state: State<AppState>) -> Result<Vec<App>, String> {
-    let mut apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
-    // Compute deploy_config_path for each app at runtime
-    for app in &mut apps {
-        let root = std::path::Path::new(&app.root_dir);
-        let config_yml = root.join("config").join("deploy.yml");
-        let root_yml = root.join("deploy.yml");
-        app.deploy_config_path = if config_yml.exists() {
-            Some(config_yml.to_string_lossy().into_owned())
-        } else if root_yml.exists() {
-            Some(root_yml.to_string_lossy().into_owned())
-        } else {
-            None
-        };
-    }
+    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
     Ok(apps)
 }
 
@@ -106,8 +93,6 @@ pub fn add_app(
         tunnel_auto_start: false,
         tunnel_url: None,
         tunnel_active: false,
-        deploy_config_path: None,
-        deploy_custom_commands: vec![],
         port_bindings: vec![],
         env_profiles: vec![],
         active_profile_id: None,
