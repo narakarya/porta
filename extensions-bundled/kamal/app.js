@@ -91,7 +91,12 @@ async function runCommand(cmd) {
   if (cmd.confirm && !confirm(`Run: kamal ${cmd.args.join(" ")} ?`)) return;
   state.selectedId = cmd.id;
   const t = freshTerminal();
-  await t.open(state.workDir);
+  try {
+    await t.open(state.workDir);
+  } catch (err) {
+    bridge.ui.toast("Could not open terminal: " + (err && err.message ? err.message : String(err)), "error");
+    return;
+  }
   // PTY stdin is always wired (KamalTerminal forwards keystrokes), so interactive
   // commands work without branching on cmd.interactive.
   t.run(cmd.args);
@@ -101,7 +106,12 @@ async function runCommand(cmd) {
 
 async function installKamal(installCmd) {
   const t = freshTerminal();
-  await t.open(state.workDir);
+  try {
+    await t.open(state.workDir);
+  } catch (err) {
+    bridge.ui.toast("Could not open terminal: " + (err && err.message ? err.message : String(err)), "error");
+    return;
+  }
   t.runRaw(installCmd);
   // After the shell finishes, the user clicks "Re-check" to refresh status.
   renderStatus();
