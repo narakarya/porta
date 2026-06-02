@@ -61,6 +61,7 @@ export default function DockerUpdateBadge({ app }: Props) {
   const [logLines, setLogLines] = useState<string[]>([]);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const popoverElRef = useRef<HTMLDivElement | null>(null);
+  const imageConfigKeyRef = useRef<string | null>(null);
 
   const { cachedInfo, setImageUpdateCache, refreshApp } = usePortaStore(
     useShallow((s) => ({
@@ -77,11 +78,21 @@ export default function DockerUpdateBadge({ app }: Props) {
     setState({ kind: "ready", info: cachedInfo });
   }, [cachedInfo]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset whenever the app's image config changes — a swap of docker_image or
-  // compose_file invalidates any prior check result.
+  // Reset whenever the app's image config changes after mount. Do not reset on
+  // the first render: background polling may already have cached update info,
+  // and wiping local state there hides the per-card update badge while the
+  // sidebar still shows an update count.
   useEffect(() => {
+    const nextKey = `${app.id}:${app.kind}:${app.docker_image ?? ""}:${app.compose_file ?? ""}`;
+    if (imageConfigKeyRef.current === null) {
+      imageConfigKeyRef.current = nextKey;
+      return;
+    }
+    if (imageConfigKeyRef.current === nextKey) return;
+    imageConfigKeyRef.current = nextKey;
     setState({ kind: "idle" });
-  }, [app.docker_image, app.compose_file, app.kind]);
+    setImageUpdateCache(app.id, []);
+  }, [app.id, app.docker_image, app.compose_file, app.kind, setImageUpdateCache]);
 
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) return;
