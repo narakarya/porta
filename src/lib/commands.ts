@@ -522,6 +522,14 @@ export const getNotificationsEnabled = (): Promise<boolean> =>
 export const setNotificationsEnabled = (enabled: boolean): Promise<void> =>
   isTauri ? invoke("set_notifications_enabled", { enabled }) : Promise.resolve();
 
+export type NotificationPermissionState = "granted" | "denied" | "prompt" | "prompt-with-rationale";
+
+export const getNotificationPermissionState = (): Promise<NotificationPermissionState> =>
+  isTauri ? invoke("get_notification_permission_state") : Promise.resolve("prompt");
+
+export const requestNotificationPermissionAccess = (): Promise<NotificationPermissionState> =>
+  isTauri ? invoke("request_notification_permission_access") : Promise.resolve("granted");
+
 export const sendTestNotification = (): Promise<void> =>
   isTauri ? invoke("send_test_notification") : Promise.resolve();
 

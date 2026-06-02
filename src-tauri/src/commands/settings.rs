@@ -48,6 +48,24 @@ pub fn set_notifications_enabled(enabled: bool) {
     write_porta_config(&cfg);
 }
 
+#[tauri::command]
+pub fn get_notification_permission_state(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .permission_state()
+        .map(|state| state.to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn request_notification_permission_access(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .request_permission()
+        .map(|state| state.to_string())
+        .map_err(|e| e.to_string())
+}
+
 /// Send a sample notification so the user can verify the OS-level permission
 /// is granted. Bypasses the in-app `notifications_enabled` toggle on purpose —
 /// the point of this button is to test the underlying macOS plumbing, not

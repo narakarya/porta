@@ -236,6 +236,8 @@ pub fn run() {
             commands::run_backup_now_via_schedule,
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
+            commands::get_notification_permission_state,
+            commands::request_notification_permission_access,
             commands::send_test_notification,
             commands::get_image_update_notify_enabled,
             commands::set_image_update_notify_enabled,

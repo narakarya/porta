@@ -1,11 +1,30 @@
 import { useState } from "react";
 import { usePortaStore } from "../../store";
-import { sendTestNotification } from "../../lib/commands";
+import {
+  requestNotificationPermissionAccess,
+  sendTestNotification,
+  type NotificationPermissionState,
+} from "../../lib/commands";
 
 export default function NotificationsSection() {
   const { notificationsEnabled, setNotificationsEnabled, imageUpdateNotifyEnabled, setImageUpdateNotifyEnabled } = usePortaStore();
+  const [permissionStatus, setPermissionStatus] = useState<"idle" | "granted" | "denied" | "error">("idle");
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "error">("idle");
   const [testError, setTestError] = useState<string>("");
+
+  async function handleRequestAccess() {
+    setTestError("");
+    try {
+      const state = await requestNotificationPermissionAccess();
+      setPermissionStatus(state === "granted" ? "granted" : state === "denied" ? "denied" : "idle");
+      if (state === "granted" && !notificationsEnabled) {
+        await setNotificationsEnabled(true);
+      }
+    } catch (e) {
+      setPermissionStatus("error");
+      setTestError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function handleTest() {
     setTestError("");
@@ -18,6 +37,13 @@ export default function NotificationsSection() {
       setTestError(e instanceof Error ? e.message : String(e));
     }
   }
+
+  const permissionLabel: Record<NotificationPermissionState, string> = {
+    granted: "Access granted",
+    denied: "Access denied in macOS",
+    prompt: "Access not requested",
+    "prompt-with-rationale": "Access not requested",
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -50,15 +76,44 @@ export default function NotificationsSection() {
 
         <div className="h-px bg-white/[0.05]" />
 
-        {/* Test + permission hint */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={handleTest}
-              className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
-            >
-              Send test notification
-            </button>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-[13px] font-medium text-zinc-200">macOS access</p>
+              <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                Allow Porta to show system notifications, then send a test notification.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleRequestAccess}
+                className="px-3 py-1.5 text-[12px] font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-white/[0.08] rounded-lg transition-colors"
+              >
+                Request access
+              </button>
+              <button
+                onClick={handleTest}
+                className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              >
+                Send test notification
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap min-h-[18px]">
+            {permissionStatus === "granted" && (
+              <span className="flex items-center gap-1.5 text-[12px] text-emerald-400">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l2.5 2.5 5.5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {permissionLabel.granted}
+              </span>
+            )}
+            {permissionStatus === "denied" && (
+              <span className="text-[12px] text-amber-400">{permissionLabel.denied}</span>
+            )}
+            {permissionStatus === "error" && (
+              <span className="text-[12px] text-red-400">{testError || "Failed to request access"}</span>
+            )}
             {testStatus === "sent" && (
               <span className="flex items-center gap-1.5 text-[12px] text-emerald-400">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -71,12 +126,6 @@ export default function NotificationsSection() {
               <span className="text-[12px] text-red-400">{testError || "Failed to send"}</span>
             )}
           </div>
-          <p className="text-[11px] text-zinc-500 leading-relaxed">
-            Don't see anything? Open <span className="font-mono text-zinc-400">System Settings → Notifications</span> and allow notifications for{" "}
-            <span className="font-mono text-zinc-400">Porta</span> (production build) or{" "}
-            <span className="font-mono text-zinc-400">Terminal</span> (running via <span className="font-mono">tauri dev</span>).
-            Also check that Focus / Do Not Disturb is off.
-          </p>
         </div>
 
         <div className="h-px bg-white/[0.05]" />
