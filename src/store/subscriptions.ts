@@ -154,8 +154,17 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         cmd.markAppReady(app.id).catch(() => {});
         // Kick off the tunnel if the user opted into auto-start. Reads the
         // latest app snapshot so a just-toggled flag is honored.
+        //
+        // For Cloudflare, only auto-start a *named* tunnel (tunnel_name set).
+        // Without a name, start_tunnel falls back to a throwaway quick tunnel
+        // with a random trycloudflare URL — useless for a webhook and, once
+        // live, it hides the named-tunnel config UI (gated on !tunnel_active),
+        // locking the user out of switching to named. So skip auto-start until
+        // a named tunnel is configured; the user can still connect manually.
         const current = get().apps.find((a) => a.id === app.id);
-        if (current?.tunnel_auto_start && !current.tunnel_active) {
+        const cloudflareReady =
+          current?.tunnel_provider !== "cloudflare" || !!current?.tunnel_name?.trim();
+        if (current?.tunnel_auto_start && !current.tunnel_active && cloudflareReady) {
           get().startTunnel(app.id);
         }
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
