@@ -141,7 +141,17 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   updateApp: async (params) => {
     const updated = await cmd.updateApp(params);
     set((s) => ({
-      apps: s.apps.map((a) => (a.id === params.id ? updated : a)),
+      // `tunnel_active`/`tunnel_url` are runtime-only — the DB never stores them
+      // (app_repo.rs always reads them back as false/null), they live in-memory
+      // via the `app:tunnel:{id}` event. Blindly replacing the app with the
+      // fresh DB copy would wipe a live tunnel's state and make the UI flip to
+      // "disconnected" on Save even though cloudflared keeps running. Preserve
+      // them from the previous in-memory object.
+      apps: s.apps.map((a) =>
+        a.id === params.id
+          ? { ...updated, tunnel_active: a.tunnel_active, tunnel_url: a.tunnel_url }
+          : a
+      ),
     }));
   },
 
