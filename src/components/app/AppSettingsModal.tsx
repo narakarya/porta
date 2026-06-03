@@ -1588,10 +1588,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       </button>
                     </div>
                     {tunnelReachable === false && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <div className="flex items-start gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <span className="w-1.5 h-1.5 mt-1 rounded-full bg-amber-400 shrink-0" />
                         <span className="text-[11px] text-amber-300">
-                          Tunnel configured but not responding — check that the app's process is running.
+                          Tunnel endpoint not reachable — the tunnel itself looks down, not your app
+                          (an app that's up but erroring would still respond).{" "}
+                          {app.tunnel_provider === "cloudflare"
+                            ? "Check the DNS route and that cloudflared is connected."
+                            : "Check that the Tailscale serve/funnel is still up."}
                         </span>
                       </div>
                     )}
