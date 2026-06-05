@@ -7,6 +7,7 @@ import AppContextMenu from "./AppContextMenu";
 import HostsDropdown from "./HostsDropdown";
 import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, type PortCheckResult } from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
+import ExtensionActionButtons from "../extension/ExtensionActionButtons";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 
 // LogViewer is only opened when the user expands logs — defer its parse cost.
@@ -59,7 +60,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -76,6 +77,7 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
       openExtensionSidebar: s.openExtensionSidebar,
       closeExtensionSidebar: s.closeExtensionSidebar,
       extensionSidebar: s.extensionSidebar,
+      cacheAppExtensions: s.cacheAppExtensions,
     }))
   );
   // Per-app state slices — component only re-renders when ITS slice changes.
@@ -208,9 +210,10 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
       const tags = app.root_dir ? await detectAppTags(app.root_dir).catch(() => [] as string[]) : [];
       const exts = await getExtensionsForApp(app.kind, tags).catch(() => [] as ExtensionInfo[]);
       setAppExtensions(exts);
+      cacheAppExtensions(app.id, exts); // expose to the command palette
     }
     load();
-  }, [app.id, app.kind, app.root_dir]);
+  }, [app.id, app.kind, app.root_dir, cacheAppExtensions]);
 
   async function handleKillPortHolder() {
     setKillingPort(true);
@@ -498,6 +501,29 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
           </div>
         </div>
 
+        {/* Extension indicator — ALWAYS visible (outside the hover cluster) so
+            an app's matching extensions are discoverable without hovering.
+            Just the puzzle + a count, so it stays clutter-free no matter how
+            many extensions match. Quick-action buttons live in the hover
+            cluster below. Click: single match → its panel; many → the list. */}
+        {appExtensions.length > 0 && (
+          <Tooltip label={extSidebarActive ? "Close extensions" : appExtensions.length === 1 ? `Open ${appExtensions[0].name}` : `${appExtensions.length} extensions`}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (extSidebarActive) closeExtensionSidebar();
+                else if (appExtensions.length === 1) openExtensionSidebar(app.id, appExtensions, appExtensions[0].id);
+                else openExtensionSidebar(app.id, appExtensions);
+              }}
+              aria-label={`${appExtensions.length} extension${appExtensions.length > 1 ? "s" : ""} for ${app.name}`}
+              className={`flex items-center gap-0.5 p-1 rounded-md transition-colors ${extSidebarActive ? "text-violet-400 bg-violet-500/10" : "text-zinc-500 hover:text-violet-300 hover:bg-violet-500/10"}`}
+            >
+              <ExtPuzzleIcon />
+              {appExtensions.length > 1 && <span className="text-[9px] font-medium leading-none pr-0.5">{appExtensions.length}</span>}
+            </button>
+          </Tooltip>
+        )}
+
         {/* ── Icon actions: hidden at rest, fade in on card hover. Keeps the
              card calm when scanning a long list; reveals controls when the
              user is interacting with a specific row. */}
@@ -558,21 +584,12 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
         </Tooltip>
         )}
 
-        {/* Extension actions */}
-        {appExtensions.length > 0 && (
-          <Tooltip label={extSidebarActive ? "Close extensions" : `${appExtensions.length} extension${appExtensions.length > 1 ? "s" : ""}`}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (extSidebarActive) closeExtensionSidebar();
-                else openExtensionSidebar(app.id, appExtensions);
-              }}
-              className={`p-1 rounded-md transition-colors ${extSidebarActive ? "text-violet-400 bg-violet-500/10" : "text-zinc-600 hover:text-violet-300 hover:bg-violet-500/10"}`}
-            >
-              <ExtPuzzleIcon />
-            </button>
-          </Tooltip>
-        )}
+        {/* Extension appAction buttons — run commands without opening the panel */}
+        <ExtensionActionButtons
+          app={app}
+          extensions={appExtensions}
+          onOpenExtension={(ext) => openExtensionSidebar(app.id, appExtensions, ext.id)}
+        />
 
         {/* HTTP traffic inspector — non-wildcard host served by Caddy.
             Hidden for docker/compose: container logs already cover the

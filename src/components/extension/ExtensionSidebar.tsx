@@ -57,6 +57,15 @@ export default function ExtensionSidebar() {
   // Close modal when sidebar switches to a different app
   useEffect(() => { setActiveExt(null); }, [sidebar?.appId]);
 
+  // Open straight into a specific extension when requested (e.g. an app-card
+  // appAction button whose extension didn't register a command — fall back to
+  // showing its full panel). Runs after the reset above, so it wins.
+  useEffect(() => {
+    if (!sidebar?.focusExtensionId) return;
+    const ext = sidebar.extensions.find((e) => e.id === sidebar.focusExtensionId);
+    if (ext) setActiveExt(ext);
+  }, [sidebar?.appId, sidebar?.focusExtensionId]);
+
   // Esc closes modal first, then sidebar
   useEffect(() => {
     if (!sidebar) return;

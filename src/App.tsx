@@ -14,6 +14,7 @@ import CommandPalette from "./components/layout/CommandPalette";
 import UpdateToast from "./components/layout/UpdateToast";
 import ErrorBoundary from "./components/layout/ErrorBoundary";
 import HelpModal from "./components/layout/HelpModal";
+import { ExtensionHostProvider } from "./components/extension/ExtensionHostManager";
 
 type Page = "main" | "settings";
 
@@ -157,6 +158,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      <ExtensionHostProvider>
       <div hidden={page !== "main"}>
         <SetupWizard />
         <CommandPalette onOpenSettings={() => setPage("settings")} onShowShortcuts={() => setHelpOpen(true)} />
@@ -197,6 +199,7 @@ export default function App() {
           switches back to Main. */}
       <UpdateToast />
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      </ExtensionHostProvider>
     </ErrorBoundary>
   );
 }

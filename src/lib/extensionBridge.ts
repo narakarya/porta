@@ -61,18 +61,40 @@ export type BridgeTerminalExitMessage = {
   termId: string;
 };
 
+/** Parent → iframe: run a registered command (appAction) headlessly. */
+export type BridgeInvokeMessage = {
+  type: "porta:invoke";
+  invokeId: string;
+  actionId: string;
+};
+
+/** Iframe → parent: a command's bridge is live and listening. */
+export type BridgeReadyMessage = {
+  type: "porta:ready";
+};
+
+/** Iframe → parent: result of a porta:invoke round-trip. */
+export type BridgeInvokeResultMessage = {
+  type: "porta:invoke-result";
+  invokeId: string;
+  error?: string;
+};
+
 export type ParentMessage =
   | BridgeResultMessage
   | BridgeEventMessage
   | BridgeStreamMessage
   | BridgeSpawnDoneMessage
   | BridgeTerminalDataMessage
-  | BridgeTerminalExitMessage;
+  | BridgeTerminalExitMessage
+  | BridgeInvokeMessage;
 
 export type IframeMessage =
   | BridgeCallMessage
   | BridgeSetTitleMessage
-  | BridgeToastMessage;
+  | BridgeToastMessage
+  | BridgeReadyMessage
+  | BridgeInvokeResultMessage;
 
 // ── Bridge script injected into extension iframe ──────────────────────────────
 
@@ -91,6 +113,23 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
   const _listeners = {};
   const _termData = new Map(); // termId → Set<fn>
   const _termExit = new Map(); // termId → Set<fn>
+  const _commands = new Map(); // actionId → handler fn
+  const _pendingInvokes = []; // invokes that arrived before their command registered
+
+  // Run a registered command and report its outcome back to the host.
+  // Returns false if no handler is registered for actionId yet.
+  function _dispatchInvoke(invokeId, actionId) {
+    const fn = _commands.get(actionId);
+    if (!fn) return false;
+    Promise.resolve().then(() => fn()).then(
+      () => window.parent.postMessage({ type: 'porta:invoke-result', invokeId }, '*'),
+      (err) => window.parent.postMessage(
+        { type: 'porta:invoke-result', invokeId, error: (err && err.message) ? err.message : String(err) },
+        '*',
+      ),
+    );
+    return true;
+  }
 
   function _call(method, args) {
     return new Promise((resolve, reject) => {
@@ -121,6 +160,27 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
     if (data.type === 'porta:event') {
       const handlers = _listeners[data.event] || [];
       handlers.forEach(fn => { try { fn(data.payload); } catch(e) {} });
+    }
+
+    if (data.type === 'porta:invoke') {
+      // Queue if the extension hasn't registered this command yet — its JS
+      // may run after the bridge. commands.register() drains the queue.
+      if (!_dispatchInvoke(data.invokeId, data.actionId)) {
+        _pendingInvokes.push({ invokeId: data.invokeId, actionId: data.actionId });
+        // If still unregistered after a short grace, tell the host so it can
+        // fall back (e.g. open the full panel). Extensions that register
+        // commands do so synchronously at boot, well under this window.
+        setTimeout(() => {
+          const i = _pendingInvokes.findIndex(p => p.invokeId === data.invokeId);
+          if (i !== -1) {
+            _pendingInvokes.splice(i, 1);
+            window.parent.postMessage(
+              { type: 'porta:invoke-result', invokeId: data.invokeId, error: '__unregistered__' },
+              '*',
+            );
+          }
+        }, 1200);
+      }
     }
 
     if (data.type === 'porta:stream') {
@@ -208,6 +268,20 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
         };
       },
     },
+    commands: {
+      register(id, handler) {
+        _commands.set(id, handler);
+        // Drain invokes that arrived before this command was registered.
+        for (let i = _pendingInvokes.length - 1; i >= 0; i--) {
+          if (_pendingInvokes[i].actionId === id) {
+            const queued = _pendingInvokes.splice(i, 1)[0];
+            _dispatchInvoke(queued.invokeId, id);
+          }
+        }
+        return () => { if (_commands.get(id) === handler) _commands.delete(id); };
+      },
+      list() { return Array.from(_commands.keys()); },
+    },
     storage: {
       get(key) { return _call('storage.get', [key]); },
       set(key, value) { return _call('storage.set', [key, value]); },
@@ -233,6 +307,10 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
   };
 
   window.portaBridge = window.__portaBridge;
+
+  // Tell the host the bridge is live and listening. The host gates the first
+  // porta:invoke on this so messages aren't dropped before the iframe boots.
+  window.parent.postMessage({ type: 'porta:ready' }, '*');
 })();
 `;
 }
@@ -265,6 +343,8 @@ export function createMessageHandler(
   onSetTitle: (title: string) => void,
   onStorage: (method: "get" | "set" | "remove" | "keys", args: unknown[]) => Promise<unknown>,
   onTerminal: (method: "open" | "write" | "resize" | "close", args: unknown[]) => Promise<void>,
+  onReady?: () => void,
+  onInvokeResult?: (invokeId: string, error?: string) => void,
 ) {
   return async function handleMessage(e: MessageEvent) {
     // Sandboxed iframes have null origin — also accept same-origin calls.
@@ -273,6 +353,16 @@ export function createMessageHandler(
 
     const data = e.data as IframeMessage;
     if (!data || typeof data !== "object") return;
+
+    if (data.type === "porta:ready") {
+      onReady?.();
+      return;
+    }
+
+    if (data.type === "porta:invoke-result") {
+      onInvokeResult?.(data.invokeId, data.error);
+      return;
+    }
 
     if (data.type === "porta:toast") {
       onToast(data.msg, data.kind);
@@ -355,6 +445,21 @@ export function createMessageHandler(
       }
     }
   };
+}
+
+/**
+ * Ask the extension iframe to run a registered command (appAction). The
+ * result comes back as a `porta:invoke-result` message keyed by `invokeId`.
+ */
+export function invokeActionInIframe(
+  iframe: HTMLIFrameElement | null,
+  invokeId: string,
+  actionId: string,
+) {
+  iframe?.contentWindow?.postMessage(
+    { type: "porta:invoke", invokeId, actionId } satisfies BridgeInvokeMessage,
+    "*",
+  );
 }
 
 /**
