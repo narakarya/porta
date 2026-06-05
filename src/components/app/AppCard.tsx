@@ -501,29 +501,6 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
           </div>
         </div>
 
-        {/* Extension indicator — ALWAYS visible (outside the hover cluster) so
-            an app's matching extensions are discoverable without hovering.
-            Just the puzzle + a count, so it stays clutter-free no matter how
-            many extensions match. Quick-action buttons live in the hover
-            cluster below. Click: single match → its panel; many → the list. */}
-        {appExtensions.length > 0 && (
-          <Tooltip label={extSidebarActive ? "Close extensions" : appExtensions.length === 1 ? `Open ${appExtensions[0].name}` : `${appExtensions.length} extensions`}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (extSidebarActive) closeExtensionSidebar();
-                else if (appExtensions.length === 1) openExtensionSidebar(app.id, appExtensions, appExtensions[0].id);
-                else openExtensionSidebar(app.id, appExtensions);
-              }}
-              aria-label={`${appExtensions.length} extension${appExtensions.length > 1 ? "s" : ""} for ${app.name}`}
-              className={`flex items-center gap-0.5 p-1 rounded-md transition-colors ${extSidebarActive ? "text-violet-400 bg-violet-500/10" : "text-zinc-500 hover:text-violet-300 hover:bg-violet-500/10"}`}
-            >
-              <ExtPuzzleIcon />
-              {appExtensions.length > 1 && <span className="text-[9px] font-medium leading-none pr-0.5">{appExtensions.length}</span>}
-            </button>
-          </Tooltip>
-        )}
-
         {/* ── Icon actions: hidden at rest, fade in on card hover. Keeps the
              card calm when scanning a long list; reveals controls when the
              user is interacting with a specific row. */}
@@ -660,6 +637,29 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
 
         </div>
         {/* end hover-revealed icon actions */}
+
+        {/* Extension indicator — always visible, pinned to the right just
+            before Start/Stop so its position stays consistent across cards
+            (the hover cluster above has variable width, which made it drift).
+            Just the puzzle + count → clutter-free regardless of match count.
+            Click: single match → its panel; many → the list. */}
+        {appExtensions.length > 0 && (
+          <Tooltip label={extSidebarActive ? "Close extensions" : appExtensions.length === 1 ? `Open ${appExtensions[0].name}` : `${appExtensions.length} extensions`}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (extSidebarActive) closeExtensionSidebar();
+                else if (appExtensions.length === 1) openExtensionSidebar(app.id, appExtensions, appExtensions[0].id);
+                else openExtensionSidebar(app.id, appExtensions);
+              }}
+              aria-label={`${appExtensions.length} extension${appExtensions.length > 1 ? "s" : ""} for ${app.name}`}
+              className={`flex items-center gap-0.5 p-1 rounded-md transition-colors ${extSidebarActive ? "text-violet-400 bg-violet-500/10" : "text-zinc-500 hover:text-violet-300 hover:bg-violet-500/10"}`}
+            >
+              <ExtPuzzleIcon />
+              {appExtensions.length > 1 && <span className="text-[9px] font-medium leading-none pr-0.5">{appExtensions.length}</span>}
+            </button>
+          </Tooltip>
+        )}
 
         {/* Start / Stop / Restart — process apps only. Static and proxy apps
             are served by Caddy whenever Caddy is up, so there's nothing to
