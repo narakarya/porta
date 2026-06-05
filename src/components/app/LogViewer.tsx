@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getAppLogs,
+  clearAppLogFile,
   isTauri,
   containersForApp,
   startContainerLogs,
@@ -810,7 +811,18 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         </button>
 
         <button
-          onClick={() => {
+          onClick={async () => {
+            if (
+              !window.confirm(
+                `Clear all logs for "${appName}"? This wipes the log file on disk. Running apps keep writing — the log just starts fresh.`,
+              )
+            )
+              return;
+            try {
+              await clearAppLogFile(appId);
+            } catch {
+              // Truncate failed (file locked/missing) — still clear the view.
+            }
             setLocalLogs([]);
             setTruncated(false);
             onClear();
