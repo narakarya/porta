@@ -110,6 +110,17 @@ export interface PortaBridge {
   events: {
     on(event: PortaEvent, handler: (payload: unknown) => void): () => void;
   };
+  commands: {
+    /**
+     * Register a handler for an appAction declared in porta.json's
+     * `contributes.appActions`. Porta invokes it when the user clicks the
+     * action button on the app card or runs it from the command palette —
+     * the extension does not need to be open for this to fire.
+     */
+    register(id: string, handler: () => void | Promise<void>): () => void;
+    /** Action ids currently registered in this iframe. */
+    list(): string[];
+  };
   storage: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;

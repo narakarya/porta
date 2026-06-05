@@ -17,6 +17,7 @@ import {
   createBridgeScript,
   createMessageHandler,
   emitEventToIframe,
+  invokeActionInIframe,
   type ShellSpawnHandler,
   type BridgeTerminalDataMessage,
   type BridgeTerminalExitMessage,
@@ -24,12 +25,25 @@ import {
 import type { ExtensionInfo } from "../../types/extension";
 import type { App } from "../../types";
 
+/** Imperative invoke fn handed to the host so it can run an appAction. */
+export type ExtensionInvoker = (actionId: string) => Promise<void>;
+
 interface Props {
   app: App;
   extension: ExtensionInfo;
   reloadKey?: number;
   onTitleChange?: (title: string) => void;
   onToast?: (msg: string, kind: "info" | "success" | "error") => void;
+  /**
+   * Headless mode: render the iframe hidden (no chrome) so the extension's
+   * registered commands can run without the full panel being open. Used by
+   * ExtensionHostManager to back app-card action buttons / the palette.
+   */
+  headless?: boolean;
+  /** Fired once the iframe bridge posts `porta:ready`. */
+  onReady?: () => void;
+  /** Receives an invoke fn when ready, null on unmount. */
+  registerInvoker?: (invoke: ExtensionInvoker | null) => void;
 }
 
 type SpawnEventFromRust =
@@ -108,11 +122,14 @@ async function inlineExternalAssets(html: string, mainPath: string): Promise<str
   return out;
 }
 
-export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleChange, onToast }: Props) {
+export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleChange, onToast, headless = false, onReady, registerInvoker }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const termUnlistenRef = useRef<Map<string, Array<() => void>>>(new Map());
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Pending porta:invoke round-trips, keyed by invokeId.
+  const pendingInvokesRef = useRef<Map<string, { resolve: () => void; reject: (e: Error) => void; timer: number }>>(new Map());
+  const invokeSeqRef = useRef(0);
 
   const bridgeApp = {
     id: app.id,
@@ -255,7 +272,42 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     [onTitleChange],
   );
 
+  const handleReady = useCallback(() => onReady?.(), [onReady]);
+
+  const handleInvokeResult = useCallback((invokeId: string, error?: string) => {
+    const p = pendingInvokesRef.current.get(invokeId);
+    if (!p) return;
+    pendingInvokesRef.current.delete(invokeId);
+    clearTimeout(p.timer);
+    if (error) p.reject(new Error(error));
+    else p.resolve();
+  }, []);
+
+  // Imperative invoke handed to the host. The bridge queues the call until
+  // the extension registers the command, so a 60s ceiling guards a missing id.
+  const invokeAction = useCallback<ExtensionInvoker>((actionId) => {
+    const iframe = iframeRef.current;
+    if (!iframe) return Promise.reject(new Error("extension not mounted"));
+    return new Promise<void>((resolve, reject) => {
+      const invokeId = `${extension.id}:${++invokeSeqRef.current}`;
+      const timer = window.setTimeout(() => {
+        if (pendingInvokesRef.current.delete(invokeId)) {
+          reject(new Error(`Action '${actionId}' timed out — not registered by the extension?`));
+        }
+      }, 60000);
+      pendingInvokesRef.current.set(invokeId, { resolve, reject, timer });
+      invokeActionInIframe(iframe, invokeId, actionId);
+    });
+  }, [extension.id]);
+
   useEffect(() => {
+    if (!registerInvoker) return;
+    registerInvoker(invokeAction);
+    return () => registerInvoker(null);
+  }, [registerInvoker, invokeAction]);
+
+  useEffect(() => {
+    const pending = pendingInvokesRef.current;
     const handler = createMessageHandler(
       iframeRef,
       handleShellRun,
@@ -264,10 +316,20 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       handleSetTitle,
       handleStorage,
       handleTerminal,
+      handleReady,
+      handleInvokeResult,
     );
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage, handleTerminal]);
+    return () => {
+      window.removeEventListener("message", handler);
+      // Fail any in-flight invokes so the host's promise never hangs.
+      for (const [, p] of pending) {
+        clearTimeout(p.timer);
+        p.reject(new Error("extension host unmounted"));
+      }
+      pending.clear();
+    };
+  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage, handleTerminal, handleReady, handleInvokeResult]);
 
   useEffect(() => {
     const map = termUnlistenRef.current;
@@ -291,6 +353,24 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       if (evt) emitEventToIframe(iframeRef.current, evt, { appId: app.id });
     }
   }, [app.status, app.id]);
+
+  // Headless host: the iframe runs hidden purely to register + execute
+  // commands. No spinner/error chrome — failures surface via the invoke
+  // promise rejecting (action button shows the error).
+  if (headless) {
+    if (!srcDoc) return null;
+    return (
+      <iframe
+        key={`${extension.id}-${reloadKey}`}
+        ref={iframeRef}
+        srcDoc={srcDoc}
+        title={extension.name}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none", border: 0 }}
+      />
+    );
+  }
 
   return (
     <div className="flex-1 min-h-0 relative flex flex-col">

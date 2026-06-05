@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import { openInEditor } from "../../lib/commands";
+import { useExtensionInvoke } from "../extension/ExtensionHostManager";
 
 interface CommandPaletteProps {
   onOpenSettings: () => void;
   onShowShortcuts?: () => void;
 }
 
-type CommandSection = "Recent" | "Apps" | "Workspaces" | "Actions";
+type CommandSection = "Recent" | "Apps" | "Extensions" | "Workspaces" | "Actions";
 
 interface Command {
   id: string;
@@ -179,15 +180,18 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const { apps, workspaces, startApp, stopApp, selectWorkspace } = usePortaStore(
+  const { apps, workspaces, startApp, stopApp, selectWorkspace, appExtensions, openExtensionSidebar } = usePortaStore(
     useShallow((s) => ({
       apps: s.apps,
       workspaces: s.workspaces,
       startApp: s.startApp,
       stopApp: s.stopApp,
       selectWorkspace: s.selectWorkspace,
+      appExtensions: s.appExtensions,
+      openExtensionSidebar: s.openExtensionSidebar,
     }))
   );
+  const { invokeAction } = useExtensionInvoke();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -287,6 +291,34 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
       }
     }
 
+    // Extension appAction commands — one per action of each enabled extension
+    // matching an app. Runs headlessly; falls back to opening the panel if the
+    // extension didn't register the command.
+    for (const app of apps) {
+      const exts = appExtensions[app.id] ?? [];
+      for (const ext of exts) {
+        if (!ext.enabled) continue;
+        for (const action of ext.contributes_app_actions ?? []) {
+          const id = `extaction-${app.id}-${ext.id}-${action.id}`;
+          cmds.push({
+            id,
+            label: `${action.label} · ${app.name}`,
+            hint: ext.name,
+            section: "Extensions",
+            icon: "◇",
+            searchTokens: `${action.label} ${action.id} ${ext.name} ${ext.id} ${app.name}`,
+            run: tracked(id, () => {
+              invokeAction(app, ext, action.id).catch((e) => {
+                if (e instanceof Error && e.message === "__unregistered__") {
+                  openExtensionSidebar(app.id, exts, ext.id);
+                }
+              });
+            }),
+          });
+        }
+      }
+    }
+
     // Workspace commands
     for (const ws of workspaces) {
       cmds.push({
@@ -323,7 +355,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
     }
 
     return cmds;
-  }, [apps, workspaces, startApp, stopApp, selectWorkspace, onOpenSettings, onShowShortcuts, tracked]);
+  }, [apps, workspaces, startApp, stopApp, selectWorkspace, appExtensions, invokeAction, openExtensionSidebar, onOpenSettings, onShowShortcuts, tracked]);
 
   // Build filtered + scored results
   const { sections, flatItems } = useMemo(() => {
@@ -375,6 +407,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
     const sectionOrder: CommandSection[] = [
       "Recent",
       "Apps",
+      "Extensions",
       "Workspaces",
       "Actions",
     ];

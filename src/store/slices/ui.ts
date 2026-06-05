@@ -7,6 +7,8 @@ import * as cmd from "../../lib/commands";
 export type ExtensionSidebarState = {
   appId: string;
   extensions: ExtensionInfo[];
+  /** When set, the sidebar opens straight into this extension's full panel. */
+  focusExtensionId?: string;
 };
 
 export type SettingsSection =
@@ -65,6 +67,12 @@ export interface UiSlice {
   notificationsEnabled: boolean;
   imageUpdateNotifyEnabled: boolean;
   extensionSidebar: ExtensionSidebarState | null;
+  /**
+   * Per-app cache of extensions matching each app's kind+tags, keyed by app id.
+   * Populated by app cards as they mount. Lets the command palette offer each
+   * app's appActions without recomputing the (async) tag detection + filter.
+   */
+  appExtensions: Record<string, ExtensionInfo[]>;
   /** One-shot request to open Settings on a specific section; consumed by SettingsPage. */
   settingsSection: SettingsSection | null;
   updaterPhase: UpdaterPhase;
@@ -91,8 +99,9 @@ export interface UiSlice {
   getToastIndex: (id: string) => number;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
-  openExtensionSidebar: (appId: string, extensions: ExtensionInfo[]) => void;
+  openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
+  cacheAppExtensions: (appId: string, extensions: ExtensionInfo[]) => void;
   openSettingsSection: (section: SettingsSection) => void;
   clearSettingsSection: () => void;
   setTerminalPlacement: (p: TerminalPlacement) => void;
@@ -124,6 +133,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
   extensionSidebar: null,
+  appExtensions: {},
   settingsSection: null,
   updaterPhase: "idle",
   updaterInfo: null,
@@ -167,10 +177,13 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     set({ imageUpdateNotifyEnabled: enabled });
   },
 
-  openExtensionSidebar: (appId, extensions) =>
-    set({ extensionSidebar: { appId, extensions } }),
+  openExtensionSidebar: (appId, extensions, focusExtensionId) =>
+    set({ extensionSidebar: { appId, extensions, focusExtensionId } }),
 
   closeExtensionSidebar: () => set({ extensionSidebar: null }),
+
+  cacheAppExtensions: (appId, extensions) =>
+    set((s) => ({ appExtensions: { ...s.appExtensions, [appId]: extensions } })),
 
   openSettingsSection: (section) => set({ settingsSection: section }),
   clearSettingsSection: () => set({ settingsSection: null }),
