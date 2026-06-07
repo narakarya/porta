@@ -77,6 +77,32 @@ pub struct BasicAuth {
     pub password_hash: String,
 }
 
+/// Per-host override for the app-level Basic Auth default. Lets a single app
+/// protect some of its hosts (e.g. `admin.foo.id`) with different — or no —
+/// credentials than the rest. Hosts without an entry inherit the app default.
+///
+/// `mode`:
+///   - `"off"`    → this host is public regardless of the app default.
+///   - `"custom"` → use this entry's `username`/`password_hash` for this host.
+/// (Absence of an entry, or any other value, means "inherit the app default".)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostAuthOverride {
+    /// Fully resolved host this override applies to, e.g. `admin.sidiq.sch.id`.
+    /// Matches the host Caddy routes on and the value shown in the UI list.
+    pub host: String,
+    pub mode: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Bcrypt hash for `mode == "custom"`. Hidden from the frontend (mirrors
+    /// the app-level `basic_auth_password_hash`); the repo persists it via an
+    /// explicit JSON shape rather than this serializer.
+    #[serde(default, skip_serializing)]
+    pub password_hash: Option<String>,
+    /// Runtime-only flag for the UI: true when a custom hash is stored.
+    #[serde(default)]
+    pub password_set: bool,
+}
+
 fn default_app_kind() -> String { "process".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +204,10 @@ pub struct App {
     /// "Password set ✓ — leave blank to keep" without exposing the hash.
     #[serde(default)]
     pub basic_auth_password_set: bool,
+    /// Per-host overrides of the app-level Basic Auth default. Only hosts that
+    /// deviate from the default get an entry; see [`HostAuthOverride`].
+    #[serde(default)]
+    pub host_auth_overrides: Vec<HostAuthOverride>,
     /// Public alias hostname pattern this app should also be reachable at —
     /// used together with a Cloudflare tunnel to expose a multi-tenant app
     /// at `*.<public-domain>` while keeping its local routing intact. Stored
@@ -265,28 +295,55 @@ impl App {
         Some(BasicAuth { username: user.to_string(), password_hash: hash.to_string() })
     }
 
+    /// Basic Auth for a specific resolved host, honoring per-host overrides:
+    ///   - override `mode == "off"`    → no auth (host stays public).
+    ///   - override `mode == "custom"` → that host's own credentials (falls
+    ///     back to the app default if the custom entry is incomplete).
+    ///   - no override (or any other mode) → the app-level default.
+    fn route_auth_for(&self, host: &str) -> Option<BasicAuth> {
+        match self.host_auth_overrides.iter().find(|o| o.host == host) {
+            Some(o) if o.mode == "off" => None,
+            Some(o) if o.mode == "custom" => {
+                let user = o.username.as_deref().unwrap_or("").trim();
+                let hash = o.password_hash.as_deref().unwrap_or("");
+                if user.is_empty() || hash.is_empty() {
+                    // Incomplete custom entry — don't silently leave the host
+                    // open; fall back to the app default.
+                    self.route_auth()
+                } else {
+                    Some(BasicAuth { username: user.to_string(), password_hash: hash.to_string() })
+                }
+            }
+            _ => self.route_auth(),
+        }
+    }
+
     pub fn all_routes(&self, workspaces: &[Workspace]) -> Vec<Route> {
         let domain = self.effective_domain(workspaces);
-        let auth = self.route_auth();
+        // Auth is resolved per host (see `route_auth_for`) so individual hosts
+        // can override the app-level default — protect `admin.*` only, leave
+        // others public, etc.
         let app_id = Some(self.id.clone());
         let mut routes = Vec::new();
 
         if self.is_static() {
             // Primary host
+            let host = self.resolved_host(workspaces);
             routes.push(Route::FileServer {
-                host: self.resolved_host(workspaces),
+                auth: self.route_auth_for(&host),
+                host,
                 root: self.root_dir.clone(),
-                auth: auth.clone(),
                 app_id: app_id.clone(),
             });
             // Extra subdomains (also serve same folder)
             for sub in &self.extra_subdomains {
                 let trimmed = sub.trim();
                 if !trimmed.is_empty() {
+                    let host = format!("{}.{}", trimmed, domain);
                     routes.push(Route::FileServer {
-                        host: format!("{}.{}", trimmed, domain),
+                        auth: self.route_auth_for(&host),
+                        host,
                         root: self.root_dir.clone(),
-                        auth: auth.clone(),
                         app_id: app_id.clone(),
                     });
                 }
@@ -296,10 +353,11 @@ impl App {
         }
 
         // Primary binding
+        let primary_host = self.resolved_host(workspaces);
         routes.push(Route::ReverseProxy {
-            host: self.resolved_host(workspaces),
+            auth: self.route_auth_for(&primary_host),
+            host: primary_host,
             port: self.port,
-            auth: auth.clone(),
             app_id: app_id.clone(),
         });
 
@@ -307,10 +365,11 @@ impl App {
         for sub in &self.extra_subdomains {
             let trimmed = sub.trim();
             if !trimmed.is_empty() {
+                let host = format!("{}.{}", trimmed, domain);
                 routes.push(Route::ReverseProxy {
-                    host: format!("{}.{}", trimmed, domain),
+                    auth: self.route_auth_for(&host),
+                    host,
                     port: self.port,
-                    auth: auth.clone(),
                     app_id: app_id.clone(),
                 });
             }
@@ -325,10 +384,11 @@ impl App {
             let sub = binding.subdomain.as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&fallback_sub);
+            let host = format!("{}.{}", sub, binding_domain);
             routes.push(Route::ReverseProxy {
-                host: format!("{}.{}", sub, binding_domain),
+                auth: self.route_auth_for(&host),
+                host,
                 port: binding.port,
-                auth: auth.clone(),
                 app_id: app_id.clone(),
             });
         }
@@ -474,9 +534,65 @@ mod tests {
             basic_auth_username: None,
             basic_auth_password_hash: None,
             basic_auth_password_set: false,
+            host_auth_overrides: vec![],
             tunnel_alias_domain: None,
             tunnel_alias_rewrite_host: true,
         }
+    }
+
+    #[test]
+    fn per_host_auth_overrides_default_off_and_custom() {
+        let mut a = app_with_hostname(None);
+        a.subdomain = Some("app".into());
+        a.custom_domain = Some("example.com".into());
+        a.extra_subdomains = vec!["admin".into(), "secret".into()];
+        // App-level default protects everything.
+        a.basic_auth_enabled = true;
+        a.basic_auth_username = Some("default-user".into());
+        a.basic_auth_password_hash = Some("default-hash".into());
+        a.host_auth_overrides = vec![
+            // admin host opts out entirely.
+            HostAuthOverride { host: "admin.example.com".into(), mode: "off".into(), username: None, password_hash: None, password_set: false },
+            // secret host uses its own credentials.
+            HostAuthOverride { host: "secret.example.com".into(), mode: "custom".into(), username: Some("vip".into()), password_hash: Some("vip-hash".into()), password_set: true },
+        ];
+
+        // Primary inherits the default.
+        let primary = a.route_auth_for("app.example.com").expect("primary protected");
+        assert_eq!(primary.username, "default-user");
+        assert_eq!(primary.password_hash, "default-hash");
+        // admin is public.
+        assert!(a.route_auth_for("admin.example.com").is_none());
+        // secret uses its own creds.
+        let secret = a.route_auth_for("secret.example.com").expect("secret protected");
+        assert_eq!(secret.username, "vip");
+        assert_eq!(secret.password_hash, "vip-hash");
+
+        // all_routes wires the same per-host auth into each Route.
+        let routes = a.all_routes(&[]);
+        let auth_for = |host: &str| routes.iter().find_map(|r| match r {
+            Route::ReverseProxy { host: h, auth, .. } if h == host => Some(auth.clone()),
+            _ => None,
+        }).unwrap();
+        assert!(auth_for("app.example.com").is_some());
+        assert!(auth_for("admin.example.com").is_none());
+        assert_eq!(auth_for("secret.example.com").unwrap().username, "vip");
+    }
+
+    #[test]
+    fn per_host_custom_falls_back_to_default_when_incomplete() {
+        let mut a = app_with_hostname(None);
+        a.subdomain = Some("app".into());
+        a.custom_domain = Some("example.com".into());
+        a.basic_auth_enabled = true;
+        a.basic_auth_username = Some("default-user".into());
+        a.basic_auth_password_hash = Some("default-hash".into());
+        // Custom mode but no hash → must not silently leave the host open.
+        a.host_auth_overrides = vec![
+            HostAuthOverride { host: "app.example.com".into(), mode: "custom".into(), username: Some("vip".into()), password_hash: None, password_set: false },
+        ];
+        let auth = a.route_auth_for("app.example.com").expect("falls back to default");
+        assert_eq!(auth.username, "default-user");
     }
 
     #[test]

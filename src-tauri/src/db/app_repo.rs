@@ -5,6 +5,32 @@ use std::collections::HashMap;
 use super::models::{self, App};
 use super::Database;
 
+/// Serialize host-auth overrides for DB storage. `HostAuthOverride` hides its
+/// `password_hash` from the default serializer (so it never leaks to the
+/// frontend), so we build the storage shape explicitly to keep the hash.
+fn host_auth_overrides_to_json(overrides: &[models::HostAuthOverride]) -> String {
+    let arr: Vec<serde_json::Value> = overrides
+        .iter()
+        .map(|o| serde_json::json!({
+            "host": o.host,
+            "mode": o.mode,
+            "username": o.username,
+            "password_hash": o.password_hash,
+        }))
+        .collect();
+    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".into())
+}
+
+/// Parse stored overrides back into the model, deriving the runtime
+/// `password_set` flag from whether a hash is present.
+fn host_auth_overrides_from_json(raw: &str) -> Vec<models::HostAuthOverride> {
+    let mut overrides: Vec<models::HostAuthOverride> = serde_json::from_str(raw).unwrap_or_default();
+    for o in &mut overrides {
+        o.password_set = o.password_hash.as_deref().map(|h| !h.is_empty()).unwrap_or(false);
+    }
+    overrides
+}
+
 impl Database {
     pub fn insert_app(&mut self, a: &App) -> Result<()> {
         let env_vars_json = serde_json::to_string(&a.env_vars).unwrap_or_else(|_| "{}".into());
@@ -13,6 +39,7 @@ impl Database {
         let port_bindings_json = serde_json::to_string(&a.port_bindings).unwrap_or_else(|_| "[]".into());
         let env_profiles_json = serde_json::to_string(&a.env_profiles).unwrap_or_else(|_| "[]".into());
         let docker_volumes_json = serde_json::to_string(&a.docker_volumes).unwrap_or_else(|_| "[]".into());
+        let host_auth_overrides_json = host_auth_overrides_to_json(&a.host_auth_overrides);
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO apps (id, workspace_id, name, root_dir, port, subdomain,
@@ -24,8 +51,8 @@ impl Database {
                                compose_file, network_share, tunnel_name, tunnel_custom_hostname,
                                tunnel_provider, tunnel_auto_start,
                                basic_auth_enabled, basic_auth_username, basic_auth_password_hash,
-                               tunnel_alias_domain, tunnel_alias_rewrite_host)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
+                               tunnel_alias_domain, tunnel_alias_rewrite_host, host_auth_overrides)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
@@ -39,7 +66,7 @@ impl Database {
                 a.tunnel_name, a.tunnel_custom_hostname,
                 a.tunnel_provider, a.tunnel_auto_start as i32,
                 a.basic_auth_enabled as i32, a.basic_auth_username, a.basic_auth_password_hash,
-                a.tunnel_alias_domain, a.tunnel_alias_rewrite_host as i32
+                a.tunnel_alias_domain, a.tunnel_alias_rewrite_host as i32, host_auth_overrides_json
             ],
         )?;
         // Register primary port
@@ -80,7 +107,8 @@ impl Database {
                     COALESCE(basic_auth_enabled, 0),
                     basic_auth_username, basic_auth_password_hash,
                     tunnel_alias_domain,
-                    COALESCE(tunnel_alias_rewrite_host, 1)
+                    COALESCE(tunnel_alias_rewrite_host, 1),
+                    COALESCE(host_auth_overrides, '[]')
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -119,6 +147,8 @@ impl Database {
             let basic_auth_password_set = basic_auth_password_hash.is_some();
             let tunnel_alias_domain: Option<String> = row.get(36)?;
             let tunnel_alias_rewrite_host: bool = row.get::<_, i32>(37).map(|v| v != 0).unwrap_or(true);
+            let host_auth_overrides_str: String = row.get::<_, Option<String>>(38)?.unwrap_or_else(|| "[]".into());
+            let host_auth_overrides = host_auth_overrides_from_json(&host_auth_overrides_str);
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -159,6 +189,7 @@ impl Database {
                 basic_auth_username,
                 basic_auth_password_hash,
                 basic_auth_password_set,
+                host_auth_overrides,
                 tunnel_alias_domain,
                 tunnel_alias_rewrite_host,
             })
@@ -202,6 +233,9 @@ impl Database {
         basic_auth_password_hash: Option<&str>,
         tunnel_alias_domain: Option<&str>,
         tunnel_alias_rewrite_host: bool,
+        // Already merged by the command layer: per-host hashes are preserved or
+        // freshly bcrypt'd, so this is the full, authoritative set to store.
+        host_auth_overrides: &[models::HostAuthOverride],
     ) -> Result<()> {
         let env_vars_json = serde_json::to_string(env_vars).unwrap_or_else(|_| "{}".into());
         let depends_on_json = serde_json::to_string(depends_on).unwrap_or_else(|_| "[]".into());
@@ -209,6 +243,7 @@ impl Database {
         let port_bindings_json = serde_json::to_string(port_bindings).unwrap_or_else(|_| "[]".into());
         let env_profiles_json = serde_json::to_string(env_profiles).unwrap_or_else(|_| "[]".into());
         let docker_volumes_json = serde_json::to_string(docker_volumes).unwrap_or_else(|_| "[]".into());
+        let host_auth_overrides_json = host_auth_overrides_to_json(host_auth_overrides);
 
         if let Some(dir) = root_dir {
             self.conn.execute(
@@ -222,8 +257,9 @@ impl Database {
                                  docker_volumes=?21, compose_file=?22, network_share=?23,
                                  tunnel_name=?24, tunnel_custom_hostname=?25,
                                  basic_auth_enabled=?26, basic_auth_username=?27,
-                                 tunnel_alias_domain=?28, tunnel_alias_rewrite_host=?29
-                 WHERE id=?30",
+                                 tunnel_alias_domain=?28, tunnel_alias_rewrite_host=?29,
+                                 host_auth_overrides=?30
+                 WHERE id=?31",
                 params![
                     name, dir, port, subdomain, start_command, env_file,
                     auto_start as i32, env_vars_json, restart_policy,
@@ -235,6 +271,7 @@ impl Database {
                     tunnel_name, tunnel_custom_hostname,
                     basic_auth_enabled as i32, basic_auth_username,
                     tunnel_alias_domain, tunnel_alias_rewrite_host as i32,
+                    host_auth_overrides_json,
                     id
                 ],
             )?;
@@ -250,8 +287,9 @@ impl Database {
                                  docker_volumes=?20, compose_file=?21, network_share=?22,
                                  tunnel_name=?23, tunnel_custom_hostname=?24,
                                  basic_auth_enabled=?25, basic_auth_username=?26,
-                                 tunnel_alias_domain=?27, tunnel_alias_rewrite_host=?28
-                 WHERE id=?29",
+                                 tunnel_alias_domain=?27, tunnel_alias_rewrite_host=?28,
+                                 host_auth_overrides=?29
+                 WHERE id=?30",
                 params![
                     name, port, subdomain, start_command, env_file,
                     auto_start as i32, env_vars_json, restart_policy,
@@ -263,6 +301,7 @@ impl Database {
                     tunnel_name, tunnel_custom_hostname,
                     basic_auth_enabled as i32, basic_auth_username,
                     tunnel_alias_domain, tunnel_alias_rewrite_host as i32,
+                    host_auth_overrides_json,
                     id
                 ],
             )?;

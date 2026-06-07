@@ -152,6 +152,10 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN basic_auth_enabled INTEGER NOT NULL DEFAULT 0", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN basic_auth_username TEXT", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN basic_auth_password_hash TEXT", []);
+        // Per-host overrides of the Basic Auth default (JSON array of
+        // HostAuthOverride). Lets one app protect only some of its hosts, or
+        // use distinct credentials per host.
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN host_auth_overrides TEXT NOT NULL DEFAULT '[]'", []);
 
         // Public alias domain — exposes the app at an alternative hostname
         // pattern (e.g. "*.nasrulgunawan.com") with optional Host-header
@@ -235,6 +239,7 @@ mod tests {
             basic_auth_username: None,
             basic_auth_password_hash: None,
             basic_auth_password_set: false,
+            host_auth_overrides: vec![],
             tunnel_alias_domain: None,
             tunnel_alias_rewrite_host: true,
             docker_image: None,
@@ -297,6 +302,7 @@ mod tests {
             basic_auth_username: None,
             basic_auth_password_hash: None,
             basic_auth_password_set: false,
+            host_auth_overrides: vec![],
             tunnel_alias_domain: None,
             tunnel_alias_rewrite_host: true,
             docker_image: None,
@@ -345,6 +351,7 @@ mod tests {
             basic_auth_username: None,
             basic_auth_password_hash: None,
             basic_auth_password_set: false,
+            host_auth_overrides: vec![],
             tunnel_alias_domain: None,
             tunnel_alias_rewrite_host: true,
             docker_image: None,

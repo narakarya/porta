@@ -3,9 +3,23 @@ use uuid::Uuid;
 
 use crate::app_state::AppState;
 use crate::auto_detect::{DetectResult, CommandSuggestion, detect_tags};
-use crate::db::models::{App, PortBinding};
+use crate::db::models::{App, PortBinding, HostAuthOverride};
 use crate::port_scanner::find_available_port;
 use super::setup::sync_caddy;
+
+/// Per-host Basic Auth override as it arrives from the modal — carries the
+/// *plaintext* password (empty/None ⇒ keep the stored hash). The command
+/// bcrypt-hashes it before persisting; the stored model never sees plaintext.
+#[derive(Debug, serde::Deserialize)]
+pub struct HostAuthOverrideInput {
+    pub host: String,
+    /// "off" | "custom". Anything else ⇒ inherit the app default (no entry stored).
+    pub mode: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+}
 
 #[tauri::command]
 pub fn list_apps(state: State<AppState>) -> Result<Vec<App>, String> {
@@ -100,6 +114,7 @@ pub fn add_app(
         basic_auth_username: None,
         basic_auth_password_hash: None,
         basic_auth_password_set: false,
+        host_auth_overrides: vec![],
         tunnel_alias_domain: None,
         tunnel_alias_rewrite_host: true,
         kind: resolved_kind,
@@ -163,6 +178,9 @@ pub fn update_app(
     // None preserves the stored value when omitted from the payload.
     tunnel_alias_domain: Option<String>,
     tunnel_alias_rewrite_host: Option<bool>,
+    // Per-host Basic Auth overrides. None = field omitted ⇒ keep stored set;
+    // Some = authoritative replacement (passwords plaintext, hashed below).
+    host_auth_overrides: Option<Vec<HostAuthOverrideInput>>,
 ) -> Result<App, String> {
     let resolved_compose_file = if let Some(yaml) = compose_yaml.as_ref().filter(|s| !s.trim().is_empty()) {
         let target = super::compose::managed_compose_path(&id);
@@ -186,6 +204,58 @@ pub fn update_app(
             return Err(format!("Path is not a folder: {}", dir));
         }
     }
+    // Merge per-host auth overrides. Each "custom" host either gets a fresh
+    // bcrypt hash (password typed) or keeps its stored one (left blank). When
+    // the field is omitted entirely, preserve whatever is on disk.
+    let merged_overrides: Vec<HostAuthOverride> = match host_auth_overrides {
+        Some(inputs) => {
+            let prev = state.db.lock().unwrap().list_apps().ok()
+                .and_then(|apps| apps.into_iter().find(|a| a.id == id))
+                .map(|a| a.host_auth_overrides)
+                .unwrap_or_default();
+            let mut out = Vec::new();
+            for inp in inputs {
+                let host = inp.host.trim().to_string();
+                if host.is_empty() {
+                    continue;
+                }
+                match inp.mode.as_str() {
+                    "off" => out.push(HostAuthOverride {
+                        host,
+                        mode: "off".into(),
+                        username: None,
+                        password_hash: None,
+                        password_set: false,
+                    }),
+                    "custom" => {
+                        let hash = match inp.password.as_deref() {
+                            Some(p) if !p.is_empty() => Some(
+                                bcrypt::hash(p, bcrypt::DEFAULT_COST)
+                                    .map_err(|e| format!("bcrypt hash failed: {}", e))?,
+                            ),
+                            // Left blank — keep the host's previously stored hash.
+                            _ => prev.iter().find(|o| o.host == host)
+                                .and_then(|o| o.password_hash.clone()),
+                        };
+                        out.push(HostAuthOverride {
+                            host,
+                            mode: "custom".into(),
+                            username: inp.username.map(|u| u.trim().to_string()),
+                            password_hash: hash,
+                            password_set: false,
+                        });
+                    }
+                    // "default" / unknown → inherit app default (no stored entry).
+                    _ => {}
+                }
+            }
+            out
+        }
+        None => state.db.lock().unwrap().list_apps().ok()
+            .and_then(|apps| apps.into_iter().find(|a| a.id == id))
+            .map(|a| a.host_auth_overrides)
+            .unwrap_or_default(),
+    };
     state
         .db
         .lock()
@@ -221,6 +291,7 @@ pub fn update_app(
             new_password_hash.as_deref(),
             tunnel_alias_domain.as_deref().map(str::trim).filter(|s| !s.is_empty()),
             tunnel_alias_rewrite_host.unwrap_or(true),
+            &merged_overrides,
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;

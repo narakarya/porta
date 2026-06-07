@@ -196,13 +196,14 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
         basicAuthEnabled: params.basic_auth_enabled ?? false,
         basicAuthUsername: params.basic_auth_username ?? null,
         basicAuthPassword: params.basic_auth_password ?? null,
+        hostAuthOverrides: params.host_auth_overrides ?? null,
         tunnelAliasDomain: params.tunnel_alias_domain ?? null,
         tunnelAliasRewriteHost: params.tunnel_alias_rewrite_host ?? true,
       })
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_auto_start: false, tunnel_url: null, tunnel_active: false, kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null, basic_auth_enabled: false, basic_auth_username: null, basic_auth_password_set: false } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_auto_start: false, tunnel_url: null, tunnel_active: false, kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null, basic_auth_enabled: false, basic_auth_username: null, basic_auth_password_set: false, host_auth_overrides: [] } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>

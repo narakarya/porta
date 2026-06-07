@@ -111,6 +111,7 @@ pub fn import_porta_config(state: State<AppState>, src_path: String) -> Result<(
             basic_auth_username: None,
             basic_auth_password_hash: None,
             basic_auth_password_set: false,
+            host_auth_overrides: vec![],
             tunnel_alias_domain: None,
             tunnel_alias_rewrite_host: true,
             kind: "process".into(),

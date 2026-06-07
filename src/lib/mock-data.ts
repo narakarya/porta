@@ -48,7 +48,7 @@ export const mockApps: App[] = [
     basic_auth_enabled: false,
     basic_auth_username: null,
     basic_auth_password_set: false,
-    tunnel_alias_domain: null,
+    host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
   },
   {
@@ -90,7 +90,7 @@ export const mockApps: App[] = [
     basic_auth_enabled: false,
     basic_auth_username: null,
     basic_auth_password_set: false,
-    tunnel_alias_domain: null,
+    host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
   },
   {
@@ -131,7 +131,7 @@ export const mockApps: App[] = [
     basic_auth_enabled: false,
     basic_auth_username: null,
     basic_auth_password_set: false,
-    tunnel_alias_domain: null,
+    host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
   },
   {
@@ -172,7 +172,7 @@ export const mockApps: App[] = [
     basic_auth_enabled: false,
     basic_auth_username: null,
     basic_auth_password_set: false,
-    tunnel_alias_domain: null,
+    host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
   },
 ];
@@ -252,7 +252,7 @@ export function mockAddApp(params: {
     basic_auth_enabled: false,
     basic_auth_username: null,
     basic_auth_password_set: false,
-    tunnel_alias_domain: null,
+    host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
   };
   state.apps.push(app);

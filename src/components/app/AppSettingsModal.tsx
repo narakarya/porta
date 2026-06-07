@@ -5,7 +5,7 @@ import { getCachedTailscaleStatus, setCachedTailscaleStatus } from "../../lib/ta
 import { getCachedDnsRoutes, setCachedDnsRoutes } from "../../lib/tunnelCache";
 import YamlEditor from "../shared/YamlEditor";
 import SetupCard from "../shared/SetupCard";
-import type { App, EnvProfile, PortBinding, Workspace } from "../../types";
+import type { App, EnvProfile, HostAuthOverrideInput, PortBinding, Workspace } from "../../types";
 import Field from "../shared/Field";
 import EnvVarEditor from "../shared/EnvVarEditor";
 import TunnelStatusBadge from "../shared/TunnelStatusBadge";
@@ -83,6 +83,33 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
   const [basicAuthUsername, setBasicAuthUsername] = useState(app.basic_auth_username ?? "");
   const [basicAuthPassword, setBasicAuthPassword] = useState("");
   const [basicAuthShowPassword, setBasicAuthShowPassword] = useState(false);
+
+  // Per-host auth overrides, keyed by resolved host. Absent host ⇒ inherits the
+  // app default. `password` is plaintext kept only in-memory; `passwordSet`
+  // mirrors the stored hash so we can show "leave blank to keep".
+  type HostAuthDraft = { mode: "default" | "off" | "custom"; username: string; password: string; passwordSet: boolean };
+  const [hostAuth, setHostAuth] = useState<Record<string, HostAuthDraft>>(() => {
+    const m: Record<string, HostAuthDraft> = {};
+    for (const o of app.host_auth_overrides ?? []) {
+      m[o.host] = {
+        mode: o.mode === "off" || o.mode === "custom" ? o.mode : "default",
+        username: o.username ?? "",
+        password: "",
+        passwordSet: o.password_set,
+      };
+    }
+    return m;
+  });
+  const hostAuthDraft = useCallback(
+    (host: string): HostAuthDraft => hostAuth[host] ?? { mode: "default", username: "", password: "", passwordSet: false },
+    [hostAuth],
+  );
+  const setHostAuthFor = useCallback((host: string, patch: Partial<HostAuthDraft>) => {
+    setHostAuth((prev) => {
+      const cur = prev[host] ?? { mode: "default", username: "", password: "", passwordSet: false };
+      return { ...prev, [host]: { ...cur, ...patch } };
+    });
+  }, []);
 
   const [startCommand, setStartCommand] = useState(app.start_command);
   const [dockerImage, setDockerImage] = useState(app.docker_image ?? "");
@@ -213,6 +240,18 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     const currentAutoStart = app.tunnel_auto_start ?? false;
     const configChanged = tunnelProvider !== currentProvider || newName !== currentName || newHost !== currentHost || tunnelAutoStart !== currentAutoStart;
     setTunnelBusy("connecting");
+    // If a tunnel is live under a *different* provider, tear it down first —
+    // otherwise the old one lingers and Connect under the new provider can
+    // collide on the same port. Same-provider reconnects skip this; startTunnel
+    // handles those. (We deliberately don't stop on the provider-tab click so
+    // browsing config doesn't kill a working tunnel.)
+    if (app.tunnel_active && currentProvider && currentProvider !== tunnelProvider) {
+      try {
+        await stopTunnel(app.id);
+      } catch {
+        // Best-effort; startTunnel below still proceeds.
+      }
+    }
     if (configChanged) {
       try {
         await setTunnelConfig(app.id, tunnelProvider, newName, newHost, tunnelAutoStart);
@@ -486,7 +525,23 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
   const isDirty = useMemo(() => {
     const envVarsObj: Record<string, string> = {};
     for (const { key, value } of envVars) { if (key.trim()) envVarsObj[key.trim()] = value; }
+    // Per-host auth: dirty if any host's mode/username changed, or a new
+    // custom password was typed.
+    const storedOverrides = new Map((app.host_auth_overrides ?? []).map((o) => [o.host, o]));
+    const overrideHosts = new Set<string>([...storedOverrides.keys(), ...Object.keys(hostAuth)]);
+    let hostAuthChanged = false;
+    for (const h of overrideHosts) {
+      const d = hostAuth[h];
+      const s = storedOverrides.get(h);
+      const dMode = d?.mode ?? "default";
+      const sMode = (s?.mode === "off" || s?.mode === "custom") ? s.mode : "default";
+      if (dMode !== sMode) { hostAuthChanged = true; break; }
+      if (dMode === "custom" && ((d?.username ?? "") !== (s?.username ?? "") || (d?.password ?? "") !== "")) {
+        hostAuthChanged = true; break;
+      }
+    }
     return (
+      hostAuthChanged ||
       name.trim() !== app.name ||
       rootDir.trim() !== app.root_dir ||
       portNum !== app.port ||
@@ -527,7 +582,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     );
   }, [
     app, name, rootDir, portNum, subdomain, extraSubdomains, portBindings, customDomain,
-    basicAuthEnabled, basicAuthUsername, basicAuthPassword, startCommand,
+    basicAuthEnabled, basicAuthUsername, basicAuthPassword, hostAuth, startCommand,
     dockerImage, dockerContainerPort, dockerArgs, dockerVolumes,
     composeMode, composeFile, composeYaml, composeYamlInitial, networkShare,
     envFile, autoStart, envVars, restartPolicy, maxRetries, healthCheckPath,
@@ -590,6 +645,43 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     const bSub = b.subdomain?.trim() || b.label.trim().toLowerCase().replace(/\s+/g, "-") || "binding";
     return { label: b.label, url: `${scheme}://${bSub}.${bDomain}`, port: b.port };
   });
+
+  // Resolved hosts this app exposes — drives the per-host auth override editor.
+  // Mirrors the Rust `all_routes` host resolution so override keys line up with
+  // the routes Caddy actually builds. Deduped, preserving first-seen order.
+  const authHosts = useMemo(() => {
+    const list: { host: string; label: string }[] = [];
+    const seen = new Set<string>();
+    const push = (host: string, label: string) => {
+      if (!host || host.endsWith(".…") || host.startsWith("….") || seen.has(host)) return;
+      seen.add(host);
+      list.push({ host, label });
+    };
+    push(effectiveSub === "*" ? `*.${domain}` : `${effectiveSub}.${domain}`, "primary");
+    for (const s of extraSubdomains) push(`${s}.${domain}`, "subdomain");
+    for (const b of portBindings) {
+      const bDomain = b.custom_domain?.trim() || domain;
+      const bSub = b.subdomain?.trim() || b.label.trim().toLowerCase().replace(/\s+/g, "-") || "binding";
+      push(`${bSub}.${bDomain}`, b.label || "binding");
+    }
+    return list;
+  }, [effectiveSub, domain, extraSubdomains, portBindings]);
+
+  // Build the authoritative override payload: only currently-exposed hosts with
+  // a non-default mode. Custom hosts send plaintext password (blank = keep hash).
+  const buildHostAuthOverrides = useCallback((): HostAuthOverrideInput[] => {
+    const out: HostAuthOverrideInput[] = [];
+    for (const { host } of authHosts) {
+      const d = hostAuth[host];
+      if (!d || d.mode === "default") continue;
+      if (d.mode === "off") {
+        out.push({ host, mode: "off" });
+      } else {
+        out.push({ host, mode: "custom", username: d.username.trim() || null, password: d.password || null });
+      }
+    }
+    return out;
+  }, [authHosts, hostAuth]);
 
   const addExtraSubdomain = useCallback(() => {
     const val = extraSubdomainInput.trim().toLowerCase();
@@ -658,6 +750,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
         // Empty string keeps the existing hash (the user didn't retype it).
         // Non-empty plaintext gets bcrypt-hashed on the Rust side.
         basic_auth_password: basicAuthPassword ? basicAuthPassword : null,
+        host_auth_overrides: buildHostAuthOverrides(),
         tunnel_alias_domain: tunnelAliasDomain.trim() || null,
         tunnel_alias_rewrite_host: tunnelAliasRewriteHost,
       });
@@ -1238,8 +1331,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   <div>
                     <p className="text-[12px] font-medium text-zinc-300">Basic Auth</p>
                     <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
-                      Gate every route for this app behind a browser username/password prompt.
-                      Best paired with HTTPS.
+                      Default browser username/password prompt for this app's hosts.
+                      {authHosts.length > 1 ? " Override individual hosts below." : ""} Best paired with HTTPS.
                     </p>
                   </div>
                   <button
@@ -1293,6 +1386,68 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         Stored as a bcrypt hash — Porta never persists the plaintext.
                       </p>
                     </Field>
+                  </div>
+                )}
+
+                {/* Per-host overrides — only meaningful when the app exposes
+                    more than one host. Each host can inherit the default,
+                    stay public, or use its own credentials. */}
+                {authHosts.length > 1 && (
+                  <div className="flex flex-col gap-2 pt-3 border-t border-white/[0.06]">
+                    <p className="text-[11px] font-medium text-zinc-400">Per-host overrides</p>
+                    {authHosts.map(({ host, label }) => {
+                      const d = hostAuthDraft(host);
+                      const defaultProtected = basicAuthEnabled;
+                      return (
+                        <div key={host} className="flex flex-col gap-2 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.05]">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-mono text-zinc-300 truncate">{host}</p>
+                              <p className="text-[9px] uppercase tracking-wide text-zinc-600">{label}</p>
+                            </div>
+                            <div className="inline-flex p-0.5 rounded-md bg-[#0c0c0e] border border-white/[0.08] shrink-0">
+                              {([
+                                { key: "default", text: defaultProtected ? "Default 🔒" : "Default" },
+                                { key: "off", text: "Public" },
+                                { key: "custom", text: "Custom" },
+                              ] as const).map((opt) => (
+                                <button
+                                  key={opt.key}
+                                  type="button"
+                                  onClick={() => setHostAuthFor(host, { mode: opt.key })}
+                                  className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                                    d.mode === opt.key ? "bg-white/[0.10] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                                  }`}
+                                >
+                                  {opt.text}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {d.mode === "custom" && (
+                            <div className="flex flex-col gap-2 pt-1">
+                              <input
+                                spellCheck={false}
+                                value={d.username}
+                                onChange={(e) => setHostAuthFor(host, { username: e.target.value })}
+                                className="input-base font-mono text-[11px]"
+                                placeholder="username"
+                                autoComplete="off"
+                              />
+                              <input
+                                spellCheck={false}
+                                type="password"
+                                value={d.password}
+                                onChange={(e) => setHostAuthFor(host, { password: e.target.value })}
+                                className="input-base font-mono text-[11px]"
+                                placeholder={d.passwordSet ? "•••••••• (leave blank to keep)" : "password"}
+                                autoComplete="new-password"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1522,11 +1677,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                 title={opt.tip}
                                 onClick={() => {
                                   if (selected) return;
-                                  // Auto-disconnect the current tunnel when
-                                  // switching providers — otherwise the old
-                                  // one lingers and Connect under the new
-                                  // provider can collide on the same port.
-                                  if (app.tunnel_active) stopTunnel(app.id);
+                                  // Just switch the form selection — do NOT
+                                  // tear down a live tunnel here. Merely
+                                  // browsing the other provider's config
+                                  // shouldn't kill a working connection (and
+                                  // flip the badge to a lying "Disconnected").
+                                  // The old tunnel is stopped at Connect time,
+                                  // only if its provider differs (see
+                                  // handleConnect).
                                   setTunnelProvider(opt.key);
                                 }}
                                 className={`px-4 py-1.5 rounded-md text-[12px] font-medium inline-flex items-center gap-2 transition-colors ${

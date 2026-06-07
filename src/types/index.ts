@@ -64,6 +64,9 @@ export interface App {
   /** Backend never exposes the bcrypt hash — this is just a "is one stored?"
    *  flag so the UI can render "password set ✓ — leave blank to keep". */
   basic_auth_password_set: boolean;
+  /** Per-host overrides of the Basic Auth default. Only hosts that deviate
+   *  from the default appear here. */
+  host_auth_overrides: HostAuthOverride[];
   /** Alternate hostname pattern to expose this app under (e.g. `*.foo.com`).
    *  Used together with a Cloudflare tunnel for multi-tenant apps. */
   tunnel_alias_domain: string | null;
@@ -71,6 +74,26 @@ export interface App {
    *  requests so the app sees its native domain. Disable when the app
    *  itself accepts the alias domain. */
   tunnel_alias_rewrite_host: boolean;
+}
+
+/** Per-host Basic Auth override (read shape from the backend — never the hash). */
+export interface HostAuthOverride {
+  /** Fully resolved host this applies to, e.g. `admin.sidiq.sch.id`. */
+  host: string;
+  /** "off" → host stays public; "custom" → host uses its own credentials. */
+  mode: "off" | "custom";
+  username: string | null;
+  /** True when a custom password hash is stored (leave blank to keep it). */
+  password_set: boolean;
+}
+
+/** Per-host override as sent to the backend — carries the plaintext password
+ *  (blank/omitted ⇒ keep the stored hash). */
+export interface HostAuthOverrideInput {
+  host: string;
+  mode: "off" | "custom";
+  username?: string | null;
+  password?: string | null;
 }
 
 export type HealthStatus = "healthy" | "unhealthy" | "unknown";
@@ -206,6 +229,8 @@ export type UpdateAppParams = {
   /** Plaintext password. null/empty leaves the existing hash intact —
    *  send only when the user actually retyped the secret. */
   basic_auth_password?: string | null;
+  /** Full, authoritative per-host override set. Omit to keep the stored set. */
+  host_auth_overrides?: HostAuthOverrideInput[];
   tunnel_alias_domain?: string | null;
   tunnel_alias_rewrite_host?: boolean;
 };

@@ -999,6 +999,7 @@ fn persist_docker_image(state: &State<AppState>, id: &str, new_image: &str) -> R
             app.basic_auth_password_hash.as_deref(),
             app.tunnel_alias_domain.as_deref(),
             app.tunnel_alias_rewrite_host,
+            &app.host_auth_overrides,
         )
         .map_err(|e| e.to_string())
 }
