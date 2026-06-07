@@ -240,18 +240,12 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     const currentAutoStart = app.tunnel_auto_start ?? false;
     const configChanged = tunnelProvider !== currentProvider || newName !== currentName || newHost !== currentHost || tunnelAutoStart !== currentAutoStart;
     setTunnelBusy("connecting");
-    // If a tunnel is live under a *different* provider, tear it down first —
-    // otherwise the old one lingers and Connect under the new provider can
-    // collide on the same port. Same-provider reconnects skip this; startTunnel
-    // handles those. (We deliberately don't stop on the provider-tab click so
-    // browsing config doesn't kill a working tunnel.)
-    if (app.tunnel_active && currentProvider && currentProvider !== tunnelProvider) {
-      try {
-        await stopTunnel(app.id);
-      } catch {
-        // Best-effort; startTunnel below still proceeds.
-      }
-    }
+    // Cross-provider teardown is handled in the backend: start_tunnel /
+    // start_tailscale_serve each stop the OTHER provider for this app first
+    // (silently, so the dying connector can't clobber the new one's
+    // active:true). We deliberately do NOT stop here — a non-silent frontend
+    // stop would race that event. Same-provider reconnects are handled by
+    // start_tunnel killing its own stale pid.
     if (configChanged) {
       try {
         await setTunnelConfig(app.id, tunnelProvider, newName, newHost, tunnelAutoStart);

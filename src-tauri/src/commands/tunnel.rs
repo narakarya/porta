@@ -68,6 +68,28 @@ fn tunnel_stopping() -> &'static Mutex<std::collections::HashSet<String>> {
     T.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
 }
 
+/// App ids whose cloudflared is being torn down as part of switching to the
+/// OTHER provider. Both providers emit on the same `app:tunnel:{id}` channel,
+/// so the dying connector's final `active:false` would clobber the incoming
+/// provider's `active:true`. Marking the id here tells the watcher to stay
+/// silent on exit — the new provider owns the channel now.
+fn tunnel_switching() -> &'static Mutex<std::collections::HashSet<String>> {
+    static T: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Tear down this app's cloudflared tunnel because the user is switching to a
+/// different provider. Like `stop_tunnel`, but suppresses the watcher's
+/// `active:false` emit so it can't race ahead of the new provider's
+/// `active:true`. Safe no-op when no cloudflared is running for the id.
+pub fn stop_cloudflare_for_switch(id: &str) {
+    tunnel_switching().lock().unwrap().insert(id.to_string());
+    tunnel_stopping().lock().unwrap().insert(id.to_string());
+    if let Some(pid) = tunnel_pids().lock().unwrap().remove(id) {
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+    }
+}
+
 /// Generate `~/.cloudflared/porta-<app-id>.yml` listing every (public → local)
 /// hostname pair this app should expose. Returns the config path so we can pass
 /// it to `cloudflared --config <path> tunnel run`.
@@ -275,6 +297,11 @@ fn start_tunnel_blocking(id: String, port: u16, app_handle: tauri::AppHandle) ->
         }
     }
     tunnel_stopping().lock().unwrap().remove(&id);
+
+    // Providers are mutually exclusive per app: switching to Cloudflare must
+    // tear down any Tailscale serve for this app first. Silent (no event) so it
+    // doesn't clobber the `active:true` cloudflared emits once connected.
+    crate::commands::tailscale::stop_tailscale_for_switch(&id, &app_handle);
 
     let id2 = id.clone();
     let handle = app_handle.clone();
@@ -502,12 +529,18 @@ fn start_tunnel_blocking(id: String, port: u16, app_handle: tauri::AppHandle) ->
         } else {
             None
         };
-        handle
-            .emit(
-                &format!("app:tunnel:{}", id2),
-                serde_json::json!({ "active": false, "url": null, "error": err_text }),
-            )
-            .ok();
+        // Suppress the final emit when this connector is dying as part of a
+        // provider switch — the incoming provider already owns this channel and
+        // an `active:false` here would flip the UI back to disconnected.
+        let switching = tunnel_switching().lock().unwrap().remove(&id2);
+        if !switching {
+            handle
+                .emit(
+                    &format!("app:tunnel:{}", id2),
+                    serde_json::json!({ "active": false, "url": null, "error": err_text }),
+                )
+                .ok();
+        }
     });
 
     Ok(())

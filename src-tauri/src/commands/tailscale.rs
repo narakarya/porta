@@ -366,6 +366,12 @@ pub async fn start_tailscale_serve(
         let use_funnel = funnel.unwrap_or(false);
         let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
 
+        // Providers are mutually exclusive per app: switching to Tailscale must
+        // tear down any Cloudflare tunnel for this app, or cloudflared keeps
+        // running (and serving) behind the scenes. Silent so its dying
+        // `active:false` can't clobber our `active:true` below.
+        crate::commands::tunnel::stop_cloudflare_for_switch(&id);
+
         // Resolve tailnet hostname upfront — we need it both for the final URL and,
         // for static apps, for the Caddy alias route.
         let status = tailscale_status();
@@ -481,6 +487,41 @@ pub async fn start_tailscale_serve(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Turn off this app's Tailscale serve/funnel because the user is switching to
+/// Cloudflare. Synchronous and silent — it does NOT emit `app:tunnel:{id}`
+/// (the incoming Cloudflare connector owns that channel now) and drops any
+/// Caddy alias. Safe no-op when nothing is served for the id.
+pub fn stop_tailscale_for_switch(id: &str, app_handle: &tauri::AppHandle) {
+    let ts = match find_tailscale() {
+        Some(t) => t,
+        None => return,
+    };
+    let tracked = active_serves().lock().unwrap().remove(id);
+    let (tailnet_port, was_funnel) = match tracked {
+        Some((p, f)) => (p, f),
+        None => {
+            let state = app_handle.state::<AppState>();
+            let db = state.db.lock().unwrap();
+            let port = db.list_apps().ok()
+                .and_then(|apps| apps.into_iter().find(|a| a.id == id))
+                .map(|a| assign_tailnet_port(a.port))
+                .unwrap_or(0);
+            (port, false)
+        }
+    };
+    if tailnet_port != 0 {
+        let subcommand = if was_funnel { "funnel" } else { "serve" };
+        let _ = std::process::Command::new(&ts)
+            .args([subcommand, "--https", &tailnet_port.to_string(), "--set-path", "/", "off"])
+            .output();
+    }
+    let had_alias = static_aliases().lock().unwrap().remove(id).is_some();
+    if had_alias {
+        let state = app_handle.state::<AppState>();
+        let _ = crate::commands::sync_caddy(&state);
+    }
 }
 
 #[tauri::command]
