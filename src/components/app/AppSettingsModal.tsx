@@ -690,6 +690,17 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     setExtraSubdomainInput("");
   }, [extraSubdomainInput, extraSubdomains]);
 
+  // The tunnel panel reflects the SELECTED provider tab, not whichever tunnel
+  // happens to be live. So when Cloudflare is connected but the user clicks the
+  // Tailscale tab, they see Tailscale's Connect view — connecting there switches
+  // providers (handleConnect tears the old one down first). `selectedIsLive` =
+  // the live tunnel belongs to the currently-selected provider.
+  const activeTunnelProvider = app.tunnel_active ? (app.tunnel_provider ?? "cloudflare") : null;
+  const selectedIsLive = activeTunnelProvider === tunnelProvider;
+  // Another provider is connected while we're viewing a different (not-yet-live)
+  // tab — used to warn that Connect will switch providers.
+  const otherProviderLive = app.tunnel_active && !selectedIsLive ? activeTunnelProvider : null;
+
   async function handleSave() {
     if (!canSave) return;
     setSaving(true);
@@ -1703,16 +1714,18 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     })()}
                   </div>
 
-                  {/* Status badge */}
+                  {/* Status badge — reflects the SELECTED provider, so the
+                      Tailscale tab reads "Disconnected" even while Cloudflare
+                      is live underneath (and vice versa). */}
                   <TunnelStatusBadge
-                    tunnelActive={app.tunnel_active}
-                    tunnelUrl={app.tunnel_url}
-                    provider={app.tunnel_provider}
+                    tunnelActive={selectedIsLive}
+                    tunnelUrl={selectedIsLive ? app.tunnel_url : null}
+                    provider={tunnelProvider}
                     className="mt-4"
                   />
                 </div>
 
-                {app.tunnel_active && !app.tunnel_url && (
+                {selectedIsLive && !app.tunnel_url && (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <svg className="animate-spin shrink-0 text-amber-400" width="12" height="12" viewBox="0 0 12 12" fill="none">
                       <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -1721,7 +1734,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </div>
                 )}
 
-                {app.tunnel_active && app.tunnel_url && (
+                {selectedIsLive && app.tunnel_url && (
                   <>
                     <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
                       <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-purple-400 shrink-0">
@@ -1766,7 +1779,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </>
                 )}
 
-                {!app.tunnel_active && tunnelProvider === "cloudflare" && (
+                {!selectedIsLive && tunnelProvider === "cloudflare" && (
                   <Field label="Mode">
                     <div className="flex gap-1 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1 mb-2">
                       {(["quick", "named"] as const).map((m) => (
@@ -2103,7 +2116,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </Field>
                 )}
 
-                {!app.tunnel_active && tunnelProvider === "tailscale" && (() => {
+                {!selectedIsLive && tunnelProvider === "tailscale" && (() => {
                   if (tsLoading && tsStatus === null) {
                     return (
                       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-zinc-500">
@@ -2202,7 +2215,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   );
                 })()}
 
-                {tunnelError && !app.tunnel_active && (
+                {tunnelError && !selectedIsLive && (
                   <div className="relative px-3 py-2 pr-14 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
                     {tunnelError}
                     <button
@@ -2256,13 +2269,24 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </div>
                 </label>
 
+                {otherProviderLive && (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-amber-400 shrink-0" />
+                    <span className="text-[11px] text-amber-300">
+                      {otherProviderLive === "tailscale" ? "Tailscale" : "Cloudflare"} is still connected.
+                      Connecting {tunnelProvider === "tailscale" ? "Tailscale" : "Cloudflare"} here will
+                      disconnect it first.
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   {/* Render Connect when busy connecting OR not yet active.
                       Render Disconnect only when truly active and not in the
                       middle of a connecting flow — keeps the spinner+label
                       visible during the whole connect, even after the
                       backend's optimistic event briefly arrives. */}
-                  {app.tunnel_active && tunnelBusy !== "connecting" ? (
+                  {selectedIsLive && tunnelBusy !== "connecting" ? (
                     <button
                       onClick={handleDisconnect}
                       disabled={tunnelBusy !== null}
