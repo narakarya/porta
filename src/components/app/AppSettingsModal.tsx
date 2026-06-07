@@ -1895,7 +1895,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                   for named tunnels (the hostname must live in
                                   the user's Cloudflare account). */}
                               <CloudflareAccessPanel
-                                hostname={tunnelHostname}
+                                savedHostname={tunnelMode === "named" ? (app.tunnel_custom_hostname ?? "") : ""}
+                                liveHostname={tunnelHostname}
                                 cfToken={cfApiToken && cfApiToken.length > 0 ? cfApiToken : null}
                               />
 

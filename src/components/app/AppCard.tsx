@@ -676,7 +676,7 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
                   setBannerDismissed(false);
                   restartApp(app.id);
                 }}
-                disabled={isRestarting || isStarting || pendingRestart}
+                disabled={isRestarting || pendingRestart}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
                   text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
                   disabled:text-amber-400/70 disabled:bg-amber-500/10"
