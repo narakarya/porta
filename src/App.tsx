@@ -67,9 +67,9 @@ export default function App() {
 
     // Periodic background re-check so a window left open for days still learns
     // about new releases without a restart. Silent — the toast only appears if
-    // there's an update. (autoCheckForUpdate throttles to ≥2h, so this and the
+    // there's an update. (autoCheckForUpdate throttles to ≥30m, so this and the
     // focus trigger below can't double-fire.)
-    const updateInterval = setInterval(() => autoCheckForUpdate(), 6 * 60 * 60 * 1000);
+    const updateInterval = setInterval(() => autoCheckForUpdate(), 30 * 60 * 1000);
 
     // Re-check when the user returns to Porta after working elsewhere — the
     // common "left it open since yesterday" case. Throttled inside the helper.

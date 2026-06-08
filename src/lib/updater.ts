@@ -70,11 +70,11 @@ export function checkForUpdate(opts: { silent?: boolean } = {}): Promise<void> {
 // returning to the window repeatedly doesn't hammer the release server. Manual
 // checks from the menu bypass this entirely.
 let lastAutoCheckAt = 0;
-const AUTO_CHECK_MIN_GAP_MS = 2 * 60 * 60 * 1000; // 2h
+const AUTO_CHECK_MIN_GAP_MS = 30 * 60 * 1000; // 30m
 
 /**
  * Silent, throttled update check for background triggers. Safe to call often
- * (on every window focus) — it no-ops if the last auto-check was under 2h ago.
+ * (on every window focus) — it no-ops if the last auto-check was under 30m ago.
  * Surfaces an update only via the existing toast; says nothing when current.
  */
 export function autoCheckForUpdate(): void {
