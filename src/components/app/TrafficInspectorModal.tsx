@@ -54,6 +54,16 @@ function statusColor(status: number): string {
   return "text-zinc-400";
 }
 
+// Active-pill tint per status bucket — mirrors the row status colors so the
+// filter reads as the same vocabulary as the table.
+const STATUS_FILTER_ACTIVE: Record<StatusFilter, string> = {
+  all: "bg-white/[0.12] text-zinc-100",
+  "2xx": "bg-emerald-500/15 text-emerald-400",
+  "3xx": "bg-sky-500/15 text-sky-400",
+  "4xx": "bg-amber-500/15 text-amber-400",
+  "5xx": "bg-red-500/15 text-red-400",
+};
+
 function methodColor(method: string): string {
   switch (method) {
     case "GET": return "text-sky-400";
@@ -295,24 +305,41 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
         <div className="flex-1" />
 
         {/* Path search */}
-        <input
-          type="text"
-          placeholder="Search path…"
-          value={pathFilter}
-          onChange={(e) => setPathFilter(e.target.value)}
-          className="w-44 bg-[#1c1c1e] border border-white/[0.1] rounded-md px-2 py-1 text-[11px] text-zinc-200 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-white/[0.2]"
-        />
+        <div className="relative">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
+            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search path…"
+            value={pathFilter}
+            onChange={(e) => setPathFilter(e.target.value)}
+            className="w-48 bg-[#1c1c1e] border border-white/[0.1] rounded-lg pl-7 pr-7 py-1.5 text-[11px] text-zinc-200 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/50 transition-colors"
+          />
+          {pathFilter && (
+            <button
+              onClick={() => setPathFilter("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300"
+              title="Clear search"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
 
-        {/* Status filter chips */}
-        <div className="flex items-center gap-1">
+        {/* Status filter — segmented control, active pill tinted by bucket */}
+        <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.06] rounded-lg p-0.5">
           {(["all", "2xx", "3xx", "4xx", "5xx"] as StatusFilter[]).map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-colors ${
+              className={`px-2 py-1 text-[11px] font-mono rounded-md transition-colors ${
                 statusFilter === s
-                  ? "bg-white/[0.12] text-zinc-100"
-                  : "bg-white/[0.04] text-zinc-500 hover:bg-white/[0.08] hover:text-zinc-300"
+                  ? STATUS_FILTER_ACTIVE[s]
+                  : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06]"
               }`}
             >
               {s}
@@ -320,19 +347,24 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
           ))}
         </div>
 
-        <select
-          value={methodFilter}
-          onChange={(e) => setMethodFilter(e.target.value)}
-          className="bg-[#1c1c1e] border border-white/[0.1] rounded-md px-2 py-1 text-[11px] text-zinc-200 font-mono"
-        >
-          {METHOD_OPTIONS.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            value={methodFilter}
+            onChange={(e) => setMethodFilter(e.target.value)}
+            className="appearance-none bg-[#1c1c1e] border border-white/[0.1] rounded-lg pl-2.5 pr-7 py-1.5 text-[11px] text-zinc-200 font-mono cursor-pointer focus:outline-none focus:border-blue-500/50 transition-colors"
+          >
+            {METHOD_OPTIONS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none">
+            <path d="M2.5 4L5 6.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
 
         <button
           onClick={() => setPaused((p) => !p)}
-          className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+          className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${
             paused
               ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
               : "text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1]"
@@ -346,7 +378,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
         </button>
         <button
           onClick={handleClear}
-          className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1] rounded-md transition-colors"
+          className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1] rounded-lg transition-colors"
         >
           Clear
         </button>

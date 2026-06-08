@@ -43,14 +43,19 @@ pub fn setup_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     )?;
 
     // Edit submenu — re-created so copy/paste/select-all keep working.
+    //
+    // Undo/Redo are deliberately OMITTED: the predefined items own the ⌘Z / ⌘⇧Z
+    // key equivalents, and macOS routes those through the menu (the native
+    // `undo:` action) *before* the keystroke ever reaches the webview. That
+    // swallows ⌘Z so our JS editors never see it — and the native action is
+    // useless for React-controlled inputs anyway. Dropping them lets ⌘Z fall
+    // through to the webview, where CodeMirror and the env editor handle history
+    // themselves. Plain text fields keep WebKit's built-in ⌘Z.
     let edit_menu = Submenu::with_items(
         app,
         "Edit",
         true,
         &[
-            &PredefinedMenuItem::undo(app, None)?,
-            &PredefinedMenuItem::redo(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,

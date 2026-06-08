@@ -79,6 +79,24 @@ function isSensitiveKey(key: string): boolean {
   return SECRET_KEY_RE.test(key);
 }
 
+const SECRET_MASK = "••••••••";
+
+// Mask the values of sensitive KEY=VALUE lines for the raw view, leaving
+// comments, blank lines, and non-sensitive vars untouched.
+function maskRawSecrets(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const eq = line.indexOf("=");
+      if (eq < 0) return line;
+      const key = line.slice(0, eq).replace(/^\s*export\s+/, "").trim();
+      const val = line.slice(eq + 1);
+      if (!isSensitiveKey(key) || val === "") return line;
+      return `${line.slice(0, eq + 1)}${SECRET_MASK}`;
+    })
+    .join("\n");
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatAgo(epochSec: number | null | undefined): string {
@@ -117,6 +135,9 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   const [rows, setRows] = useState<EnvRow[]>([]);
   const [originalRows, setOriginalRows] = useState<EnvRow[]>([]);
   const [revealed, setRevealed] = useState<Record<number, boolean>>({});
+  // Global reveal — overrides per-row masking so every sensitive value shows at
+  // once. Individual eye toggles still work when this is off.
+  const [showAllSensitive, setShowAllSensitive] = useState(false);
   const [envMode, setEnvMode] = useState<"rows" | "raw">("rows");
   const [rawContent, setRawContent] = useState("");
 
@@ -249,15 +270,17 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
       if (e.key === "Escape") {
         e.stopPropagation();
         attemptClose();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (isDirty && !saving && active) handleSave();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        // ⌘Z reaches us now that Undo/Redo were stripped from the native Edit
+        // menu (see src-tauri/src/menu.rs). Compose is left to CodeMirror.
         if (active?.kind === "env") {
           e.preventDefault();
           envMode === "rows" ? handleRowsUndo() : handleRawUndo();
         }
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      } else if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
         if (active?.kind === "env") {
           e.preventDefault();
           envMode === "rows" ? handleRowsRedo() : handleRawRedo();
@@ -501,6 +524,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   }
 
   function handleRowsUndo() {
+    // updateRow doesn't snapshot on every keystroke (only on blur/add/delete),
+    // so capture any in-progress typing as a snapshot first — otherwise ⌘Z
+    // before a blur would have nothing to step back to.
+    flushInputToHistory();
     if (rowsHistoryIdxRef.current <= 0) return;
     rowsHistoryIdxRef.current -= 1;
     const snap = rowsHistoryRef.current[rowsHistoryIdxRef.current];
@@ -590,6 +617,28 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                 Raw
               </button>
             </div>
+          )}
+
+          {/* Reveal all sensitive values at once (per-row eye toggles still work).
+              Shown in both modes so switching Rows/Raw doesn't shift the toolbar.
+              Undo/redo is keyboard-only — ⌘Z / ⌘⇧Z, as in any editor. */}
+          {active?.kind === "env" && (
+            <button
+              onClick={() => setShowAllSensitive((v) => !v)}
+              title={showAllSensitive ? "Mask secret values again" : "Reveal masked secret values"}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] border transition-colors ${
+                showAllSensitive
+                  ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  : "bg-white/[0.05] text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-white/[0.08]"
+              }`}
+            >
+              <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
+                <path d="M1.5 5.5S3.5 2 5.5 2s4 3.5 4 3.5-2 3.5-4 3.5S1.5 5.5 1.5 5.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <circle cx="5.5" cy="5.5" r="1.2" stroke="currentColor" strokeWidth="1.1"/>
+                {showAllSensitive && <path d="M1.5 9.5l8-8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>}
+              </svg>
+              {showAllSensitive ? "Hide secrets" : "Reveal secrets"}
+            </button>
           )}
 
           <button
@@ -736,14 +785,35 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                 />
               </div>
             ) : envMode === "raw" ? (
-              /* ── Env raw textarea ── */
-              <textarea
-                value={rawContent}
-                onChange={(e) => handleRawChange(e.target.value)}
-                spellCheck={false}
-                className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-200 p-4 resize-none focus:outline-none leading-relaxed"
-                style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-              />
+              /* ── Env raw textarea ── secrets masked (read-only) until revealed,
+                 so the raw view is as private as the rows view. */
+              showAllSensitive ? (
+                <textarea
+                  value={rawContent}
+                  onChange={(e) => handleRawChange(e.target.value)}
+                  spellCheck={false}
+                  className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-200 p-4 resize-none focus:outline-none leading-relaxed"
+                  style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                />
+              ) : (
+                <div className="flex-1 min-h-0 flex flex-col">
+                  <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-zinc-500 border-b border-white/[0.05] bg-white/[0.02]">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400/70">
+                      <path d="M1.5 5.5S3.5 2 5.5 2s4 3.5 4 3.5-2 3.5-4 3.5S1.5 5.5 1.5 5.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                      <circle cx="5.5" cy="5.5" r="1.2" stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M1.5 9.5l8-8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                    </svg>
+                    Secrets hidden — click “Reveal secrets” to edit the raw file.
+                  </div>
+                  <textarea
+                    readOnly
+                    value={maskRawSecrets(rawContent)}
+                    spellCheck={false}
+                    className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-400 p-4 resize-none focus:outline-none leading-relaxed cursor-default"
+                    style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                  />
+                </div>
+              )
             ) : (
               /* ── Env per-line row editor ── */
               <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
@@ -758,21 +828,26 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   <tbody>
                     {rows.map((row, i) => {
                       if (row.kind === "comment") {
+                        // Blank lines become a small gap, not a bordered row, so
+                        // stacked blanks don't pile up faint divider lines.
+                        const blank = row.raw.trim() === "";
                         return (
-                          <tr key={i} className="border-b border-white/[0.03]">
-                            <td colSpan={3} className="px-3 py-1.5">
-                              <span className="text-[11px] font-mono text-zinc-700 select-none">
-                                {row.raw === "" ? " " : row.raw}
-                              </span>
+                          <tr key={i}>
+                            <td colSpan={3} className={blank ? "h-2.5" : "px-3 pt-2.5 pb-0.5"}>
+                              {!blank && (
+                                <span className="text-[11px] font-mono text-zinc-600 select-none">
+                                  {row.raw}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
                       }
                       const sensitive = isSensitiveKey(row.key);
-                      const isRevealed = !!revealed[i];
+                      const isRevealed = showAllSensitive || !!revealed[i];
                       const masked = sensitive && !isRevealed;
                       return (
-                        <tr key={i} className="border-b border-white/[0.03] group/row hover:bg-white/[0.02]">
+                        <tr key={i} className="group/row hover:bg-white/[0.02]">
                           <td className="px-2 py-1">
                             <input
                               type="text"
