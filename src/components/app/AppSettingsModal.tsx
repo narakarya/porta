@@ -1808,13 +1808,13 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
 
                 {selectedIsLive && app.tunnel_url && (
                   <>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                      <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-purple-400 shrink-0">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-emerald-400 shrink-0">
                         <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.1"/>
                         <ellipse cx="5" cy="5" rx="2" ry="4" stroke="currentColor" strokeWidth="1.1"/>
                         <path d="M1 5h8" stroke="currentColor" strokeWidth="1.1"/>
                       </svg>
-                      <span className="text-[11px] font-mono text-purple-300 truncate flex-1">
+                      <span className="text-[11px] font-mono text-emerald-300 truncate flex-1">
                         {app.tunnel_url}
                       </span>
                       <button

@@ -85,9 +85,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
 
   const provider = app.tunnel_provider;
   const isTailscale = provider === "tailscale";
-  const connectedColor = isTailscale
-    ? "text-emerald-400 hover:bg-emerald-500/10"
-    : "text-orange-400 hover:bg-orange-500/10";
+  const connectedColor = "text-emerald-400 hover:bg-emerald-500/10";
   const connectedTooltip = isTailscale
     ? "Tailscale connected"
     : provider === "cloudflare"
@@ -179,10 +177,10 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
               <>
                 <div className="px-3 py-2 border-b border-white/[0.06]">
                   <p className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${isTailscale ? "bg-emerald-400" : "bg-orange-400"}`} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     {isTailscale ? "Tailnet URL" : "Tunnel URL"}
                   </p>
-                  <p className={`text-[11px] font-mono truncate ${isTailscale ? "text-emerald-300" : "text-orange-300"}`}>{app.tunnel_url}</p>
+                  <p className="text-[11px] font-mono truncate text-emerald-300">{app.tunnel_url}</p>
                 </div>
                 <button
                   onClick={() => {
