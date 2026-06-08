@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Virtualizer, type VirtualizerHandle } from "virtua";
 import {
   getAppLogs,
   clearAppLogFile,
@@ -214,22 +215,19 @@ interface LogLineProps {
   isContinuation: boolean;
   ownerLevel: LogLevel;
   originalIndex: number;
-  filteredIdx: number;
   crashed: boolean;
   query: string;
-  isMatch: boolean;
   isActiveMatch: boolean;
   copied: boolean;
   blockCopied: boolean;
   wrap: boolean;
   onCopy: (text: string, idx: number) => void;
   onCopyBlock: (idx: number) => void;
-  matchRefMap: React.MutableRefObject<Map<number, HTMLDivElement>>;
 }
 
 const LogLine = memo(function LogLine({
-  text, level, isContinuation, ownerLevel, originalIndex, filteredIdx, crashed, query,
-  isMatch, isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock, matchRefMap,
+  text, level, isContinuation, ownerLevel, originalIndex, crashed, query,
+  isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
@@ -246,16 +244,9 @@ const LogLine = memo(function LogLine({
 
   return (
     <div
-      ref={(el) => {
-        if (isMatch && el) matchRefMap.current.set(filteredIdx, el);
-        else matchRefMap.current.delete(filteredIdx);
-      }}
       className={`flex gap-2 py-[2.5px] hover:bg-white/[0.02] rounded px-1 group items-start ${
         isActiveMatch ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20" : ""
       }`}
-      // contentVisibility lets the browser skip layout/paint for off-screen
-      // lines — cheap virtualization without touching the DOM tree.
-      style={{ contentVisibility: "auto", containIntrinsicSize: "28px" }}
     >
       <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
         {originalIndex + 1}
@@ -326,9 +317,9 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const vRef = useRef<VirtualizerHandle>(null);
 
   // Batch incoming log events per animation frame. Without this each line
   // triggered its own render — at high log rates React couldn't keep up.
@@ -604,15 +595,16 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     return out;
   }, [allLogs, lineMeta, enabledLevels, filterActive]);
 
-  // Use a Set for O(1) isMatch lookup instead of Array.includes in the render loop.
-  const { searchMatches, searchMatchSet } = useMemo(() => {
-    if (!debouncedQuery) return { searchMatches: [] as number[], searchMatchSet: new Set<number>() };
+  // Indexes (into filteredLines) of lines containing the query — drives the
+  // match counter and scroll-to-match navigation.
+  const searchMatches = useMemo(() => {
+    if (!debouncedQuery) return [] as number[];
     const lower = debouncedQuery.toLowerCase();
     const matches: number[] = [];
     for (let i = 0; i < filteredLines.length; i++) {
       if (filteredLines[i].line.text.toLowerCase().includes(lower)) matches.push(i);
     }
-    return { searchMatches: matches, searchMatchSet: new Set(matches) };
+    return matches;
   }, [filteredLines, debouncedQuery]);
 
   useEffect(() => {
@@ -623,15 +615,15 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     }
   }, [searchMatches.length, activeMatchIndex]);
 
-  const matchLineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   useEffect(() => {
     if (searchMatches.length === 0) return;
     const targetIdx = searchMatches[activeMatchIndex];
-    const el = matchLineRefs.current.get(targetIdx);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setFollowTail(false);
-    }
+    // targetIdx indexes into filteredLines, which is exactly the order the
+    // Virtualizer renders — scrollToIndex brings an off-screen match into
+    // view (and mounts it) where scrollIntoView couldn't reach a node that
+    // was never rendered.
+    vRef.current?.scrollToIndex(targetIdx, { align: "center" });
+    setFollowTail(false);
   }, [activeMatchIndex, searchMatches]);
 
   const goToNextMatch = useCallback(() => {
@@ -678,12 +670,14 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, query, goToNextMatch, goToPrevMatch]);
 
-  // Tail follow uses "instant" — "smooth" stacks animations at high log rates
-  // and causes the viewport to drift out of sync with the cursor.
+  // Tail follow — pin to the last visible (filtered) line as it grows. Driven
+  // off filteredLines.length so a non-matching incoming line never yanks the
+  // viewport. scrollToIndex(align:end) is instant; "smooth" stacks animations
+  // at high log rates and drifts the viewport out of sync.
   useEffect(() => {
-    if (!followTail) return;
-    logEndRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
-  }, [allLogs, followTail]);
+    if (!followTail || filteredLines.length === 0) return;
+    vRef.current?.scrollToIndex(filteredLines.length - 1, { align: "end" });
+  }, [filteredLines.length, followTail]);
 
   function handleMouseUp() {
     const sel = window.getSelection();
@@ -855,8 +849,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             if (followTail) {
               setFollowTail(false);
             } else {
+              // The follow-tail effect pins to the bottom once this flips on.
               setFollowTail(true);
-              logEndRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
             }
           }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${
@@ -979,9 +973,13 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             {filterActive ? "No lines match your filter." : "No output yet."}
           </p>
         ) : (
-          <div className="flex flex-col w-full">
+          // Virtualized: only the lines in/near the viewport are mounted to the
+          // DOM (~30-50 nodes) regardless of how many thousands are in
+          // filteredLines. scrollRef points at our own overflow container so
+          // handleScroll's atBottom math keeps working unchanged. Dynamic line
+          // heights (wrap mode) are measured automatically.
+          <Virtualizer ref={vRef} scrollRef={containerRef}>
             {filteredLines.map(({ line, originalIndex }, filteredIdx) => {
-              const isMatch = searchMatchSet.has(filteredIdx);
               const isActiveMatch = !!debouncedQuery && searchMatches.length > 0 && searchMatches[activeMatchIndex] === filteredIdx;
               return (
                 <LogLine
@@ -991,23 +989,19 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   isContinuation={lineMeta[originalIndex].isContinuation}
                   ownerLevel={lineMeta[originalIndex].ownerLevel}
                   originalIndex={originalIndex}
-                  filteredIdx={filteredIdx}
                   crashed={!!crashed}
                   query={debouncedQuery}
-                  isMatch={isMatch}
                   isActiveMatch={isActiveMatch}
                   copied={copiedLine === originalIndex}
                   blockCopied={copiedBlock === originalIndex}
                   wrap={wrap}
                   onCopy={handleCopyLine}
                   onCopyBlock={handleCopyBlock}
-                  matchRefMap={matchLineRefs}
                 />
               );
             })}
-          </div>
+          </Virtualizer>
         )}
-        <div ref={logEndRef} />
       </div>
 
       <div className="flex items-center gap-3 px-4 py-2 border-t border-white/[0.05] shrink-0 select-none">
