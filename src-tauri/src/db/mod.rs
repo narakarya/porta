@@ -164,6 +164,14 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN tunnel_alias_domain TEXT", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN tunnel_alias_rewrite_host INTEGER NOT NULL DEFAULT 1", []);
 
+        // Auto-sleep: stop the app after `idle_timeout_secs` without HTTP
+        // traffic, then transparently wake it on the next request (Caddy errors
+        // route → wake server). `auto_slept` distinguishes an idle-induced sleep
+        // from a manual stop so the UI can badge it and the watcher can resume.
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN auto_sleep_enabled INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN idle_timeout_secs INTEGER NOT NULL DEFAULT 1800", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN auto_slept INTEGER NOT NULL DEFAULT 0", []);
+
         // Extension registry
         self.conn.execute_batch("
             CREATE TABLE IF NOT EXISTS extensions (
@@ -241,7 +249,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
             docker_image: None,
             docker_container_port: None,
             docker_args: None,
@@ -304,7 +312,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
             docker_image: None,
             docker_container_port: None,
             docker_args: None,
@@ -353,7 +361,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
             docker_image: None,
             docker_container_port: None,
             docker_args: None,

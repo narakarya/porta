@@ -51,8 +51,9 @@ impl Database {
                                compose_file, network_share, tunnel_name, tunnel_custom_hostname,
                                tunnel_provider, tunnel_auto_start,
                                basic_auth_enabled, basic_auth_username, basic_auth_password_hash,
-                               tunnel_alias_domain, tunnel_alias_rewrite_host, host_auth_overrides)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)",
+                               tunnel_alias_domain, tunnel_alias_rewrite_host, host_auth_overrides,
+                               auto_sleep_enabled, idle_timeout_secs, auto_slept)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
@@ -66,7 +67,8 @@ impl Database {
                 a.tunnel_name, a.tunnel_custom_hostname,
                 a.tunnel_provider, a.tunnel_auto_start as i32,
                 a.basic_auth_enabled as i32, a.basic_auth_username, a.basic_auth_password_hash,
-                a.tunnel_alias_domain, a.tunnel_alias_rewrite_host as i32, host_auth_overrides_json
+                a.tunnel_alias_domain, a.tunnel_alias_rewrite_host as i32, host_auth_overrides_json,
+                a.auto_sleep_enabled as i32, a.idle_timeout_secs as i64, a.auto_slept as i32
             ],
         )?;
         // Register primary port
@@ -108,7 +110,10 @@ impl Database {
                     basic_auth_username, basic_auth_password_hash,
                     tunnel_alias_domain,
                     COALESCE(tunnel_alias_rewrite_host, 1),
-                    COALESCE(host_auth_overrides, '[]')
+                    COALESCE(host_auth_overrides, '[]'),
+                    COALESCE(auto_sleep_enabled, 0),
+                    COALESCE(idle_timeout_secs, 1800),
+                    COALESCE(auto_slept, 0)
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -149,6 +154,9 @@ impl Database {
             let tunnel_alias_rewrite_host: bool = row.get::<_, i32>(37).map(|v| v != 0).unwrap_or(true);
             let host_auth_overrides_str: String = row.get::<_, Option<String>>(38)?.unwrap_or_else(|| "[]".into());
             let host_auth_overrides = host_auth_overrides_from_json(&host_auth_overrides_str);
+            let auto_sleep_enabled: bool = row.get::<_, i32>(39).map(|v| v != 0).unwrap_or(false);
+            let idle_timeout_secs: u32 = row.get::<_, Option<i64>>(40)?.unwrap_or(1800) as u32;
+            let auto_slept: bool = row.get::<_, i32>(41).map(|v| v != 0).unwrap_or(false);
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -192,6 +200,9 @@ impl Database {
                 host_auth_overrides,
                 tunnel_alias_domain,
                 tunnel_alias_rewrite_host,
+                auto_sleep_enabled,
+                idle_timeout_secs,
+                auto_slept,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -355,6 +366,28 @@ impl Database {
         self.conn.execute(
             "UPDATE apps SET status = ?1 WHERE id = ?2",
             params![status, id],
+        )?;
+        Ok(())
+    }
+
+    /// Persist the per-app auto-sleep config. Disabling also clears the
+    /// `auto_slept` flag so a re-enabled app doesn't inherit a stale 💤 badge.
+    pub fn set_app_auto_sleep(&self, id: &str, enabled: bool, idle_timeout_secs: u32) -> Result<()> {
+        self.conn.execute(
+            "UPDATE apps SET auto_sleep_enabled = ?1, idle_timeout_secs = ?2,
+                             auto_slept = CASE WHEN ?1 = 0 THEN 0 ELSE auto_slept END
+             WHERE id = ?3",
+            params![enabled as i32, idle_timeout_secs as i64, id],
+        )?;
+        Ok(())
+    }
+
+    /// Flip the runtime `auto_slept` flag (set when the idle watcher sleeps an
+    /// app, cleared when it wakes/starts).
+    pub fn set_app_auto_slept(&self, id: &str, slept: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE apps SET auto_slept = ?1 WHERE id = ?2",
+            params![slept as i32, id],
         )?;
         Ok(())
     }

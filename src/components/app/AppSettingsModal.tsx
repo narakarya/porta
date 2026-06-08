@@ -122,7 +122,7 @@ interface Props {
 }
 
 export default function AppSettingsModal({ app, workspace, onClose, onSaved }: Props) {
-  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors } = usePortaStore();
+  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors, setAppAutoSleep } = usePortaStore();
   const tunnelError = appTunnelErrors[app.id] ?? null;
   const [tunnelErrorCopied, setTunnelErrorCopied] = useState(false);
   const [section, setSection] = useState<Section>("general");
@@ -236,6 +236,15 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     app.restart_policy ?? "on-failure"
   );
   const [maxRetries, setMaxRetries] = useState(String(app.max_retries ?? 3));
+
+  // Auto-sleep: stop the app when idle, wake transparently on next request.
+  // Persisted via its own command (set_app_auto_sleep), not the giant updateApp.
+  const [autoSleepEnabled, setAutoSleepEnabled] = useState(app.auto_sleep_enabled ?? false);
+  const [idleTimeoutMin, setIdleTimeoutMin] = useState(
+    String(Math.max(1, Math.round((app.idle_timeout_secs ?? 1800) / 60)))
+  );
+  // Auto-sleep only makes sense for apps Porta runs as a process behind Caddy.
+  const autoSleepSupported = app.kind !== "static" && app.kind !== "proxy";
 
   // Other apps in same workspace for dependency selection
   const siblingApps = apps.filter(
@@ -633,7 +642,9 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
       (tunnelMode === "named" ? (tunnelHostname.trim() || null) : null) !== (app.tunnel_custom_hostname ?? null) ||
       tunnelAutoStart !== (app.tunnel_auto_start ?? false) ||
       (tunnelAliasDomain.trim() || null) !== (app.tunnel_alias_domain ?? null) ||
-      tunnelAliasRewriteHost !== (app.tunnel_alias_rewrite_host ?? true)
+      tunnelAliasRewriteHost !== (app.tunnel_alias_rewrite_host ?? true) ||
+      autoSleepEnabled !== (app.auto_sleep_enabled ?? false) ||
+      ((parseInt(idleTimeoutMin, 10) || 30) * 60) !== (app.idle_timeout_secs ?? 1800)
     );
   }, [
     app, name, rootDir, portNum, subdomain, extraSubdomains, portBindings, customDomain,
@@ -644,6 +655,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     dependsOn, envProfiles, activeProfileId,
     tunnelProvider, tunnelMode, tunnelName, tunnelHostname, tunnelAutoStart,
     tunnelAliasDomain, tunnelAliasRewriteHost,
+    autoSleepEnabled, idleTimeoutMin,
   ]);
 
   function requestClose() {
@@ -837,6 +849,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
         tunnel_alias_domain: tunnelAliasDomain.trim() || null,
         tunnel_alias_rewrite_host: tunnelAliasRewriteHost,
       });
+      // Auto-sleep persists via its own command (config-only, no restart).
+      if (autoSleepSupported) {
+        const idleSecs = (parseInt(idleTimeoutMin, 10) || 30) * 60;
+        await setAppAutoSleep(app.id, autoSleepEnabled, idleSecs);
+      }
       // Notify the parent (e.g. for a global toast) but DON'T close the modal —
       // the user often wants to keep tweaking settings after a save. Letting
       // the parent decide via `onSaved` would re-introduce the close, so we
@@ -1697,6 +1714,48 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     </div>
                   )}
                 </div>
+
+                {autoSleepSupported && (
+                  <>
+                    <div className="h-px bg-white/[0.05]" />
+
+                    {/* Auto-sleep: stop when idle, wake transparently on next request */}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-[13px] font-medium text-zinc-200">Auto-sleep when idle</p>
+                          <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                            Stop this app after a period with no HTTP requests to free RAM.
+                            It wakes automatically the next time its domain is opened.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setAutoSleepEnabled((v) => !v)}
+                          className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
+                            autoSleepEnabled ? "bg-blue-600" : "bg-zinc-700"
+                          }`}
+                        >
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                            autoSleepEnabled ? "left-[18px]" : "left-0.5"
+                          }`} />
+                        </button>
+                      </div>
+                      {autoSleepEnabled && (
+                        <div className="flex items-center gap-3">
+                          <label className="text-[12px] text-zinc-400 flex-1">Idle timeout (minutes)</label>
+                          <input spellCheck={false}
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={idleTimeoutMin}
+                            onChange={(e) => setIdleTimeoutMin(e.target.value)}
+                            className="input-base w-20 text-center"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
             </>

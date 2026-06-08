@@ -137,16 +137,29 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       listen(`app:starting:${app.id}`, () => {
         set((s) => ({
           apps: s.apps.map((a) =>
-            a.id === app.id ? { ...a, status: "starting" as const } : a
+            a.id === app.id ? { ...a, status: "starting" as const, auto_slept: false } : a
           ),
           appExitCode: { ...s.appExitCode, [app.id]: null },
+        }));
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+      // Idle watcher put the app to sleep — flip to stopped and badge it 💤.
+      // (We don't emit app:exit for sleeps, so this is the sole status source.)
+      listen(`app:slept:${app.id}`, () => {
+        const { [app.id]: _, ...restStartedAt } = get().appStartedAt;
+        set((s) => ({
+          apps: s.apps.map((a) =>
+            a.id === app.id ? { ...a, status: "stopped" as const, pid: null, auto_slept: true } : a
+          ),
+          appStartedAt: restStartedAt,
+          appExitCode: { ...s.appExitCode, [app.id]: 0 },
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       listen(`app:ready:${app.id}`, () => {
         set((s) => ({
           apps: s.apps.map((a) =>
-            a.id === app.id ? { ...a, status: "running" as const } : a
+            a.id === app.id ? { ...a, status: "running" as const, auto_slept: false } : a
           ),
           appRestarting: { ...s.appRestarting, [app.id]: false },
           appStartedAt: { ...s.appStartedAt, [app.id]: Date.now() },

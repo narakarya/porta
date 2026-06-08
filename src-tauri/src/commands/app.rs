@@ -117,6 +117,9 @@ pub fn add_app(
         host_auth_overrides: vec![],
         tunnel_alias_domain: None,
         tunnel_alias_rewrite_host: true,
+        auto_sleep_enabled: false,
+        idle_timeout_secs: 1800,
+        auto_slept: false,
         kind: resolved_kind,
         docker_image,
         docker_container_port,
@@ -297,6 +300,29 @@ pub fn update_app(
     sync_caddy(&state)?;
     crate::backup::auto_backup(&state.db_path).ok();
 
+    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
+}
+
+/// Persist a single app's auto-sleep config. Returns the refreshed App so the
+/// store can patch its copy without a full reload. Config-only — does not start
+/// or stop anything.
+#[tauri::command]
+pub fn set_app_auto_sleep(
+    state: State<AppState>,
+    id: String,
+    enabled: bool,
+    idle_timeout_secs: u32,
+) -> Result<App, String> {
+    // Clamp to a sane floor so a typo (e.g. 0) can't put the app into an
+    // instant sleep/wake loop.
+    let secs = idle_timeout_secs.max(30);
+    state
+        .db
+        .lock()
+        .unwrap()
+        .set_app_auto_sleep(&id, enabled, secs)
+        .map_err(|e| e.to_string())?;
     let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }

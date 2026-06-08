@@ -8,6 +8,23 @@ export const MAX_LOG_LINES = 10000;
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+// Append a synthetic marker line to an app's logs. A stop/kill leaves the log
+// frozen (dead process → no more output), so without a visible marker the action
+// reads as a no-op ("lognya ga berubah, jadi merasa ga kekill"). The marker shows
+// up both in the full log viewer and the LogToast preview.
+function withMarker(
+  logs: Record<string, string[]>,
+  id: string,
+  text: string,
+): Record<string, string[]> {
+  const prev = logs[id] ?? [];
+  const next = [...prev, `── ${text} ──`];
+  return {
+    ...logs,
+    [id]: next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next,
+  };
+}
+
 export interface AppSlice {
   apps: App[];
   appLogs: Record<string, string[]>;
@@ -28,6 +45,7 @@ export interface AppSlice {
   stopAllInWorkspace: (workspaceId: string) => Promise<void>;
   addApp: (params: Parameters<typeof cmd.addApp>[0]) => Promise<void>;
   updateApp: (params: Parameters<typeof cmd.updateApp>[0]) => Promise<void>;
+  setAppAutoSleep: (id: string, enabled: boolean, idleTimeoutSecs: number) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
   deleteApp: (id: string) => Promise<void>;
   startApp: (id: string) => Promise<void>;
@@ -155,6 +173,29 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     }));
   },
 
+  setAppAutoSleep: async (id, enabled, idleTimeoutSecs) => {
+    // Optimistic — reflect the toggle immediately, reconcile with the returned
+    // (clamped) values from the backend.
+    set((s) => ({
+      apps: s.apps.map((a) =>
+        a.id === id ? { ...a, auto_sleep_enabled: enabled, idle_timeout_secs: idleTimeoutSecs } : a
+      ),
+    }));
+    const updated = await cmd.setAppAutoSleep(id, enabled, idleTimeoutSecs);
+    set((s) => ({
+      apps: s.apps.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              auto_sleep_enabled: updated.auto_sleep_enabled,
+              idle_timeout_secs: updated.idle_timeout_secs,
+              auto_slept: updated.auto_slept,
+            }
+          : a
+      ),
+    }));
+  },
+
   cloneApp: async (id) => {
     const cloned = await cmd.cloneApp(id);
     set((s) => ({ apps: [...s.apps, cloned] }));
@@ -218,6 +259,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         apps: s.apps.map((a) =>
           a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
         ),
+        appLogs: withMarker(s.appLogs, id, "stopped (SIGTERM)"),
         appRetryCount: { ...s.appRetryCount, [id]: 0 },
         appRestarting: { ...s.appRestarting, [id]: false },
         appStartedAt: restStartedAt,
@@ -290,6 +332,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         apps: s.apps.map((a) =>
           a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
         ),
+        appLogs: withMarker(s.appLogs, id, "force-killed (SIGKILL)"),
         appRetryCount: { ...s.appRetryCount, [id]: 0 },
         appRestarting: { ...s.appRestarting, [id]: false },
         appStartedAt: restStartedAt,

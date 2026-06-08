@@ -220,9 +220,21 @@ pub struct App {
     /// domain natively in its tenant matcher.
     #[serde(default = "default_tunnel_alias_rewrite_host")]
     pub tunnel_alias_rewrite_host: bool,
+    /// When true, Porta stops this app after `idle_timeout_secs` without HTTP
+    /// traffic and transparently wakes it on the next request. Opt-in per app.
+    #[serde(default)]
+    pub auto_sleep_enabled: bool,
+    /// Idle window before sleeping (seconds). Default 30 minutes.
+    #[serde(default = "default_idle_timeout_secs")]
+    pub idle_timeout_secs: u32,
+    /// Runtime flag: true when the idle watcher put the app to sleep (vs. a
+    /// manual stop). Drives the 💤 badge and tells the wake path it may start.
+    #[serde(default)]
+    pub auto_slept: bool,
 }
 
 fn default_tunnel_alias_rewrite_host() -> bool { true }
+fn default_idle_timeout_secs() -> u32 { 1800 }
 
 impl App {
     /// The effective domain for this app: custom_domain if set, otherwise workspace domain,
@@ -536,7 +548,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
         }
     }
 

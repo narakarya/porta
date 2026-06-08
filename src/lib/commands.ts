@@ -203,11 +203,28 @@ export const updateApp = (params: UpdateAppParams): Promise<App> =>
     : Promise.resolve((() => {
         const app = getMockState().apps.find((a) => a.id === params.id);
         if (app) Object.assign(app, params);
-        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_auto_start: false, tunnel_url: null, tunnel_active: false, kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null, basic_auth_enabled: false, basic_auth_username: null, basic_auth_password_set: false, host_auth_overrides: [] } as App);
+        return app ?? ({ ...params, workspace_id: null, root_dir: "", start_command_source: "", status: "stopped" as const, pid: null, env_file: null, auto_start: false, env_vars: {}, restart_policy: "on-failure" as const, max_retries: 3, extra_subdomains: [], custom_domain: null, port_bindings: [], env_profiles: [], active_profile_id: null, tunnel_provider: null, tunnel_auto_start: false, tunnel_url: null, tunnel_active: false, kind: "process" as const, docker_image: null, docker_container_port: null, docker_args: null, docker_volumes: [], compose_file: null, network_share: false, tunnel_name: null, tunnel_custom_hostname: null, basic_auth_enabled: false, basic_auth_username: null, basic_auth_password_set: false, host_auth_overrides: [], auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false } as App);
       })());
 
 export const deleteApp = (id: string): Promise<void> =>
   isTauri ? invoke("delete_app", { id }) : Promise.resolve(mockDeleteApp(id));
+
+/** Persist per-app auto-sleep config. Returns the refreshed App. */
+export const setAppAutoSleep = (
+  id: string,
+  enabled: boolean,
+  idleTimeoutSecs: number
+): Promise<App> =>
+  isTauri
+    ? invoke("set_app_auto_sleep", { id, enabled, idleTimeoutSecs })
+    : Promise.resolve((() => {
+        const app = getMockState().apps.find((a) => a.id === id);
+        if (app) {
+          app.auto_sleep_enabled = enabled;
+          app.idle_timeout_secs = idleTimeoutSecs;
+        }
+        return app as App;
+      })());
 
 export const saveFile = (_path: string, _contents: string): Promise<void> =>
   isTauri ? invoke("save_file", { path: _path, contents: _contents }) : Promise.resolve();

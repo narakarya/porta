@@ -27,6 +27,10 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
     let state: State<AppState> = handle.state();
     let id = &app_data.id;
 
+    // Any start (manual, wake, auto-restart, dependency) clears the auto-slept
+    // flag so the 💤 badge doesn't linger after the app is up again.
+    let _ = state.db.lock().unwrap().set_app_auto_slept(id, false);
+
     let log_id = id.clone();
     let log_handle = handle.clone();
     let on_log = move |line: String| {

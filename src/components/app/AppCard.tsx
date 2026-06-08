@@ -239,12 +239,25 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
 
   // Initialize to current active state so mounting already-running apps don't trigger auto-open
   const prevActive = useRef(isActive);
-
-  // Show log toast the moment app process starts (stopped → starting)
+  // Brief flash of the status dot when an app goes down, so the running→stopped
+  // transition is legible instead of silent. Cleared after the flash; the dot's
+  // existing `transition-colors` fades the bright tone back to the idle grey.
+  const [justStopped, setJustStopped] = useState(false);
   useEffect(() => {
-    if (isActive && !prevActive.current) {
+    if (!justStopped) return;
+    const t = setTimeout(() => setJustStopped(false), 700);
+    return () => clearTimeout(t);
+  }, [justStopped]);
+
+  // Show log toast the moment app process starts (stopped → starting) AND the
+  // moment it goes down (running → stopped). The stop case surfaces the synthetic
+  // "── stopped ──" marker so the user gets explicit confirmation the kill landed,
+  // instead of staring at a frozen log and assuming nothing happened.
+  useEffect(() => {
+    if (isActive !== prevActive.current) {
       openToast();
-      setBannerDismissed(false);
+      if (isActive) setBannerDismissed(false);
+      else setJustStopped(true);
     }
     if (!isActive) setKillConfirm(false); // dismiss confirm if process already stopped
     prevActive.current = isActive;
@@ -307,6 +320,7 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
           // Static & proxy apps have no managed process — they're "live"
           // whenever Caddy is up and serving them.
           (isStatic || isProxy) && setupStatus?.caddy_running   ? "bg-emerald-400"            :
+          justStopped                                          ? "bg-zinc-300"               :
                                                                  "bg-zinc-600"
         }`} />
 
@@ -338,6 +352,13 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
               <span className="text-[9px] font-semibold tracking-wider text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded leading-none uppercase opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                 proxy
               </span>
+            )}
+            {app.auto_slept && !isRunning && !isStarting && (
+              <Tooltip label="Sleeping — opens automatically on next request" side="top">
+                <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+                  💤
+                </span>
+              </Tooltip>
             )}
             {isManaged && isRunning && health && health !== "healthy" && (
               <Tooltip label={health === "unhealthy" ? "Unhealthy" : "Checking..."} side="top">

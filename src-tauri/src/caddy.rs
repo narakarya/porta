@@ -7,6 +7,27 @@ use crate::db::models::{BasicAuth, Route};
 
 const CADDY_API: &str = "http://localhost:2019";
 
+/// Porta's wake server (see `wake_server.rs`). When an app is asleep its port is
+/// dead, so Caddy's reverse_proxy dial fails (a handler *error*, distinct from a
+/// 5xx the upstream itself returns). We register a server-level `errors` route
+/// that proxies those failures here; the wake server identifies the app by Host,
+/// starts it, and 307-redirects back so the retried request hits the live app.
+pub const WAKE_ADDR: &str = "127.0.0.1:2021";
+
+/// Server-level `errors` block: route dial failures to the wake server. Always
+/// installed — the wake server returns a clean 502 for non-sleep apps, so this
+/// is a no-op for them and only changes behavior for auto-sleep apps.
+fn wake_errors_block() -> Value {
+    json!({
+        "routes": [{
+            "handle": [{
+                "handler": "reverse_proxy",
+                "upstreams": [{ "dial": WAKE_ADDR }]
+            }]
+        }]
+    })
+}
+
 /// Per-app webhook bodies are captured to disk; cap each body to 64 KB so
 /// large uploads don't bloat the line-delimited JSON access log.
 const REQUEST_BODY_MAX_BYTES: usize = 64 * 1024;
@@ -232,7 +253,8 @@ impl CaddyManager {
                 "listen": [":443"],
                 "routes": route_json,
                 // Empty policy = use any available cert (our wildcard *.test)
-                "tls_connection_policies": [{}]
+                "tls_connection_policies": [{}],
+                "errors": wake_errors_block()
             });
             if !server_logs.is_null() {
                 https_server["logs"] = server_logs.clone();
@@ -268,7 +290,7 @@ impl CaddyManager {
             })
         } else {
             // Fallback: plain HTTP on :80
-            let mut http_server = json!({ "listen": [":80"], "routes": route_json });
+            let mut http_server = json!({ "listen": [":80"], "routes": route_json, "errors": wake_errors_block() });
             if !server_logs.is_null() {
                 http_server["logs"] = server_logs.clone();
             }

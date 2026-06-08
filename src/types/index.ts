@@ -74,6 +74,14 @@ export interface App {
    *  requests so the app sees its native domain. Disable when the app
    *  itself accepts the alias domain. */
   tunnel_alias_rewrite_host: boolean;
+  /** When true, Porta stops this app after `idle_timeout_secs` without HTTP
+   *  traffic and transparently wakes it on the next request. Opt-in per app. */
+  auto_sleep_enabled: boolean;
+  /** Idle window before sleeping (seconds). Default 1800 (30 min). */
+  idle_timeout_secs: number;
+  /** True when the idle watcher put the app to sleep (vs. a manual stop).
+   *  Drives the 💤 badge; cleared on next start/wake. */
+  auto_slept: boolean;
 }
 
 /** Per-host Basic Auth override (read shape from the backend — never the hash). */

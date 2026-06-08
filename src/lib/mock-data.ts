@@ -50,6 +50,9 @@ export const mockApps: App[] = [
     basic_auth_password_set: false,
     host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
+    auto_sleep_enabled: false,
+    idle_timeout_secs: 1800,
+    auto_slept: false,
   },
   {
     id: "app-2",
@@ -92,6 +95,9 @@ export const mockApps: App[] = [
     basic_auth_password_set: false,
     host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
+    auto_sleep_enabled: false,
+    idle_timeout_secs: 1800,
+    auto_slept: false,
   },
   {
     id: "app-3",
@@ -133,6 +139,9 @@ export const mockApps: App[] = [
     basic_auth_password_set: false,
     host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
+    auto_sleep_enabled: false,
+    idle_timeout_secs: 1800,
+    auto_slept: false,
   },
   {
     id: "app-4",
@@ -174,6 +183,9 @@ export const mockApps: App[] = [
     basic_auth_password_set: false,
     host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
+    auto_sleep_enabled: false,
+    idle_timeout_secs: 1800,
+    auto_slept: false,
   },
 ];
 
@@ -254,6 +266,9 @@ export function mockAddApp(params: {
     basic_auth_password_set: false,
     host_auth_overrides: [],    tunnel_alias_domain: null,
     tunnel_alias_rewrite_host: true,
+    auto_sleep_enabled: false,
+    idle_timeout_secs: 1800,
+    auto_slept: false,
   };
   state.apps.push(app);
   return app;

@@ -1,6 +1,6 @@
 [package]
 name = "porta"
-version = "0.6.25"
+version = "0.6.26"
 edition = "2021"
 
 [lib]
@@ -38,6 +38,7 @@ bcrypt = "0.15"
 base64 = "0.22"
 urlencoding = "2"
 tempfile = "3"
+tiny_http = "0.12"
 
 [dev-dependencies]
 

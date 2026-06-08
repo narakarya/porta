@@ -15,12 +15,14 @@ pub mod process_manager;
 pub mod docker_manager;
 pub mod compose_parser;
 pub mod health;
+pub mod idle_sleep;
 pub mod log_rotation;
 pub mod porta_config;
 pub mod menu;
 pub mod metrics;
 pub mod setup;
 pub mod tray;
+pub mod wake_server;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -183,6 +185,9 @@ pub fn run() {
             commands::spawn_tailscale_poller(app.handle().clone());
             commands::spawn_backup_scheduler(app.handle().clone());
             commands::spawn_log_rotation_task();
+            // Transparent wake-on-request server + idle watcher for auto-sleep apps.
+            wake_server::spawn(app.handle().clone());
+            idle_sleep::spawn_idle_watcher(app.handle().clone());
             commands::startup_caddy_sync(app.handle());
             // Load installed extensions into AppState
             {
@@ -207,6 +212,7 @@ pub fn run() {
             commands::next_available_port,
             commands::add_app,
             commands::update_app,
+            commands::set_app_auto_sleep,
             commands::delete_app,
             commands::save_file,
             commands::reveal_in_finder,
