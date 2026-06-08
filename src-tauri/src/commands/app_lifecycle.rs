@@ -384,6 +384,20 @@ pub fn mark_app_stopped(state: State<AppState>, id: String) -> Result<(), String
         .map_err(|e| e.to_string())
 }
 
+/// Fallback for a process app orphaned across a Porta restart: the in-memory
+/// `ProcessManager` map is empty (only docker/compose apps are re-adopted on
+/// startup, see `lib.rs`), so `processes.stop/kill` is a silent no-op and the
+/// card stays stuck "running". Signal the PID recorded in the DB directly. The
+/// child is its own process-group leader (`pid == pgid`, see `process_group(0)`
+/// in process_manager.rs), so `killpg` reaches its children too.
+fn signal_orphan_pid(app_data: &Option<App>, sig: nix::sys::signal::Signal) {
+    if let Some(pid) = app_data.as_ref().and_then(|a| a.pid) {
+        let p = nix::unistd::Pid::from_raw(pid as i32);
+        let _ = nix::sys::signal::killpg(p, sig);
+        let _ = nix::sys::signal::kill(p, sig);
+    }
+}
+
 #[tauri::command]
 pub fn stop_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
     let app_data = state.db.lock().unwrap().list_apps().ok()
@@ -406,7 +420,11 @@ pub fn stop_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Re
     } else if is_docker {
         state.docker.stop(&id).map_err(|e| e.to_string())?;
     } else if !is_static && !is_proxy {
-        state.processes.stop(&id).map_err(|e| e.to_string())?;
+        if state.processes.is_running(&id) {
+            state.processes.stop(&id).map_err(|e| e.to_string())?;
+        } else {
+            signal_orphan_pid(&app_data, nix::sys::signal::Signal::SIGTERM);
+        }
     }
     state
         .db
@@ -540,7 +558,11 @@ pub fn kill_app(state: State<AppState>, id: String) -> Result<(), String> {
     } else if is_docker {
         state.docker.kill(&id).map_err(|e| e.to_string())?;
     } else if !is_static && !is_proxy {
-        state.processes.kill(&id).map_err(|e| e.to_string())?;
+        if state.processes.is_running(&id) {
+            state.processes.kill(&id).map_err(|e| e.to_string())?;
+        } else {
+            signal_orphan_pid(&app_data, nix::sys::signal::Signal::SIGKILL);
+        }
     }
     state
         .db
