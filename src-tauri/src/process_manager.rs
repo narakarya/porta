@@ -13,6 +13,60 @@ use std::time::Duration;
 
 pub(crate) type SharedLogWriter = Arc<Mutex<LineWriter<File>>>;
 
+/// Collect `root` plus every descendant PID by walking the system PPID table.
+///
+/// We spawn into a fresh process group (`process_group(0)`), so `killpg` reaches
+/// the shell + node + any child that stays in the group. But puppeteer/Electron
+/// spawn Chromium via `setsid()`, which escapes into its own session and process
+/// group — `killpg` on the spawn pgid never touches it, leaving the browser
+/// orphaned ("nangkut") after node dies. Walking PPID links catches it *while the
+/// parent is still alive*; once node exits, Chromium reparents to launchd and the
+/// link is gone — so callers must snapshot BEFORE sending the kill signal.
+pub fn descendant_pids(root: u32) -> Vec<u32> {
+    let output = match Command::new("ps").args(["-axo", "pid=,ppid="]).output() {
+        Ok(o) => o,
+        Err(_) => return vec![root],
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    for line in text.lines() {
+        let mut it = line.split_whitespace();
+        if let (Some(pid), Some(ppid)) = (it.next(), it.next()) {
+            if let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) {
+                children.entry(ppid).or_default().push(pid);
+            }
+        }
+    }
+    let mut result = vec![root];
+    let mut stack = vec![root];
+    while let Some(p) = stack.pop() {
+        if let Some(kids) = children.get(&p) {
+            for &k in kids {
+                if !result.contains(&k) {
+                    result.push(k);
+                    stack.push(k);
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Signal `pid`, its whole process group, and every descendant (each plus its own
+/// group, to catch Chromium's detached helper subtree). Snapshots the tree first
+/// so a dying parent doesn't sever the links before we read them.
+pub fn signal_tree(pid: u32, sig: Signal) {
+    let tree = descendant_pids(pid);
+    // Group first — fastest path for well-behaved children that stayed in-group.
+    let _ = killpg(Pid::from_raw(pid as i32), sig);
+    // Then each descendant individually + its own group (setsid'd Chromium).
+    for &p in &tree {
+        let ip = Pid::from_raw(p as i32);
+        let _ = killpg(ip, sig);
+        let _ = kill(ip, sig);
+    }
+}
+
 pub struct ProcessManager {
     pids: Arc<Mutex<HashMap<String, u32>>>,
     /// Tracks app IDs that are being intentionally stopped (SIGTERM/SIGKILL by user).
@@ -184,9 +238,8 @@ impl ProcessManager {
             pids.get(app_id).copied()
         };
         if let Some(pid) = pid_opt {
-            let pgid = Pid::from_raw(pid as i32);
-            // Send SIGTERM to the entire process group (shell + all children)
-            let _ = killpg(pgid, Signal::SIGTERM);
+            // SIGTERM the whole tree (group + setsid'd children like Chromium)
+            signal_tree(pid, Signal::SIGTERM);
             let pids = Arc::clone(&self.pids);
             let app_id = app_id.to_string();
             thread::spawn(move || {
@@ -197,8 +250,8 @@ impl ProcessManager {
                         return;
                     }
                 }
-                // Escalate: SIGKILL the entire process group
-                let _ = killpg(pgid, Signal::SIGKILL);
+                // Escalate: SIGKILL the entire tree
+                signal_tree(pid, Signal::SIGKILL);
                 pids.lock().unwrap().remove(&app_id);
             });
         }
@@ -217,10 +270,9 @@ impl ProcessManager {
         };
 
         let Some(pid) = pid_opt else { return Ok(()) };
-        let pgid = Pid::from_raw(pid as i32);
 
-        // Graceful SIGTERM to entire process group first
-        let _ = killpg(pgid, Signal::SIGTERM);
+        // Graceful SIGTERM to the entire tree (group + setsid'd children) first
+        signal_tree(pid, Signal::SIGTERM);
 
         // Poll until dead, falling back to SIGKILL after timeout
         let steps = (timeout_ms / 50).max(1);
@@ -232,14 +284,14 @@ impl ProcessManager {
                 self.pids.lock().unwrap().remove(app_id);
                 return Ok(());
             }
-            // Halfway through timeout — escalate to SIGKILL on entire group
+            // Halfway through timeout — escalate to SIGKILL on the whole tree
             if i == steps / 2 {
-                let _ = killpg(pgid, Signal::SIGKILL);
+                signal_tree(pid, Signal::SIGKILL);
             }
         }
 
-        // Final SIGKILL to entire group and grace period for the OS to reclaim the port
-        let _ = killpg(pgid, Signal::SIGKILL);
+        // Final SIGKILL to the whole tree and grace period for the OS to reclaim the port
+        signal_tree(pid, Signal::SIGKILL);
         thread::sleep(Duration::from_millis(500));
         self.pids.lock().unwrap().remove(app_id);
         Ok(())
@@ -250,8 +302,8 @@ impl ProcessManager {
         self.stopping.lock().unwrap().insert(app_id.to_string());
         let mut pids = self.pids.lock().unwrap();
         if let Some(pid) = pids.remove(app_id) {
-            // Kill the entire process group
-            let _ = killpg(Pid::from_raw(pid as i32), Signal::SIGKILL);
+            // Kill the entire tree (group + setsid'd children like Chromium)
+            signal_tree(pid, Signal::SIGKILL);
         }
         Ok(())
     }
@@ -265,8 +317,8 @@ impl ProcessManager {
         }
         drop(stopping);
         for pid in pids.values() {
-            // Kill entire process group for each app
-            let _ = killpg(Pid::from_raw(*pid as i32), Signal::SIGTERM);
+            // Kill the entire tree for each app (group + setsid'd children)
+            signal_tree(*pid, Signal::SIGTERM);
         }
         pids.clear();
     }

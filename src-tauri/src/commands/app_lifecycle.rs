@@ -392,9 +392,9 @@ pub fn mark_app_stopped(state: State<AppState>, id: String) -> Result<(), String
 /// in process_manager.rs), so `killpg` reaches its children too.
 fn signal_orphan_pid(app_data: &Option<App>, sig: nix::sys::signal::Signal) {
     if let Some(pid) = app_data.as_ref().and_then(|a| a.pid) {
-        let p = nix::unistd::Pid::from_raw(pid as i32);
-        let _ = nix::sys::signal::killpg(p, sig);
-        let _ = nix::sys::signal::kill(p, sig);
+        // Walk the tree too — a setsid'd Chromium child orphaned by the recorded
+        // node pid is still reachable as long as node itself hasn't exited yet.
+        crate::process_manager::signal_tree(pid, sig);
     }
 }
 
@@ -446,12 +446,11 @@ pub fn stop_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Re
 /// Kill an arbitrary PID with SIGKILL — also try killing the process group.
 #[tauri::command]
 pub fn kill_pid(pid: u32) -> Result<(), String> {
-    let p = nix::unistd::Pid::from_raw(pid as i32);
-    // Try killing the process group first (catches child processes)
-    let _ = nix::sys::signal::killpg(p, nix::sys::signal::Signal::SIGKILL);
-    // Also kill the individual PID in case it's not a group leader
-    nix::sys::signal::kill(p, nix::sys::signal::Signal::SIGKILL)
-        .map_err(|e| e.to_string())
+    // Tree-kill: group + every descendant (incl. setsid'd Chromium helpers)
+    crate::process_manager::signal_tree(pid, nix::sys::signal::Signal::SIGKILL);
+    // Confirm the target itself took the signal (or was already gone)
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGKILL)
+        .or_else(|e| if e == nix::errno::Errno::ESRCH { Ok(()) } else { Err(e.to_string()) })
 }
 
 /// Kill whatever process is currently holding `port`.
