@@ -214,9 +214,9 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
             {activeStepLabel && running && (
               <p className="text-[11px] text-blue-400 font-medium">{activeStepLabel}…</p>
             )}
-            <div className="bg-black/40 rounded-lg border border-white/[0.06] h-[120px] overflow-y-auto px-3 py-2 font-mono">
+            <div className="bg-black/40 rounded-lg border border-white/[0.06] h-[120px] overflow-auto px-3 py-2 terminal-log-font">
               {logs.map((line, i) => (
-                <p key={i} className="text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap break-all">{line}</p>
+                <p key={i} className="terminal-log-line text-[11px] text-zinc-400">{line}</p>
               ))}
               {running && logs.length === 0 && (
                 <p className="text-[11px] text-zinc-600">Starting…</p>

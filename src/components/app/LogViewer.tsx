@@ -266,10 +266,9 @@ const LogLine = memo(function LogLine({
         )}
       </span>
       <span
-        className={`flex-1 min-w-0 text-[11px] leading-5 whitespace-pre-wrap ${textCls} ${
+        className={`terminal-log-line flex-1 min-w-max text-[11px] ${textCls} ${
           isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
-        style={{ overflowWrap: "anywhere" }}
       >
         {highlightLine(text, query)}
       </span>
@@ -906,7 +905,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         ref={containerRef}
         onScroll={handleScroll}
         onMouseUp={handleMouseUp}
-        className="flex-1 overflow-y-auto px-4 py-3 font-mono select-text"
+        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text"
       >
         {localLogs === null && (
           <p className="text-[12px] text-zinc-600 mb-3 text-center select-none">Loading logs…</p>

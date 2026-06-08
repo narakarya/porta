@@ -280,12 +280,12 @@ function ServiceCard({ service }: Props) {
                 </svg>
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 font-mono">
+            <div className="flex-1 overflow-auto p-4 terminal-log-font">
               {logs.length === 0 ? (
                 <p className="text-[12px] text-zinc-600">No logs yet</p>
               ) : (
                 logs.map((line, i) => (
-                  <p key={i} className={`text-[11px] leading-5 whitespace-pre-wrap break-all ${
+                  <p key={i} className={`terminal-log-line text-[11px] ${
                     line.startsWith("[err]") ? "text-red-400/80" : "text-zinc-400"
                   }`}>
                     {stripAnsi(line)}
