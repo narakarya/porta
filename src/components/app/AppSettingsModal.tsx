@@ -48,6 +48,67 @@ function pickBestHostname(hostnames: string[], app: App): string | null {
   return hostnames[0];
 }
 
+type TunnelPublicHost = { host: string; kind: "primary" | "extra" | "binding" };
+
+function buildTunnelPublicHosts(
+  primaryHostname: string,
+  extraSubdomains: string[],
+  portBindings: PortBinding[],
+): TunnelPublicHost[] {
+  const primary = primaryHostname.trim();
+  if (!primary) return [];
+
+  const all: TunnelPublicHost[] = [{ host: primary, kind: "primary" }];
+  const parsed = psl.parse(primary);
+  const base = "domain" in parsed ? parsed.domain : null;
+  if (!base) return all;
+
+  const extras = extraSubdomains.map((s) => s.trim()).filter(Boolean);
+  const bindingSubs = portBindings
+    .map((b) => {
+      const sub = (b.subdomain ?? "").trim();
+      return sub || (b.label ?? "").toLowerCase().replace(/\s+/g, "-");
+    })
+    .filter(Boolean);
+
+  return [
+    ...all,
+    ...extras.map((s) => ({ host: `${s}.${base}`, kind: "extra" as const })),
+    ...bindingSubs.map((s) => ({ host: `${s}.${base}`, kind: "binding" as const })),
+  ];
+}
+
+function TunnelPublicHostsPanel({ hosts, title = "This app will expose" }: { hosts: TunnelPublicHost[]; title?: string }) {
+  if (hosts.length === 0) return null;
+
+  return (
+    <div className="mt-3 rounded-lg bg-orange-500/[0.04] border border-orange-500/[0.15] overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-orange-500/[0.10]">
+        <p className="text-[10px] text-zinc-400 font-medium">{title}</p>
+        <span className="text-[9px] uppercase tracking-wider text-orange-300/80 leading-none">
+          {hosts.length} {hosts.length === 1 ? "host" : "hosts"}
+        </span>
+      </div>
+      <ul className="px-3 py-2 space-y-1">
+        {hosts.map(({ host, kind }) => (
+          <li key={host} className="flex items-center gap-2 font-mono text-[11px] text-orange-200/90 min-w-0">
+            {/* Filled dot for the primary host, hollow for extras / port bindings. */}
+            <span
+              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                kind === "primary"
+                  ? "bg-orange-400"
+                  : "border border-orange-400/50 bg-transparent"
+              }`}
+              aria-label={kind === "primary" ? "primary" : kind}
+            />
+            <span className="truncate" title={host}>{host}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 type Section = "general" | "domain" | "environment" | "tunneling" | "health" | "danger";
 
 interface Props {
@@ -694,6 +755,23 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
   // Another provider is connected while we're viewing a different (not-yet-live)
   // tab — used to warn that Connect will switch providers.
   const otherProviderLive = app.tunnel_active && !selectedIsLive ? activeTunnelProvider : null;
+  const configuredTunnelHosts = useMemo(
+    () => buildTunnelPublicHosts(tunnelHostname, app.extra_subdomains ?? [], app.port_bindings ?? []),
+    [tunnelHostname, app.extra_subdomains, app.port_bindings],
+  );
+  const liveTunnelHosts = useMemo(() => {
+    if (!selectedIsLive || tunnelProvider !== "cloudflare" || tunnelMode !== "named") return [];
+    const liveHostname = tunnelHostname.trim() || app.tunnel_custom_hostname?.trim() || "";
+    return buildTunnelPublicHosts(liveHostname, app.extra_subdomains ?? [], app.port_bindings ?? []);
+  }, [
+    selectedIsLive,
+    tunnelProvider,
+    tunnelMode,
+    app.tunnel_custom_hostname,
+    tunnelHostname,
+    app.extra_subdomains,
+    app.port_bindings,
+  ]);
 
   async function handleSave() {
     if (!canSave) return;
@@ -1752,6 +1830,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         {tunnelUrlCopied ? "Copied!" : "Copy"}
                       </button>
                     </div>
+                    <TunnelPublicHostsPanel hosts={liveTunnelHosts} title="Accessible hosts" />
                     {tunnelReachable === false && (
                       <div className="flex items-start gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                         <span className="w-1.5 h-1.5 mt-1 rounded-full bg-amber-400 shrink-0" />
@@ -1997,62 +2076,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                     </>
                                   );
                                 })()}
-                                {(() => {
-                                  // Preview every public hostname this tunnel will expose.
-                                  // Mirrors the backend's `tunnel_public_hostnames`: primary
-                                  // + extras + port_bindings, all projected onto the
-                                  // registrable domain (eTLD+1) of the primary host. PSL is
-                                  // required so apex inputs like `sidiq.sch.id` don't strip
-                                  // down to the public suffix `sch.id`.
-                                  const primary = tunnelHostname.trim();
-                                  if (!primary) return null;
-                                  const parsed = psl.parse(primary);
-                                  const base = "domain" in parsed ? parsed.domain : null;
-                                  const extras = (app.extra_subdomains ?? [])
-                                    .map((s) => s.trim())
-                                    .filter(Boolean);
-                                  const bindingSubs = (app.port_bindings ?? [])
-                                    .map((b) => {
-                                      const sub = (b.subdomain ?? "").trim();
-                                      return sub || (b.label ?? "").toLowerCase().replace(/ /g, "-");
-                                    })
-                                    .filter(Boolean);
-                                  if (!base || (extras.length === 0 && bindingSubs.length === 0)) return null;
-                                  const all = [
-                                    { host: primary, kind: "primary" as const },
-                                    ...extras.map((s) => ({ host: `${s}.${base}`, kind: "extra" as const })),
-                                    ...bindingSubs.map((s) => ({ host: `${s}.${base}`, kind: "binding" as const })),
-                                  ];
-                                  return (
-                                    <div className="mt-3 rounded-lg bg-orange-500/[0.04] border border-orange-500/[0.15] overflow-hidden">
-                                      <div className="flex items-center justify-between px-3 py-1.5 border-b border-orange-500/[0.10]">
-                                        <p className="text-[10px] text-zinc-400 font-medium">This app will expose</p>
-                                        <span className="text-[9px] uppercase tracking-wider text-orange-300/80 leading-none">
-                                          {all.length} {all.length === 1 ? "host" : "hosts"}
-                                        </span>
-                                      </div>
-                                      <ul className="px-3 py-2 space-y-1">
-                                        {all.map(({ host, kind }) => (
-                                          <li key={host} className="flex items-center gap-2 font-mono text-[11px] text-orange-200/90 min-w-0">
-                                            {/* Filled dot for the primary host, hollow for
-                                                extras / port_bindings — keeps the rank cue
-                                                visual instead of the inline "PRIMARY" label
-                                                that overflowed the row width. */}
-                                            <span
-                                              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                                                kind === "primary"
-                                                  ? "bg-orange-400"
-                                                  : "border border-orange-400/50 bg-transparent"
-                                              }`}
-                                              aria-label={kind === "primary" ? "primary" : kind}
-                                            />
-                                            <span className="truncate" title={host}>{host}</span>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  );
-                                })()}
+                                <TunnelPublicHostsPanel hosts={configuredTunnelHosts} />
                               </div>
 
                               {/* Cloudflare Access (Zero Trust) — login wall in
@@ -2374,4 +2398,3 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     </div>
   );
 }
-
