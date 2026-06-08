@@ -221,13 +221,15 @@ interface LogLineProps {
   isMatch: boolean;
   isActiveMatch: boolean;
   copied: boolean;
+  blockCopied: boolean;
   onCopy: (text: string, idx: number) => void;
+  onCopyBlock: (idx: number) => void;
   matchRefMap: React.MutableRefObject<Map<number, HTMLDivElement>>;
 }
 
 const LogLine = memo(function LogLine({
   text, level, isContinuation, ownerLevel, originalIndex, filteredIdx, crashed, query,
-  isMatch, isActiveMatch, copied, onCopy, matchRefMap,
+  isMatch, isActiveMatch, copied, blockCopied, onCopy, onCopyBlock, matchRefMap,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
@@ -248,25 +250,34 @@ const LogLine = memo(function LogLine({
         if (isMatch && el) matchRefMap.current.set(filteredIdx, el);
         else matchRefMap.current.delete(filteredIdx);
       }}
-      className={`flex gap-2 py-[1px] hover:bg-white/[0.02] rounded px-1 group items-start ${
+      className={`flex gap-2 py-[2.5px] hover:bg-white/[0.02] rounded px-1 group items-start ${
         isActiveMatch ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20" : ""
       }`}
       // contentVisibility lets the browser skip layout/paint for off-screen
       // lines — cheap virtualization without touching the DOM tree.
-      style={{ contentVisibility: "auto", containIntrinsicSize: "22px" }}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "28px" }}
     >
       <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
         {originalIndex + 1}
       </span>
       <span className="w-8 shrink-0 pt-[1px] select-none">
         {badge && (
-          <span className={`text-[9px] font-medium px-1 py-px rounded border ${badge.cls}`}>
-            {badge.label}
-          </span>
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onCopyBlock(originalIndex)}
+            title="Copy this entry (with its body/stacktrace)"
+            className={`text-[9px] font-medium px-1 py-px rounded border transition-all cursor-pointer ${
+              blockCopied
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                : `${badge.cls} hover:brightness-125`
+            }`}
+          >
+            {blockCopied ? "✓" : badge.label}
+          </button>
         )}
       </span>
       <span
-        className={`terminal-log-line flex-1 min-w-max text-[13px] ${textCls} ${
+        className={`terminal-log-line flex-1 min-w-max text-[13.5px] ${textCls} ${
           isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
       >
@@ -305,6 +316,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   const [followTail, setFollowTail] = useState(true);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
+  const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
   const [copiedToast, setCopiedToast] = useState(false);
   const [localLogs, setLocalLogs] = useState<ProcessedLine[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -510,6 +522,27 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     });
   };
   const handleCopyLine = useMemo(() => (text: string, index: number) => copyLineRef.current(text, index), []);
+
+  // Copy a whole leveled entry — the header line plus every continuation
+  // (SQL body, `↳` caller, stacktrace) that belongs to it. Clicking the badge
+  // anywhere in the block walks up to its header first, then collects down.
+  const copyBlockRef = useRef<(index: number) => void>(() => {});
+  copyBlockRef.current = (index: number) => {
+    let start = index;
+    while (start > 0 && lineMeta[start]?.isContinuation) start--;
+    const parts = [allLogs[start]?.text ?? ""];
+    for (let i = start + 1; i < allLogs.length; i++) {
+      if (!lineMeta[i]?.isContinuation) break;
+      parts.push(allLogs[i].text);
+    }
+    void copyToClipboard(parts.join("\n")).then((ok) => {
+      if (!ok) return;
+      setCopiedBlock(start);
+      showCopiedToast();
+      setTimeout(() => setCopiedBlock(null), 1200);
+    });
+  };
+  const handleCopyBlock = useMemo(() => (index: number) => copyBlockRef.current(index), []);
 
   const allLevelsEnabled = enabledLevels.size === ALL_FILTER_LEVELS.length;
 
@@ -905,7 +938,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         ref={containerRef}
         onScroll={handleScroll}
         onMouseUp={handleMouseUp}
-        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-zinc-950"
+        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-[#1c1c1e]"
       >
         {localLogs === null && (
           <p className="text-[12px] text-zinc-600 mb-3 text-center select-none">Loading logs…</p>
@@ -934,7 +967,9 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   isMatch={isMatch}
                   isActiveMatch={isActiveMatch}
                   copied={copiedLine === originalIndex}
+                  blockCopied={copiedBlock === originalIndex}
                   onCopy={handleCopyLine}
+                  onCopyBlock={handleCopyBlock}
                   matchRefMap={matchLineRefs}
                 />
               );
