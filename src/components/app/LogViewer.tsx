@@ -100,8 +100,8 @@ const LEVEL_CLASS: Record<NonNullable<LogLevel>, string> = {
   error:   "text-red-400",
   warn:    "text-amber-400",
   info:    "text-blue-400",
-  debug:   "text-zinc-500",
-  trace:   "text-zinc-600",
+  debug:   "text-zinc-400",
+  trace:   "text-zinc-500",
   success: "text-emerald-400",
 };
 
@@ -236,8 +236,8 @@ const LogLine = memo(function LogLine({
   const textCls = crashed
     ? LEVEL_CLASS.error
     : isContinuation
-      ? "text-zinc-500"
-      : effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-300";
+      ? "text-zinc-400"
+      : effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-200";
   const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
   const railLevel = crashed ? "error" : ownerLevel;
   const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
@@ -253,9 +253,9 @@ const LogLine = memo(function LogLine({
       }`}
       // contentVisibility lets the browser skip layout/paint for off-screen
       // lines — cheap virtualization without touching the DOM tree.
-      style={{ contentVisibility: "auto", containIntrinsicSize: "20px" }}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "22px" }}
     >
-      <span className="text-[10px] text-zinc-700 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-500 select-none">
+      <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
         {originalIndex + 1}
       </span>
       <span className="w-8 shrink-0 pt-[1px] select-none">
@@ -266,7 +266,7 @@ const LogLine = memo(function LogLine({
         )}
       </span>
       <span
-        className={`terminal-log-line flex-1 min-w-max text-[11px] ${textCls} ${
+        className={`terminal-log-line flex-1 min-w-max text-[13px] ${textCls} ${
           isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
       >
@@ -905,7 +905,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         ref={containerRef}
         onScroll={handleScroll}
         onMouseUp={handleMouseUp}
-        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text"
+        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-zinc-950"
       >
         {localLogs === null && (
           <p className="text-[12px] text-zinc-600 mb-3 text-center select-none">Loading logs…</p>
