@@ -27,7 +27,7 @@ export type SettingsSection =
  * same phase and can't kick off a second download while one is in flight.
  *
  * Transitions:
- *   idle → checking → idle             (no update found)
+ *   idle → checking → uptodate → idle  (no update found; manual check only)
  *   idle → checking → available        (update found, awaiting user confirm)
  *   available → downloading → installing → ready
  *   ready → restarting                  (user clicks Restart)
@@ -40,6 +40,7 @@ export type SettingsSection =
 export type UpdaterPhase =
   | "idle"
   | "checking"
+  | "uptodate"
   | "available"
   | "downloading"
   | "installing"
@@ -78,6 +79,9 @@ export interface UiSlice {
   updaterPhase: UpdaterPhase;
   updaterInfo: UpdaterInfo | null;
   updaterError: string | null;
+  /** Who initiated the current check — lets the toast stay quiet for checks
+   *  started from the sidebar popover (the popover shows progress itself). */
+  updaterCheckSource: "popover" | "menu" | "background";
   /** Where the terminal renders: full-screen modal vs. bottom-docked panel. */
   terminalPlacement: TerminalPlacement;
   /** Panel-mode height as a fraction of the viewport (0.15 – 0.92). */
@@ -138,6 +142,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterPhase: "idle",
   updaterInfo: null,
   updaterError: null,
+  updaterCheckSource: "background",
   terminalPlacement: loadPlacement(),
   terminalPanelHeight: loadPanelHeight(),
   extensionListVersion: 0,

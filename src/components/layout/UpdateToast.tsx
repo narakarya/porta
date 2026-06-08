@@ -9,15 +9,20 @@ import { dismissUpdater, restartForUpdate, startUpdateDownload, checkForUpdate }
  * regardless of which page (main, settings) is foregrounded.
  */
 export default function UpdateToast() {
-  const { phase, info, error } = usePortaStore(
+  const { phase, info, error, source } = usePortaStore(
     useShallow((s) => ({
       phase: s.updaterPhase,
       info: s.updaterInfo,
       error: s.updaterError,
+      source: s.updaterCheckSource,
     })),
   );
 
   if (phase === "idle") return null;
+  // The transient checking / up-to-date states only belong in the toast for a
+  // menu-bar check (the popover shows them when the check came from there, and
+  // background checks stay silent until they actually find an update).
+  if ((phase === "checking" || phase === "uptodate") && source !== "menu") return null;
 
   const formatBytes = (n: number) => {
     if (!n) return "0 B";
@@ -33,12 +38,14 @@ export default function UpdateToast() {
   // ─── Style by phase ────────────────────────────────────────────────────
   const accent =
     phase === "ready"        ? "border-emerald-500/30" :
+    phase === "uptodate"     ? "border-emerald-500/30" :
     phase === "error"        ? "border-red-500/30" :
     phase === "restarting"   ? "border-blue-500/30" :
                                "border-white/[0.10]";
 
   const dotColor =
     phase === "ready"        ? "bg-emerald-400" :
+    phase === "uptodate"     ? "bg-emerald-400" :
     phase === "error"        ? "bg-red-400" :
     phase === "checking"     ? "bg-blue-400 pulse-dot" :
     phase === "downloading"  ? "bg-blue-400 pulse-dot" :
@@ -65,6 +72,11 @@ export default function UpdateToast() {
       >
         Cancel
       </button>
+    );
+  } else if (phase === "uptodate") {
+    title = "You're on the latest version";
+    detail = (
+      <p className="text-[11px] text-zinc-500 mt-1">Porta is up to date.</p>
     );
   } else if (phase === "available" && info) {
     title = `Porta ${info.version} available`;
@@ -178,7 +190,7 @@ export default function UpdateToast() {
   // For `ready` we deliberately omit a close button — the entire affordance
   // to consume the update is that "Restart now" button. Letting users dismiss
   // would strand them on a downloaded-but-not-launched build.
-  const showClose = phase === "checking" || phase === "available" || phase === "error";
+  const showClose = phase === "checking" || phase === "uptodate" || phase === "available" || phase === "error";
 
   return (
     <div

@@ -1,7 +1,6 @@
 import type { Update } from "@tauri-apps/plugin-updater";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { message } from "@tauri-apps/plugin-dialog";
 
 import { usePortaStore } from "../store";
 import type { UpdaterPhase } from "../store/slices/ui";
@@ -56,8 +55,11 @@ function setPhase(phase: UpdaterPhase, patch: Record<string, unknown> = {}) {
  *   - `silent: false` (user clicked the button) — a small native dialog
  *     confirms "you're on the latest version" so the click isn't a no-op.
  */
-export function checkForUpdate(opts: { silent?: boolean } = {}): Promise<void> {
+export function checkForUpdate(
+  opts: { silent?: boolean; source?: "popover" | "menu" | "background" } = {},
+): Promise<void> {
   if (activeCheck) return activeCheck;
+  usePortaStore.setState({ updaterCheckSource: opts.source ?? "menu" });
   const generation = ++checkGeneration;
   const promise = runUpdateCheck(opts, generation).finally(() => {
     if (activeCheck === promise) activeCheck = null;
@@ -81,7 +83,7 @@ export function autoCheckForUpdate(): void {
   const now = Date.now();
   if (now - lastAutoCheckAt < AUTO_CHECK_MIN_GAP_MS) return;
   lastAutoCheckAt = now;
-  void checkForUpdate({ silent: true });
+  void checkForUpdate({ silent: true, source: "background" });
 }
 
 function isCurrentCheck(generation: number): boolean {
@@ -124,16 +126,27 @@ async function runUpdateCheck(
       setPhase("idle", { updaterError: null, updaterInfo: null });
       return;
     }
+    // The error toast (UpdateToast) surfaces this with Retry/Dismiss — no
+    // blocking native dialog.
     setPhase("error", { updaterError: msg, updaterInfo: null });
-    if (!silent) await message(`Could not check for updates:\n${msg}`, { title: "Porta", kind: "error" });
     return;
   }
 
   if (!isCurrentCheck(generation)) return;
 
   if (!upd) {
-    setPhase("idle", { updaterInfo: null, updaterError: null });
-    if (!silent) await message("You're on the latest version.", { title: "Porta" });
+    if (silent) {
+      setPhase("idle", { updaterInfo: null, updaterError: null });
+    } else {
+      // Manual check: confirm "up to date" with a brief, self-dismissing toast
+      // instead of a blocking alert.
+      setPhase("uptodate", { updaterInfo: null, updaterError: null });
+      window.setTimeout(() => {
+        if (usePortaStore.getState().updaterPhase === "uptodate") {
+          setPhase("idle");
+        }
+      }, 3200);
+    }
     return;
   }
 

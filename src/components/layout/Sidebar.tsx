@@ -474,6 +474,7 @@ function SidebarStatusRow() {
     updaterPhase === "available" && updaterInfo ? `Update ${updaterInfo.version} available` :
     updaterPhase === "ready" && updaterInfo ? `Update ${updaterInfo.version} ready` :
     updaterPhase === "checking" ? "Checking for updates" :
+    updaterPhase === "uptodate" ? "You're on the latest version" :
     updaterPhase === "downloading" && updaterInfo ? `Downloading ${updaterInfo.version}` :
     updaterPhase === "installing" ? "Installing update" :
     updaterPhase === "restarting" ? "Restarting" :
@@ -498,49 +499,58 @@ function SidebarStatusRow() {
     );
   }
 
-  function UpdatePopover({ systemTooltip }: { systemTooltip: string }) {
+  function UpdatePopover({ systemIssues }: { systemIssues: string | null }) {
+    const busy = updaterPhase === "checking" || updaterPhase === "downloading"
+      || updaterPhase === "installing" || updaterPhase === "restarting";
     return (
       <div
         className="absolute left-0 bottom-full mb-1.5 w-[220px] rounded-lg border border-white/[0.10] bg-[#1c1c1e] shadow-2xl overflow-hidden z-50"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-3 py-2 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${updateDot ?? "bg-emerald-400"}`} />
-            <p className="text-[12px] font-medium text-zinc-200 truncate">{updateSummary}</p>
+        <div className="px-3 py-2.5 space-y-2">
+          <div>
+            <div className="flex items-center gap-2">
+              {busy ? (
+                <span className="spinner text-blue-400" style={{ width: 11, height: 11 }} />
+              ) : (
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${updateDot ?? "bg-emerald-400"}`} />
+              )}
+              <p className="text-[12px] font-medium text-zinc-200 truncate">{updateSummary}</p>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-600 font-mono">Porta {__BUILD_TAG__}</p>
           </div>
-          <p className="mt-1 text-[10px] text-zinc-600 font-mono">Porta {__BUILD_TAG__}</p>
-        </div>
-        <div className="px-3 py-2 space-y-2">
+
           {(updaterPhase === "available" || updaterPhase === "ready") && updaterInfo && (
             <p className="text-[11px] text-zinc-500">
               <span className="font-mono text-amber-300">{updaterInfo.version}</span>{" "}
               {updaterPhase === "ready" ? "installed — see the update prompt to restart." : "available — see the update prompt to install."}
             </p>
           )}
-          {(updaterPhase === "checking" || updaterPhase === "downloading" || updaterPhase === "installing" || updaterPhase === "restarting") && (
+          {busy && (
             <p className="text-[11px] text-zinc-500">Update task is running in the background.</p>
           )}
           {updaterPhase === "error" && (
             <>
               <p className="text-[11px] text-red-300/80 break-words">{updaterError || "Unknown update error"}</p>
               <div className="flex items-center gap-2">
-                {popoverAction("Retry", () => { void checkForUpdate({ silent: false }); }, "primary")}
+                {popoverAction("Retry", () => { void checkForUpdate({ silent: false, source: "popover" }); }, "primary")}
                 {popoverAction("Dismiss", dismissUpdater)}
               </div>
             </>
           )}
-          {updaterPhase === "idle" && (
-            <>
-              <p className="text-[11px] text-zinc-500">Porta checks on launch, periodically, and when the window regains focus.</p>
-              <div className="flex items-center gap-2">
-                {popoverAction("Check now", () => { void checkForUpdate({ silent: false }); }, "primary")}
-              </div>
-            </>
+          {(updaterPhase === "idle" || updaterPhase === "uptodate") && (
+            <div className="flex items-center gap-2">
+              {popoverAction("Check now", () => { void checkForUpdate({ silent: false, source: "popover" }); }, "primary")}
+            </div>
           )}
-          <div className="pt-2 border-t border-white/[0.06]">
-            <p className="text-[10px] text-zinc-600 whitespace-pre-line">{systemTooltip}</p>
-          </div>
+
+          {/* System health surfaces only when something's actually wrong — when
+              all good, the green dot already says so. */}
+          {systemIssues && (
+            <div className="pt-2 border-t border-white/[0.06]">
+              <p className="text-[10px] text-amber-300/80 whitespace-pre-line">{systemIssues}</p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -551,7 +561,7 @@ function SidebarStatusRow() {
     const tooltip = `System status unavailable\n${updateSummary}\nPorta ${__BUILD_TAG__}`;
     return (
       <div ref={rowRef} className="relative">
-        {open && <UpdatePopover systemTooltip="System status unavailable" />}
+        {open && <UpdatePopover systemIssues="System status unavailable" />}
         <div
           role="button"
           tabIndex={0}
@@ -590,15 +600,16 @@ function SidebarStatusRow() {
   const dotClass = updateDot ?? setupDotClass;
 
   const label = `v${__BUILD_TAG__}`;
-  const systemTooltip =
-    tone === "ok" ? `All systems go\nPorta ${__BUILD_TAG__}` : `${issues.join("\n")}\nPorta ${__BUILD_TAG__}`;
-  const tooltip = `${updateSummary}\n${systemTooltip}`;
+  // Only surface system status as text when there's a problem; a healthy stack
+  // is conveyed by the green dot alone.
+  const systemIssues = tone === "ok" ? null : issues.join("\n");
+  const tooltip = `${updateSummary} · Porta ${__BUILD_TAG__}${systemIssues ? `\n${systemIssues}` : ""}`;
 
   const dot = <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />;
 
   return (
     <div ref={rowRef} className="relative">
-      {open && <UpdatePopover systemTooltip={systemTooltip} />}
+      {open && <UpdatePopover systemIssues={systemIssues} />}
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 hover:text-zinc-500 hover:bg-white/[0.05] transition-all duration-100 font-mono"
