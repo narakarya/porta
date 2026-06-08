@@ -178,7 +178,6 @@ function highlightLine(line: string, query: string): React.ReactNode {
 
 // ── Level filter ──────────────────────────────────────────────────────────────
 type EnabledLevels = Set<NonNullable<LogLevel>>;
-const ALL_FILTER_LEVELS: NonNullable<LogLevel>[] = ["error", "warn", "success", "info", "debug"];
 
 const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; activeCls: string }[] = [
   { key: "error",   label: "ERR",  activeCls: "bg-red-500/15 text-red-400 border-red-500/25" },
@@ -222,6 +221,7 @@ interface LogLineProps {
   isActiveMatch: boolean;
   copied: boolean;
   blockCopied: boolean;
+  wrap: boolean;
   onCopy: (text: string, idx: number) => void;
   onCopyBlock: (idx: number) => void;
   matchRefMap: React.MutableRefObject<Map<number, HTMLDivElement>>;
@@ -229,7 +229,7 @@ interface LogLineProps {
 
 const LogLine = memo(function LogLine({
   text, level, isContinuation, ownerLevel, originalIndex, filteredIdx, crashed, query,
-  isMatch, isActiveMatch, copied, blockCopied, onCopy, onCopyBlock, matchRefMap,
+  isMatch, isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock, matchRefMap,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
@@ -277,7 +277,7 @@ const LogLine = memo(function LogLine({
         )}
       </span>
       <span
-        className={`terminal-log-line flex-1 min-w-max text-[13.5px] ${textCls} ${
+        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[13.5px] ${textCls} ${
           isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
       >
@@ -312,11 +312,14 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [enabledLevels, setEnabledLevels] = useState<EnabledLevels>(new Set(ALL_FILTER_LEVELS));
+  // Additive level filter: empty = no filter, show everything. Toggling a pill
+  // ON narrows the view to *only* the selected levels.
+  const [enabledLevels, setEnabledLevels] = useState<EnabledLevels>(new Set());
   const [followTail, setFollowTail] = useState(true);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
+  const [wrap, setWrap] = useState(true);
   const [copiedToast, setCopiedToast] = useState(false);
   const [localLogs, setLocalLogs] = useState<ProcessedLine[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -544,23 +547,19 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   };
   const handleCopyBlock = useMemo(() => (index: number) => copyBlockRef.current(index), []);
 
-  const allLevelsEnabled = enabledLevels.size === ALL_FILTER_LEVELS.length;
+  const filterActive = enabledLevels.size > 0;
 
   function toggleLevel(level: NonNullable<LogLevel>) {
     setEnabledLevels((prev) => {
       const next = new Set(prev);
-      if (next.has(level)) {
-        if (next.size === 1) return prev;
-        next.delete(level);
-      } else {
-        next.add(level);
-      }
+      if (next.has(level)) next.delete(level);
+      else next.add(level);
       return next;
     });
   }
 
   function resetLevels() {
-    setEnabledLevels(new Set(ALL_FILTER_LEVELS));
+    setEnabledLevels(new Set());
   }
 
   // Continuation detection — "orphan inheritance" over the raw stream order.
@@ -591,15 +590,19 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     const out: { line: ProcessedLine; originalIndex: number }[] = [];
     for (let i = 0; i < allLogs.length; i++) {
       const line = allLogs[i];
-      if (!allLevelsEnabled) {
+      if (filterActive) {
         const meta = lineMeta[i];
         const effLevel = meta.isContinuation ? meta.ownerLevel : line.level;
-        if (effLevel && !enabledLevels.has(effLevel)) continue;
+        // Show only the selected levels (a continuation inherits its owner's
+        // level, so error stacktraces ride along with their header). When a
+        // filter is active, level-less standalone stdout is hidden too — the
+        // view is exactly what was toggled, nothing else.
+        if (!effLevel || !enabledLevels.has(effLevel)) continue;
       }
       out.push({ line, originalIndex: i });
     }
     return out;
-  }, [allLogs, lineMeta, enabledLevels, allLevelsEnabled]);
+  }, [allLogs, lineMeta, enabledLevels, filterActive]);
 
   // Use a Set for O(1) isMatch lookup instead of Array.includes in the render loop.
   const { searchMatches, searchMatchSet } = useMemo(() => {
@@ -734,9 +737,15 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           )}
         </div>
 
-        <span className="text-zinc-700 text-[12px]">·</span>
-        <span className="text-[11px] text-zinc-600">
-          {localLogs === null ? "loading…" : `${allLogs.length} lines${truncated ? " (capped)" : ""}`}
+        <span className="shrink-0 text-[11px] text-zinc-500 bg-white/[0.04] border border-white/[0.06] rounded-md px-1.5 py-0.5">
+          {localLogs === null ? (
+            "loading…"
+          ) : (
+            <>
+              <span className="tabular-nums text-zinc-400">{allLogs.length.toLocaleString()}</span> lines
+              {truncated && <span className="text-amber-500/70"> · capped</span>}
+            </>
+          )}
         </span>
 
         <div className="flex-1 relative max-w-[400px]">
@@ -761,32 +770,31 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         </div>
 
         {matchCount !== null && (
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[11px] text-zinc-500">
-              {matchCount === 0 ? "no matches" : `${activeMatchIndex + 1}/${matchCount}`}
+          <div className="flex items-center shrink-0 gap-0.5 rounded-lg border border-white/[0.08] bg-white/[0.04] pl-2.5 pr-1 py-0.5">
+            <span className={`text-[11px] tabular-nums ${matchCount === 0 ? "text-zinc-600" : "text-zinc-400"}`}>
+              {matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
             </span>
-            {matchCount > 0 && (
-              <>
-                <button
-                  onClick={goToPrevMatch}
-                  className="p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
-                  title="Previous match (Shift+Enter)"
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <path d="M2 6.5L5 3.5L8 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-                <button
-                  onClick={goToNextMatch}
-                  className="p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
-                  title="Next match (Enter)"
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              </>
-            )}
+            <div className="w-px h-4 bg-white/[0.10] mx-1.5" />
+            <button
+              onClick={goToPrevMatch}
+              disabled={matchCount === 0}
+              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default transition-colors"
+              title="Previous match (Shift+Enter)"
+            >
+              <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                <path d="M2.5 7.5L6 4l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button
+              onClick={goToNextMatch}
+              disabled={matchCount === 0}
+              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default transition-colors"
+              title="Next match (Enter)"
+            >
+              <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
         )}
 
@@ -799,26 +807,48 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               <button
                 key={key}
                 onClick={() => toggleLevel(key)}
-                className={`px-2 py-1 rounded-md text-[10px] font-medium border transition-colors ${
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
                   isActive
                     ? activeCls
-                    : "bg-white/[0.04] text-zinc-500/40 border border-white/[0.04] hover:text-zinc-400 line-through"
+                    : "bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300 hover:bg-white/[0.06]"
                 }`}
+                title={isActive ? `Showing only ${label}` : `Filter to ${label}`}
               >
                 {label}
               </button>
             );
           })}
-          {!allLevelsEnabled && (
-            <button
-              onClick={resetLevels}
-              className="px-1.5 py-1 rounded-md text-[10px] font-medium border bg-white/[0.04] text-zinc-500 border-white/[0.06] hover:text-zinc-300 transition-colors"
-              title="Show all levels"
-            >
-              ×
-            </button>
-          )}
+          {/* Always rendered to reserve its slot — fades in only when a filter
+              is active, so toggling a pill never shifts the row. */}
+          <button
+            onClick={resetLevels}
+            disabled={!filterActive}
+            aria-hidden={!filterActive}
+            className={`px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-all ${
+              filterActive
+                ? "bg-white/[0.04] text-zinc-400 border-white/[0.06] hover:text-zinc-200 opacity-100"
+                : "opacity-0 pointer-events-none border-transparent"
+            }`}
+            title="Clear filter — show all levels"
+          >
+            ×
+          </button>
         </div>
+
+        <button
+          onClick={() => setWrap((w) => !w)}
+          title={wrap ? "Disable soft wrap" : "Soft-wrap long lines"}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${
+            wrap
+              ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
+              : "bg-white/[0.04] text-zinc-500 border border-white/[0.06] hover:text-zinc-300"
+          }`}
+        >
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+            <path d="M1 2h10M1 6h7.5a2 2 0 110 4H6.5m0 0l1.5-1.5M6.5 10L8 11.5M1 10h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Wrap
+        </button>
 
         <button
           onClick={() => {
@@ -946,7 +976,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         {filteredLines.length === 0 ? (
           <p className="text-[12px] text-zinc-600 mt-8 text-center select-none">
-            {(!allLevelsEnabled) ? "No lines match your filter." : "No output yet."}
+            {filterActive ? "No lines match your filter." : "No output yet."}
           </p>
         ) : (
           <div className="flex flex-col w-full">
@@ -968,6 +998,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   isActiveMatch={isActiveMatch}
                   copied={copiedLine === originalIndex}
                   blockCopied={copiedBlock === originalIndex}
+                  wrap={wrap}
                   onCopy={handleCopyLine}
                   onCopyBlock={handleCopyBlock}
                   matchRefMap={matchLineRefs}
@@ -981,7 +1012,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
       <div className="flex items-center gap-3 px-4 py-2 border-t border-white/[0.05] shrink-0 select-none">
         <span className="text-[10px] text-zinc-700 font-mono">
-          {(!allLevelsEnabled) ? `Showing ${filteredLines.length} of ${allLogs.length} lines` : `${allLogs.length} lines`}
+          {filterActive ? `Showing ${filteredLines.length} of ${allLogs.length} lines` : `${allLogs.length} lines`}
         </span>
         <div className="flex items-center gap-3 text-[10px] text-zinc-700">
           <span className="text-red-400/60">● ERR</span>

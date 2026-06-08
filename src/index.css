@@ -67,6 +67,15 @@
     word-break: normal;
     line-height: 1.6;
   }
+  /* Soft-wrap variant — toggled from the toolbar. Wraps long lines (SQL,
+     stacktraces) instead of forcing horizontal scroll; breaks mid-token so a
+     single unbroken string still fits. */
+  .terminal-log-line-wrap {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.6;
+  }
 }
 
 @keyframes spin {
