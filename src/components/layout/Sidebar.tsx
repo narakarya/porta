@@ -6,7 +6,7 @@ import type { Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import type { Service } from "../../types";
 import Tooltip from "../shared/Tooltip";
-import { checkForUpdate, dismissUpdater, restartForUpdate, startUpdateDownload } from "../../lib/updater";
+import { checkForUpdate, dismissUpdater } from "../../lib/updater";
 
 // Sidebar modals — kept out of the initial bundle since they only show on
 // click. Without lazy() they'd be parsed up-front for every app launch.
@@ -512,26 +512,11 @@ function SidebarStatusRow() {
           <p className="mt-1 text-[10px] text-zinc-600 font-mono">Porta {__BUILD_TAG__}</p>
         </div>
         <div className="px-3 py-2 space-y-2">
-          {updaterPhase === "available" && updaterInfo && (
-            <>
-              <p className="text-[11px] text-zinc-500">
-                New version <span className="font-mono text-amber-300">{updaterInfo.version}</span> is available.
-              </p>
-              <div className="flex items-center gap-2">
-                {popoverAction("Download", () => { void startUpdateDownload(); }, "primary")}
-                {popoverAction("Later", dismissUpdater)}
-              </div>
-            </>
-          )}
-          {updaterPhase === "ready" && updaterInfo && (
-            <>
-              <p className="text-[11px] text-zinc-500">
-                Version <span className="font-mono text-amber-300">{updaterInfo.version}</span> is installed and waiting for restart.
-              </p>
-              <div className="flex items-center gap-2">
-                {popoverAction("Restart now", () => { void restartForUpdate(); }, "primary")}
-              </div>
-            </>
+          {(updaterPhase === "available" || updaterPhase === "ready") && updaterInfo && (
+            <p className="text-[11px] text-zinc-500">
+              <span className="font-mono text-amber-300">{updaterInfo.version}</span>{" "}
+              {updaterPhase === "ready" ? "installed — see the update prompt to restart." : "available — see the update prompt to install."}
+            </p>
           )}
           {(updaterPhase === "checking" || updaterPhase === "downloading" || updaterPhase === "installing" || updaterPhase === "restarting") && (
             <p className="text-[11px] text-zinc-500">Update task is running in the background.</p>
