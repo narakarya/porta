@@ -6,6 +6,7 @@ import type { Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import type { Service } from "../../types";
 import Tooltip from "../shared/Tooltip";
+import { checkForUpdate, dismissUpdater, restartForUpdate, startUpdateDownload } from "../../lib/updater";
 
 // Sidebar modals — kept out of the initial bundle since they only show on
 // click. Without lazy() they'd be parsed up-front for every app launch.
@@ -383,7 +384,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </svg>
           <span>Settings</span>
         </button>
-        <SidebarStatusRow onOpenSettings={onOpenSettings} />
+        <SidebarStatusRow />
       </div>
 
       {contextMenu && (
@@ -434,16 +435,150 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
  * Compact status/version row. The dot carries system state via tooltip; the
  * text stays focused on the app version.
  */
-function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const setupStatus = usePortaStore((s) => s.setupStatus);
-  if (!setupStatus) {
+function SidebarStatusRow() {
+  const { setupStatus, updaterPhase, updaterInfo, updaterError } = usePortaStore(
+    useShallow((s) => ({
+      setupStatus: s.setupStatus,
+      updaterPhase: s.updaterPhase,
+      updaterInfo: s.updaterInfo,
+      updaterError: s.updaterError,
+    })),
+  );
+  const [open, setOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (rowRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const updateDot =
+    updaterPhase === "available" || updaterPhase === "ready" ? "bg-amber-400 pulse-dot" :
+    updaterPhase === "checking" || updaterPhase === "downloading" || updaterPhase === "installing" || updaterPhase === "restarting" ? "bg-blue-400 pulse-dot" :
+    updaterPhase === "error" ? "bg-red-400 pulse-dot" :
+    null;
+
+  const updateSummary =
+    updaterPhase === "available" && updaterInfo ? `Update ${updaterInfo.version} available` :
+    updaterPhase === "ready" && updaterInfo ? `Update ${updaterInfo.version} ready` :
+    updaterPhase === "checking" ? "Checking for updates" :
+    updaterPhase === "downloading" && updaterInfo ? `Downloading ${updaterInfo.version}` :
+    updaterPhase === "installing" ? "Installing update" :
+    updaterPhase === "restarting" ? "Restarting" :
+    updaterPhase === "error" ? "Update check failed" :
+    "No update pending";
+
+  function popoverAction(label: string, onClick: () => void, tone: "primary" | "neutral" = "neutral") {
     return (
-      <Tooltip label={`System status unavailable\nPorta ${__BUILD_TAG__}`}>
-        <div className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 font-mono select-text">
-          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-600" />
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+          tone === "primary"
+            ? "text-blue-300 bg-blue-500/10 hover:bg-blue-500/20"
+            : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]"
+        }`}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  function UpdatePopover({ systemTooltip }: { systemTooltip: string }) {
+    return (
+      <div
+        className="absolute left-0 bottom-full mb-1.5 w-[220px] rounded-lg border border-white/[0.10] bg-[#1c1c1e] shadow-2xl overflow-hidden z-50"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-3 py-2 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${updateDot ?? "bg-emerald-400"}`} />
+            <p className="text-[12px] font-medium text-zinc-200 truncate">{updateSummary}</p>
+          </div>
+          <p className="mt-1 text-[10px] text-zinc-600 font-mono">Porta {__BUILD_TAG__}</p>
+        </div>
+        <div className="px-3 py-2 space-y-2">
+          {updaterPhase === "available" && updaterInfo && (
+            <>
+              <p className="text-[11px] text-zinc-500">
+                New version <span className="font-mono text-amber-300">{updaterInfo.version}</span> is available.
+              </p>
+              <div className="flex items-center gap-2">
+                {popoverAction("Download", () => { void startUpdateDownload(); }, "primary")}
+                {popoverAction("Later", dismissUpdater)}
+              </div>
+            </>
+          )}
+          {updaterPhase === "ready" && updaterInfo && (
+            <>
+              <p className="text-[11px] text-zinc-500">
+                Version <span className="font-mono text-amber-300">{updaterInfo.version}</span> is installed and waiting for restart.
+              </p>
+              <div className="flex items-center gap-2">
+                {popoverAction("Restart now", () => { void restartForUpdate(); }, "primary")}
+              </div>
+            </>
+          )}
+          {(updaterPhase === "checking" || updaterPhase === "downloading" || updaterPhase === "installing" || updaterPhase === "restarting") && (
+            <p className="text-[11px] text-zinc-500">Update task is running in the background.</p>
+          )}
+          {updaterPhase === "error" && (
+            <>
+              <p className="text-[11px] text-red-300/80 break-words">{updaterError || "Unknown update error"}</p>
+              <div className="flex items-center gap-2">
+                {popoverAction("Retry", () => { void checkForUpdate({ silent: false }); }, "primary")}
+                {popoverAction("Dismiss", dismissUpdater)}
+              </div>
+            </>
+          )}
+          {updaterPhase === "idle" && (
+            <>
+              <p className="text-[11px] text-zinc-500">Porta checks on launch, periodically, and when the window regains focus.</p>
+              <div className="flex items-center gap-2">
+                {popoverAction("Check now", () => { void checkForUpdate({ silent: false }); }, "primary")}
+              </div>
+            </>
+          )}
+          <div className="pt-2 border-t border-white/[0.06]">
+            <p className="text-[10px] text-zinc-600 whitespace-pre-line">{systemTooltip}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!setupStatus) {
+    const dotClass = updateDot ?? "bg-zinc-600";
+    const tooltip = `System status unavailable\n${updateSummary}\nPorta ${__BUILD_TAG__}`;
+    return (
+      <div ref={rowRef} className="relative">
+        {open && <UpdatePopover systemTooltip="System status unavailable" />}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen((v) => !v); }}
+          title={tooltip}
+          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 hover:text-zinc-500 hover:bg-white/[0.05] transition-all duration-100 font-mono select-text"
+        >
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
           <span className="truncate">v{__BUILD_TAG__}</span>
         </div>
-      </Tooltip>
+      </div>
     );
   }
 
@@ -463,37 +598,30 @@ function SidebarStatusRow({ onOpenSettings }: { onOpenSettings: () => void }) {
         ? "warn"
         : "ok";
 
-  const dotClass =
+  const setupDotClass =
     tone === "ok"   ? "bg-emerald-400" :
     tone === "warn" ? "bg-amber-400 pulse-dot" :
                       "bg-red-400 pulse-dot";
+  const dotClass = updateDot ?? setupDotClass;
 
   const label = `v${__BUILD_TAG__}`;
-  const tooltip =
+  const systemTooltip =
     tone === "ok" ? `All systems go\nPorta ${__BUILD_TAG__}` : `${issues.join("\n")}\nPorta ${__BUILD_TAG__}`;
+  const tooltip = `${updateSummary}\n${systemTooltip}`;
 
   const dot = <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />;
 
-  if (tone === "ok") {
-    return (
-      <Tooltip label={tooltip}>
-        <div className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 font-mono select-text">
-          {dot}
-          <span className="truncate">{label}</span>
-        </div>
-      </Tooltip>
-    );
-  }
-
   return (
-    <Tooltip label={tooltip}>
+    <div ref={rowRef} className="relative">
+      {open && <UpdatePopover systemTooltip={systemTooltip} />}
       <button
-        onClick={onOpenSettings}
+        onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 hover:text-zinc-500 hover:bg-white/[0.05] transition-all duration-100 font-mono"
+        title={tooltip}
       >
         {dot}
         <span className="truncate">{label}</span>
       </button>
-    </Tooltip>
+    </div>
   );
 }
