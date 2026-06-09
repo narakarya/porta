@@ -131,12 +131,17 @@ const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }>
 interface ProcessedLine {
   text: string;
   level: LogLevel;
+  /** Absolute, monotonic line number in the stream. Assigned once at ingestion
+   *  and never reassigned, so the gutter number for a given physical line stays
+   *  stable even as the ring buffer drops older lines off the head. (`processLine`
+   *  leaves it 0; every ingestion site overwrites it.) */
+  seq: number;
 }
 
 function processLine(raw: string): ProcessedLine | null {
   const clean = stripAnsi(raw);
   if (NOISE_RE.test(clean)) return null;
-  return { text: clean, level: detectLevel(clean) };
+  return { text: clean, level: detectLevel(clean), seq: 0 };
 }
 
 const MAX_LINES = 10000;
@@ -215,6 +220,8 @@ interface LogLineProps {
   isContinuation: boolean;
   ownerLevel: LogLevel;
   originalIndex: number;
+  /** Stable absolute line number for the gutter (see ProcessedLine.seq). */
+  seq: number;
   crashed: boolean;
   query: string;
   isActiveMatch: boolean;
@@ -226,7 +233,7 @@ interface LogLineProps {
 }
 
 const LogLine = memo(function LogLine({
-  text, level, isContinuation, ownerLevel, originalIndex, crashed, query,
+  text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
   isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
@@ -249,7 +256,7 @@ const LogLine = memo(function LogLine({
       }`}
     >
       <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
-        {originalIndex + 1}
+        {seq + 1}
       </span>
       <span className="w-8 shrink-0 pt-[1px] select-none">
         {badge && (
@@ -325,6 +332,13 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   // triggered its own render — at high log rates React couldn't keep up.
   const pendingRef = useRef<ProcessedLine[]>([]);
   const rafRef = useRef<number | null>(null);
+  // Next absolute line number to hand out (see ProcessedLine.seq). Reset per
+  // source switch so each stream's gutter starts at 1.
+  const seqRef = useRef(0);
+  // Once the user clicks "Load full history", stop the live ring buffer from
+  // re-truncating to MAX_LINES — otherwise the next incoming line would chop the
+  // freshly-loaded history right back down and the view would jump.
+  const fullHistoryRef = useRef(false);
 
   // Build the service list. Process apps have a single "process" entry that
   // mirrors the app's run state; docker/compose apps fetch their containers
@@ -380,6 +394,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     setLocalLogs(null);
     setTruncated(false);
     pendingRef.current = [];
+    seqRef.current = 0;
+    fullHistoryRef.current = false;
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -390,10 +406,14 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
       if (pendingRef.current.length === 0) return;
       const batch = pendingRef.current;
       pendingRef.current = [];
+      // Stamp absolute line numbers here (not inside the setState updater, which
+      // React may run twice) so each line's gutter number is assigned exactly once.
+      for (const p of batch) p.seq = seqRef.current++;
       setLocalLogs((prev) => {
         const base = prev ?? [];
         const combined = base.concat(batch);
-        if (combined.length > MAX_LINES) {
+        // After "Load full history" the buffer is intentionally unbounded.
+        if (!fullHistoryRef.current && combined.length > MAX_LINES) {
           setTruncated(true);
           return combined.slice(combined.length - MAX_LINES);
         }
@@ -418,8 +438,10 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           const processed: ProcessedLine[] = [];
           for (const raw of rawLines) {
             const p = processLine(raw);
-            if (p) processed.push(p);
+            if (p) { p.seq = processed.length; processed.push(p); }
           }
+          // Live lines that stream in after this resolve continue the numbering.
+          seqRef.current = processed.length;
           if (processed.length > MAX_LINES) {
             setTruncated(true);
             setLocalLogs(processed.slice(processed.length - MAX_LINES));
@@ -464,7 +486,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           })
           .catch((e) => {
             if (!cancelled) {
-              setLocalLogs([{ text: `error: ${String(e)}`, level: "error" }]);
+              setLocalLogs([{ text: `error: ${String(e)}`, level: "error", seq: 0 }]);
             }
           });
       }
@@ -488,7 +510,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     const out: ProcessedLine[] = [];
     for (const raw of logs) {
       const p = processLine(raw);
-      if (p) out.push(p);
+      if (p) { p.seq = out.length; out.push(p); }
     }
     return out;
   }, [localLogs, logs]);
@@ -700,8 +722,12 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     const processed: ProcessedLine[] = [];
     for (const line of raw) {
       const p = processLine(line);
-      if (p) processed.push(p);
+      if (p) { p.seq = processed.length; processed.push(p); }
     }
+    seqRef.current = processed.length;
+    // Keep the full set — don't let the live ring buffer chop it back to
+    // MAX_LINES on the next incoming line.
+    fullHistoryRef.current = true;
     setLocalLogs(processed);
     setTruncated(false);
   }
@@ -983,12 +1009,13 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               const isActiveMatch = !!debouncedQuery && searchMatches.length > 0 && searchMatches[activeMatchIndex] === filteredIdx;
               return (
                 <LogLine
-                  key={originalIndex}
+                  key={line.seq}
                   text={line.text}
                   level={line.level}
                   isContinuation={lineMeta[originalIndex].isContinuation}
                   ownerLevel={lineMeta[originalIndex].ownerLevel}
                   originalIndex={originalIndex}
+                  seq={line.seq}
                   crashed={!!crashed}
                   query={debouncedQuery}
                   isActiveMatch={isActiveMatch}
