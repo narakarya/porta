@@ -87,11 +87,20 @@ fn handle_request(
 
     let target = find_app_by_host(&apps, &workspaces, &host);
 
+    // Only wake apps the idle watcher actually put to sleep (`auto_slept`). A
+    // manual Stop is intentional — the app isn't idle, it's off — so it must
+    // stay down on a hit. We also wake when a concurrent request already started
+    // the wake (id in `waking`): the leader's `start_single` clears `auto_slept`
+    // immediately, so without this a sibling request would see auto_slept=false
+    // and bail out with a 502 mid-wake.
+    let already_waking = target
+        .as_ref()
+        .is_some_and(|a| waking.lock().unwrap().contains(&a.id));
     let eligible = target.as_ref().is_some_and(|a| {
         a.auto_sleep_enabled
             && !a.is_static()
             && !a.is_proxy()
-            && a.status != "running"
+            && (a.auto_slept || already_waking)
     });
 
     if let (Some(app), true) = (target, eligible) {
