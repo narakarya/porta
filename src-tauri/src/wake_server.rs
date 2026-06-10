@@ -74,9 +74,8 @@ fn handle_request(
         .map(|h| h.value.as_str().to_string())
         .unwrap_or_default();
     let host = host.split(':').next().unwrap_or("").trim().to_lowercase();
-    let redirect_host = forwarded_header(&request, "x-forwarded-host")
-        .and_then(|h| first_header_value(&h))
-        .unwrap_or_else(|| host.clone());
+    let forwarded_redirect_host =
+        forwarded_header(&request, "x-forwarded-host").and_then(|h| first_header_value(&h));
     let redirect_scheme = forwarded_header(&request, "x-forwarded-proto")
         .and_then(|p| first_header_value(&p))
         .filter(|p| p == "http" || p == "https")
@@ -101,6 +100,13 @@ fn handle_request(
 
     let target = find_app_by_host(&apps, &workspaces, &host)
         .or_else(|| find_app_by_routes(&apps, &alias_routes, &host));
+    let redirect_host = forwarded_redirect_host
+        .or_else(|| {
+            target
+                .as_ref()
+                .and_then(|app| public_tunnel_host_for_local(app, &workspaces, &host))
+        })
+        .unwrap_or_else(|| host.clone());
 
     // Only wake apps the idle watcher actually put to sleep (`auto_slept`). A
     // manual Stop is intentional — the app isn't idle, it's off — so it must
@@ -227,6 +233,22 @@ fn first_header_value(value: &str) -> Option<String> {
         .map(str::to_lowercase)
 }
 
+fn public_tunnel_host_for_local(
+    app: &App,
+    workspaces: &[Workspace],
+    local_host: &str,
+) -> Option<String> {
+    app.tunnel_public_hostnames(workspaces)
+        .into_iter()
+        .find_map(|(public, local)| {
+            if local.eq_ignore_ascii_case(local_host) {
+                Some(public.to_lowercase())
+            } else {
+                None
+            }
+        })
+}
+
 fn respond_html(request: tiny_http::Request, status: u16, body: &str) {
     let response = Response::from_string(body)
         .with_status_code(status)
@@ -296,5 +318,81 @@ fn route_app_id(route: &Route) -> Option<&str> {
         ReverseProxy { app_id, .. } => app_id.as_deref(),
         FileServer { app_id, .. } => app_id.as_deref(),
         AliasReverseProxy { app_id, .. } => app_id.as_deref(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn test_app() -> App {
+        App {
+            id: "app-1".into(),
+            workspace_id: Some("w".into()),
+            name: "touring-webhook".into(),
+            root_dir: "/tmp/touring".into(),
+            port: 3018,
+            subdomain: Some("tgr-bwi-26-webhook".into()),
+            start_command: "npm start".into(),
+            start_command_source: "manual".into(),
+            status: "stopped".into(),
+            pid: None,
+            env_file: None,
+            auto_start: false,
+            kind: "process".into(),
+            docker_image: None,
+            docker_container_port: None,
+            docker_args: None,
+            docker_volumes: vec![],
+            compose_file: None,
+            network_share: false,
+            tunnel_name: Some("porta-nasrulgunawan".into()),
+            tunnel_custom_hostname: Some("tgr-bwi-26.nasrulgunawan.com".into()),
+            env_vars: HashMap::new(),
+            restart_policy: "on-failure".into(),
+            max_retries: 3,
+            health_check_path: None,
+            depends_on: vec![],
+            extra_subdomains: vec![],
+            custom_domain: None,
+            tunnel_provider: Some("cloudflare".into()),
+            tunnel_auto_start: true,
+            tunnel_url: None,
+            tunnel_active: false,
+            port_bindings: vec![],
+            env_profiles: vec![],
+            active_profile_id: None,
+            basic_auth_enabled: false,
+            basic_auth_username: None,
+            basic_auth_password_hash: None,
+            basic_auth_password_set: false,
+            host_auth_overrides: vec![],
+            tunnel_alias_domain: None,
+            tunnel_alias_rewrite_host: true,
+            auto_sleep_enabled: true,
+            idle_timeout_secs: 1800,
+            auto_slept: true,
+        }
+    }
+
+    #[test]
+    fn maps_local_caddy_host_back_to_public_tunnel_host() {
+        let workspaces = vec![Workspace {
+            id: "w".into(),
+            name: "Tigger".into(),
+            domain: "tigger.test".into(),
+            deployment: None,
+        }];
+
+        assert_eq!(
+            public_tunnel_host_for_local(
+                &test_app(),
+                &workspaces,
+                "tgr-bwi-26-webhook.tigger.test",
+            )
+            .as_deref(),
+            Some("tgr-bwi-26.nasrulgunawan.com")
+        );
     }
 }
