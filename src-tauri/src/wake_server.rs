@@ -24,7 +24,7 @@ use tiny_http::{Header, Response, Server};
 
 use crate::app_state::AppState;
 use crate::commands::app_lifecycle::{start_single, wait_for_port};
-use crate::db::models::{App, Workspace};
+use crate::db::models::{App, Route, Workspace};
 
 /// How long to wait for a woken app's port to accept connections before giving
 /// up and returning a "still waking" error. Covers cold docker/compose starts.
@@ -74,18 +74,33 @@ fn handle_request(
         .map(|h| h.value.as_str().to_string())
         .unwrap_or_default();
     let host = host.split(':').next().unwrap_or("").trim().to_lowercase();
+    let redirect_host = forwarded_header(&request, "x-forwarded-host")
+        .and_then(|h| first_header_value(&h))
+        .unwrap_or_else(|| host.clone());
+    let redirect_scheme = forwarded_header(&request, "x-forwarded-proto")
+        .and_then(|p| first_header_value(&p))
+        .filter(|p| p == "http" || p == "https")
+        .unwrap_or_else(|| {
+            if crate::setup::certs_exist() {
+                "https".into()
+            } else {
+                "http".into()
+            }
+        });
     let uri = request.url().to_string();
 
     let state = handle.state::<AppState>();
-    let (apps, workspaces) = {
+    let (apps, workspaces, alias_routes) = {
         let db = state.db.lock().unwrap();
         (
             db.list_apps().unwrap_or_default(),
             db.list_workspaces().unwrap_or_default(),
+            crate::commands::static_alias_routes(&db),
         )
     };
 
-    let target = find_app_by_host(&apps, &workspaces, &host);
+    let target = find_app_by_host(&apps, &workspaces, &host)
+        .or_else(|| find_app_by_routes(&apps, &alias_routes, &host));
 
     // Only wake apps the idle watcher actually put to sleep (`auto_slept`). A
     // manual Stop is intentional — the app isn't idle, it's off — so it must
@@ -97,14 +112,19 @@ fn handle_request(
         .as_ref()
         .is_some_and(|a| waking.lock().unwrap().contains(&a.id));
     let eligible = target.as_ref().is_some_and(|a| {
-        a.auto_sleep_enabled
-            && !a.is_static()
-            && !a.is_proxy()
-            && (a.auto_slept || already_waking)
+        a.auto_sleep_enabled && !a.is_static() && !a.is_proxy() && (a.auto_slept || already_waking)
     });
 
     if let (Some(app), true) = (target, eligible) {
-        wake_and_redirect(handle, waking, &app, &host, &uri, request);
+        wake_and_redirect(
+            handle,
+            waking,
+            &app,
+            &redirect_scheme,
+            &redirect_host,
+            &uri,
+            request,
+        );
     } else {
         // Unknown host or a manually-stopped app — don't auto-start. Return a
         // small page rather than Caddy's raw dial error.
@@ -119,6 +139,7 @@ fn wake_and_redirect(
     handle: &tauri::AppHandle,
     waking: &Arc<Mutex<HashSet<String>>>,
     app: &App,
+    redirect_scheme: &str,
     host: &str,
     uri: &str,
     request: tiny_http::Request,
@@ -178,14 +199,32 @@ fn wake_and_redirect(
         return;
     }
 
-    // App is up — bounce the client back to the original URL so the retry hits
-    // the live upstream through Caddy. Scheme matches Caddy's listener.
-    let scheme = if crate::setup::certs_exist() { "https" } else { "http" };
-    let location = format!("{}://{}{}", scheme, host, uri);
+    // App is up — bounce the client back to the client-facing URL so the retry
+    // hits the live upstream through Caddy. Tunnel paths can rewrite the origin
+    // Host to a local route, so prefer forwarded public host/proto when present.
+    let location = format!("{}://{}{}", redirect_scheme, host, uri);
     let response = Response::empty(307)
         .with_header(Header::from_bytes(&b"Location"[..], location.as_bytes()).unwrap())
         .with_header(Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]).unwrap());
     let _ = request.respond(response);
+}
+
+fn forwarded_header(request: &tiny_http::Request, name: &str) -> Option<String> {
+    request
+        .headers()
+        .iter()
+        .find(|h| h.field.to_string().eq_ignore_ascii_case(name))
+        .map(|h| h.value.as_str().trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+fn first_header_value(value: &str) -> Option<String> {
+    value
+        .split(',')
+        .next()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_lowercase)
 }
 
 fn respond_html(request: tiny_http::Request, status: u16, body: &str) {
@@ -228,11 +267,34 @@ fn find_app_by_host(apps: &[App], workspaces: &[Workspace], host: &str) -> Optio
     None
 }
 
-fn route_host(route: &crate::db::models::Route) -> String {
-    use crate::db::models::Route::*;
+fn find_app_by_routes(apps: &[App], routes: &[Route], host: &str) -> Option<App> {
+    if host.is_empty() {
+        return None;
+    }
+    for route in routes {
+        if route_host(route).eq_ignore_ascii_case(host) {
+            if let Some(app_id) = route_app_id(route) {
+                return apps.iter().find(|a| a.id == app_id).cloned();
+            }
+        }
+    }
+    None
+}
+
+fn route_host(route: &Route) -> String {
+    use Route::*;
     match route {
         ReverseProxy { host, .. } => host.clone(),
         FileServer { host, .. } => host.clone(),
         AliasReverseProxy { host, .. } => host.clone(),
+    }
+}
+
+fn route_app_id(route: &Route) -> Option<&str> {
+    use Route::*;
+    match route {
+        ReverseProxy { app_id, .. } => app_id.as_deref(),
+        FileServer { app_id, .. } => app_id.as_deref(),
+        AliasReverseProxy { app_id, .. } => app_id.as_deref(),
     }
 }
