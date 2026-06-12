@@ -225,6 +225,7 @@ interface LogLineProps {
   crashed: boolean;
   query: string;
   isActiveMatch: boolean;
+  isAlternateRow: boolean;
   copied: boolean;
   blockCopied: boolean;
   wrap: boolean;
@@ -234,7 +235,7 @@ interface LogLineProps {
 
 const LogLine = memo(function LogLine({
   text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
-  isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock,
+  isActiveMatch, isAlternateRow, copied, blockCopied, wrap, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
@@ -248,12 +249,15 @@ const LogLine = memo(function LogLine({
   const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
   const railLevel = crashed ? "error" : ownerLevel;
   const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
+  const rowBg = isActiveMatch
+    ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20"
+    : isAlternateRow
+      ? "bg-white/[0.025]"
+      : "bg-transparent";
 
   return (
     <div
-      className={`flex gap-2 py-[2.5px] hover:bg-white/[0.02] rounded px-1 group items-start ${
-        isActiveMatch ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20" : ""
-      }`}
+      className={`flex gap-2 py-[2.5px] rounded px-1 group items-start ${rowBg} hover:bg-white/[0.045]`}
     >
       <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
         {seq + 1}
@@ -1019,6 +1023,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   crashed={!!crashed}
                   query={debouncedQuery}
                   isActiveMatch={isActiveMatch}
+                  isAlternateRow={originalIndex % 2 === 1}
                   copied={copiedLine === originalIndex}
                   blockCopied={copiedBlock === originalIndex}
                   wrap={wrap}
