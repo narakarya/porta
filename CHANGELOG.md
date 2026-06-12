@@ -4,6 +4,14 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.31] — 2026-06-12
+
+### Changed
+- **Debug log viewer**: grouped log entries now alternate text color by
+  block, so multiline query traces stay visually tied together.
+- **Release docs**: clarified release tagging so `git push --tags` is avoided
+  and release summaries are recorded in `CHANGELOG.md`.
+
 ## [0.6.30] — 2026-06-12
 
 ### Changed
