@@ -225,7 +225,7 @@ interface LogLineProps {
   crashed: boolean;
   query: string;
   isActiveMatch: boolean;
-  isAlternateRow: boolean;
+  isAlternateBlock: boolean;
   copied: boolean;
   blockCopied: boolean;
   wrap: boolean;
@@ -235,29 +235,32 @@ interface LogLineProps {
 
 const LogLine = memo(function LogLine({
   text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
-  isActiveMatch, isAlternateRow, copied, blockCopied, wrap, onCopy, onCopyBlock,
+  isActiveMatch, isAlternateBlock, copied, blockCopied, wrap, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
-  // entry above it — render the body muted but tint the left rail with the
-  // owner's level so the block reads as one unit tied to its severity.
+  // entry above it — keep the whole block on the same alternating text tone,
+  // then tint the left rail with the owner's level so the block reads as one
+  // unit tied to its severity.
+  const blockTextCls = isAlternateBlock ? "text-cyan-200/70" : "text-zinc-400";
+  const continuationLevel = crashed ? "error" : ownerLevel;
+  const continuationUsesSeverity = continuationLevel === "error" || continuationLevel === "warn" || continuationLevel === "info" || continuationLevel === "success";
+  const headerUsesSeverity = effectiveLevel === "error" || effectiveLevel === "warn" || effectiveLevel === "info" || effectiveLevel === "success";
   const textCls = crashed
     ? LEVEL_CLASS.error
     : isContinuation
-      ? "text-zinc-400"
-      : effectiveLevel ? LEVEL_CLASS[effectiveLevel] : "text-zinc-200";
+      ? continuationUsesSeverity && continuationLevel ? LEVEL_CLASS[continuationLevel] : blockTextCls
+      : headerUsesSeverity && effectiveLevel ? LEVEL_CLASS[effectiveLevel] : blockTextCls;
   const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
   const railLevel = crashed ? "error" : ownerLevel;
   const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
   const rowBg = isActiveMatch
     ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20"
-    : isAlternateRow
-      ? "bg-white/[0.025]"
-      : "bg-transparent";
+    : "bg-transparent";
 
   return (
     <div
-      className={`flex gap-2 py-[2.5px] rounded px-1 group items-start ${rowBg} hover:bg-white/[0.045]`}
+      className={`flex gap-2 py-[2.5px] rounded px-1 group items-start ${rowBg} hover:bg-white/[0.025]`}
     >
       <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
         {seq + 1}
@@ -584,17 +587,43 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   // continuation of one) belongs to it: Ecto's `SELECT …` and `↳ caller`
   // lines attach to the `[debug] QUERY` header above. We record the owning
   // level so the line inherits its parent's severity for both rail tint and
-  // filtering. A blank line resets the chain, and standalone level-less
+  // filtering. We also assign an alternating block tone: a header and all of
+  // its continuations share one tone, then the next physical entry gets the
+  // other tone. A blank line resets the chain, and standalone level-less
   // stdout (no leveled header above) is never a continuation. Computed on
   // the full pre-filter array so adjacency reflects physical stream order.
   const lineMeta = useMemo(() => {
-    const meta = allLogs.map(() => ({ isContinuation: false, ownerLevel: null as LogLevel }));
+    const meta = allLogs.map(() => ({
+      isContinuation: false,
+      ownerLevel: null as LogLevel,
+      isAlternateBlock: false,
+    }));
     let chainLevel: LogLevel = null;
+    let currentAlternateBlock = true;
     for (let i = 0; i < allLogs.length; i++) {
       const { text, level } = allLogs[i];
-      if (text.trim() === "") { chainLevel = null; continue; }
-      if (level) { chainLevel = level; continue; }
-      if (chainLevel) meta[i] = { isContinuation: true, ownerLevel: chainLevel };
+      if (text.trim() === "") {
+        chainLevel = null;
+        currentAlternateBlock = !currentAlternateBlock;
+        meta[i].isAlternateBlock = currentAlternateBlock;
+        continue;
+      }
+      if (level) {
+        currentAlternateBlock = !currentAlternateBlock;
+        chainLevel = level;
+        meta[i].isAlternateBlock = currentAlternateBlock;
+        continue;
+      }
+      if (chainLevel) {
+        meta[i] = {
+          isContinuation: true,
+          ownerLevel: chainLevel,
+          isAlternateBlock: currentAlternateBlock,
+        };
+        continue;
+      }
+      currentAlternateBlock = !currentAlternateBlock;
+      meta[i].isAlternateBlock = currentAlternateBlock;
     }
     return meta;
   }, [allLogs]);
@@ -1023,7 +1052,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   crashed={!!crashed}
                   query={debouncedQuery}
                   isActiveMatch={isActiveMatch}
-                  isAlternateRow={originalIndex % 2 === 1}
+                  isAlternateBlock={lineMeta[originalIndex].isAlternateBlock}
                   copied={copiedLine === originalIndex}
                   blockCopied={copiedBlock === originalIndex}
                   wrap={wrap}
