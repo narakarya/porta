@@ -8,9 +8,15 @@ All notable changes to Porta are documented in this file. Format follows
 
 ### Changed
 - **Debug log viewer**: grouped log entries now alternate text color by
-  block, so multiline query traces stay visually tied together.
-- **Release docs**: clarified release tagging so `git push --tags` is avoided
-  and release summaries are recorded in `CHANGELOG.md`.
+  block instead of by row. A multiline entry keeps one tone across the
+  header, SQL body, and continuation lines, while the next physical block
+  uses the alternate tone.
+- **Severity colors preserved**: explicit error/warn/info/success lines still
+  use their existing palette, so the alternation only affects neutral log
+  entries.
+- **Release docs**: `README.md` and `CLAUDE.md` now document the release
+  flow more completely, including `CHANGELOG.md` updates and the requirement
+  to push a single `v*` tag instead of `--tags`.
 
 ## [0.6.30] — 2026-06-12
 
