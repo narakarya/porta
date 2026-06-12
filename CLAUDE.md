@@ -55,7 +55,13 @@ npm run tauri build
 ## Git hygiene
 - Branch utama: `main`
 - Worktrees agent (`.claude/worktrees/agent-*`) jangan di-commit — sudah di global gitignore.
-- Versi dilacak di `package.json` + `src-tauri/tauri.conf.json` + `src-tauri/Cargo.toml` — bump bertiga.
+- Versi dilacak di `package.json`, `package-lock.json`,
+  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, dan
+  `src-tauri/Cargo.lock` — bump semuanya saat release.
+- Release workflow trigger dari tag `v*`. Push tag spesifik:
+  `git push origin v0.6.30`. Jangan pakai `git push --tags` untuk release;
+  GitHub tidak membuat tag push event kalau lebih dari 3 tag terkirim
+  sekaligus, jadi Actions bisa tidak jalan.
 
 ## Local build perf (sccache)
 

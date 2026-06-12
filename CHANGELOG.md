@@ -4,6 +4,16 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.30] — 2026-06-12
+
+### Changed
+- **Debug log viewer**: app/container log rows now use subtle alternating
+  background colors while preserving severity colors and active search
+  highlighting.
+- **Release documentation**: clarified that releases should push a single
+  `v*` tag, not `--tags`, because GitHub suppresses tag push events when more
+  than three tags are pushed at once.
+
 ## [0.3.0-beta] — 2026-04-24
 
 Third beta focused on Tailscale polish and Docker service spawn ergonomics.

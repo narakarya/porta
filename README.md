@@ -9,6 +9,8 @@ Built with Tauri + React + TypeScript.
 ### Apps & workspaces
 - **Workspaces** — group related apps together (e.g. frontend + backend + worker)
 - **Process management** — start, stop, restart and monitor processes with live, streaming logs
+- **Debug log viewer** — searchable app/container logs with level badges,
+  stable line numbers, copy actions, and alternating row colors for scanning
 - **Built-in terminal** — an xterm.js terminal per app for ad-hoc commands
 - **Auto-detect** — recognizes Next.js, Vite, Rails, Phoenix, Elixir, Django, Go and Rust projects and suggests the right run command
 - **Per-app env & settings** — environment variables, working dir, port bindings (including multi-port)
@@ -48,7 +50,7 @@ Built with Tauri + React + TypeScript.
 - **Extensions** — extend Porta with custom manifest-based extensions
 
 ### Quality of life
-- **Auto-update** — installs the latest signed release and relaunches; install once and you're set
+- **Auto-update** — installs the latest updater-signed release and relaunches; install once and you're set
 - **Launch on login** — start Porta automatically at login
 - **Menu bar tray** — quick controls from the macOS menu bar
 
@@ -89,30 +91,39 @@ npm run tauri build
 Releases are built and published automatically by GitHub Actions when a `v*` tag is pushed. Bump the version in all three files first — they must match the tag:
 
 - `package.json`
+- `package-lock.json`
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
 
 ```bash
-git tag v0.5.62
-git push origin v0.5.62
+git tag v0.6.30
+git push origin main
+git push origin v0.6.30
 ```
 
-The workflow builds a universal binary, signs the updater artifacts, and publishes the `.dmg` plus `latest.json` to GitHub Releases. The CI verifies the three versions match the tag before building.
+Push the release tag explicitly. Do not use `git push --tags` for releases:
+GitHub does not create tag push events when more than three tags are pushed at
+once, so the Release workflow will not start.
 
-### Apple code signing & notarization (optional)
+The workflow builds Apple Silicon and Intel macOS bundles, signs the updater
+artifacts, merges a single `latest.json`, and publishes the `.dmg` assets to
+GitHub Releases. The CI verifies the app versions match the tag before
+building.
 
-By default builds are **unsigned**, so first launch hits a Gatekeeper warning. To ship notarized builds that open cleanly, add these repo secrets (requires an Apple Developer account) — the workflow picks them up automatically:
+You can also run the Release workflow manually from GitHub Actions with a
+version input. In that mode the workflow bumps the version files, commits to
+`main`, creates the tag, and then runs the same release build.
 
-| Secret | What |
-| --- | --- |
-| `APPLE_CERTIFICATE` | base64 of the exported Developer ID `.p12` |
-| `APPLE_CERTIFICATE_PASSWORD` | password for that `.p12` |
-| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)` |
-| `APPLE_ID` | Apple ID email |
-| `APPLE_PASSWORD` | app-specific password for that Apple ID |
-| `APPLE_TEAM_ID` | 10-character team ID |
+### Apple code signing & notarization
 
-Until they're set, signing is skipped and the build still succeeds.
+Release builds are currently **unsigned** at the macOS app level. First launch
+therefore hits a Gatekeeper warning; right-click the app and choose **Open** to
+allow it once.
+
+The Tauri updater artifacts are still signed with the updater signing key so
+in-app updates can verify downloaded bundles. Apple Developer ID signing and
+notarization are intentionally not wired into the release workflow yet.
 
 ## License
 
