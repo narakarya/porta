@@ -58,6 +58,9 @@ npm run tauri build
 - Versi dilacak di `package.json`, `package-lock.json`,
   `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, dan
   `src-tauri/Cargo.lock` — bump semuanya saat release.
+- Setiap release wajib punya ringkasan changes: update `CHANGELOG.md`
+  sebelum tag/push, dan sebutkan ringkasan perubahan utama di final response
+  setelah release.
 - Release workflow trigger dari tag `v*`. Push tag spesifik:
   `git push origin v0.6.30`. Jangan pakai `git push --tags` untuk release;
   GitHub tidak membuat tag push event kalau lebih dari 3 tag terkirim
