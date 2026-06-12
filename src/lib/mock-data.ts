@@ -53,6 +53,7 @@ export const mockApps: App[] = [
     auto_sleep_enabled: false,
     idle_timeout_secs: 1800,
     auto_slept: false,
+    max_upload_bytes: null,
   },
   {
     id: "app-2",
@@ -98,6 +99,7 @@ export const mockApps: App[] = [
     auto_sleep_enabled: false,
     idle_timeout_secs: 1800,
     auto_slept: false,
+    max_upload_bytes: null,
   },
   {
     id: "app-3",
@@ -142,6 +144,7 @@ export const mockApps: App[] = [
     auto_sleep_enabled: false,
     idle_timeout_secs: 1800,
     auto_slept: false,
+    max_upload_bytes: null,
   },
   {
     id: "app-4",
@@ -186,6 +189,7 @@ export const mockApps: App[] = [
     auto_sleep_enabled: false,
     idle_timeout_secs: 1800,
     auto_slept: false,
+    max_upload_bytes: null,
   },
 ];
 
@@ -269,6 +273,7 @@ export function mockAddApp(params: {
     auto_sleep_enabled: false,
     idle_timeout_secs: 1800,
     auto_slept: false,
+    max_upload_bytes: null,
   };
   state.apps.push(app);
   return app;

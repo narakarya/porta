@@ -122,7 +122,7 @@ interface Props {
 }
 
 export default function AppSettingsModal({ app, workspace, onClose, onSaved }: Props) {
-  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors, setAppAutoSleep } = usePortaStore();
+  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors, setAppAutoSleep, setAppMaxUploadBytes } = usePortaStore();
   const tunnelError = appTunnelErrors[app.id] ?? null;
   const [tunnelErrorCopied, setTunnelErrorCopied] = useState(false);
   const [section, setSection] = useState<Section>("general");
@@ -245,6 +245,19 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
   );
   // Auto-sleep only makes sense for apps Porta runs as a process behind Caddy.
   const autoSleepSupported = app.kind !== "static" && app.kind !== "proxy";
+
+  // Per-app max upload body size, persisted via its own command
+  // (set_app_max_upload_bytes) which re-syncs Caddy. Empty input = inherit the
+  // global default; "0" = unlimited. Stored/compared in bytes, edited in MB.
+  const [maxUploadMb, setMaxUploadMb] = useState(
+    app.max_upload_bytes == null
+      ? ""
+      : String(Math.round(app.max_upload_bytes / (1024 * 1024)))
+  );
+  const maxUploadBytesValue =
+    maxUploadMb.trim() === ""
+      ? null
+      : Math.max(0, Math.round(Number(maxUploadMb) || 0)) * 1024 * 1024;
 
   // Other apps in same workspace for dependency selection
   const siblingApps = apps.filter(
@@ -644,7 +657,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
       (tunnelAliasDomain.trim() || null) !== (app.tunnel_alias_domain ?? null) ||
       tunnelAliasRewriteHost !== (app.tunnel_alias_rewrite_host ?? true) ||
       autoSleepEnabled !== (app.auto_sleep_enabled ?? false) ||
-      ((parseInt(idleTimeoutMin, 10) || 30) * 60) !== (app.idle_timeout_secs ?? 1800)
+      ((parseInt(idleTimeoutMin, 10) || 30) * 60) !== (app.idle_timeout_secs ?? 1800) ||
+      maxUploadBytesValue !== (app.max_upload_bytes ?? null)
     );
   }, [
     app, name, rootDir, portNum, subdomain, extraSubdomains, portBindings, customDomain,
@@ -655,7 +669,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     dependsOn, envProfiles, activeProfileId,
     tunnelProvider, tunnelMode, tunnelName, tunnelHostname, tunnelAutoStart,
     tunnelAliasDomain, tunnelAliasRewriteHost,
-    autoSleepEnabled, idleTimeoutMin,
+    autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
   ]);
 
   function requestClose() {
@@ -853,6 +867,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
       if (autoSleepSupported) {
         const idleSecs = (parseInt(idleTimeoutMin, 10) || 30) * 60;
         await setAppAutoSleep(app.id, autoSleepEnabled, idleSecs);
+      }
+      // Max upload size persists via its own command (re-syncs Caddy).
+      if (maxUploadBytesValue !== (app.max_upload_bytes ?? null)) {
+        await setAppMaxUploadBytes(app.id, maxUploadBytesValue);
       }
       // Notify the parent (e.g. for a global toast) but DON'T close the modal —
       // the user often wants to keep tweaking settings after a save. Letting
@@ -1756,6 +1774,31 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     </div>
                   </>
                 )}
+
+                <div className="h-px bg-white/[0.05]" />
+
+                {/* Max upload size — per-app override of the proxy body limit */}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[13px] font-medium text-zinc-200">Max upload size</p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                      Largest request body the proxy accepts for this app. Leave blank to
+                      use the global default; set <span className="text-zinc-400">0</span> for
+                      unlimited. Larger uploads get a 413.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                    <input spellCheck={false}
+                      type="number"
+                      min={0}
+                      placeholder="default"
+                      value={maxUploadMb}
+                      onChange={(e) => setMaxUploadMb(e.target.value)}
+                      className="input-base w-24 text-center"
+                    />
+                    <span className="text-[12px] text-zinc-500">MB</span>
+                  </div>
+                </div>
               </div>
 
             </>

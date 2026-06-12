@@ -90,6 +90,7 @@ pub fn static_alias_routes(db: &Database) -> Vec<Route> {
                     root: app.root_dir.clone(),
                     auth,
                     app_id: Some(app.id.clone()),
+                    max_body: app.max_upload_bytes,
                 });
             } else {
                 out.push(Route::ReverseProxy {
@@ -97,6 +98,7 @@ pub fn static_alias_routes(db: &Database) -> Vec<Route> {
                     port: app.port,
                     auth,
                     app_id: Some(app.id.clone()),
+                    max_body: app.max_upload_bytes,
                 });
             }
         }

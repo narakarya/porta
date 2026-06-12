@@ -8,6 +8,8 @@ import {
   clearAllAppLogs,
   getMaxLogBytes,
   setMaxLogBytes,
+  getDefaultMaxUploadBytes,
+  setDefaultMaxUploadBytes,
   type SystemDiskUsage,
   type PruneResult,
   type LogsDiskUsage,
@@ -220,12 +222,97 @@ export default function DiskUsageSection() {
       {/* App logs */}
       <LogsCard />
 
+      {/* Proxy upload limit */}
+      <UploadLimitCard />
+
       {showImagesModal && (
         <DockerImagesModal
           onClose={() => setShowImagesModal(false)}
           onPruned={refresh}
         />
       )}
+    </div>
+  );
+}
+
+const UPLOAD_PRESETS_MB = [10, 50, 100, 250, 500] as const;
+
+/**
+ * Global default for Caddy's per-route `request_body` limit. Apps without a
+ * per-app override inherit this; 0 = unlimited. Changing it re-syncs Caddy.
+ */
+function UploadLimitCard() {
+  const [bytes, setBytes] = useState<number>(100 * 1024 * 1024);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    getDefaultMaxUploadBytes()
+      .then((b) => {
+        setBytes(b);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function choose(next: number) {
+    setBytes(next);
+    await setDefaultMaxUploadBytes(next);
+  }
+
+  const isUnlimited = bytes === 0;
+
+  return (
+    <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+      <div className="flex items-start gap-4">
+        <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-sky-400">
+            <path d="M10 13V4M10 4 6.5 7.5M10 4l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M4 13v2.5h12V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <p className="text-[13px] font-medium text-zinc-200">Upload size limit</p>
+          <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+            Default cap on request bodies the proxy forwards to an app — larger uploads get a 413.
+            Individual apps can override this in their own settings.
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-[11px] text-zinc-500 mb-1.5">
+          Default max upload{loaded ? ` · ${isUnlimited ? "unlimited" : formatBytes(bytes)}` : ""}
+        </p>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {UPLOAD_PRESETS_MB.map((mb) => {
+            const b = mb * 1024 * 1024;
+            const active = bytes === b;
+            return (
+              <button
+                key={mb}
+                onClick={() => choose(b)}
+                className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+                  active
+                    ? "bg-blue-500/15 border-blue-500/30 text-blue-300"
+                    : "bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:bg-white/[0.07]"
+                }`}
+              >
+                {mb} MB
+              </button>
+            );
+          })}
+          <button
+            onClick={() => choose(0)}
+            className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+              isUnlimited
+                ? "bg-blue-500/15 border-blue-500/30 text-blue-300"
+                : "bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:bg-white/[0.07]"
+            }`}
+          >
+            Unlimited
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

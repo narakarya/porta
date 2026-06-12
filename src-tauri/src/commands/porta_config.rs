@@ -117,6 +117,7 @@ pub fn import_porta_config(state: State<AppState>, src_path: String) -> Result<(
             auto_sleep_enabled: false,
             idle_timeout_secs: 1800,
             auto_slept: false,
+            max_upload_bytes: None,
             kind: "process".into(),
             docker_image: None,
             docker_container_port: None,

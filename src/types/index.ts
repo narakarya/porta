@@ -82,6 +82,10 @@ export interface App {
   /** True when the idle watcher put the app to sleep (vs. a manual stop).
    *  Drives the 💤 badge; cleared on next start/wake. */
   auto_slept: boolean;
+  /** Max request body (bytes) Porta's proxy accepts for this app's routes.
+   *  null inherits the global `proxy_max_body_bytes` default; 0 means unlimited.
+   *  Larger uploads get a 413 from Caddy. */
+  max_upload_bytes: number | null;
 }
 
 /** Per-host Basic Auth override (read shape from the backend — never the hash). */

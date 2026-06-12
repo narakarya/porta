@@ -52,8 +52,8 @@ pub struct Workspace {
 /// Traffic Inspector UI can show requests per app.
 #[derive(Debug, Clone)]
 pub enum Route {
-    ReverseProxy { host: String, port: u16, auth: Option<BasicAuth>, app_id: Option<String> },
-    FileServer { host: String, root: String, auth: Option<BasicAuth>, app_id: Option<String> },
+    ReverseProxy { host: String, port: u16, auth: Option<BasicAuth>, app_id: Option<String>, max_body: Option<u64> },
+    FileServer { host: String, root: String, auth: Option<BasicAuth>, app_id: Option<String>, max_body: Option<u64> },
     /// Alias route used by `tunnel_alias_domain`: matches a wildcard or exact
     /// hostname (e.g. `*.nasrulgunawan.com`) and reverse-proxies to the same
     /// upstream port as the app's primary route. When `rewrite_host_to` is
@@ -66,6 +66,7 @@ pub enum Route {
         port: u16,
         rewrite_host_to: Option<String>,
         app_id: Option<String>,
+        max_body: Option<u64>,
     },
 }
 
@@ -231,6 +232,12 @@ pub struct App {
     /// manual stop). Drives the 💤 badge and tells the wake path it may start.
     #[serde(default)]
     pub auto_slept: bool,
+    /// Max request body (bytes) Caddy accepts for this app's routes. `None`
+    /// inherits the global default; `Some(0)` means unlimited. Uploads larger
+    /// than the limit get a 413 from Caddy's `request_body` handler. Per-app
+    /// override of the global `proxy_max_body_bytes` setting.
+    #[serde(default)]
+    pub max_upload_bytes: Option<u64>,
 }
 
 fn default_tunnel_alias_rewrite_host() -> bool { true }
@@ -346,6 +353,7 @@ impl App {
                 host,
                 root: self.root_dir.clone(),
                 app_id: app_id.clone(),
+                max_body: self.max_upload_bytes,
             });
             // Extra subdomains (also serve same folder)
             for sub in &self.extra_subdomains {
@@ -357,6 +365,7 @@ impl App {
                         host,
                         root: self.root_dir.clone(),
                         app_id: app_id.clone(),
+                        max_body: self.max_upload_bytes,
                     });
                 }
             }
@@ -371,6 +380,7 @@ impl App {
             host: primary_host,
             port: self.port,
             app_id: app_id.clone(),
+            max_body: self.max_upload_bytes,
         });
 
         // Extra subdomains (existing feature — all map to primary port)
@@ -383,6 +393,7 @@ impl App {
                     host,
                     port: self.port,
                     app_id: app_id.clone(),
+                    max_body: self.max_upload_bytes,
                 });
             }
         }
@@ -402,6 +413,7 @@ impl App {
                 host,
                 port: binding.port,
                 app_id: app_id.clone(),
+                max_body: self.max_upload_bytes,
             });
         }
 
@@ -421,6 +433,7 @@ impl App {
                 port: self.port,
                 rewrite_host_to: rewrite,
                 app_id: app_id.clone(),
+                max_body: self.max_upload_bytes,
             });
         }
 
@@ -548,7 +561,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false, max_upload_bytes: None,
         }
     }
 

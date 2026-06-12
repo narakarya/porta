@@ -84,6 +84,9 @@ pub use container_observe::*;
 pub mod log_management;
 pub use log_management::*;
 
+pub mod proxy_limits;
+pub use proxy_limits::*;
+
 pub mod access_log;
 pub use access_log::*;
 

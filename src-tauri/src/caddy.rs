@@ -28,10 +28,6 @@ fn wake_errors_block() -> Value {
     })
 }
 
-/// Per-app webhook bodies are captured to disk; cap each body to 64 KB so
-/// large uploads don't bloat the line-delimited JSON access log.
-const REQUEST_BODY_MAX_BYTES: usize = 64 * 1024;
-
 pub struct CaddyManager {
     client: Client,
 }
@@ -86,17 +82,26 @@ pub fn access_log_path(app_id: &str) -> std::path::PathBuf {
     crate::porta_dir().join("access-logs").join(format!("{}.log", app_id))
 }
 
+/// The `request_body` handler that fronts every route. Its `max_size` is a hard
+/// limit: Caddy returns 413 for bodies larger than this. It doubles as the cap
+/// on how much of the body is captured into the access log for the Traffic
+/// Inspector, so per-app overrides let upload-heavy apps raise it. `0` disables
+/// the limit (Caddy treats `max_size: 0` as unlimited).
+fn request_body_handler(max: u64) -> Value {
+    json!({
+        "handler": "request_body",
+        "max_size": max,
+    })
+}
+
 /// Build a single Caddy `routes` entry for one of our Route variants.
-fn route_to_json(route: &Route) -> Value {
+/// `default_max` is the global `proxy_max_body_bytes` applied to any route
+/// whose app didn't set a per-app `max_upload_bytes` override.
+fn route_to_json(route: &Route, default_max: u64) -> Value {
     match route {
-        Route::ReverseProxy { host, port, auth, app_id } => {
+        Route::ReverseProxy { host, port, auth, app_id, max_body } => {
             let mut handlers: Vec<Value> = Vec::new();
-            // Capture POST/PUT bodies so webhooks are visible in the
-            // Traffic Inspector. Cap at 64 KB to keep log size sane.
-            handlers.push(json!({
-                "handler": "request_body",
-                "max_size": REQUEST_BODY_MAX_BYTES,
-            }));
+            handlers.push(request_body_handler(max_body.unwrap_or(default_max)));
             if let Some(a) = auth {
                 handlers.push(auth_handler(a));
             }
@@ -108,12 +113,9 @@ fn route_to_json(route: &Route) -> Value {
                             // via `logs.logger_names` (host → logger name), not per-route.
             json!({ "match": [{ "host": [host] }], "handle": handlers })
         }
-        Route::FileServer { host, root, auth, app_id } => {
+        Route::FileServer { host, root, auth, app_id, max_body } => {
             let mut handlers: Vec<Value> = Vec::new();
-            handlers.push(json!({
-                "handler": "request_body",
-                "max_size": REQUEST_BODY_MAX_BYTES,
-            }));
+            handlers.push(request_body_handler(max_body.unwrap_or(default_max)));
             if let Some(a) = auth {
                 handlers.push(auth_handler(a));
             }
@@ -123,12 +125,9 @@ fn route_to_json(route: &Route) -> Value {
             let _ = app_id;
             json!({ "match": [{ "host": [host] }], "handle": handlers })
         }
-        Route::AliasReverseProxy { host, port, rewrite_host_to, app_id } => {
+        Route::AliasReverseProxy { host, port, rewrite_host_to, app_id, max_body } => {
             let mut handlers: Vec<Value> = Vec::new();
-            handlers.push(json!({
-                "handler": "request_body",
-                "max_size": REQUEST_BODY_MAX_BYTES,
-            }));
+            handlers.push(request_body_handler(max_body.unwrap_or(default_max)));
 
             let mut proxy = json!({
                 "handler": "reverse_proxy",
@@ -244,7 +243,8 @@ impl CaddyManager {
         let cert_file = base.join("certs").join("test.pem").to_string_lossy().to_string();
         let key_file = base.join("certs").join("test-key.pem").to_string_lossy().to_string();
 
-        let route_json: Vec<Value> = routes.iter().map(route_to_json).collect();
+        let default_max = crate::commands::proxy_limits::current_default_max_upload_bytes();
+        let route_json: Vec<Value> = routes.iter().map(|r| route_to_json(r, default_max)).collect();
         let (server_logs, loggers) = collect_loggers(routes);
 
         let mut cfg = if has_certs {
@@ -347,6 +347,7 @@ mod tests {
             port: 4001,
             auth: None,
             app_id: None,
+            max_body: None,
         }]);
         // In HTTP mode, routes land in "porta" server
         let servers = &config["apps"]["http"]["servers"];
@@ -369,6 +370,7 @@ mod tests {
             root: "/tmp/site".into(),
             auth: None,
             app_id: None,
+            max_body: None,
         }]);
         let servers = &config["apps"]["http"]["servers"];
         let as_obj = servers.as_object().unwrap();
@@ -395,6 +397,7 @@ mod tests {
                 password_hash: "$2b$12$abcdef".into(),
             }),
             app_id: None,
+            max_body: None,
         }]);
         let servers = &config["apps"]["http"]["servers"];
         let route = servers.as_object().unwrap()
@@ -424,6 +427,7 @@ mod tests {
             port: 4001,
             auth: None,
             app_id: Some("app-abc".into()),
+            max_body: None,
         }]);
         let logger = "porta_app_app-abc";
         // logging.logs.<logger> must exist and be wired to a file writer.
@@ -449,6 +453,7 @@ mod tests {
             port: 3007,
             rewrite_host_to: Some("grandado.test".into()),
             app_id: Some("nexus".into()),
+            max_body: None,
         }]);
         let servers = config["apps"]["http"]["servers"].as_object().unwrap();
         let route = servers.values()
@@ -474,6 +479,7 @@ mod tests {
             port: 4000,
             rewrite_host_to: None,
             app_id: None,
+            max_body: None,
         }]);
         let servers = config["apps"]["http"]["servers"].as_object().unwrap();
         let route = servers.values()

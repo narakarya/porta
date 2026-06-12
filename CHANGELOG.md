@@ -4,6 +4,24 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.32] — 2026-06-12
+
+### Added
+- **Per-app upload size limit**: each app can now override how large a request
+  body Porta's proxy will accept, set from the app's settings (in MB). Leave it
+  blank to inherit the global default, or `0` for unlimited. Uploads larger than
+  the limit get a 413.
+- **Global default upload limit**: a new "Upload size limit" control under
+  Settings → Disk Usage sets the default cap (100 MB out of the box, presets up
+  to 500 MB plus Unlimited) applied to any app without its own override.
+
+### Fixed
+- **64 KB upload cap removed**: Caddy's `request_body` handler was hardcoded to
+  64 KB — meant only to bound how much of a body was captured for the Traffic
+  Inspector, but it doubled as a hard request limit, so any upload over 64 KB
+  was truncated and rejected with a 413. The limit is now configurable
+  (per-app + global default) instead of a fixed cap.
+
 ## [0.6.31] — 2026-06-12
 
 ### Changed

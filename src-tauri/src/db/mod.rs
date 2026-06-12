@@ -172,6 +172,11 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN idle_timeout_secs INTEGER NOT NULL DEFAULT 1800", []);
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN auto_slept INTEGER NOT NULL DEFAULT 0", []);
 
+        // Per-app max request body size (bytes) for Caddy's `request_body`
+        // handler. NULL inherits the global `proxy_max_body_bytes` default; 0
+        // means unlimited. Lets upload-heavy apps override the proxy's body cap.
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN max_upload_bytes INTEGER", []);
+
         // Extension registry
         self.conn.execute_batch("
             CREATE TABLE IF NOT EXISTS extensions (
@@ -249,7 +254,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false, max_upload_bytes: None,
             docker_image: None,
             docker_container_port: None,
             docker_args: None,
@@ -312,7 +317,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false, max_upload_bytes: None,
             docker_image: None,
             docker_container_port: None,
             docker_args: None,
@@ -361,7 +366,7 @@ mod tests {
             basic_auth_password_set: false,
             host_auth_overrides: vec![],
             tunnel_alias_domain: None,
-            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false,
+            tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false, max_upload_bytes: None,
             docker_image: None,
             docker_container_port: None,
             docker_args: None,

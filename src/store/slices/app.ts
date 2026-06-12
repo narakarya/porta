@@ -46,6 +46,7 @@ export interface AppSlice {
   addApp: (params: Parameters<typeof cmd.addApp>[0]) => Promise<void>;
   updateApp: (params: Parameters<typeof cmd.updateApp>[0]) => Promise<void>;
   setAppAutoSleep: (id: string, enabled: boolean, idleTimeoutSecs: number) => Promise<void>;
+  setAppMaxUploadBytes: (id: string, maxBytes: number | null) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
   deleteApp: (id: string) => Promise<void>;
   startApp: (id: string) => Promise<void>;
@@ -192,6 +193,20 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
               auto_slept: updated.auto_slept,
             }
           : a
+      ),
+    }));
+  },
+
+  setAppMaxUploadBytes: async (id, maxBytes) => {
+    // Optimistic — reflect the new cap immediately, reconcile with the App the
+    // backend returns after it re-syncs Caddy.
+    set((s) => ({
+      apps: s.apps.map((a) => (a.id === id ? { ...a, max_upload_bytes: maxBytes } : a)),
+    }));
+    const updated = await cmd.setAppMaxUploadBytes(id, maxBytes);
+    set((s) => ({
+      apps: s.apps.map((a) =>
+        a.id === id ? { ...a, max_upload_bytes: updated.max_upload_bytes } : a
       ),
     }));
   },

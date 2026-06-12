@@ -702,6 +702,7 @@ mod tests {
             auto_sleep_enabled: false,
             idle_timeout_secs: 1800,
             auto_slept: false,
+            max_upload_bytes: None,
         }
     }
 

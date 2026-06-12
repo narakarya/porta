@@ -52,8 +52,9 @@ impl Database {
                                tunnel_provider, tunnel_auto_start,
                                basic_auth_enabled, basic_auth_username, basic_auth_password_hash,
                                tunnel_alias_domain, tunnel_alias_rewrite_host, host_auth_overrides,
-                               auto_sleep_enabled, idle_timeout_secs, auto_slept)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)",
+                               auto_sleep_enabled, idle_timeout_secs, auto_slept,
+                               max_upload_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43)",
             params![
                 a.id, a.workspace_id, a.name, a.root_dir, a.port,
                 a.subdomain, a.start_command, a.start_command_source,
@@ -68,7 +69,8 @@ impl Database {
                 a.tunnel_provider, a.tunnel_auto_start as i32,
                 a.basic_auth_enabled as i32, a.basic_auth_username, a.basic_auth_password_hash,
                 a.tunnel_alias_domain, a.tunnel_alias_rewrite_host as i32, host_auth_overrides_json,
-                a.auto_sleep_enabled as i32, a.idle_timeout_secs as i64, a.auto_slept as i32
+                a.auto_sleep_enabled as i32, a.idle_timeout_secs as i64, a.auto_slept as i32,
+                a.max_upload_bytes.map(|v| v as i64)
             ],
         )?;
         // Register primary port
@@ -113,7 +115,8 @@ impl Database {
                     COALESCE(host_auth_overrides, '[]'),
                     COALESCE(auto_sleep_enabled, 0),
                     COALESCE(idle_timeout_secs, 1800),
-                    COALESCE(auto_slept, 0)
+                    COALESCE(auto_slept, 0),
+                    max_upload_bytes
              FROM apps ORDER BY rowid"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -157,6 +160,7 @@ impl Database {
             let auto_sleep_enabled: bool = row.get::<_, i32>(39).map(|v| v != 0).unwrap_or(false);
             let idle_timeout_secs: u32 = row.get::<_, Option<i64>>(40)?.unwrap_or(1800) as u32;
             let auto_slept: bool = row.get::<_, i32>(41).map(|v| v != 0).unwrap_or(false);
+            let max_upload_bytes: Option<u64> = row.get::<_, Option<i64>>(42)?.map(|v| v as u64);
             Ok(App {
                 id: row.get(0)?,
                 workspace_id: row.get(1)?,
@@ -203,6 +207,7 @@ impl Database {
                 auto_sleep_enabled,
                 idle_timeout_secs,
                 auto_slept,
+                max_upload_bytes,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
@@ -378,6 +383,17 @@ impl Database {
                              auto_slept = CASE WHEN ?1 = 0 THEN 0 ELSE auto_slept END
              WHERE id = ?3",
             params![enabled as i32, idle_timeout_secs as i64, id],
+        )?;
+        Ok(())
+    }
+
+    /// Set (or clear) the per-app max upload body size. `None` stores NULL so
+    /// the app inherits the global `proxy_max_body_bytes` default; `Some(0)`
+    /// means unlimited.
+    pub fn set_app_max_upload_bytes(&self, id: &str, max_bytes: Option<u64>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE apps SET max_upload_bytes = ?1 WHERE id = ?2",
+            params![max_bytes.map(|v| v as i64), id],
         )?;
         Ok(())
     }

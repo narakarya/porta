@@ -373,6 +373,7 @@ mod tests {
             auto_sleep_enabled: true,
             idle_timeout_secs: 1800,
             auto_slept: true,
+            max_upload_bytes: None,
         }
     }
 

@@ -120,6 +120,7 @@ pub fn add_app(
         auto_sleep_enabled: false,
         idle_timeout_secs: 1800,
         auto_slept: false,
+        max_upload_bytes: None,
         kind: resolved_kind,
         docker_image,
         docker_container_port,
@@ -323,6 +324,27 @@ pub fn set_app_auto_sleep(
         .unwrap()
         .set_app_auto_sleep(&id, enabled, secs)
         .map_err(|e| e.to_string())?;
+    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
+}
+
+/// Persist a single app's max upload body size and re-emit Caddy config so the
+/// new `request_body` limit applies immediately. `max_bytes = None` clears the
+/// override (inherit the global default); `Some(0)` means unlimited. Returns
+/// the refreshed App so the store can patch its copy.
+#[tauri::command]
+pub fn set_app_max_upload_bytes(
+    state: State<AppState>,
+    id: String,
+    max_bytes: Option<u64>,
+) -> Result<App, String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .set_app_max_upload_bytes(&id, max_bytes)
+        .map_err(|e| e.to_string())?;
+    sync_caddy(&state)?;
     let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
