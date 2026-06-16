@@ -3,9 +3,13 @@ use std::thread;
 use tauri::Emitter;
 use tauri::State;
 
+use super::app_lifecycle::{start_single, wait_for_port};
 use crate::app_state::AppState;
 use crate::db::models::App;
-use super::app_lifecycle::{start_single, wait_for_port};
+
+fn is_startable(app: &App) -> bool {
+    !app.start_command.is_empty() || app.is_docker() || app.is_compose()
+}
 
 fn topo_sort_apps(apps: &[App]) -> Vec<App> {
     let id_set: HashSet<&str> = apps.iter().map(|a| a.id.as_str()).collect();
@@ -67,7 +71,7 @@ pub fn start_workspace_apps(
     let ws_apps: Vec<App> = all_apps
         .into_iter()
         .filter(|a| a.workspace_id.as_deref() == Some(&workspace_id))
-        .filter(|a| a.status == "stopped" && !a.start_command.is_empty())
+        .filter(|a| a.status == "stopped" && is_startable(a))
         .collect();
 
     if ws_apps.is_empty() {
@@ -97,7 +101,7 @@ pub fn start_workspace_apps(
                 continue;
             }
 
-            if app_data.depends_on.iter().any(|dep| sorted.iter().any(|s| s.id == *dep)) {
+            if sorted.iter().any(|a| a.depends_on.contains(&app_data.id)) {
                 wait_for_port(app_data.port, 10_000);
             }
         }
