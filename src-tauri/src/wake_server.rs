@@ -172,7 +172,7 @@ fn wake_and_redirect(
             .map(|a| a.status)
             .unwrap_or_default();
         if current_status == "stopped" {
-            if let Err(e) = start_single(handle, app, false) {
+            if let Err(e) = start_single(handle, app, false, false) {
                 eprintln!("[wake] start {} failed: {}", app.id, e);
                 waking.lock().unwrap().remove(&app.id);
                 let body = "<!doctype html><meta charset=utf-8><title>502</title>\

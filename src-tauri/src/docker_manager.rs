@@ -111,6 +111,18 @@ impl DockerManager {
             .unwrap_or(false)
     }
 
+    /// True when the Docker-compatible daemon is accepting requests. On macOS
+    /// with OrbStack/Docker Desktop, the CLI can exist before the daemon is
+    /// ready after login, so auto-start code should gate on this instead of
+    /// only checking for the binary.
+    pub fn is_engine_ready() -> bool {
+        Command::new(docker_bin())
+            .args(["info", "--format", "{{.ServerVersion}}"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
     /// Start a docker-backed app. Spawns `docker run -d`, then attaches a log
     /// streamer and a watcher that fires on_exit when the container stops.
     #[allow(clippy::too_many_arguments)]

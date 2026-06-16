@@ -86,7 +86,7 @@ pub fn start_workspace_apps(
                 )
                 .ok();
 
-            if let Err(e) = start_single(&handle, app_data, true) {
+            if let Err(e) = start_single(&handle, app_data, true, true) {
                 eprintln!("workspace start failed for {}: {}", app_data.name, e);
                 handle
                     .emit(

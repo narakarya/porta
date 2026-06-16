@@ -12,6 +12,7 @@ type GetFn = () => AllSlices;
 // Persists for the session; resets on page reload. Prevents spamming the same
 // "update available" notification on every periodic check cycle.
 const notifiedUpdateApps = new Set<string>();
+const SILENT_START_FAILED_PREFIX = "__porta_silent_start_failed__:";
 
 export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
   // In browser-only mode, use mock event system instead of Tauri events.
@@ -184,7 +185,9 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
 
       // Docker/compose start errors arrive here (image pull fail, invalid yml, etc.)
       listen<string>(`app:start-failed:${app.id}`, (e) => {
-        const msg = e.payload || "Failed to start";
+        const raw = e.payload || "Failed to start";
+        const silent = raw.startsWith(SILENT_START_FAILED_PREFIX);
+        const msg = silent ? raw.slice(SILENT_START_FAILED_PREFIX.length) : raw;
         const short = msg.length > 400 ? `${msg.slice(0, 400)}…\n\n(see logs for full output)` : msg;
         // Drop the restarting flag here too — `app:exit` follows but on some
         // failure paths it races with this and the UI looks frozen otherwise.
@@ -194,7 +197,9 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           ),
           appRestarting: { ...s.appRestarting, [app.id]: false },
         }));
-        window.alert(`Failed to start ${app.name}:\n\n${short}`);
+        if (!silent) {
+          window.alert(`Failed to start ${app.name}:\n\n${short}`);
+        }
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       // Auto-restart: crashed and retrying

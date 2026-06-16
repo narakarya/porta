@@ -5,25 +5,42 @@ use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 
+use super::settings::{notify, notify_crash};
 use crate::app_state::AppState;
 use crate::db::models::App;
-use super::settings::{notify, notify_crash};
 use crate::tray::rebuild_tray_menu;
 
+const SILENT_START_FAILED_PREFIX: &str = "__porta_silent_start_failed__:";
+
 /// Block the calling thread until `port` accepts a TCP connection or `timeout_ms` elapses.
-pub(crate) fn wait_for_port(port: u16, timeout_ms: u64) {
+pub(crate) fn wait_for_port(port: u16, timeout_ms: u64) -> bool {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let steps = timeout_ms / 500;
     for _ in 0..steps {
         thread::sleep(Duration::from_millis(500));
         if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
-            return;
+            return true;
         }
     }
+    false
+}
+
+fn emit_start_failed(handle: &tauri::AppHandle, id: &str, msg: String, show_alert: bool) {
+    let payload = if show_alert {
+        msg
+    } else {
+        format!("{SILENT_START_FAILED_PREFIX}{msg}")
+    };
+    handle.emit(&format!("app:start-failed:{id}"), payload).ok();
 }
 
 /// Start a single app process without dependency resolution.
-pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_log: bool) -> Result<(), String> {
+pub(crate) fn start_single(
+    handle: &tauri::AppHandle,
+    app_data: &App,
+    truncate_log: bool,
+    show_start_failed_alert: bool,
+) -> Result<(), String> {
     let state: State<AppState> = handle.state();
     let id = &app_data.id;
 
@@ -107,7 +124,7 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
                 .ok()
                 .and_then(|apps| apps.into_iter().find(|a| a.id == restart_id));
             if let Some(app) = app_opt {
-                start_single(&restart_handle, &app, false).ok();
+                start_single(&restart_handle, &app, false, true).ok();
             }
         });
     };
@@ -170,7 +187,7 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
                     state.docker.stopping.lock().unwrap().remove(&id_owned);
                     handle_owned.emit(&format!("app:exit:{}", id_owned), 0i32).ok();
                 } else {
-                    handle_owned.emit(&format!("app:start-failed:{}", id_owned), msg).ok();
+                    emit_start_failed(&handle_owned, &id_owned, msg, show_start_failed_alert);
                     handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
                 }
             }
@@ -232,7 +249,12 @@ pub(crate) fn start_single(handle: &tauri::AppHandle, app_data: &App, truncate_l
             );
             if let Err(e) = result {
                 state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
-                handle_owned.emit(&format!("app:start-failed:{}", id_owned), e.to_string()).ok();
+                emit_start_failed(
+                    &handle_owned,
+                    &id_owned,
+                    e.to_string(),
+                    show_start_failed_alert,
+                );
                 handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
             }
         });
@@ -343,7 +365,7 @@ pub fn start_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> R
     let tray_db_path = state.db_path.clone();
 
     if unstarted_deps.is_empty() {
-        start_single(&app, &app_data, true)?;
+        start_single(&app, &app_data, true, true)?;
         let tray_handle = app.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(200));
@@ -353,11 +375,11 @@ pub fn start_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> R
         let handle = app.clone();
         thread::spawn(move || {
             for dep in &unstarted_deps {
-                if start_single(&handle, dep, true).is_ok() {
+                if start_single(&handle, dep, true, true).is_ok() {
                     wait_for_port(dep.port, 30_000);
                 }
             }
-            start_single(&handle, &app_data, true).ok();
+            start_single(&handle, &app_data, true, true).ok();
             thread::sleep(Duration::from_millis(200));
             rebuild_tray_menu(&handle, &tray_db_path);
         });

@@ -147,7 +147,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let apps = db.list_apps().unwrap_or_default();
                     drop(db);
                     for app_data in apps.iter().filter(|a| a.status == "stopped" && (!a.start_command.is_empty() || a.is_docker() || a.is_compose())) {
-                        crate::commands::app_lifecycle::start_single(&handle, app_data, true).ok();
+                        crate::commands::app_lifecycle::start_single(&handle, app_data, true, true).ok();
                     }
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     rebuild_tray_menu(&handle, &state.db_path);
@@ -208,7 +208,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         state.db.lock().unwrap().update_app_status(&app_id, "stopped", None).ok();
                         handle.emit(&format!("app:exit:{}", app_id), 0i32).ok();
                     } else if !app_data.start_command.is_empty() || app_data.is_docker() || app_data.is_compose() {
-                        crate::commands::app_lifecycle::start_single(&handle, &app_data, true).ok();
+                        crate::commands::app_lifecycle::start_single(&handle, &app_data, true, true).ok();
                     }
 
                     std::thread::sleep(std::time::Duration::from_millis(500));
