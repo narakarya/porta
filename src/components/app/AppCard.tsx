@@ -9,6 +9,7 @@ import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getEx
 import type { ExtensionInfo } from "../../types/extension";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
+import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
 
 // LogViewer is only opened when the user expands logs — defer its parse cost.
 // (AppSettingsModal lives at the workspace level and is lazy-loaded there.)
@@ -298,7 +299,9 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
         }
       }
       const short = full.length > 400 ? `${full.slice(0, 400)}…\n\n(truncated — check logs for full output)` : full;
-      window.alert(`Failed to start ${app.name}:\n\n${short}`);
+      if (!isDockerRuntimeUnavailable(full)) {
+        window.alert(`Failed to start ${app.name}:\n\n${short}`);
+      }
     }
   }
 
@@ -957,4 +960,3 @@ function ExtPuzzleIcon() {
     </svg>
   );
 }
-

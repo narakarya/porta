@@ -102,10 +102,11 @@ impl DockerManager {
         Ok(())
     }
 
-    /// Quick check — true if the `docker` CLI is on PATH and responds to `docker version`.
+    /// Quick check — true if the `docker` CLI is present. Does not require the
+    /// Docker-compatible daemon to be running.
     pub fn is_cli_available() -> bool {
         Command::new(docker_bin())
-            .arg("version")
+            .arg("--version")
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
@@ -145,9 +146,10 @@ impl DockerManager {
             return Err(anyhow!("docker image is empty"));
         }
         if !Self::is_cli_available() {
-            return Err(anyhow!(
-                "docker CLI not found on PATH — install Docker Desktop or OrbStack"
-            ));
+            return Err(anyhow!("Docker CLI not found — install Docker Desktop or OrbStack"));
+        }
+        if !Self::is_engine_ready() {
+            return Err(anyhow!("Docker/OrbStack is not running yet"));
         }
 
         let name = Self::container_name(app_id);
@@ -418,9 +420,10 @@ impl DockerManager {
             return Err(anyhow!("compose file path is empty"));
         }
         if !Self::is_cli_available() {
-            return Err(anyhow!(
-                "docker CLI not found — install Docker Desktop or OrbStack"
-            ));
+            return Err(anyhow!("Docker CLI not found — install Docker Desktop or OrbStack"));
+        }
+        if !Self::is_engine_ready() {
+            return Err(anyhow!("Docker/OrbStack is not running yet"));
         }
 
         let file_path = resolve_compose_path(compose_file, root_dir);

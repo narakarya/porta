@@ -1,6 +1,7 @@
 import type { App, Service } from "../types";
 import { setMockEventCallback } from "../lib/mock-data";
 import * as cmd from "../lib/commands";
+import { isDockerRuntimeUnavailable } from "../lib/docker-errors";
 import { MAX_LOG_LINES } from "./slices/app";
 import type { AllSlices } from "./index";
 
@@ -188,6 +189,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         const raw = e.payload || "Failed to start";
         const silent = raw.startsWith(SILENT_START_FAILED_PREFIX);
         const msg = silent ? raw.slice(SILENT_START_FAILED_PREFIX.length) : raw;
+        const suppressAlert = silent || isDockerRuntimeUnavailable(msg);
         const short = msg.length > 400 ? `${msg.slice(0, 400)}…\n\n(see logs for full output)` : msg;
         // Drop the restarting flag here too — `app:exit` follows but on some
         // failure paths it races with this and the UI looks frozen otherwise.
@@ -197,7 +199,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           ),
           appRestarting: { ...s.appRestarting, [app.id]: false },
         }));
-        if (!silent) {
+        if (!suppressAlert) {
           window.alert(`Failed to start ${app.name}:\n\n${short}`);
         }
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
