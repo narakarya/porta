@@ -104,10 +104,10 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         // for the new run has already arrived. Without this guard, that
         // overwrites the optimistic "starting" status back to "stopped" and
         // the UI flashes "Start" until `app:ready` finally fires seconds
-        // later. Compare the current store snapshot, not the closure-captured
-        // app object, which is from the moment we subscribed.
+        // later. Only clean exits get this guard; failed starts (`exit:-1`)
+        // must still fall back to stopped immediately.
         const current = get().apps.find((a) => a.id === app.id);
-        const inFlightStart = current?.status === "starting";
+        const inFlightStart = current?.status === "starting" && e.payload === 0;
         const { [app.id]: _, ...restStartedAt } = get().appStartedAt;
         set((s) => ({
           apps: s.apps.map((a) =>

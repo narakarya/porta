@@ -236,7 +236,17 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       portConflicts: { ...s.portConflicts, [id]: false },
     }));
     if (isTauri) {
-      await cmd.startApp(id);
+      try {
+        await cmd.startApp(id);
+      } catch (e) {
+        set((s) => ({
+          apps: s.apps.map((a) =>
+            a.id === id ? { ...a, status: "stopped" as const, pid: null } : a
+          ),
+          appRestarting: { ...s.appRestarting, [id]: false },
+        }));
+        throw e;
+      }
       // Load early log lines that were written before the event listener was ready
       setTimeout(() => {
         cmd.getAppLogs(id).then((logs) => {
