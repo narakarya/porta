@@ -4,6 +4,17 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.36] — 2026-06-18
+
+### Added
+- **Generic config file editor**: the per-app file editor now discovers and
+  edits more than `.env` and Docker Compose. Recognised config files —
+  `mise.toml` / `.mise.toml` / `mise.local.toml`, `.tool-versions`,
+  `package.json`, `.nvmrc`, `.ruby-version` — open in a syntax-highlighted code
+  editor (TOML/JSON/plain text), alongside the existing `.env` rows/secret
+  editor and Compose YAML editor. File labels in the sidebar now reflect the
+  detected type instead of a hardcoded `env`/`compose` tag.
+
 ## [0.6.32] — 2026-06-12
 
 ### Added

@@ -238,22 +238,26 @@ export const openExternalUrl = (url: string): Promise<void> =>
 export const openInEditor = (rootDir: string): Promise<void> =>
   isTauri ? invoke("open_in_editor", { rootDir }) : Promise.resolve();
 
-export interface EnvFileInfo {
+export interface ConfigFileInfo {
   path: string;
   name: string;
   size: number;
   modified_at: number | null;
   is_in_compose: boolean;
+  /** "env" → rows/secret editor; "generic" → code editor. */
+  kind: "env" | "generic";
+  /** Syntax-highlight hint for the generic editor. */
+  language: "env" | "toml" | "json" | "text";
 }
 
-export const listAppEnvFiles = (appId: string): Promise<EnvFileInfo[]> =>
-  isTauri ? invoke("list_app_env_files", { appId }) : Promise.resolve([]);
+export const listAppConfigFiles = (appId: string): Promise<ConfigFileInfo[]> =>
+  isTauri ? invoke("list_app_config_files", { appId }) : Promise.resolve([]);
 
-export const readEnvFile = (absolutePath: string): Promise<string> =>
-  isTauri ? invoke("read_env_file", { absolutePath }) : Promise.resolve("");
+export const readConfigFile = (absolutePath: string): Promise<string> =>
+  isTauri ? invoke("read_config_file", { absolutePath }) : Promise.resolve("");
 
-export const writeEnvFile = (absolutePath: string, content: string): Promise<void> =>
-  isTauri ? invoke("write_env_file", { absolutePath, content }) : Promise.resolve();
+export const writeConfigFile = (absolutePath: string, content: string): Promise<void> =>
+  isTauri ? invoke("write_config_file", { absolutePath, content }) : Promise.resolve();
 
 export interface GitStatus {
   in_repo: boolean;

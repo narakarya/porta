@@ -98,15 +98,19 @@ pub fn get_git_status(root_dir: String) -> GitStatus {
     GitStatus { in_repo: true, branch, dirty }
 }
 
-// ── .env file editor ────────────────────────────────────────────────────────
+// ── config file editor ──────────────────────────────────────────────────────
 
 #[derive(serde::Serialize)]
-pub struct EnvFileInfo {
+pub struct ConfigFileInfo {
     pub path: String,
     pub name: String,
     pub size: u64,
     pub modified_at: Option<i64>, // epoch seconds; None if unreadable
     pub is_in_compose: bool,
+    /// Editor behaviour bucket: "env" (rows + secret masking) or "generic" (code editor).
+    pub kind: String,
+    /// Syntax-highlight language hint for the generic editor: "toml" | "json" | "text" | "env".
+    pub language: String,
 }
 
 /// Returns true for filenames that look like an env file. Matches:
@@ -143,6 +147,31 @@ fn is_env_file_name(name: &str) -> bool {
         return !stem.is_empty() && !stem.starts_with('.');
     }
     false
+}
+
+/// Recognised non-env config files Porta lets you edit in-app. Returns the
+/// editor `kind` and syntax `language` for a filename, or None if unrecognised.
+/// Env files are matched separately by [`is_env_file_name`].
+fn classify_extra_config(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "mise.toml" | ".mise.toml" | "mise.local.toml" | ".mise.local.toml" => {
+            Some(("generic", "toml"))
+        }
+        ".tool-versions" => Some(("generic", "text")),
+        "package.json" => Some(("generic", "json")),
+        ".nvmrc" | ".ruby-version" => Some(("generic", "text")),
+        _ => None,
+    }
+}
+
+/// Combined sort key for the config file list: env files first (in their own
+/// helpful order), then everything else alphabetically.
+fn config_sort_key(info: &ConfigFileInfo) -> (u8, u8, String) {
+    if info.kind == "env" {
+        (0, env_file_sort_key(&info.name).0, info.name.clone())
+    } else {
+        (1, 0, info.name.clone())
+    }
 }
 
 /// Sort key for env files: stable, helpful files first.
@@ -236,10 +265,10 @@ fn collect_env_files_from_compose(yaml: &str) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn list_app_env_files(
+pub fn list_app_config_files(
     state: tauri::State<'_, crate::app_state::AppState>,
     app_id: String,
-) -> Result<Vec<EnvFileInfo>, String> {
+) -> Result<Vec<ConfigFileInfo>, String> {
     let app = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.list_apps()
@@ -298,7 +327,7 @@ pub fn list_app_env_files(
                 continue;
             }
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-            if !is_env_file_name(name) {
+            if !is_env_file_name(name) && classify_extra_config(name).is_none() {
                 continue;
             }
             if let Ok(canon) = std::fs::canonicalize(&path) {
@@ -314,7 +343,7 @@ pub fn list_app_env_files(
         }
     }
 
-    let mut infos: Vec<EnvFileInfo> = all
+    let mut infos: Vec<ConfigFileInfo> = all
         .into_iter()
         .filter_map(|p| {
             let meta = std::fs::metadata(&p).ok()?;
@@ -326,21 +355,31 @@ pub fn list_app_env_files(
                 .map(|d| d.as_secs() as i64);
             let name = p.strip_prefix(&root).unwrap_or(&p).to_string_lossy().into_owned();
             let is_in_compose = compose_set.contains(&p);
-            Some(EnvFileInfo {
+            let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Env files (incl. anything referenced from compose's env_file:) get
+            // the rows/secret-masking editor; recognised others get the generic one.
+            let (kind, language) = if is_in_compose || is_env_file_name(file_name) {
+                ("env", "env")
+            } else {
+                classify_extra_config(file_name).unwrap_or(("generic", "text"))
+            };
+            Some(ConfigFileInfo {
                 path: p.to_string_lossy().into_owned(),
                 name,
                 size,
                 modified_at,
                 is_in_compose,
+                kind: kind.to_string(),
+                language: language.to_string(),
             })
         })
         .collect();
-    infos.sort_by(|a, b| env_file_sort_key(&a.name).cmp(&env_file_sort_key(&b.name)));
+    infos.sort_by(|a, b| config_sort_key(a).cmp(&config_sort_key(b)));
     Ok(infos)
 }
 
 #[tauri::command]
-pub fn read_env_file(
+pub fn read_config_file(
     state: tauri::State<'_, crate::app_state::AppState>,
     absolute_path: String,
 ) -> Result<String, String> {
@@ -349,7 +388,7 @@ pub fn read_env_file(
 }
 
 #[tauri::command]
-pub fn write_env_file(
+pub fn write_config_file(
     state: tauri::State<'_, crate::app_state::AppState>,
     absolute_path: String,
     content: String,
@@ -480,6 +519,21 @@ mod tests {
         assert!(!is_env_file_name("README.md"));
         // dotfiles ending in .env should still NOT match (e.g. .x.env)
         assert!(!is_env_file_name(".x.env"));
+    }
+
+    #[test]
+    fn classifies_extra_config_files() {
+        assert_eq!(classify_extra_config("mise.toml"), Some(("generic", "toml")));
+        assert_eq!(classify_extra_config(".mise.toml"), Some(("generic", "toml")));
+        assert_eq!(classify_extra_config("mise.local.toml"), Some(("generic", "toml")));
+        assert_eq!(classify_extra_config(".tool-versions"), Some(("generic", "text")));
+        assert_eq!(classify_extra_config("package.json"), Some(("generic", "json")));
+        assert_eq!(classify_extra_config(".nvmrc"), Some(("generic", "text")));
+        assert_eq!(classify_extra_config(".ruby-version"), Some(("generic", "text")));
+        // Not in the allowlist.
+        assert_eq!(classify_extra_config("Cargo.toml"), None);
+        assert_eq!(classify_extra_config("README.md"), None);
+        assert_eq!(classify_extra_config(".env"), None);
     }
 
     #[test]

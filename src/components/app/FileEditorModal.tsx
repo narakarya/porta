@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  listAppEnvFiles,
-  readEnvFile,
-  writeEnvFile,
+  listAppConfigFiles,
+  readConfigFile,
+  writeConfigFile,
   loadComposeYaml,
   saveComposeYaml,
   parseDockerCompose,
   updateApp,
-  type EnvFileInfo,
+  type ConfigFileInfo,
 } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import YamlEditor from "../shared/YamlEditor";
+import CodeEditor, { type CodeLanguage } from "../shared/CodeEditor";
 
-type FileKind = "compose" | "env";
+type FileKind = "compose" | "env" | "generic";
 
 interface FileEntry {
   path: string;
   name: string;
   kind: FileKind;
+  /** Syntax language for generic (code-editor) files. */
+  language?: CodeLanguage;
   size?: number;
   modified_at?: number | null;
 }
@@ -186,9 +189,16 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
       next.push({ path: composePath, name: segs[segs.length - 1] || composePath, kind: "compose" });
     }
     try {
-      const envs: EnvFileInfo[] = await listAppEnvFiles(appId);
-      for (const e of envs) {
-        next.push({ path: e.path, name: e.name, kind: "env", size: e.size, modified_at: e.modified_at ?? null });
+      const configs: ConfigFileInfo[] = await listAppConfigFiles(appId);
+      for (const c of configs) {
+        next.push({
+          path: c.path,
+          name: c.name,
+          kind: c.kind,
+          language: c.kind === "generic" ? (c.language as CodeLanguage) : undefined,
+          size: c.size,
+          modified_at: c.modified_at ?? null,
+        });
       }
     } catch { /* non-fatal */ }
     setFiles(next);
@@ -226,8 +236,12 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             setRestartPrompt({ oldPort: currentPort, newPort: firstHostPort });
           }
         }
+      } else if (entry.kind === "generic") {
+        const text = await readConfigFile(entry.path);
+        setContent(text);
+        setOriginalContent(text);
       } else {
-        const text = await readEnvFile(entry.path);
+        const text = await readConfigFile(entry.path);
         const parsed = parseEnvContent(text);
         setRows(parsed);
         setOriginalRows(parsed);
@@ -323,9 +337,14 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           setErrorLine(m ? parseInt(m[1], 10) : undefined);
         }
         showToast(true, "Saved");
+      } else if (active.kind === "generic") {
+        await writeConfigFile(active.path, content);
+        setOriginalContent(content);
+        await refreshList();
+        showToast(true, "Saved");
       } else {
         const text = envMode === "raw" ? rawContent : serializeRows(rows);
-        await writeEnvFile(active.path, text);
+        await writeConfigFile(active.path, text);
         const parsed = parseEnvContent(text);
         setOriginalRows(parsed);
         if (envMode === "raw") setRows(parsed);
@@ -447,9 +466,16 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
         { path: selected, name: segs[segs.length - 1] || selected, kind: "compose" },
       ];
       try {
-        const envs = await listAppEnvFiles(appId);
-        for (const e of envs) {
-          refreshed.push({ path: e.path, name: e.name, kind: "env", size: e.size, modified_at: e.modified_at ?? null });
+        const configs = await listAppConfigFiles(appId);
+        for (const c of configs) {
+          refreshed.push({
+            path: c.path,
+            name: c.name,
+            kind: c.kind,
+            language: c.kind === "generic" ? (c.language as CodeLanguage) : undefined,
+            size: c.size,
+            modified_at: c.modified_at ?? null,
+          });
         }
       } catch { /* ignore */ }
       setFiles(refreshed);
@@ -715,12 +741,14 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                           <span className={`ml-auto text-[9px] uppercase tracking-wide px-1 py-0.5 rounded shrink-0 ${
                             f.kind === "compose"
                               ? "bg-teal-500/10 border border-teal-500/20 text-teal-300"
-                              : "bg-zinc-700/30 border border-zinc-600/30 text-zinc-400"
+                              : f.kind === "generic"
+                                ? "bg-indigo-500/10 border border-indigo-500/20 text-indigo-300"
+                                : "bg-zinc-700/30 border border-zinc-600/30 text-zinc-400"
                           }`}>
-                            {f.kind}
+                            {f.kind === "generic" ? (f.language ?? "file") : f.kind}
                           </span>
                         </div>
-                        {f.kind === "env" && (
+                        {f.size != null && (
                           <div className="text-[10px] text-zinc-500 mt-0.5 flex items-center gap-1.5">
                             <span>{formatSize(f.size)}</span>
                             <span className="text-zinc-700">·</span>
@@ -782,6 +810,16 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   maxHeight="100%"
                   errorLine={errorLine}
                   errorMessage={error ?? undefined}
+                />
+              </div>
+            ) : active.kind === "generic" ? (
+              <div className="flex-1 min-h-0 overflow-auto p-4">
+                <CodeEditor
+                  value={content}
+                  onChange={setContent}
+                  language={active.language ?? "text"}
+                  rows={28}
+                  maxHeight="100%"
                 />
               </div>
             ) : envMode === "raw" ? (
