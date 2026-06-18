@@ -4,6 +4,20 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.37] — 2026-06-18
+
+### Fixed
+- **Extension panel wouldn't re-open**: opening an extension from an app card,
+  closing just the extension modal (leaving the sidebar open), then clicking the
+  same card action again did nothing — the focus effect's dependencies were
+  unchanged so it never re-fired. Opening now carries a nonce that re-triggers
+  the panel every time.
+
+### Changed
+- The app-card files button tooltip is now "Edit config files" (was
+  "Edit files (compose / .env)"), reflecting that it edits more than Compose and
+  `.env` — `mise.toml`, `package.json`, `.tool-versions`, and friends too.
+
 ## [0.6.36] — 2026-06-18
 
 ### Added

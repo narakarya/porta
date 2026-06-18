@@ -9,6 +9,14 @@ export type ExtensionSidebarState = {
   extensions: ExtensionInfo[];
   /** When set, the sidebar opens straight into this extension's full panel. */
   focusExtensionId?: string;
+  /**
+   * Bumped on every `openExtensionSidebar` call. Lets the sidebar's focus
+   * effect re-fire even when the same app+extension is requested again (e.g.
+   * close the extension modal, then click the same card action a second time) —
+   * `appId`/`focusExtensionId` alone are unchanged, so the effect wouldn't
+   * otherwise re-run.
+   */
+  focusNonce: number;
 };
 
 export type SettingsSection =
@@ -114,6 +122,9 @@ export interface UiSlice {
   bumpExtensionList: () => void;
 }
 
+// Monotonic counter feeding ExtensionSidebarState.focusNonce (see its docs).
+let extensionFocusNonce = 0;
+
 const LS_PLACEMENT = "porta.terminal.placement";
 const LS_PANEL_HEIGHT = "porta.terminal.panelHeight";
 
@@ -183,7 +194,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   },
 
   openExtensionSidebar: (appId, extensions, focusExtensionId) =>
-    set({ extensionSidebar: { appId, extensions, focusExtensionId } }),
+    set({ extensionSidebar: { appId, extensions, focusExtensionId, focusNonce: ++extensionFocusNonce } }),
 
   closeExtensionSidebar: () => set({ extensionSidebar: null }),
 

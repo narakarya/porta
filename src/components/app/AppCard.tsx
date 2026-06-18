@@ -555,9 +555,9 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
         </Tooltip>
         )}
 
-        {/* Files editor — unified compose + .env editor in one modal */}
+        {/* Files editor — unified config editor (compose, .env, mise.toml, …) */}
         {(app.root_dir || (isCompose && app.compose_file)) && (
-        <Tooltip label="Edit files (compose / .env)">
+        <Tooltip label="Edit config files">
           <button
             onClick={(e) => { e.stopPropagation(); setFileEditorInitialPath(undefined); setFileEditorOpen(true); }}
             className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"

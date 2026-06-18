@@ -64,7 +64,9 @@ export default function ExtensionSidebar() {
     if (!sidebar?.focusExtensionId) return;
     const ext = sidebar.extensions.find((e) => e.id === sidebar.focusExtensionId);
     if (ext) setActiveExt(ext);
-  }, [sidebar?.appId, sidebar?.focusExtensionId]);
+    // focusNonce is in deps so re-requesting the same app+extension (after the
+    // modal was closed but the sidebar left open) re-opens it.
+  }, [sidebar?.appId, sidebar?.focusExtensionId, sidebar?.focusNonce]);
 
   // Esc closes modal first, then sidebar
   useEffect(() => {
