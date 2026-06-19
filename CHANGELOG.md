@@ -4,6 +4,15 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.38] — 2026-06-19
+
+### Changed
+- **Git Manager status preview polish**: long file names in the extension status
+  list now truncate instead of pushing row actions out of view, and noisy diff
+  hunk coordinates are hidden while keeping hunk actions available.
+- **Markdown previews**: Git Manager Markdown previews now render basic Mermaid
+  flowcharts inline, alongside the existing Markdown styling.
+
 ## [0.6.37] — 2026-06-18
 
 ### Fixed

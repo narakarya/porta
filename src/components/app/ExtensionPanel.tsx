@@ -51,14 +51,171 @@ type SpawnEventFromRust =
   | { type: "stderr"; line: string }
   | { type: "done"; code: number; timedOut: boolean };
 
-function injectIntoHtml(html: string, bridgeScript: string, baseHref: string): string {
-  const injection = `<base href="${baseHref}">\n<script>\n${bridgeScript}\n</script>`;
+function hostCssForExtension(extensionId: string): string {
+  if (extensionId !== "git-manager") return "";
+  return `
+<style data-porta-host-overrides="git-manager">
+.status-list {
+  overflow-x: hidden;
+}
+.status-list .diff-tree-row {
+  max-width: 100%;
+  overflow: hidden;
+}
+.status-list .diff-tree-file .file-name,
+.status-list .diff-tree-dir .file-name {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-list .diff-tree-file .row-actions,
+.status-list .diff-tree-dir .row-actions {
+  flex: 0 0 auto;
+}
+.status-diff .hunk-header {
+  justify-content: flex-end;
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: 0;
+}
+.status-diff .hunk-header .hunk-actions {
+  font-size: 10px;
+  opacity: 1;
+}
+.md-body .md-mermaid {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+.md-body .md-mermaid svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.md-body .md-mermaid-node rect {
+  fill: rgba(96, 165, 250, 0.1);
+  stroke: rgba(96, 165, 250, 0.45);
+}
+.md-body .md-mermaid-node text {
+  fill: var(--text);
+  font: 500 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+.md-body .md-mermaid-edge {
+  stroke: var(--text-dim);
+}
+</style>`;
+}
+
+function hostScriptForExtension(extensionId: string): string {
+  if (extensionId !== "git-manager") return "";
+  return `
+<script data-porta-host-overrides="git-manager">
+(function () {
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function escAttr(s) { return escapeHtml(s).replace(/'/g, "&#39;"); }
+  function nodeId(raw) {
+    return String(raw || "").trim().replace(/\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\}/g, "").trim();
+  }
+  function nodeLabel(raw) {
+    const s = String(raw || "").trim();
+    const opens = [s.indexOf("["), s.indexOf("("), s.indexOf("{")].filter(function (i) { return i >= 0; });
+    const open = opens.length ? Math.min.apply(Math, opens) : -1;
+    if (open < 0) return nodeId(s);
+    const close = s.lastIndexOf(s[open] === "[" ? "]" : s[open] === "(" ? ")" : "}");
+    return close > open ? s.slice(open + 1, close).trim() : nodeId(s);
+  }
+  function renderMermaid(src) {
+    const lines = String(src || "").split(/\\r?\\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+    if (!/^(flowchart|graph)\\b/i.test(lines[0] || "")) {
+      return '<pre class="md-pre"><code>' + escapeHtml(src) + '</code></pre>';
+    }
+    const nodes = new Map();
+    const edges = [];
+    lines.slice(1).forEach(function (line) {
+      if (/^%%/.test(line)) return;
+      const m = /^(.+?)\\s*(-->|---|==>|-.->)\\s*(.+?)(?:\\s*$|\\s*;\\s*$)/.exec(line);
+      if (!m) return;
+      const from = nodeId(m[1]);
+      const to = nodeId(m[3]);
+      if (!from || !to) return;
+      if (!nodes.has(from)) nodes.set(from, nodeLabel(m[1]));
+      if (!nodes.has(to)) nodes.set(to, nodeLabel(m[3]));
+      edges.push([from, to]);
+    });
+    if (!nodes.size) return '<pre class="md-pre"><code>' + escapeHtml(src) + '</code></pre>';
+    const ids = Array.from(nodes.keys());
+    const width = 260;
+    const nodeW = 160;
+    const nodeH = 38;
+    const gapY = 38;
+    const positions = new Map(ids.map(function (id, index) {
+      return [id, { x: 50, y: 24 + index * (nodeH + gapY) }];
+    }));
+    const height = 40 + ids.length * (nodeH + gapY);
+    const marker = '<defs><marker id="md-mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs>';
+    const edgeSvg = edges.map(function (edge) {
+      const a = positions.get(edge[0]);
+      const b = positions.get(edge[1]);
+      if (!a || !b) return "";
+      const x1 = a.x + nodeW / 2;
+      const y1 = a.y + nodeH;
+      const x2 = b.x + nodeW / 2;
+      const y2 = b.y;
+      return '<path class="md-mermaid-edge" d="M' + x1 + ' ' + y1 + ' C' + x1 + ' ' + (y1 + 24) + ' ' + x2 + ' ' + (y2 - 24) + ' ' + x2 + ' ' + y2 + '" fill="none" stroke-width="1.5" marker-end="url(#md-mermaid-arrow)" />';
+    }).join("");
+    const nodeSvg = ids.map(function (id) {
+      const p = positions.get(id);
+      return '<g class="md-mermaid-node" transform="translate(' + p.x + ' ' + p.y + ')"><rect width="' + nodeW + '" height="' + nodeH + '" rx="6"/><text x="' + (nodeW / 2) + '" y="24" text-anchor="middle">' + escapeHtml(nodes.get(id)) + '</text><title>' + escAttr(id) + '</title></g>';
+    }).join("");
+    return '<div class="md-mermaid"><svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Mermaid diagram">' + marker + edgeSvg + nodeSvg + '</svg></div>';
+  }
+  function patchMarkdown() {
+    if (!window.GMMd || window.GMMd.__portaPatchedMermaid) return;
+    const originalRender = window.GMMd.render;
+    window.GMMd.render = function (src) {
+      const text = String(src || "");
+      const re = /^\\s*\`\`\`mermaid\\s*\\n([\\s\\S]*?)\\n\\s*\`\`\`\\s*$/gim;
+      let last = 0;
+      let out = "";
+      let match;
+      while ((match = re.exec(text))) {
+        out += originalRender(text.slice(last, match.index));
+        out += renderMermaid(match[1]);
+        last = match.index + match[0].length;
+      }
+      out += originalRender(text.slice(last));
+      return out;
+    };
+    window.GMMd.__portaPatchedMermaid = true;
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", patchMarkdown);
+  else patchMarkdown();
+})();
+</script>`;
+}
+
+function injectIntoHtml(html: string, bridgeScript: string, baseHref: string, hostCss = "", hostScript = ""): string {
+  const injection = `<base href="${baseHref}">\n<script>\n${bridgeScript}\n</script>${hostCss}`;
+  const bodyClose = /<\/body\s*>/i.exec(html);
+  const withScript = bodyClose && hostScript
+    ? html.slice(0, bodyClose.index) + hostScript + "\n" + html.slice(bodyClose.index)
+    : html + hostScript;
   const headMatch = html.match(/<head[^>]*>/i);
   if (headMatch && headMatch.index !== undefined) {
     const pos = headMatch.index + headMatch[0].length;
-    return html.slice(0, pos) + "\n" + injection + "\n" + html.slice(pos);
+    return withScript.slice(0, pos) + "\n" + injection + "\n" + withScript.slice(pos);
   }
-  return `<head>\n${injection}\n</head>\n${html}`;
+  return `<head>\n${injection}\n</head>\n${withScript}`;
 }
 
 /**
@@ -160,7 +317,13 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
         const mainUrl = convertFileSrc(extension.main_path);
         const baseHref = mainUrl.substring(0, mainUrl.lastIndexOf("/") + 1);
         const bridgeScript = createBridgeScript(bridgeApp, extension.id);
-        setSrcDoc(injectIntoHtml(inlined, bridgeScript, baseHref));
+        setSrcDoc(injectIntoHtml(
+          inlined,
+          bridgeScript,
+          baseHref,
+          hostCssForExtension(extension.id),
+          hostScriptForExtension(extension.id),
+        ));
       } catch (e) {
         if (cancelled) return;
         setLoadError(String(e));
