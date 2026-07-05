@@ -4,6 +4,16 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.38] — 2026-07-05
+
+### Fixed
+- **Stale image-update results after editing a compose tag**: the update badge
+  and "Image updates" dialog read a frontend cache keyed by the compose file
+  *path*, so editing an image tag in-place (same file) left the dialog stuck on
+  the previous check until the 4-hour background poll. Added a **refresh** button
+  to the dialog header that forces a fresh registry re-check on demand; the
+  result is written back to the cache so the card badge stays in sync.
+
 ## [0.6.37] — 2026-06-18
 
 ### Fixed

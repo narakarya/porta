@@ -53,6 +53,7 @@ function maxRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
 export default function DockerUpdateBadge({ app }: Props) {
   const [state, setState] = useState<CheckState>({ kind: "idle" });
   const [updating, setUpdating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<PopoverPos | null>(null);
   // Live progress state — populated by Tauri events emitted from
@@ -156,15 +157,22 @@ export default function DockerUpdateBadge({ app }: Props) {
 
   if (app.kind !== "docker" && app.kind !== "compose") return null;
 
-  async function runCheck() {
-    setState({ kind: "checking" });
+  // `keepOpen` is set for the in-dialog refresh: it re-checks without flipping
+  // state to "checking" (which would unmount the popover, since the portal only
+  // renders while state.kind === "ready"). The old info stays visible with a
+  // spinner on the refresh button until the fresh result lands.
+  async function runCheck(opts?: { keepOpen?: boolean }) {
+    if (opts?.keepOpen) setRefreshing(true);
+    else setState({ kind: "checking" });
     try {
       const info = await checkAppImageUpdates(app.id);
       setImageUpdateCache(app.id, info);
       setState({ kind: "ready", info });
-      if (info.some(hasUpdate)) setOpen(true);
+      if (!opts?.keepOpen && info.some(hasUpdate)) setOpen(true);
     } catch (e) {
       setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -270,6 +278,8 @@ export default function DockerUpdateBadge({ app }: Props) {
               app={app}
               info={state.info}
               updating={updating}
+              refreshing={refreshing}
+              onRefresh={() => runCheck({ keepOpen: true })}
               phase={phase}
               logLines={logLines}
               onClose={() => {
@@ -294,6 +304,8 @@ interface PopoverProps {
   app: App;
   info: ImageUpdateInfo[];
   updating: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
   phase: UpdatePhase;
   logLines: string[];
   onClose: () => void;
@@ -579,7 +591,7 @@ function PreflightView({
   );
 }
 
-function UpdatePopover({ app, info, updating, phase, logLines, onClose, onUpdate }: PopoverProps) {
+function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logLines, onClose, onUpdate }: PopoverProps) {
   const appId = app.id;
   // Per-row decision: for semver-pinned tags the user can opt to swap to the
   // suggested tag, or just re-pull the same tag. Default is "swap to suggested".
@@ -703,14 +715,40 @@ function UpdatePopover({ app, info, updating, phase, logLines, onClose, onUpdate
             ? "Pre-flight check"
             : "Image updates"}
         </p>
-        <button
-          onClick={onClose}
-          disabled={updating}
-          className="text-zinc-500 hover:text-zinc-300 text-xs leading-none disabled:opacity-30 disabled:cursor-not-allowed"
-          title={updating ? "Update in progress" : "Close"}
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-1.5">
+          {!showProgress && !showPreflight && (
+            <button
+              onClick={onRefresh}
+              disabled={updating || refreshing}
+              className="text-zinc-500 hover:text-zinc-300 leading-none disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Re-check for updates"
+            >
+              <svg
+                className={refreshing ? "animate-spin" : ""}
+                width="12"
+                height="12"
+                viewBox="0 0 13 13"
+                fill="none"
+              >
+                <path
+                  d="M11 6.5A4.5 4.5 0 1 1 6.5 2c1.4 0 2.7.6 3.5 1.7M10 1.5v2.5h-2.5"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            disabled={updating}
+            className="text-zinc-500 hover:text-zinc-300 text-xs leading-none disabled:opacity-30 disabled:cursor-not-allowed"
+            title={updating ? "Update in progress" : "Close"}
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {showProgress ? (
