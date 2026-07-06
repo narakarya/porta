@@ -338,22 +338,47 @@ async fn fetch_tags(
 
 // ── Local digest via docker CLI ────────────────────────────────────────────
 
-fn local_digest(image_ref: &str) -> Option<String> {
-    let out = Command::new(docker_bin())
+fn local_digests(image_ref: &str) -> Vec<String> {
+    let Ok(out) = Command::new(docker_bin())
         .args(["image", "inspect", "--format", "{{json .RepoDigests}}", image_ref])
         .output()
-        .ok()?;
+    else {
+        return Vec::new();
+    };
     if !out.status.success() {
-        return None;
+        return Vec::new();
     }
     let s = String::from_utf8_lossy(&out.stdout);
-    let digests: Vec<String> = serde_json::from_str(s.trim()).ok()?;
-    // Each entry looks like `repo@sha256:...`. We just need the digest part —
-    // the registry returns the same `sha256:...` regardless of which alias
-    // matched locally.
+    let Ok(digests): Result<Vec<String>, _> = serde_json::from_str(s.trim()) else {
+        return Vec::new();
+    };
+    // Each entry looks like `repo@sha256:...`. A single locally-tagged image can
+    // carry MULTIPLE RepoDigests for the same repo — e.g. after a `latest` tag
+    // was pulled at digest A, then re-pulled at digest B, docker keeps both
+    // `repo@A` and `repo@B`. We must return them all: the update check compares
+    // the remote digest against the whole set, so a re-pulled image isn't
+    // reported as "still outdated" just because a stale alias sorts first.
     digests
         .into_iter()
-        .find_map(|d| d.split_once('@').map(|(_, dg)| dg.to_string()))
+        .filter_map(|d| d.split_once('@').map(|(_, dg)| dg.to_string()))
+        .collect()
+}
+
+/// Decide whether a digest update is available.
+///
+/// An update exists only if the current remote digest is NOT already among the
+/// digests of the locally-tagged image. Using set membership (rather than
+/// first-entry equality) is what makes a freshly-pulled image read as up to date
+/// even when docker still lists an older digest alias for the same repo — the
+/// root cause of "update succeeds but keeps reappearing on refresh".
+///
+/// Empty `locals` means the image hasn't been pulled — nothing to update yet;
+/// a missing `remote` (registry couldn't be reached) is treated the same.
+fn digest_update_available(locals: &[String], remote: Option<&str>) -> bool {
+    match remote {
+        Some(r) => !locals.is_empty() && !locals.iter().any(|l| l == r),
+        None => false,
+    }
 }
 
 // ── Per-image check ────────────────────────────────────────────────────────
@@ -387,18 +412,20 @@ async fn check_one(
         Err(e) => return ImageUpdateInfo::error(image_ref, service_name, e),
     };
 
-    let local = local_digest(image_ref);
+    let locals = local_digests(image_ref);
 
     let remote = match fetch_remote_digest(client, &parsed.repo, &parsed.tag, &token).await {
         Ok(r) => r,
         Err(e) => return ImageUpdateInfo::error(image_ref, service_name, e),
     };
-    let has_digest_update = match (&local, &remote) {
-        (Some(l), Some(r)) => l != r,
-        // If the user hasn't pulled the image yet, there's no "digest update"
-        // to report — Start will pull fresh anyway.
-        _ => false,
-    };
+    let has_digest_update = digest_update_available(&locals, remote.as_deref());
+    // For display, prefer the digest that matches remote (so the popover shows a
+    // consistent pair); otherwise fall back to the first known local digest.
+    let local = remote
+        .as_ref()
+        .filter(|r| locals.iter().any(|l| l == *r))
+        .cloned()
+        .or_else(|| locals.first().cloned());
 
     // For semver-pinned tags, also surface a newer suggestion. For mutable
     // tags this is meaningless — `latest` doesn't have a "newer latest".
@@ -1401,6 +1428,30 @@ fn revert_compose_image_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn digest_membership_not_first_entry() {
+        // The regression: a re-pulled tag keeps a stale digest alias as the
+        // first RepoDigests entry. Remote matches the SECOND entry — still up
+        // to date. First-entry equality would wrongly report an update forever.
+        let locals = vec![
+            "sha256:d845e7f0ac85".to_string(), // stale alias, sorts first
+            "sha256:e013e867e712".to_string(), // current, matches remote
+        ];
+        assert!(!digest_update_available(&locals, Some("sha256:e013e867e712")));
+    }
+
+    #[test]
+    fn digest_update_when_remote_absent_locally() {
+        let locals = vec!["sha256:oldoldold".to_string()];
+        assert!(digest_update_available(&locals, Some("sha256:brandnew")));
+    }
+
+    #[test]
+    fn digest_no_update_when_not_pulled_or_offline() {
+        assert!(!digest_update_available(&[], Some("sha256:whatever")));
+        assert!(!digest_update_available(&["sha256:x".to_string()], None));
+    }
 
     #[test]
     fn parse_dockerhub_official() {

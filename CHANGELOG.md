@@ -4,6 +4,20 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.39] — 2026-07-06
+
+### Fixed
+- **Docker image update that "succeeds" but keeps reappearing**: the update
+  check read only the *first* entry of a locally-tagged image's `RepoDigests`.
+  A tag that was pulled at an old digest and later re-pulled at a new one keeps
+  **multiple** digest aliases, and the stale one can sort first — so the check
+  compared a stale local digest against the current remote digest and reported
+  `has_digest_update` forever, even right after a successful pull. The badge
+  therefore never cleared (most visible on the `postgres`/`clickhouse` services
+  inside a compose stack such as Plausible). The digest comparison now checks
+  the remote digest against the **whole** `RepoDigests` set: an update is
+  reported only when the current remote digest is absent locally.
+
 ## [0.6.38] — 2026-07-05
 
 ### Fixed
