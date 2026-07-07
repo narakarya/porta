@@ -4,6 +4,21 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.40] — 2026-07-07
+
+### Fixed
+- **Terminal printing Unicode as `\x{250C}` escapes**: the embedded terminal
+  spawned `zsh` with only `TERM` set, never a UTF-8 locale. macOS launches GUI
+  apps without the shell's locale environment, so `LANG`/`LC_*` were unset and
+  programs that gate Unicode output on the locale (e.g. the Erlang compiler)
+  fell back to latin1 and escaped box-drawing characters. Porta now injects a
+  UTF-8 locale (`en_US.UTF-8`) when the environment doesn't already declare one,
+  so tables and box-drawing render correctly.
+
+### Removed
+- **Claude shortcut on app cards**: dropped the per-app button that opened a
+  terminal auto-running `claude`.
+
 ## [0.6.39] — 2026-07-06
 
 ### Fixed

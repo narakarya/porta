@@ -14,6 +14,34 @@ pub(super) fn terminals() -> &'static Mutex<HashMap<String, TerminalHandle>> {
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Ensure the spawned shell sees a UTF-8 locale.
+///
+/// macOS GUI apps are launched (Finder/Dock) without the terminal's locale
+/// environment, so `LANG` / `LC_*` are typically unset. Programs that gate
+/// Unicode output on the locale then fall back to latin1 — e.g. the Erlang
+/// compiler escapes box-drawing characters as `\x{250C}` instead of drawing
+/// them. If the environment already declares a UTF-8 locale we leave it
+/// untouched; otherwise we inject a sane default.
+fn utf8_locale_overrides(
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Vec<(&'static str, String)> {
+    let already_utf8 = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .filter_map(|k| lookup(k))
+        .any(|v| {
+            let v = v.to_ascii_uppercase();
+            v.contains("UTF-8") || v.contains("UTF8")
+        });
+    if already_utf8 {
+        vec![]
+    } else {
+        vec![
+            ("LANG", "en_US.UTF-8".to_string()),
+            ("LC_CTYPE", "en_US.UTF-8".to_string()),
+        ]
+    }
+}
+
 /// Spawn an interactive `zsh` shell in `root_dir` inside a PTY.
 /// Output is streamed to `terminal:data:{app_id}` events as raw bytes (base64).
 /// Emits `terminal:exit:{app_id}` when the shell exits.
@@ -63,7 +91,13 @@ pub fn terminal_open(
     let mut cmd = std::process::Command::new("zsh");
     cmd.arg("-i")
        .env("TERM", "xterm-256color")
-       .current_dir(&cwd)
+       .current_dir(&cwd);
+
+    for (key, val) in utf8_locale_overrides(|k| std::env::var(k).ok()) {
+        cmd.env(key, val);
+    }
+
+    cmd
        .stdin(unsafe  { std::process::Stdio::from_raw_fd(stdin_fd)  })
        .stdout(unsafe { std::process::Stdio::from_raw_fd(stdout_fd) })
        .stderr(unsafe { std::process::Stdio::from_raw_fd(stderr_fd) });
@@ -166,4 +200,41 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::utf8_locale_overrides;
+    use std::collections::HashMap;
+
+    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<String, String> =
+            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        move |k: &str| map.get(k).cloned()
+    }
+
+    #[test]
+    fn injects_utf8_when_locale_env_is_empty() {
+        let overrides = utf8_locale_overrides(env(&[]));
+        assert_eq!(
+            overrides,
+            vec![
+                ("LANG", "en_US.UTF-8".to_string()),
+                ("LC_CTYPE", "en_US.UTF-8".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn leaves_existing_utf8_locale_untouched() {
+        assert!(utf8_locale_overrides(env(&[("LANG", "en_US.UTF-8")])).is_empty());
+        assert!(utf8_locale_overrides(env(&[("LC_ALL", "C.UTF-8")])).is_empty());
+        assert!(utf8_locale_overrides(env(&[("LC_CTYPE", "de_DE.utf8")])).is_empty());
+    }
+
+    #[test]
+    fn injects_utf8_when_locale_is_non_utf8() {
+        assert!(!utf8_locale_overrides(env(&[("LANG", "C")])).is_empty());
+        assert!(!utf8_locale_overrides(env(&[("LC_ALL", "POSIX")])).is_empty());
+    }
 }

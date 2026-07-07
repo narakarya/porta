@@ -571,20 +571,6 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
         </Tooltip>
         )}
 
-        {/* Claude shortcut — open terminal with `claude` auto-running */}
-        {app.root_dir && (
-        <Tooltip label="Open terminal with claude">
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(app, "claude"); }}
-            className="p-1 text-orange-400/70 hover:text-orange-300 hover:bg-orange-500/10 rounded-md transition-colors"
-          >
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M3 3.5l2 3-2 3M7 9.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </Tooltip>
-        )}
-
         {/* Extension appAction buttons — run commands without opening the panel */}
         <ExtensionActionButtons
           app={app}
