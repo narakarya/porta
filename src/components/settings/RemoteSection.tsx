@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
-import type { RemoteHost, RemoteHostTest } from "../../lib/commands";
+import type { RemoteHost, RemoteHostTest, WgStatus } from "../../lib/commands";
 
 const EMPTY_HOST: RemoteHost = {
   id: "",
@@ -17,23 +17,51 @@ const EMPTY_HOST: RemoteHost = {
 const inputCls =
   "w-full rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/25";
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
+/** Color + label for a host's WireGuard handshake age (green <2m, amber <5m, red ≥5m). */
+function wgHealth(st: WgStatus | undefined): { dot: string; label: string } {
+  if (!st || !st.up) return { dot: "bg-zinc-600", label: "interface down / unavailable" };
+  if (!st.peer_found) return { dot: "bg-zinc-600", label: "no peer" };
+  const age = st.handshake_age_secs;
+  if (age === null) return { dot: "bg-red-500", label: "never handshaked" };
+  const ago = age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`;
+  if (age < 120) return { dot: "bg-emerald-400", label: `handshake ${ago}` };
+  if (age < 300) return { dot: "bg-amber-400", label: `handshake ${ago}` };
+  return { dot: "bg-red-500", label: `handshake ${ago}` };
+}
+
 /**
  * Porta Relay — manage the user-owned VPS hosts Porta pushes public routes to.
  * Each host is a WireGuard peer running Caddy whose admin API is reachable over
  * the tunnel. The Test button probes that admin API.
  */
 export default function RemoteSection() {
-  const { remoteHosts, loadRemoteHosts, addRemoteHost, updateRemoteHost, deleteRemoteHost, testRemoteHost } =
-    usePortaStore(
-      useShallow((s) => ({
-        remoteHosts: s.remoteHosts,
-        loadRemoteHosts: s.loadRemoteHosts,
-        addRemoteHost: s.addRemoteHost,
-        updateRemoteHost: s.updateRemoteHost,
-        deleteRemoteHost: s.deleteRemoteHost,
-        testRemoteHost: s.testRemoteHost,
-      })),
-    );
+  const {
+    remoteHosts, loadRemoteHosts, addRemoteHost, updateRemoteHost, deleteRemoteHost, testRemoteHost,
+    wgStatuses, loadAllWgStatuses,
+  } = usePortaStore(
+    useShallow((s) => ({
+      remoteHosts: s.remoteHosts,
+      loadRemoteHosts: s.loadRemoteHosts,
+      addRemoteHost: s.addRemoteHost,
+      updateRemoteHost: s.updateRemoteHost,
+      deleteRemoteHost: s.deleteRemoteHost,
+      testRemoteHost: s.testRemoteHost,
+      wgStatuses: s.wgStatuses,
+      loadAllWgStatuses: s.loadAllWgStatuses,
+    })),
+  );
 
   const [draft, setDraft] = useState<RemoteHost | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,6 +71,34 @@ export default function RemoteSection() {
   useEffect(() => {
     loadRemoteHosts();
   }, [loadRemoteHosts]);
+
+  // Poll WireGuard status every 15s while this section is mounted and the
+  // window is visible, so the panel reflects tunnel health without manual
+  // refresh. Pauses when hidden to avoid wasted `wg show` calls.
+  const intervalRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    loadAllWgStatuses();
+    function start() {
+      if (intervalRef.current !== undefined) return;
+      intervalRef.current = window.setInterval(loadAllWgStatuses, 15_000);
+    }
+    function stop() {
+      if (intervalRef.current !== undefined) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = undefined;
+      }
+    }
+    function onVisibility() {
+      if (document.hidden) stop();
+      else { loadAllWgStatuses(); start(); }
+    }
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadAllWgStatuses]);
 
   const editing = draft !== null && draft.id !== "";
 
@@ -100,6 +156,8 @@ export default function RemoteSection() {
 
       {remoteHosts.map((h) => {
         const t = tests[h.id];
+        const wg = wgStatuses[h.id];
+        const health = wgHealth(wg);
         return (
           <div key={h.id} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
             <div className="flex items-start justify-between gap-3">
@@ -108,6 +166,16 @@ export default function RemoteSection() {
                 <div className="text-xs text-white/40 mt-0.5">
                   {h.tunnel_ip}:{h.admin_port} · *.{h.base_domain} · dial {h.mac_tunnel_ip}:443
                   {h.wg_interface ? ` · ${h.wg_interface}` : ""}
+                </div>
+                <div className="flex items-center gap-2 mt-2 text-xs text-white/50">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${health.dot}`} />
+                  <span>{health.label}</span>
+                  {wg?.up && wg.peer_found && (
+                    <span className="text-white/30">
+                      · ↓{formatBytes(wg.rx_bytes)} ↑{formatBytes(wg.tx_bytes)}
+                      {wg.endpoint ? ` · ${wg.endpoint}` : ""}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
