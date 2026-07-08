@@ -323,6 +323,7 @@ pub fn run() {
             commands::list_remote_routes,
             commands::expose_remote,
             commands::unexpose_remote,
+            commands::wg_status,
             commands::get_launch_at_login,
             commands::set_launch_at_login,
             commands::check_port_available,
