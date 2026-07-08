@@ -1086,6 +1086,62 @@ export const stopAllPortaTailscaleServes = (): Promise<void> =>
 export const checkTunnelReachable = (url: string): Promise<boolean> =>
   isTauri ? invoke("check_tunnel_reachable", { url }) : Promise.resolve(true);
 
+// ── Tunneling (Porta Relay — self-hosted VPS) ─────────────────────────────────
+
+export interface RemoteHost {
+  id: string;
+  name: string;
+  tunnel_ip: string;
+  admin_port: number;
+  base_domain: string;
+  wg_interface: string | null;
+  mac_tunnel_ip: string;
+  created_at: number;
+}
+
+export interface RemoteRoute {
+  id: string;
+  app_id: string;
+  host_id: string;
+  subdomain: string;
+  port: number;
+  status: string;
+  created_at: number;
+}
+
+export interface RemoteHostTest {
+  reachable: boolean;
+  message: string;
+}
+
+export const listRemoteHosts = (): Promise<RemoteHost[]> =>
+  isTauri ? invoke("list_remote_hosts") : Promise.resolve([]);
+
+export const addRemoteHost = (host: RemoteHost): Promise<RemoteHost> =>
+  isTauri ? invoke("add_remote_host", { host }) : Promise.resolve(host);
+
+export const updateRemoteHost = (host: RemoteHost): Promise<void> =>
+  isTauri ? invoke("update_remote_host", { host }) : Promise.resolve();
+
+export const deleteRemoteHost = (id: string): Promise<void> =>
+  isTauri ? invoke("delete_remote_host", { id }) : Promise.resolve();
+
+export const testRemoteHost = (id: string): Promise<RemoteHostTest> =>
+  isTauri
+    ? invoke("test_remote_host", { id })
+    : Promise.resolve({ reachable: false, message: "Not available in browser mode" });
+
+export const listRemoteRoutes = (): Promise<RemoteRoute[]> =>
+  isTauri ? invoke("list_remote_routes") : Promise.resolve([]);
+
+export const exposeRemote = (appId: string, hostId: string, subdomain: string): Promise<string> =>
+  isTauri
+    ? invoke("expose_remote", { appId, hostId, subdomain })
+    : Promise.resolve(`https://${subdomain}.example.com`);
+
+export const unexposeRemote = (appId: string): Promise<void> =>
+  isTauri ? invoke("unexpose_remote", { appId }) : Promise.resolve();
+
 // ── Launch at Login ───────────────────────────────────────────────────────────
 
 export const getLaunchAtLogin = (): Promise<boolean> =>

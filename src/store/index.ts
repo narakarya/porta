@@ -3,9 +3,10 @@ import { createWorkspaceSlice, type WorkspaceSlice } from "./slices/workspace";
 import { createAppSlice, type AppSlice } from "./slices/app";
 import { createServiceSlice, type ServiceSlice } from "./slices/service";
 import { createUiSlice, type UiSlice } from "./slices/ui";
+import { createRemoteSlice, type RemoteSlice } from "./slices/remote";
 import { subscribeToAppEvents } from "./subscriptions";
 
-export type AllSlices = WorkspaceSlice & AppSlice & ServiceSlice & UiSlice & {
+export type AllSlices = WorkspaceSlice & AppSlice & ServiceSlice & UiSlice & RemoteSlice & {
   _subscribeToAppEvents: () => () => void;
 };
 
@@ -17,6 +18,7 @@ export const usePortaStore = create<AllSlices>((...a) => ({
   ...createAppSlice(...a),
   ...createServiceSlice(...a),
   ...createUiSlice(...a),
+  ...createRemoteSlice(...a),
   _subscribeToAppEvents: () => {
     const [set, get] = [a[0], a[1]];
     return subscribeToAppEvents(get, set);

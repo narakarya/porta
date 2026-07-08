@@ -55,7 +55,12 @@ export interface AppSlice {
   killApp: (id: string) => Promise<void>;
   clearAppLogs: (id: string) => void;
   dismissPortConflict: (id: string) => void;
-  startTunnel: (id: string, providerOverride?: string, funnel?: boolean) => Promise<void>;
+  startTunnel: (
+    id: string,
+    providerOverride?: string,
+    funnel?: boolean,
+    remoteOpts?: { hostId: string; subdomain: string },
+  ) => Promise<void>;
   stopTunnel: (id: string) => Promise<void>;
   visibleApps: () => App[];
   setImageUpdateCache: (appId: string, info: ImageUpdateInfo[]) => void;
@@ -374,7 +379,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   dismissPortConflict: (id) =>
     set((s) => ({ portConflicts: { ...s.portConflicts, [id]: false } })),
 
-  startTunnel: async (id, providerOverride, funnel) => {
+  startTunnel: async (id, providerOverride, funnel, remoteOpts) => {
     const app = get().apps.find((a) => a.id === id);
     if (!app) return;
     const provider = providerOverride ?? app.tunnel_provider ?? "cloudflare";
@@ -392,6 +397,11 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     try {
       if (provider === "tailscale") {
         await cmd.startTailscaleServe(id, app.port, funnel ?? false);
+      } else if (provider === "remote") {
+        if (!remoteOpts) {
+          throw new Error("Porta Relay requires a remote host and subdomain");
+        }
+        await cmd.exposeRemote(id, remoteOpts.hostId, remoteOpts.subdomain);
       } else {
         await cmd.startTunnel(id, app.port);
       }
@@ -420,6 +430,8 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     try {
       if (provider === "tailscale") {
         await cmd.stopTailscaleServe(id);
+      } else if (provider === "remote") {
+        await cmd.unexposeRemote(id);
       } else {
         await cmd.stopTunnel(id);
       }

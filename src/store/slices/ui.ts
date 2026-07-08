@@ -23,6 +23,7 @@ export type SettingsSection =
   | "setup"
   | "cloudflare"
   | "tailscale"
+  | "remote"
   | "notifications"
   | "backup"
   | "disk"
