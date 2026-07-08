@@ -327,6 +327,141 @@ impl CaddyManager {
     }
 }
 
+// ── Porta Relay: remote Caddy target ───────────────────────────────────────────
+
+/// One public route Porta manages on a remote VPS Caddy. `public_host` is what
+/// the outside world hits (`myapp.userdomain.com`); `local_host` is the app's
+/// domain on this Mac (`myapp.workspace.test`) which we set as the `Host` header
+/// so the *local* Caddy (reached back over the tunnel) routes to the right app.
+#[derive(Debug, Clone)]
+pub struct RemoteRouteSpec {
+    pub public_host: String,
+    pub local_host: String,
+    pub auth: Option<BasicAuth>,
+}
+
+/// Client for a remote VPS Caddy admin API (reached over the WireGuard tunnel).
+/// Unlike the local `CaddyManager` (hardcoded `localhost:2019`, mkcert certs),
+/// this targets a per-host `admin_url` and manages exactly one server object,
+/// `apps.http.servers.porta`, which Porta owns end to end.
+pub struct RemoteCaddy {
+    admin_url: String,
+    client: Client,
+}
+
+impl RemoteCaddy {
+    pub fn new(admin_url: String) -> Self {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .unwrap_or_default();
+        RemoteCaddy { admin_url, client }
+    }
+
+    /// Build the `porta` HTTP server object: listens on `:443` with automatic
+    /// ACME TLS, one route per spec reverse-proxying over the tunnel to the
+    /// Mac's local Caddy at `upstream_dial` (e.g. `10.0.0.2:443`). The internal
+    /// hop is HTTPS against the local mkcert cert, so `insecure_skip_verify` is
+    /// set — identical trust posture to how cloudflared points at local Caddy.
+    pub fn build_porta_server(specs: &[RemoteRouteSpec], upstream_dial: &str) -> Value {
+        let routes: Vec<Value> = specs
+            .iter()
+            .map(|s| {
+                let mut handlers: Vec<Value> = Vec::new();
+                if let Some(a) = &s.auth {
+                    handlers.push(auth_handler(a));
+                }
+                handlers.push(json!({
+                    "handler": "reverse_proxy",
+                    "upstreams": [{ "dial": upstream_dial }],
+                    "headers": {
+                        "request": { "set": { "Host": [s.local_host] } }
+                    },
+                    "transport": {
+                        "protocol": "http",
+                        "tls": { "insecure_skip_verify": true }
+                    }
+                }));
+                json!({ "match": [{ "host": [s.public_host] }], "handle": handlers })
+            })
+            .collect();
+
+        json!({
+            "listen": [":443"],
+            "routes": routes,
+            "automatic_https": {}
+        })
+    }
+
+    /// The `:80`→`:443` redirect server Porta also owns on the VPS.
+    fn redirect_server() -> Value {
+        json!({
+            "listen": [":80"],
+            "routes": [{
+                "handle": [{
+                    "handler": "static_response",
+                    "status_code": "301",
+                    "headers": { "Location": ["https://{http.request.host}{http.request.uri}"] }
+                }]
+            }]
+        })
+    }
+
+    /// Replace Porta's owned `porta` server wholesale (idempotent; never touches
+    /// other servers in the user's config), and ensure the `:80` redirect exists.
+    /// Uses `PUT` on the specific config paths so co-existing servers/routes
+    /// managed by the user or CI are left intact.
+    pub fn put_porta_server(&self, server: &Value) -> Result<()> {
+        // Ensure the http app + servers object exists before PUTting into it.
+        // A PUT to a non-existent parent path 404s, so seed servers first.
+        let servers_path = format!("{}/config/apps/http/servers", self.admin_url);
+        let _ = self.client.get(&servers_path).send();
+
+        self.put(&format!("{}/config/apps/http/servers/porta", self.admin_url), server)?;
+        self.put(
+            &format!("{}/config/apps/http/servers/porta_redirect", self.admin_url),
+            &Self::redirect_server(),
+        )?;
+        Ok(())
+    }
+
+    /// Remove Porta's servers from the VPS (used when the last route is
+    /// unexposed). Best-effort: a missing path is not an error.
+    pub fn delete_porta_server(&self) -> Result<()> {
+        for name in ["porta", "porta_redirect"] {
+            let url = format!("{}/config/apps/http/servers/{}", self.admin_url, name);
+            let _ = self.client.delete(&url).send();
+        }
+        Ok(())
+    }
+
+    fn put(&self, url: &str, body: &Value) -> Result<()> {
+        let resp = self
+            .client
+            .put(url)
+            .header("Content-Type", "application/json")
+            .json(body)
+            .send()?;
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "Caddy PUT {} failed: {}",
+                url,
+                resp.text().unwrap_or_default()
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn reachable(&self) -> bool {
+        self.client
+            .get(format!("{}/config/", self.admin_url))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,6 +605,43 @@ mod tests {
             handlers[1]["headers"]["request"]["set"]["Host"][0],
             "{http.request.host.labels.2}.grandado.test"
         );
+    }
+
+    #[test]
+    fn test_remote_porta_server_dials_local_caddy_over_tunnel() {
+        let server = RemoteCaddy::build_porta_server(
+            &[RemoteRouteSpec {
+                public_host: "myapp.example.com".into(),
+                local_host: "myapp.workspace.test".into(),
+                auth: None,
+            }],
+            "10.0.0.2:443",
+        );
+        assert_eq!(server["listen"][0], ":443");
+        assert!(server.get("automatic_https").is_some(), "ACME automation expected");
+        let route = &server["routes"][0];
+        assert_eq!(route["match"][0]["host"][0], "myapp.example.com");
+        let proxy = route["handle"].as_array().unwrap().iter()
+            .find(|h| h["handler"] == "reverse_proxy").unwrap();
+        assert_eq!(proxy["upstreams"][0]["dial"], "10.0.0.2:443");
+        // Host header rewritten to the LOCAL domain so local Caddy routes it.
+        assert_eq!(proxy["headers"]["request"]["set"]["Host"][0], "myapp.workspace.test");
+        assert_eq!(proxy["transport"]["tls"]["insecure_skip_verify"], true);
+    }
+
+    #[test]
+    fn test_remote_porta_server_prepends_basic_auth() {
+        let server = RemoteCaddy::build_porta_server(
+            &[RemoteRouteSpec {
+                public_host: "secret.example.com".into(),
+                local_host: "secret.workspace.test".into(),
+                auth: Some(BasicAuth { username: "admin".into(), password_hash: "$2b$12$abcdef".into() }),
+            }],
+            "10.0.0.2:443",
+        );
+        let handlers = server["routes"][0]["handle"].as_array().unwrap();
+        assert_eq!(handlers[0]["handler"], "authentication");
+        assert_eq!(handlers[1]["handler"], "reverse_proxy");
     }
 
     #[test]
