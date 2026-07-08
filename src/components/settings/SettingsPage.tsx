@@ -13,6 +13,7 @@ const NotificationsSection = lazy(() => import("./NotificationsSection"));
 const BackupSection = lazy(() => import("./BackupSection"));
 const CloudflareSection = lazy(() => import("./CloudflareSection"));
 const TailscaleSection = lazy(() => import("./TailscaleSection"));
+const RemoteSection = lazy(() => import("./RemoteSection"));
 const DiskUsageSection = lazy(() => import("./DiskUsageSection"));
 const ExtensionsSection = lazy(() => import("./ExtensionsSection"));
 const AboutSection = lazy(() => import("./AboutSection"));
@@ -62,6 +63,18 @@ const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
         <circle cx="5" cy="15" r="1.5" fill="currentColor"/>
         <circle cx="10" cy="15" r="1.5" fill="currentColor"/>
         <circle cx="15" cy="15" r="1.5" fill="currentColor"/>
+      </svg>
+    ),
+  },
+  {
+    id: "remote",
+    label: "Remote Servers",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <rect x="3" y="4" width="14" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+        <rect x="3" y="11" width="14" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="6" cy="6.5" r="0.8" fill="currentColor"/>
+        <circle cx="6" cy="13.5" r="0.8" fill="currentColor"/>
       </svg>
     ),
   },
@@ -215,6 +228,11 @@ export default function SettingsPage({ onBack }: Props) {
           {visited.has("tailscale") && (
             <div hidden={activeSection !== "tailscale"}>
               <TailscaleSection />
+            </div>
+          )}
+          {visited.has("remote") && (
+            <div hidden={activeSection !== "remote"}>
+              <RemoteSection />
             </div>
           )}
           {visited.has("notifications") && (

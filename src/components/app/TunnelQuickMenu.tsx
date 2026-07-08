@@ -10,6 +10,8 @@ import {
 } from "../../lib/commands";
 import { getCachedTunnels, setCachedTunnels, hasTunnelCache } from "../../lib/tunnelCache";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
+import { usePortaStore } from "../../store";
+import { useShallow } from "zustand/react/shallow";
 
 interface TunnelQuickMenuProps {
   app: App;
@@ -35,6 +37,17 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
   const [hostnameDraft, setHostnameDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyError, setBusyError] = useState<string | null>(null);
+  // Porta Relay (self-hosted VPS) expose form state.
+  const { remoteHosts, loadRemoteHosts, startTunnel, openSettingsSection } = usePortaStore(
+    useShallow((s) => ({
+      remoteHosts: s.remoteHosts,
+      loadRemoteHosts: s.loadRemoteHosts,
+      startTunnel: s.startTunnel,
+      openSettingsSection: s.openSettingsSection,
+    })),
+  );
+  const [relayHostId, setRelayHostId] = useState("");
+  const [relaySub, setRelaySub] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -81,6 +94,30 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     setBusyError(null);
   }, [tunnelMenuOpen]);
 
+  // On open, refresh remote hosts and default the relay subdomain to the app's
+  // slug so a one-click expose has a sensible hostname.
+  useEffect(() => {
+    if (!tunnelMenuOpen) return;
+    void loadRemoteHosts();
+    setRelaySub((prev) => prev || app.subdomain || app.name);
+  }, [tunnelMenuOpen, loadRemoteHosts, app.subdomain, app.name]);
+
+  async function exposeRelay() {
+    const hostId = relayHostId || remoteHosts[0]?.id;
+    if (!hostId) return;
+    const subdomain = (relaySub.trim() || app.subdomain || app.name).trim();
+    setBusy(true);
+    setBusyError(null);
+    try {
+      await startTunnel(app.id, "remote", undefined, { hostId, subdomain });
+      setTunnelMenuOpen(false);
+    } catch (e) {
+      setBusyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!isActive && !app.tunnel_active && !tunnelError) return null;
 
   const provider = app.tunnel_provider;
@@ -90,6 +127,8 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     ? "Tailscale connected"
     : provider === "cloudflare"
     ? "Cloudflare tunnel connected"
+    : provider === "remote"
+    ? "Porta Relay connected"
     : "Tunnel connected";
 
   async function startWithConfig(tunnelName: string | null, hostname: string | null) {
@@ -378,6 +417,49 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                       );
                     })}
                   </div>
+                </div>
+
+                {/* Porta Relay — expose via the user's own VPS. */}
+                <div className="border-t border-white/[0.06] mt-1">
+                  <div className="px-3 pt-2 pb-1">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">Porta Relay</p>
+                  </div>
+                  {remoteHosts.length === 0 ? (
+                    <button
+                      onClick={() => { openSettingsSection("remote"); setTunnelMenuOpen(false); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-zinc-400 hover:bg-white/[0.05] transition-colors"
+                    >
+                      <span className="flex-1 text-left">No remote servers — set one up</span>
+                      <span className="text-[9px] text-zinc-500">Settings →</span>
+                    </button>
+                  ) : (
+                    <div className="px-3 pb-2 pt-1 flex flex-col gap-1.5">
+                      <select
+                        value={relayHostId || remoteHosts[0].id}
+                        onChange={(e) => setRelayHostId(e.target.value)}
+                        className="input-base w-full text-[11.5px] py-1.5"
+                      >
+                        {remoteHosts.map((h) => (
+                          <option key={h.id} value={h.id}>{h.name} (*.{h.base_domain})</option>
+                        ))}
+                      </select>
+                      <input
+                        value={relaySub}
+                        onChange={(e) => setRelaySub(e.target.value)}
+                        placeholder="subdomain"
+                        spellCheck={false}
+                        className="input-base w-full font-mono text-[11.5px] py-1.5"
+                        onKeyDown={(e) => { if (e.key === "Enter") void exposeRelay(); }}
+                      />
+                      <button
+                        onClick={() => void exposeRelay()}
+                        disabled={busy}
+                        className="px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md disabled:opacity-40 transition-colors"
+                      >
+                        {busy ? "Exposing…" : "Expose via Porta Relay"}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {busyError && !expandedTunnel && (
