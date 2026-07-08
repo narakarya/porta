@@ -443,6 +443,7 @@ pub async fn start_tailscale_serve(
         // running (and serving) behind the scenes. Silent so its dying
         // `active:false` can't clobber our `active:true` below.
         crate::commands::tunnel::stop_cloudflare_for_switch(&id);
+        crate::commands::remote::stop_remote_for_switch(&id, &app_handle);
 
         // Resolve tailnet hostname upfront — we need it both for the final URL and,
         // for static apps, for the Caddy alias route.

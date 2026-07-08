@@ -139,7 +139,7 @@ pub struct HostAuthOverride {
 
 fn default_app_kind() -> String { "process".into() }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct App {
     pub id: String,
     pub workspace_id: Option<String>,

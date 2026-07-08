@@ -351,6 +351,7 @@ fn start_tunnel_blocking(
     // tear down any Tailscale serve for this app first. Silent (no event) so it
     // doesn't clobber the `active:true` cloudflared emits once connected.
     crate::commands::tailscale::stop_tailscale_for_switch(&id, &app_handle);
+    crate::commands::remote::stop_remote_for_switch(&id, &app_handle);
 
     let id2 = id.clone();
     let handle = app_handle.clone();

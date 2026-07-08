@@ -27,6 +27,9 @@ pub use cf_email::*;
 mod tailscale;
 pub use tailscale::*;
 
+pub mod remote;
+pub use remote::*;
+
 mod service;
 pub use service::*;
 
