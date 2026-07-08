@@ -1142,6 +1142,29 @@ export const exposeRemote = (appId: string, hostId: string, subdomain: string): 
 export const unexposeRemote = (appId: string): Promise<void> =>
   isTauri ? invoke("unexpose_remote", { appId }) : Promise.resolve();
 
+export interface WgStatus {
+  interface: string;
+  up: boolean;
+  peer_found: boolean;
+  endpoint: string | null;
+  handshake_age_secs: number | null;
+  rx_bytes: number;
+  tx_bytes: number;
+}
+
+export const wgStatus = (hostId: string): Promise<WgStatus> =>
+  isTauri
+    ? invoke("wg_status", { hostId })
+    : Promise.resolve({
+        interface: "",
+        up: false,
+        peer_found: false,
+        endpoint: null,
+        handshake_age_secs: null,
+        rx_bytes: 0,
+        tx_bytes: 0,
+      });
+
 // ── Launch at Login ───────────────────────────────────────────────────────────
 
 export const getLaunchAtLogin = (): Promise<boolean> =>
