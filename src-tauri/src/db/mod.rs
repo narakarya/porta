@@ -3,6 +3,7 @@ pub mod models;
 mod workspace_repo;
 mod app_repo;
 mod service_repo;
+mod remote_repo;
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -188,6 +189,34 @@ impl Database {
         ")?;
         // Remote install source (GitHub url/ref); NULL for local-folder installs.
         let _ = self.conn.execute("ALTER TABLE extensions ADD COLUMN source TEXT", []);
+
+        // Porta Relay: user-owned VPS hosts (WireGuard + remote Caddy) and the
+        // public routes Porta manages on them. `tunnel_ip` is the VPS's WG IP
+        // (admin API + public host reach); `mac_tunnel_ip` is this Mac's WG IP
+        // (the upstream Caddy dials back over the tunnel). `wg_interface` NULL
+        // means auto-detect via `wg show interfaces`.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS remote_hosts (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL,
+                tunnel_ip     TEXT NOT NULL,
+                admin_port    INTEGER NOT NULL DEFAULT 2019,
+                base_domain   TEXT NOT NULL,
+                wg_interface  TEXT,
+                mac_tunnel_ip TEXT NOT NULL,
+                created_at    INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS remote_routes (
+                id         TEXT PRIMARY KEY,
+                app_id     TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+                host_id    TEXT NOT NULL REFERENCES remote_hosts(id) ON DELETE CASCADE,
+                subdomain  TEXT NOT NULL,
+                port       INTEGER NOT NULL,
+                status     TEXT NOT NULL DEFAULT 'active',
+                created_at INTEGER NOT NULL DEFAULT 0
+            );
+        ")?;
 
         Ok(())
     }

@@ -18,6 +18,39 @@ pub struct PortBinding {
     pub custom_domain: Option<String>,
 }
 
+// ── Porta Relay (self-hosted expose) ───────────────────────────────────────────
+
+/// A user-owned VPS registered as a Porta Relay target. Porta reaches its Caddy
+/// admin API over the WireGuard tunnel at `tunnel_ip:admin_port`, and the VPS
+/// reverse-proxies public traffic back to this Mac's local Caddy at
+/// `mac_tunnel_ip:443`. `wg_interface` is a manual override; `None` auto-detects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteHost {
+    pub id: String,
+    pub name: String,
+    pub tunnel_ip: String,
+    pub admin_port: u16,
+    pub base_domain: String,
+    pub wg_interface: Option<String>,
+    pub mac_tunnel_ip: String,
+    pub created_at: i64,
+}
+
+/// One public route Porta manages on a `RemoteHost`. `subdomain` + the host's
+/// `base_domain` form the public hostname; `port` is the local app port the
+/// route ultimately targets (via local Caddy). `status`: "active" once the VPS
+/// Caddy has the route, "pending" if the push hasn't been confirmed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteRoute {
+    pub id: String,
+    pub app_id: String,
+    pub host_id: String,
+    pub subdomain: String,
+    pub port: u16,
+    pub status: String,
+    pub created_at: i64,
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
