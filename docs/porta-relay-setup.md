@@ -78,6 +78,24 @@ route from the VPS.
 4. Disconnect → the route is gone from the VPS (`curl https://<sub>.yourdomain.com`
    no longer resolves to your app), and the app's Porta Relay state clears.
 
+## Tunnel status
+
+Settings → Remote Servers shows each host's live WireGuard status: a colored dot
+for the last handshake (green <2 min, amber <5 min, red ≥5 min), plus RX/TX and
+the peer endpoint. It polls every 15 seconds while the tab is visible. Exposed
+apps whose tunnel handshake goes stale (≥5 min) show an amber “degraded” state in
+their tunnel menu.
+
+If the status shows **“interface down / unavailable”** while the tunnel is
+actually up, check that `wg show <interface> dump` works in a terminal — on some
+setups `wg` needs the interface to be up and may require elevated privileges. Set
+the interface name manually in the host settings if auto-detection picks the
+wrong one.
+
+If a route shows **“Pending — the VPS didn't confirm this route”**, the push to
+the VPS Caddy failed (usually the tunnel was down). Fix connectivity, then click
+**Retry expose**.
+
 ## Caveats (v1)
 
 - **ACME rate limits:** repeatedly exposing/unexposing *new* subdomains can hit
