@@ -32,6 +32,21 @@ const EMPTY_HOST: RemoteHost = {
 const inputCls =
   "w-full rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/25";
 
+/**
+ * Native confirmation dialog via the Tauri dialog plugin. `window.confirm` is
+ * unreliable inside the WKWebView (it can return without ever showing a dialog),
+ * so use the plugin's async `confirm`, falling back to `window.confirm` in a
+ * plain browser (dev/preview).
+ */
+async function confirmDialog(message: string, title: string): Promise<boolean> {
+  try {
+    const { confirm } = await import("@tauri-apps/plugin-dialog");
+    return await confirm(message, { title, kind: "warning" });
+  } catch {
+    return window.confirm(message);
+  }
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
@@ -267,8 +282,8 @@ export default function RemoteSection() {
                   {draft?.id === h.id ? "Close" : "Edit"}
                 </button>
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`))
+                  onClick={async () => {
+                    if (await confirmDialog(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`, "Delete remote server"))
                       deleteRemoteHost(h.id);
                   }}
                   className="text-xs rounded-lg px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300"
@@ -277,12 +292,6 @@ export default function RemoteSection() {
                 </button>
               </div>
             </div>
-            {t && !t.loading && (
-              <div className={`mt-2 text-xs ${t.reachable ? "text-emerald-400" : "text-red-400"}`}>
-                {t.reachable ? "✓ " : "✕ "}
-                {t.message}
-              </div>
-            )}
             <RemoteLogViewer hostId={h.id} hasSsh={!!h.ssh_user} />
             {remoteDiffs[h.id] && (() => {
               const d = remoteDiffs[h.id];
@@ -311,8 +320,8 @@ export default function RemoteSection() {
                         Foreign: {fh}
                       </span>
                       <button
-                        onClick={() => {
-                          if (window.confirm(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`))
+                        onClick={async () => {
+                          if (await confirmDialog(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`, "Remove foreign routes"))
                             runRemoveForeign(h.id, fh);
                         }}
                         className="shrink-0 rounded px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-300"
