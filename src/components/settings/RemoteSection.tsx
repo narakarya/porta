@@ -229,7 +229,10 @@ export default function RemoteSection() {
                   Edit
                 </button>
                 <button
-                  onClick={() => deleteRemoteHost(h.id)}
+                  onClick={() => {
+                    if (window.confirm(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`))
+                      deleteRemoteHost(h.id);
+                  }}
                   className="text-xs rounded-lg px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300"
                 >
                   Delete

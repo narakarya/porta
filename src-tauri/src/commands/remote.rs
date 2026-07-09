@@ -108,60 +108,67 @@ fn parse_wg_dump(out: &str, tunnel_ip: &str) -> Option<ParsedPeer> {
 }
 
 #[tauri::command]
-pub fn wg_status(host_id: String, state: State<AppState>) -> Result<WgStatus, String> {
-    let host = state
-        .db
-        .lock()
-        .unwrap()
-        .get_remote_host(&host_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Remote host not found".to_string())?;
-
-    let iface = host
-        .wg_interface
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(detect_wg_interface)
-        .unwrap_or_default();
-
-    let down = WgStatus {
-        interface: iface.clone(),
-        up: false,
-        peer_found: false,
-        endpoint: None,
-        handshake_age_secs: None,
-        rx_bytes: 0,
-        tx_bytes: 0,
+pub async fn wg_status(host_id: String, state: State<'_, AppState>) -> Result<WgStatus, String> {
+    let host = {
+        state
+            .db
+            .lock()
+            .unwrap()
+            .get_remote_host(&host_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Remote host not found".to_string())?
     };
 
-    if iface.is_empty() {
-        return Ok(down);
-    }
-    let out = match std::process::Command::new("wg").args(["show", &iface, "dump"]).output() {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
-        _ => return Ok(down),
-    };
+    // `wg show` shells out (blocking) — offload so the 15s poll never freezes UI.
+    tokio::task::spawn_blocking(move || {
+        let iface = host
+            .wg_interface
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(detect_wg_interface)
+            .unwrap_or_default();
 
-    match parse_wg_dump(&out, &host.tunnel_ip) {
-        Some(p) => {
-            let handshake_age_secs = if p.latest_handshake > 0 {
-                Some(now_epoch() - p.latest_handshake)
-            } else {
-                None
-            };
-            Ok(WgStatus {
-                interface: iface,
-                up: true,
-                peer_found: true,
-                endpoint: p.endpoint,
-                handshake_age_secs,
-                rx_bytes: p.rx,
-                tx_bytes: p.tx,
-            })
+        let down = WgStatus {
+            interface: iface.clone(),
+            up: false,
+            peer_found: false,
+            endpoint: None,
+            handshake_age_secs: None,
+            rx_bytes: 0,
+            tx_bytes: 0,
+        };
+
+        if iface.is_empty() {
+            return down;
         }
-        // Interface is up but no peer line matched.
-        None => Ok(WgStatus { up: true, ..down }),
-    }
+        let out = match std::process::Command::new("wg").args(["show", &iface, "dump"]).output() {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+            _ => return down,
+        };
+
+        match parse_wg_dump(&out, &host.tunnel_ip) {
+            Some(p) => {
+                let handshake_age_secs = if p.latest_handshake > 0 {
+                    Some(now_epoch() - p.latest_handshake)
+                } else {
+                    None
+                };
+                WgStatus {
+                    interface: iface,
+                    up: true,
+                    peer_found: true,
+                    endpoint: p.endpoint,
+                    handshake_age_secs,
+                    rx_bytes: p.rx,
+                    tx_bytes: p.tx,
+                }
+            }
+            // Interface is up but no peer line matched.
+            None => WgStatus { up: true, ..down },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ── Host inventory (R1) ─────────────────────────────────────────────────────────
@@ -198,32 +205,40 @@ pub fn delete_remote_host(id: String, state: State<AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn test_remote_host(id: String, state: State<AppState>) -> Result<RemoteHostTest, String> {
-    let host = state
-        .db
-        .lock()
-        .unwrap()
-        .get_remote_host(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Remote host not found".to_string())?;
+pub async fn test_remote_host(id: String, state: State<'_, AppState>) -> Result<RemoteHostTest, String> {
+    let host = {
+        state
+            .db
+            .lock()
+            .unwrap()
+            .get_remote_host(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Remote host not found".to_string())?
+    };
     // TODO(spec2): also warn if the admin API is reachable from a public IP
     // (it must bind the tunnel IP only). Requires probing the public interface.
-    let caddy = RemoteCaddy::new(admin_url(&host));
-    if caddy.reachable() {
-        Ok(RemoteHostTest {
-            reachable: true,
-            message: format!("Connected to Caddy admin API at {}", admin_url(&host)),
-        })
-    } else {
-        Ok(RemoteHostTest {
-            reachable: false,
-            message: format!(
-                "Could not reach Caddy admin API at {}. Check the WireGuard tunnel is up and Caddy's admin API is bound to {}.",
-                admin_url(&host),
-                host.tunnel_ip
-            ),
-        })
-    }
+    let admin = admin_url(&host);
+    let tunnel_ip = host.tunnel_ip.clone();
+    // Blocking HTTP probe (up to a few seconds on an unreachable VPS) — offload.
+    tokio::task::spawn_blocking(move || {
+        let caddy = RemoteCaddy::new(admin.clone());
+        if caddy.reachable() {
+            RemoteHostTest {
+                reachable: true,
+                message: format!("Connected to Caddy admin API at {}", admin),
+            }
+        } else {
+            RemoteHostTest {
+                reachable: false,
+                message: format!(
+                    "Could not reach Caddy admin API at {}. Check the WireGuard tunnel is up and Caddy's admin API is bound to {}.",
+                    admin, tunnel_ip
+                ),
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ── Expose / unexpose (R3) ──────────────────────────────────────────────────────
@@ -399,7 +414,14 @@ pub async fn expose_remote(
 
     // Rebuild the whole host server from all its (now-including-this) routes.
     let all_routes = state.db.lock().unwrap().list_remote_routes_for_host(&host_id).map_err(|e| e.to_string())?;
-    match push_host(&host, &all_routes, &apps, &workspaces) {
+    // push_host does blocking HTTP to the VPS — offload so the UI stays responsive.
+    let push_result = {
+        let host = host.clone();
+        tokio::task::spawn_blocking(move || push_host(&host, &all_routes, &apps, &workspaces))
+            .await
+            .map_err(|e| e.to_string())?
+    };
+    match push_result {
         Ok(()) => {
             state
                 .db
@@ -430,9 +452,9 @@ pub async fn expose_remote(
 }
 
 #[tauri::command]
-pub fn unexpose_remote(
+pub async fn unexpose_remote(
     app_id: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
     let route = state
@@ -466,9 +488,12 @@ pub fn unexpose_remote(
         (host, apps, workspaces, remaining)
     };
 
-    // Push the VPS to the post-removal state first; only drop the DB row if that
-    // succeeds, so a failed VPS call keeps the row as a retry anchor.
-    push_host(&host, &remaining, &apps, &workspaces)?;
+    // Push the VPS to the post-removal state first (blocking HTTP → offload);
+    // only drop the DB row if that succeeds, so a failed VPS call keeps the row
+    // as a retry anchor.
+    tokio::task::spawn_blocking(move || push_host(&host, &remaining, &apps, &workspaces))
+        .await
+        .map_err(|e| e.to_string())??;
 
     state.db.lock().unwrap().delete_remote_route_by_app(&app_id).map_err(|e| e.to_string())?;
     set_provider(&state, &app_id, None);
@@ -518,7 +543,7 @@ fn extract_route_hosts(server: &serde_json::Value) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn remote_diff(host_id: String, state: State<AppState>) -> Result<DiffReport, String> {
+pub async fn remote_diff(host_id: String, state: State<'_, AppState>) -> Result<DiffReport, String> {
     let (host, routes) = {
         let db = state.db.lock().unwrap();
         let host = db
@@ -532,19 +557,24 @@ pub fn remote_diff(host_id: String, state: State<AppState>) -> Result<DiffReport
         .iter()
         .map(|r| format!("{}.{}", r.subdomain, host.base_domain))
         .collect();
-    let caddy = RemoteCaddy::new(admin_url(&host));
-    let actual = match caddy.get_porta_server() {
-        Ok(Some(server)) => extract_route_hosts(&server),
-        Ok(None) => Vec::new(),
-        Err(e) => return Err(format!("Could not read VPS config: {}", e)),
-    };
+    let admin = admin_url(&host);
+    // Blocking HTTP GET of the VPS config — offload.
+    let actual = tokio::task::spawn_blocking(move || {
+        let caddy = RemoteCaddy::new(admin);
+        caddy
+            .get_porta_server()
+            .map(|opt| opt.map(|s| extract_route_hosts(&s)).unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("Could not read VPS config: {}", e))?;
     Ok(diff_hosts(&desired, &actual))
 }
 
 /// Re-assert Porta's managed state onto the VPS: restores any missing routes and
 /// drops unmanaged (foreign) ones, since Porta owns the whole `porta` server.
 #[tauri::command]
-pub fn remote_push_host(host_id: String, state: State<AppState>) -> Result<(), String> {
+pub async fn remote_push_host(host_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let (host, routes, apps, workspaces) = {
         let db = state.db.lock().unwrap();
         let host = db
@@ -556,7 +586,10 @@ pub fn remote_push_host(host_id: String, state: State<AppState>) -> Result<(), S
         let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
         (host, routes, apps, workspaces)
     };
-    push_host(&host, &routes, &apps, &workspaces)
+    // Blocking HTTP push — offload.
+    tokio::task::spawn_blocking(move || push_host(&host, &routes, &apps, &workspaces))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Remove a foreign (Porta-unmanaged) route from the VPS. Because Porta owns the
@@ -564,13 +597,13 @@ pub fn remote_push_host(host_id: String, state: State<AppState>) -> Result<(), S
 /// route and any other unmanaged ones. `public_host` is informational (the UI
 /// confirms against it).
 #[tauri::command]
-pub fn remote_remove_foreign(
+pub async fn remote_remove_foreign(
     host_id: String,
     public_host: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
     let _ = public_host;
-    remote_push_host(host_id, state)
+    remote_push_host(host_id, state).await
 }
 
 /// Silent teardown when another provider takes over this app. Removes the app's
@@ -634,39 +667,45 @@ fn ssh_target(host: &RemoteHost) -> Result<(String, String), String> {
 
 /// One-shot: fetch the last `lines` access-log entries from the VPS over SSH.
 #[tauri::command]
-pub fn remote_log_tail(
+pub async fn remote_log_tail(
     host_id: String,
     lines: u32,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<crate::access_log::AccessLogEntry>, String> {
-    let host = state
-        .db
-        .lock()
-        .unwrap()
-        .get_remote_host(&host_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Remote host not found".to_string())?;
+    let host = {
+        state
+            .db
+            .lock()
+            .unwrap()
+            .get_remote_host(&host_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Remote host not found".to_string())?
+    };
     let (target, path) = ssh_target(&host)?;
-    let out = std::process::Command::new("ssh")
-        .args([
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=8",
-            &target,
-            &format!("tail -n {} '{}'", lines, path),
-        ])
-        .output()
-        .map_err(|e| format!("failed to run ssh: {}", e))?;
-    if !out.status.success() {
-        return Err(format!(
-            "SSH tail failed (is passwordless SSH to the VPS configured?): {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    let entries = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(crate::access_log::parse_line)
-        .collect();
-    Ok(entries)
+    // ssh can block up to ConnectTimeout (8s) on an unreachable host — offload.
+    tokio::task::spawn_blocking(move || {
+        let out = std::process::Command::new("ssh")
+            .args([
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=8",
+                &target,
+                &format!("tail -n {} '{}'", lines, path),
+            ])
+            .output()
+            .map_err(|e| format!("failed to run ssh: {}", e))?;
+        if !out.status.success() {
+            return Err(format!(
+                "SSH tail failed (is passwordless SSH to the VPS configured?): {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(crate::access_log::parse_line)
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Start streaming VPS access logs: spawns `ssh … tail -F` and emits parsed
