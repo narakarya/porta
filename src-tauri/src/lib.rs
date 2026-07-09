@@ -174,6 +174,7 @@ pub fn run() {
         .manage(state)
         .manage(commands::container_observe::LogStreams::default())
         .manage(commands::access_log::AccessLogStreams::default())
+        .manage(commands::remote::RemoteLogStreams::default())
         .setup(|app| {
             if let Some(w) = app.get_webview_window("main") {
                 restore_window_state(&w);
@@ -327,6 +328,9 @@ pub fn run() {
             commands::remote_diff,
             commands::remote_push_host,
             commands::remote_remove_foreign,
+            commands::remote_log_tail,
+            commands::remote_log_live_start,
+            commands::remote_log_live_stop,
             commands::get_launch_at_login,
             commands::set_launch_at_login,
             commands::check_port_available,

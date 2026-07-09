@@ -603,6 +603,140 @@ pub fn stop_remote_for_switch(app_id: &str, app_handle: &AppHandle) {
     set_provider(&state, app_id, None);
 }
 
+// ── Remote access logs over SSH (R8) ────────────────────────────────────────────
+
+/// Live remote-log tail tasks, keyed by stream id. Each task owns an `ssh …
+/// tail -F` child (`kill_on_drop`), so aborting the task kills the ssh process.
+#[derive(Default)]
+pub struct RemoteLogStreams {
+    inner: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::task::JoinHandle<()>>>>,
+}
+
+/// Resolve the `user@host` SSH target and remote log path for a host.
+fn ssh_target(host: &RemoteHost) -> Result<(String, String), String> {
+    let user = host
+        .ssh_user
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "Set an SSH user on this host to tail remote logs".to_string())?;
+    let target_host = host
+        .public_ip
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| host.base_domain.clone());
+    let path = host
+        .remote_log_path
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| crate::caddy::RemoteCaddy::DEFAULT_LOG_PATH.to_string());
+    Ok((format!("{}@{}", user, target_host), path))
+}
+
+/// One-shot: fetch the last `lines` access-log entries from the VPS over SSH.
+#[tauri::command]
+pub fn remote_log_tail(
+    host_id: String,
+    lines: u32,
+    state: State<AppState>,
+) -> Result<Vec<crate::access_log::AccessLogEntry>, String> {
+    let host = state
+        .db
+        .lock()
+        .unwrap()
+        .get_remote_host(&host_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Remote host not found".to_string())?;
+    let (target, path) = ssh_target(&host)?;
+    let out = std::process::Command::new("ssh")
+        .args([
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            &target,
+            &format!("tail -n {} '{}'", lines, path),
+        ])
+        .output()
+        .map_err(|e| format!("failed to run ssh: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "SSH tail failed (is passwordless SSH to the VPS configured?): {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let entries = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(crate::access_log::parse_line)
+        .collect();
+    Ok(entries)
+}
+
+/// Start streaming VPS access logs: spawns `ssh … tail -F` and emits parsed
+/// entries on `access-log:remote:{host_id}` until stopped.
+#[tauri::command]
+pub async fn remote_log_live_start(
+    host_id: String,
+    state: State<'_, AppState>,
+    streams: State<'_, RemoteLogStreams>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    let host = {
+        state
+            .db
+            .lock()
+            .unwrap()
+            .get_remote_host(&host_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Remote host not found".to_string())?
+    };
+    let (target, path) = ssh_target(&host)?;
+    let stream_id = format!(
+        "{}-{}",
+        host_id.replace(|c: char| !c.is_ascii_alphanumeric(), "_"),
+        chrono::Utc::now().timestamp_millis()
+    );
+    let event_name = format!("access-log:remote:{}", host_id);
+
+    let mut child = tokio::process::Command::new("ssh")
+        .args([
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            "-o", "ServerAliveInterval=15",
+            &target,
+            &format!("tail -n 50 -F '{}'", path),
+        ])
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("failed to start ssh: {}", e))?;
+    let stdout = child.stdout.take().ok_or_else(|| "no ssh stdout".to_string())?;
+
+    let app = app_handle.clone();
+    let task = tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        // Keep the child alive for the task's lifetime; kill_on_drop kills ssh
+        // when this task is aborted.
+        let _child = child;
+        let mut reader = tokio::io::BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if let Some(entry) = crate::access_log::parse_line(&line) {
+                let _ = app.emit(&event_name, serde_json::json!({ "entries": [entry] }));
+            }
+        }
+    });
+    streams.inner.lock().await.insert(stream_id.clone(), task);
+    Ok(stream_id)
+}
+
+#[tauri::command]
+pub async fn remote_log_live_stop(
+    stream_id: String,
+    streams: State<'_, RemoteLogStreams>,
+) -> Result<(), String> {
+    if let Some(task) = streams.inner.lock().await.remove(&stream_id) {
+        task.abort(); // dropping the child (kill_on_drop) terminates ssh
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
