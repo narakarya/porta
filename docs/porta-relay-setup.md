@@ -96,6 +96,42 @@ If a route shows **“Pending — the VPS didn't confirm this route”**, the pu
 the VPS Caddy failed (usually the tunnel was down). Fix connectivity, then click
 **Retry expose**.
 
+## Sync & drift (R5)
+
+The **Sync** button on a host compares Porta's routes against the live VPS Caddy config:
+- **Missing on VPS** — a route Porta expects but the VPS lost (e.g. Caddy restarted without
+  Porta's config). Click **Push** to re-apply.
+- **Foreign** — routes on the VPS that Porta doesn't manage (CI preview envs, manual sites).
+  Shown read-only. **Remove** re-asserts Porta's routes and drops unmanaged ones — use with
+  care if CI writes routes into the same `porta` server.
+
+## Auto DNS via Cloudflare (R6)
+
+If your base domain is on Cloudflare, fill the host's **VPS public IP** and tick **Auto-create
+DNS via Cloudflare**. On expose, Porta creates a **DNS-only** (grey-cloud) A record
+`<sub>.<base_domain> → <public IP>` so traffic reaches the VPS directly. Requirements:
+- A Cloudflare API token in Settings → Cloudflare (same token used elsewhere).
+- The zone must exist in that Cloudflare account.
+
+Notes: creation is idempotent (an existing A record is left alone). Unexpose does **not** delete
+the record (so you can reuse the subdomain); remove it manually in Cloudflare if you want it gone.
+If the domain isn't on Cloudflare or the token/IP is missing, auto-DNS is skipped silently and
+you set DNS yourself (the wildcard approach above still works).
+
+## Remote access logs (R8)
+
+To view VPS request logs inside Porta (Settings → Remote Servers → **Remote access logs**):
+- Set the host's **SSH user** and (optionally) **Remote log path** (default
+  `/var/log/caddy/porta-access.log`). Porta configures the VPS Caddy to write JSON access logs
+  there when it pushes routes.
+- Porta tails the log using your **system `ssh`** — it uses your existing `~/.ssh` keys, agent,
+  and `known_hosts`. **Passwordless SSH to the VPS must work** (`ssh user@vps` should connect
+  without a prompt); Porta stores no SSH credentials. `BatchMode` is on, so if SSH isn't set up
+  the viewer shows a clear error instead of hanging.
+- The `ssh_user` must be able to **read** the log file. Caddy usually runs as root, so either add
+  the user to the `caddy` group, point the log at a path the user can read, or adjust the file
+  mode.
+
 ## Caveats (v1)
 
 - **ACME rate limits:** repeatedly exposing/unexposing *new* subdomains can hit
