@@ -26,7 +26,7 @@ export interface RemoteSlice {
   loadAllWgStatuses: () => Promise<void>;
 
   remoteDiffs: Record<string, DiffReport>;
-  loadRemoteDiff: (hostId: string) => Promise<void>;
+  loadRemoteDiff: (hostId: string) => Promise<DiffReport>;
   pushRemoteHost: (hostId: string) => Promise<void>;
   removeForeign: (hostId: string, publicHost: string) => Promise<void>;
 }
@@ -92,6 +92,7 @@ export const createRemoteSlice: StateCreator<AllSlices, [], [], RemoteSlice> = (
   loadRemoteDiff: async (hostId) => {
     const report = await cmd.remoteDiff(hostId);
     set((s) => ({ remoteDiffs: { ...s.remoteDiffs, [hostId]: report } }));
+    return report;
   },
 
   pushRemoteHost: async (hostId) => {

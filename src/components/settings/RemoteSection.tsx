@@ -82,13 +82,48 @@ export default function RemoteSection() {
     })),
   );
   const [syncing, setSyncing] = useState<string | null>(null);
+  // Per-host activity log so the user sees what each action actually does.
+  const [activity, setActivity] = useState<Record<string, string[]>>({});
+  function logLine(id: string, line: string) {
+    const t = new Date().toLocaleTimeString();
+    setActivity((a) => ({ ...a, [id]: [...(a[id] || []), `${t}  ${line}`].slice(-40) }));
+  }
+  const adminUrlFor = (h: RemoteHost) => `http://${h.tunnel_ip}:${h.admin_port}`;
 
-  async function runSync(id: string) {
+  async function runSync(h: RemoteHost) {
+    const id = h.id;
     setSyncing(id);
+    logLine(id, `Sync → GET ${adminUrlFor(h)}/config/apps/http/servers/porta …`);
     try {
-      await loadRemoteDiff(id);
+      const d = await loadRemoteDiff(id);
+      logLine(id, `Compared: ${d.matched.length} in sync, ${d.missing_on_vps.length} missing on VPS, ${d.foreign_on_vps.length} foreign`);
+      if (d.missing_on_vps.length) logLine(id, `  missing → ${d.missing_on_vps.join(", ")}`);
+      if (d.foreign_on_vps.length) logLine(id, `  foreign → ${d.foreign_on_vps.join(", ")}`);
+      if (!d.missing_on_vps.length && !d.foreign_on_vps.length) logLine(id, `✓ no drift`);
+    } catch (e) {
+      logLine(id, `✕ ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSyncing(null);
+    }
+  }
+
+  async function runPush(id: string) {
+    logLine(id, `Push → PUT porta server (re-applying Porta routes to VPS) …`);
+    try {
+      await pushRemoteHost(id);
+      logLine(id, `✓ pushed; re-synced`);
+    } catch (e) {
+      logLine(id, `✕ ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function runRemoveForeign(id: string, fh: string) {
+    logLine(id, `Remove → re-asserting Porta routes, dropping unmanaged (${fh}) …`);
+    try {
+      await removeForeign(id, fh);
+      logLine(id, `✓ removed; re-synced`);
+    } catch (e) {
+      logLine(id, `✕ ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -153,16 +188,18 @@ export default function RemoteSection() {
     }
   }
 
-  async function runTest(id: string) {
+  async function runTest(h: RemoteHost) {
+    const id = h.id;
     setTests((t) => ({ ...t, [id]: { reachable: false, message: "", loading: true } }));
+    logLine(id, `Test → probing Caddy admin API at ${adminUrlFor(h)}/config/ …`);
     try {
       const res = await testRemoteHost(id);
       setTests((t) => ({ ...t, [id]: { ...res, loading: false } }));
+      logLine(id, res.reachable ? `✓ ${res.message}` : `✕ ${res.message}`);
     } catch (e) {
-      setTests((t) => ({
-        ...t,
-        [id]: { reachable: false, message: e instanceof Error ? e.message : String(e), loading: false },
-      }));
+      const msg = e instanceof Error ? e.message : String(e);
+      setTests((t) => ({ ...t, [id]: { reachable: false, message: msg, loading: false } }));
+      logLine(id, `✕ ${msg}`);
     }
   }
 
@@ -209,24 +246,24 @@ export default function RemoteSection() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => runTest(h.id)}
+                  onClick={() => runTest(h)}
                   disabled={t?.loading}
                   className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
                 >
                   {t?.loading ? "Testing…" : "Test"}
                 </button>
                 <button
-                  onClick={() => runSync(h.id)}
+                  onClick={() => runSync(h)}
                   disabled={syncing === h.id}
                   className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
                 >
                   {syncing === h.id ? "Syncing…" : "Sync"}
                 </button>
                 <button
-                  onClick={() => setDraft(h)}
-                  className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80"
+                  onClick={() => { setError(null); setDraft((cur) => (cur?.id === h.id ? null : h)); }}
+                  className={`text-xs rounded-lg px-2.5 py-1.5 hover:bg-white/[0.1] ${draft?.id === h.id ? "bg-white/[0.14] text-white" : "bg-white/[0.06] text-white/80"}`}
                 >
-                  Edit
+                  {draft?.id === h.id ? "Close" : "Edit"}
                 </button>
                 <button
                   onClick={() => {
@@ -260,7 +297,7 @@ export default function RemoteSection() {
                         Missing on VPS: {d.missing_on_vps.join(", ")}
                       </span>
                       <button
-                        onClick={() => pushRemoteHost(h.id)}
+                        onClick={() => runPush(h.id)}
                         className="shrink-0 rounded px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200"
                       >
                         Push
@@ -275,7 +312,7 @@ export default function RemoteSection() {
                       <button
                         onClick={() => {
                           if (window.confirm(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`))
-                            removeForeign(h.id, fh);
+                            runRemoveForeign(h.id, fh);
                         }}
                         className="shrink-0 rounded px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-300"
                       >
@@ -286,6 +323,29 @@ export default function RemoteSection() {
                 </div>
               );
             })()}
+            {(activity[h.id]?.length ?? 0) > 0 && (
+              <div className="mt-2 rounded-lg bg-black/30 border border-white/[0.05] p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] uppercase tracking-wider text-white/40">Activity</span>
+                  <button
+                    onClick={() => setActivity((a) => ({ ...a, [h.id]: [] }))}
+                    className="text-[10px] text-white/40 hover:text-white/70"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="max-h-[150px] overflow-y-auto font-mono text-[10.5px] leading-relaxed flex flex-col gap-0.5">
+                  {activity[h.id].map((line, i) => (
+                    <div
+                      key={i}
+                      className={line.includes("✕") ? "text-red-400" : line.includes("✓") ? "text-emerald-400" : "text-white/55"}
+                    >
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
