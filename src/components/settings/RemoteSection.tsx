@@ -12,6 +12,10 @@ const EMPTY_HOST: RemoteHost = {
   wg_interface: null,
   mac_tunnel_ip: "10.0.0.2",
   created_at: 0,
+  public_ip: null,
+  auto_dns: false,
+  ssh_user: null,
+  remote_log_path: null,
 };
 
 const inputCls =
@@ -247,6 +251,32 @@ export default function RemoteSection() {
             <input className={inputCls} placeholder="utun6" value={draft.wg_interface ?? ""}
               onChange={(e) => setDraft({ ...draft, wg_interface: e.target.value })} />
           </label>
+
+          <div className="border-t border-white/[0.06] pt-3 mt-1 flex flex-col gap-3">
+            <div className="text-xs font-medium text-white/70">Integrations (optional)</div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-white/50">VPS public IP (for DNS)</span>
+                <input className={inputCls} placeholder="203.0.113.5" value={draft.public_ip ?? ""}
+                  onChange={(e) => setDraft({ ...draft, public_ip: e.target.value })} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-white/50">SSH user (for remote logs)</span>
+                <input className={inputCls} placeholder="deploy" value={draft.ssh_user ?? ""}
+                  onChange={(e) => setDraft({ ...draft, ssh_user: e.target.value })} />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-white/50">Remote Caddy log path (optional — default /var/log/caddy/porta-access.log)</span>
+              <input className={inputCls} placeholder="/var/log/caddy/porta-access.log" value={draft.remote_log_path ?? ""}
+                onChange={(e) => setDraft({ ...draft, remote_log_path: e.target.value })} />
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={draft.auto_dns}
+                onChange={(e) => setDraft({ ...draft, auto_dns: e.target.checked })} />
+              <span className="text-xs text-white/60">Auto-create DNS via Cloudflare on expose (DNS-only A record)</span>
+            </label>
+          </div>
           {error && <div className="text-xs text-red-400">{error}</div>}
           <div className="flex items-center gap-2">
             <button onClick={save} disabled={saving}

@@ -7,17 +7,17 @@ use super::Database;
 impl Database {
     pub fn insert_remote_host(&self, h: &RemoteHost) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO remote_hosts (id, name, tunnel_ip, admin_port, base_domain, wg_interface, mac_tunnel_ip, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![h.id, h.name, h.tunnel_ip, h.admin_port, h.base_domain, h.wg_interface, h.mac_tunnel_ip, h.created_at],
+            "INSERT INTO remote_hosts (id, name, tunnel_ip, admin_port, base_domain, wg_interface, mac_tunnel_ip, created_at, public_ip, auto_dns, ssh_user, remote_log_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![h.id, h.name, h.tunnel_ip, h.admin_port, h.base_domain, h.wg_interface, h.mac_tunnel_ip, h.created_at, h.public_ip, h.auto_dns, h.ssh_user, h.remote_log_path],
         )?;
         Ok(())
     }
 
     pub fn update_remote_host(&self, h: &RemoteHost) -> Result<()> {
         self.conn.execute(
-            "UPDATE remote_hosts SET name=?1, tunnel_ip=?2, admin_port=?3, base_domain=?4, wg_interface=?5, mac_tunnel_ip=?6 WHERE id=?7",
-            params![h.name, h.tunnel_ip, h.admin_port, h.base_domain, h.wg_interface, h.mac_tunnel_ip, h.id],
+            "UPDATE remote_hosts SET name=?1, tunnel_ip=?2, admin_port=?3, base_domain=?4, wg_interface=?5, mac_tunnel_ip=?6, public_ip=?7, auto_dns=?8, ssh_user=?9, remote_log_path=?10 WHERE id=?11",
+            params![h.name, h.tunnel_ip, h.admin_port, h.base_domain, h.wg_interface, h.mac_tunnel_ip, h.public_ip, h.auto_dns, h.ssh_user, h.remote_log_path, h.id],
         )?;
         Ok(())
     }
@@ -29,7 +29,7 @@ impl Database {
 
     pub fn list_remote_hosts(&self) -> Result<Vec<RemoteHost>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, tunnel_ip, admin_port, base_domain, wg_interface, mac_tunnel_ip, created_at
+            "SELECT id, name, tunnel_ip, admin_port, base_domain, wg_interface, mac_tunnel_ip, created_at, public_ip, auto_dns, ssh_user, remote_log_path
              FROM remote_hosts ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_host)?;
@@ -38,7 +38,7 @@ impl Database {
 
     pub fn get_remote_host(&self, id: &str) -> Result<Option<RemoteHost>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, tunnel_ip, admin_port, base_domain, wg_interface, mac_tunnel_ip, created_at
+            "SELECT id, name, tunnel_ip, admin_port, base_domain, wg_interface, mac_tunnel_ip, created_at, public_ip, auto_dns, ssh_user, remote_log_path
              FROM remote_hosts WHERE id=?1",
         )?;
         let mut rows = stmt.query_map(params![id], row_to_host)?;
@@ -111,6 +111,10 @@ fn row_to_host(row: &rusqlite::Row) -> rusqlite::Result<RemoteHost> {
         wg_interface: row.get(5)?,
         mac_tunnel_ip: row.get(6)?,
         created_at: row.get(7)?,
+        public_ip: row.get(8)?,
+        auto_dns: row.get(9)?,
+        ssh_user: row.get(10)?,
+        remote_log_path: row.get(11)?,
     })
 }
 
@@ -137,6 +141,8 @@ mod tests {
             id: "h1".into(), name: "vps".into(), tunnel_ip: "10.0.0.1".into(),
             admin_port: 2019, base_domain: "example.com".into(), wg_interface: None,
             mac_tunnel_ip: "10.0.0.2".into(), created_at: 0,
+            public_ip: Some("203.0.113.5".into()), auto_dns: true,
+            ssh_user: Some("deploy".into()), remote_log_path: None,
         };
         db.insert_remote_host(&h).unwrap();
         assert_eq!(db.list_remote_hosts().unwrap().len(), 1);

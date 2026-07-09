@@ -34,6 +34,20 @@ pub struct RemoteHost {
     pub wg_interface: Option<String>,
     pub mac_tunnel_ip: String,
     pub created_at: i64,
+    /// VPS public IP — used for the Cloudflare A record (R6). WG `tunnel_ip`
+    /// isn't publicly routable, so DNS must point here.
+    #[serde(default)]
+    pub public_ip: Option<String>,
+    /// Opt-in: auto-create a DNS-only A record via Cloudflare on expose (R6).
+    #[serde(default)]
+    pub auto_dns: bool,
+    /// SSH user for tailing the VPS Caddy access log (R8). Uses the system ssh
+    /// client + the user's existing keys; Porta stores no credentials.
+    #[serde(default)]
+    pub ssh_user: Option<String>,
+    /// Path to the VPS Caddy access log (R8). Blank → default.
+    #[serde(default)]
+    pub remote_log_path: Option<String>,
 }
 
 /// One public route Porta manages on a `RemoteHost`. `subdomain` + the host's

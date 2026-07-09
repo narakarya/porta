@@ -218,6 +218,13 @@ impl Database {
             );
         ")?;
 
+        // Porta Relay Spec 3: public IP for Cloudflare A records (R6), an opt-in
+        // auto-DNS flag, and SSH details for tailing the VPS Caddy access log (R8).
+        let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN public_ip TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN auto_dns INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN ssh_user TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN remote_log_path TEXT", []);
+
         Ok(())
     }
 }

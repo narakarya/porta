@@ -454,6 +454,7 @@ mod tests {
             id: "h1".into(), name: "vps".into(), tunnel_ip: "10.0.0.1".into(),
             admin_port: 2019, base_domain: "example.com".into(), wg_interface: None,
             mac_tunnel_ip: "10.0.0.2".into(), created_at: 0,
+            public_ip: None, auto_dns: false, ssh_user: None, remote_log_path: None,
         }
     }
 

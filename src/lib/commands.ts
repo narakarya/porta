@@ -1097,6 +1097,10 @@ export interface RemoteHost {
   wg_interface: string | null;
   mac_tunnel_ip: string;
   created_at: number;
+  public_ip: string | null;
+  auto_dns: boolean;
+  ssh_user: string | null;
+  remote_log_path: string | null;
 }
 
 export interface RemoteRoute {
