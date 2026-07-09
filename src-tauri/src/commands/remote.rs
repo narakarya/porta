@@ -284,12 +284,65 @@ fn set_provider(state: &AppState, app_id: &str, provider: Option<&str>) {
         .execute("UPDATE apps SET tunnel_provider = ?1 WHERE id = ?2", params![provider, app_id]);
 }
 
+// ── Cloudflare DNS auto-record (R6) ─────────────────────────────────────────────
+
+/// Find the CF zone whose name is the longest suffix of `base_domain`.
+fn zone_for_domain(zones: &[crate::commands::DnsZone], base_domain: &str) -> Option<String> {
+    zones
+        .iter()
+        .filter(|z| base_domain == z.name || base_domain.ends_with(&format!(".{}", z.name)))
+        .max_by_key(|z| z.name.len())
+        .map(|z| z.id.clone())
+}
+
+/// When the host opts into auto-DNS, idempotently create a DNS-only A record
+/// `<sub>.<base_domain> → public_ip` via Cloudflare. Best-effort: returns a
+/// human note (never fails the expose). `None` = nothing to report.
+async fn maybe_create_dns(host: &RemoteHost, subdomain: &str) -> Option<String> {
+    if !host.auto_dns {
+        return None;
+    }
+    let public_ip = host.public_ip.clone().filter(|s| !s.trim().is_empty());
+    let Some(public_ip) = public_ip else {
+        return Some("auto-DNS skipped: host has no public IP set".to_string());
+    };
+    let token = crate::commands::get_cf_api_token();
+    if token.trim().is_empty() {
+        return Some("auto-DNS skipped: no Cloudflare API token (Settings → Cloudflare)".to_string());
+    }
+    let fqdn = format!("{}.{}", subdomain, host.base_domain);
+    let zones = crate::commands::cf_dns_list_zones(token.clone()).await.ok()?;
+    let zone_id = zone_for_domain(&zones, &host.base_domain)?; // domain not on CF → silent skip
+
+    // Idempotent: skip if an A record already exists.
+    if let Ok(existing) =
+        crate::commands::cf_dns_list_records(token.clone(), zone_id.clone(), Some(fqdn.clone())).await
+    {
+        if existing.iter().any(|r| r.name == fqdn && r.record_type == "A") {
+            return Some(format!("DNS A record for {} already exists", fqdn));
+        }
+    }
+
+    let input = crate::commands::DnsRecordInput {
+        record_type: "A".to_string(),
+        name: fqdn.clone(),
+        content: public_ip,
+        ttl: 1, // 1 = "automatic" in Cloudflare
+        proxied: false, // DNS-only so traffic reaches the VPS, not the CF proxy
+        priority: None,
+    };
+    match crate::commands::cf_dns_create_record(token, zone_id, input).await {
+        Ok(_) => Some(format!("Created DNS A record {} (DNS-only)", fqdn)),
+        Err(e) => Some(format!("auto-DNS failed: {}", e)),
+    }
+}
+
 #[tauri::command]
-pub fn expose_remote(
+pub async fn expose_remote(
     app_id: String,
     host_id: String,
     subdomain: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
     // Providers are mutually exclusive per app: tear down any other tunnel.
@@ -346,7 +399,13 @@ pub fn expose_remote(
                 .update_remote_route_status(&route.id, "active")
                 .map_err(|e| e.to_string())?;
             set_provider(&state, &app_id, Some("remote"));
-            emit_tunnel(&app_handle, &app_id, serde_json::json!({ "active": true, "url": url }));
+            // Best-effort DNS auto-record (R6) — never fails the live tunnel.
+            let dns_note = maybe_create_dns(&host, sub).await;
+            let mut payload = serde_json::json!({ "active": true, "url": url });
+            if let Some(note) = &dns_note {
+                payload["note"] = serde_json::json!(note);
+            }
+            emit_tunnel(&app_handle, &app_id, payload);
             Ok(url)
         }
         Err(e) => {
@@ -603,6 +662,18 @@ PEERB\t(none)\t5.6.7.8:51820\t10.0.0.1/32\t1700000500\t300\t400\t25\n";
         assert_eq!(d.matched, vec!["b.x"]);
         assert_eq!(d.missing_on_vps, vec!["a.x"]);
         assert_eq!(d.foreign_on_vps, vec!["c.x"]);
+    }
+
+    #[test]
+    fn test_zone_for_domain_longest_suffix() {
+        let zones = vec![
+            crate::commands::DnsZone { id: "z1".into(), name: "example.com".into(), status: "active".into() },
+            crate::commands::DnsZone { id: "z2".into(), name: "sub.example.com".into(), status: "active".into() },
+        ];
+        assert_eq!(zone_for_domain(&zones, "app.sub.example.com").as_deref(), Some("z2"));
+        assert_eq!(zone_for_domain(&zones, "app.example.com").as_deref(), Some("z1"));
+        assert_eq!(zone_for_domain(&zones, "sub.example.com").as_deref(), Some("z2"));
+        assert_eq!(zone_for_domain(&zones, "other.org"), None);
     }
 
     #[test]
