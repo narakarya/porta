@@ -4,6 +4,24 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Fresh-Mac setup failed at "Configure .test resolver"**: on a clean macOS
+  install `/etc/resolver` does not exist yet, and the resolver write only ran
+  `tee /etc/resolver/test`, which fails because `tee` won't create the parent
+  directory. The privileged script now `mkdir -p /etc/resolver` first, so setup
+  succeeds on machines that have never had a custom resolver.
+- **Setup froze the UI and gave no live progress**: `run_setup` ran as a
+  synchronous command on the main thread, so the multi-minute Homebrew installs
+  blocked the WebView and the per-step / log events only painted after the whole
+  run finished. It now runs on a background thread (like `start_caddy`), so the
+  window stays responsive and progress streams live.
+- **A failed setup step marked every later step as failed**: on error the wizard
+  drew a red ✗ on all remaining rows even though they never ran. Now only the
+  step that actually failed shows the error; unreached steps stay idle, and a
+  single spinner marks the active step instead of every pending one.
+
 ## [0.7.3] — 2026-07-09
 
 ### Fixed

@@ -100,25 +100,39 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
 
   if ((dismissed || (allGood && !setupStarted)) && !forceShow) return null;
 
+  const okByKey: Record<string, boolean> = {
+    caddy_installed:      setupStatus.caddy_installed,
+    dnsmasq_installed:    setupStatus.dnsmasq_installed,
+    test_resolver_exists: setupStatus.test_resolver_exists,
+    mkcert_installed:     setupStatus.mkcert_installed,
+    certs_generated:      setupStatus.certs_generated,
+    caddy_running:        setupStatus.caddy_running,
+  };
+  // First step still pending — used to show *one* spinner in the brief window
+  // before the backend emits its first `setup:step` event.
+  const firstPendingIdx = STEP_ORDER.findIndex((k) => !okByKey[k]);
+
   function stepState(ok: boolean, key: string): StepState {
     if (ok) return "done";
-    if (error) return "error";
-    if (!running) return "idle";
     const activeIdx = STEP_ORDER.indexOf(activeStep ?? "");
     const keyIdx = STEP_ORDER.indexOf(key);
-    if (activeIdx < 0) return "loading";
-    if (keyIdx === activeIdx) return "loading";
-    if (keyIdx > activeIdx) return "idle";
-    return "loading";
+    // A run failed: mark only the step that was running when it broke; every
+    // step that never got reached stays idle (not a misleading red X).
+    if (error) return keyIdx === activeIdx ? "error" : "idle";
+    if (!running) return "idle";
+    // No step event yet — warm up the first pending row only.
+    if (activeIdx < 0) return keyIdx === firstPendingIdx ? "loading" : "idle";
+    // Exactly the active step spins; everything else waits.
+    return keyIdx === activeIdx ? "loading" : "idle";
   }
 
   const steps = [
-    { key: "caddy_installed",      label: "Install Caddy",               ok: setupStatus.caddy_installed },
-    { key: "dnsmasq_installed",    label: "Install dnsmasq",             ok: setupStatus.dnsmasq_installed },
-    { key: "test_resolver_exists", label: "Configure .test resolver",    ok: setupStatus.test_resolver_exists },
-    { key: "mkcert_installed",     label: "Install mkcert",              ok: setupStatus.mkcert_installed },
-    { key: "certs_generated",      label: "Generate SSL certificates",   ok: setupStatus.certs_generated },
-    { key: "caddy_running",        label: "Start Caddy (HTTPS)",         ok: setupStatus.caddy_running },
+    { key: "caddy_installed",      label: "Install Caddy",               ok: okByKey.caddy_installed },
+    { key: "dnsmasq_installed",    label: "Install dnsmasq",             ok: okByKey.dnsmasq_installed },
+    { key: "test_resolver_exists", label: "Configure .test resolver",    ok: okByKey.test_resolver_exists },
+    { key: "mkcert_installed",     label: "Install mkcert",              ok: okByKey.mkcert_installed },
+    { key: "certs_generated",      label: "Generate SSL certificates",   ok: okByKey.certs_generated },
+    { key: "caddy_running",        label: "Start Caddy (HTTPS)",         ok: okByKey.caddy_running },
   ];
 
   async function handleRunSetup() {
@@ -138,10 +152,10 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
       if (forceShow && onClose) setTimeout(onClose, 1000);
     } catch (e) {
       setError(String(e));
+      // Keep activeStep so stepState() can flag the row that actually failed.
     } finally {
       clearInterval(poll);
       setRunning(false);
-      setActiveStep(null);
     }
   }
 

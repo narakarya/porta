@@ -144,17 +144,25 @@ pub async fn start_caddy(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Runs the full setup wizard on a background thread so the WebView stays
+/// responsive — otherwise the multi-minute Homebrew installs block the main
+/// thread and the `setup:step` / `setup:log` events never paint until the end.
 #[tauri::command]
-pub fn run_setup(state: State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let domains = all_domains(&state)?;
-    crate::setup::run_full_setup(
-        &domains,
-        &|step_key| { app.emit("setup:step", step_key).ok(); },
-        &|line|     { app.emit("setup:log",  line).ok(); },
-    )
-    .map_err(|e| e.to_string())?;
-    sync_caddy(&state).ok();
-    Ok(())
+pub async fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let domains = all_domains(&state)?;
+        crate::setup::run_full_setup(
+            &domains,
+            &|step_key| { app.emit("setup:step", step_key).ok(); },
+            &|line|     { app.emit("setup:log",  line).ok(); },
+        )
+        .map_err(|e| e.to_string())?;
+        sync_caddy(&state).ok();
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Returns whether Caddy is currently running (listens on 443).

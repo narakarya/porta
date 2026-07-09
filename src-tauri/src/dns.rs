@@ -6,7 +6,8 @@ const RESOLVER_DIR: &str = "/etc/resolver";
 pub fn write_resolver(tld: &str) -> Result<()> {
     let path = format!("{}/{}", RESOLVER_DIR, tld);
     let script = format!(
-        "do shell script \"echo 'nameserver 127.0.0.1' | tee {}\" with administrator privileges", path
+        "do shell script \"mkdir -p {} && echo 'nameserver 127.0.0.1' | tee {}\" with administrator privileges",
+        RESOLVER_DIR, path
     );
     let status = Command::new("osascript").arg("-e").arg(&script).status()?;
     if !status.success() {
