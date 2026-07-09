@@ -4,6 +4,19 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-07-09
+
+### Fixed
+- **Delete confirmation for remote servers**: deleting a host in Settings →
+  Remote Servers now asks for confirmation first (it previously deleted
+  immediately with no prompt).
+- **UI freezing during Porta Relay operations**: Test connection, the WireGuard
+  status poll, expose/unexpose, sync/push, and remote-log tail ran their blocking
+  work (`wg show`, HTTP to the VPS Caddy admin API, `ssh`) on synchronous Tauri
+  commands — which run on the main thread — so the window froze while they waited
+  (most visibly the 15-second WireGuard poll and Test against an unreachable VPS).
+  These commands now run off the main thread, keeping the UI responsive.
+
 ## [0.7.0] — 2026-07-09
 
 ### Added
