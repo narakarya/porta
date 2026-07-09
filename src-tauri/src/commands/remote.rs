@@ -408,6 +408,103 @@ pub fn unexpose_remote(
     Ok(())
 }
 
+// ── Drift / sync (R5) ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffReport {
+    /// Hosts present both in Porta's DB and on the VPS.
+    pub matched: Vec<String>,
+    /// Hosts Porta expects but the VPS doesn't have (needs Push).
+    pub missing_on_vps: Vec<String>,
+    /// Hosts on the VPS that Porta doesn't manage (CI/manual — "zombies").
+    pub foreign_on_vps: Vec<String>,
+}
+
+/// Partition desired (DB) vs actual (VPS) public hosts.
+fn diff_hosts(db: &[String], vps: &[String]) -> DiffReport {
+    let matched: Vec<String> = db.iter().filter(|h| vps.contains(h)).cloned().collect();
+    let missing_on_vps: Vec<String> = db.iter().filter(|h| !vps.contains(h)).cloned().collect();
+    let foreign_on_vps: Vec<String> = vps.iter().filter(|h| !db.contains(h)).cloned().collect();
+    DiffReport { matched, missing_on_vps, foreign_on_vps }
+}
+
+/// Extract every `match[].host[]` entry from a Caddy server JSON object.
+fn extract_route_hosts(server: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(routes) = server["routes"].as_array() {
+        for r in routes {
+            if let Some(matches) = r["match"].as_array() {
+                for m in matches {
+                    if let Some(hosts) = m["host"].as_array() {
+                        for h in hosts {
+                            if let Some(s) = h.as_str() {
+                                out.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+pub fn remote_diff(host_id: String, state: State<AppState>) -> Result<DiffReport, String> {
+    let (host, routes) = {
+        let db = state.db.lock().unwrap();
+        let host = db
+            .get_remote_host(&host_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Remote host not found".to_string())?;
+        let routes = db.list_remote_routes_for_host(&host_id).map_err(|e| e.to_string())?;
+        (host, routes)
+    };
+    let desired: Vec<String> = routes
+        .iter()
+        .map(|r| format!("{}.{}", r.subdomain, host.base_domain))
+        .collect();
+    let caddy = RemoteCaddy::new(admin_url(&host));
+    let actual = match caddy.get_porta_server() {
+        Ok(Some(server)) => extract_route_hosts(&server),
+        Ok(None) => Vec::new(),
+        Err(e) => return Err(format!("Could not read VPS config: {}", e)),
+    };
+    Ok(diff_hosts(&desired, &actual))
+}
+
+/// Re-assert Porta's managed state onto the VPS: restores any missing routes and
+/// drops unmanaged (foreign) ones, since Porta owns the whole `porta` server.
+#[tauri::command]
+pub fn remote_push_host(host_id: String, state: State<AppState>) -> Result<(), String> {
+    let (host, routes, apps, workspaces) = {
+        let db = state.db.lock().unwrap();
+        let host = db
+            .get_remote_host(&host_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Remote host not found".to_string())?;
+        let routes = db.list_remote_routes_for_host(&host_id).map_err(|e| e.to_string())?;
+        let apps = db.list_apps().map_err(|e| e.to_string())?;
+        let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
+        (host, routes, apps, workspaces)
+    };
+    push_host(&host, &routes, &apps, &workspaces)
+}
+
+/// Remove a foreign (Porta-unmanaged) route from the VPS. Because Porta owns the
+/// `porta` server wholesale, this re-asserts the DB state — dropping the named
+/// route and any other unmanaged ones. `public_host` is informational (the UI
+/// confirms against it).
+#[tauri::command]
+pub fn remote_remove_foreign(
+    host_id: String,
+    public_host: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let _ = public_host;
+    remote_push_host(host_id, state)
+}
+
 /// Silent teardown when another provider takes over this app. Removes the app's
 /// remote route and re-pushes the host without emitting (the incoming provider
 /// owns the `app:tunnel:{id}` channel).
@@ -498,6 +595,26 @@ PEERB\t(none)\t5.6.7.8:51820\t10.0.0.1/32\t1700000500\t300\t400\t25\n";
         let np = parse_wg_dump(never, "10.0.0.1").unwrap();
         assert_eq!(np.latest_handshake, 0);
         assert_eq!(np.endpoint, None);
+    }
+
+    #[test]
+    fn test_diff_hosts_partitions() {
+        let d = diff_hosts(&["a.x".into(), "b.x".into()], &["b.x".into(), "c.x".into()]);
+        assert_eq!(d.matched, vec!["b.x"]);
+        assert_eq!(d.missing_on_vps, vec!["a.x"]);
+        assert_eq!(d.foreign_on_vps, vec!["c.x"]);
+    }
+
+    #[test]
+    fn test_extract_route_hosts() {
+        let server = serde_json::json!({"routes":[
+            {"match":[{"host":["a.x"]}]},
+            {"match":[{"host":["b.x","c.x"]}]},
+            {"handle":[]}
+        ]});
+        let mut hosts = extract_route_hosts(&server);
+        hosts.sort();
+        assert_eq!(hosts, vec!["a.x", "b.x", "c.x"]);
     }
 
     #[test]

@@ -435,6 +435,22 @@ impl RemoteCaddy {
         Ok(())
     }
 
+    /// Fetch the live `porta` server object from the VPS (for drift detection).
+    /// Returns `Ok(None)` when the server doesn't exist yet (404/null).
+    pub fn get_porta_server(&self) -> Result<Option<Value>> {
+        let url = format!("{}/config/apps/http/servers/porta", self.admin_url);
+        let resp = self.client.get(&url).send()?;
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+        let v: Value = resp.json().unwrap_or(Value::Null);
+        if v.is_null() {
+            Ok(None)
+        } else {
+            Ok(Some(v))
+        }
+    }
+
     fn put(&self, url: &str, body: &Value) -> Result<()> {
         let resp = self
             .client
