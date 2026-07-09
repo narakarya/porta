@@ -4,6 +4,16 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] — 2026-07-09
+
+### Fixed
+- **Delete/Remove in Remote Servers had no confirmation dialog**: the confirmation
+  used `window.confirm`, which can silently no-op inside the app's WebView (no
+  dialog appears, the action just proceeds). Switched to the native Tauri dialog
+  so deleting a remote server or removing foreign routes now actually prompts.
+- **Duplicate Test error**: a failed Test connection showed its error twice (a
+  standalone line and again in the Activity log); removed the standalone line.
+
 ## [0.7.2] — 2026-07-09
 
 ### Added
