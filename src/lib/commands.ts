@@ -1156,6 +1156,23 @@ export interface WgStatus {
   tx_bytes: number;
 }
 
+export interface DiffReport {
+  matched: string[];
+  missing_on_vps: string[];
+  foreign_on_vps: string[];
+}
+
+export const remoteDiff = (hostId: string): Promise<DiffReport> =>
+  isTauri
+    ? invoke("remote_diff", { hostId })
+    : Promise.resolve({ matched: [], missing_on_vps: [], foreign_on_vps: [] });
+
+export const remotePushHost = (hostId: string): Promise<void> =>
+  isTauri ? invoke("remote_push_host", { hostId }) : Promise.resolve();
+
+export const remoteRemoveForeign = (hostId: string, publicHost: string): Promise<void> =>
+  isTauri ? invoke("remote_remove_foreign", { hostId, publicHost }) : Promise.resolve();
+
 export const wgStatus = (hostId: string): Promise<WgStatus> =>
   isTauri
     ? invoke("wg_status", { hostId })

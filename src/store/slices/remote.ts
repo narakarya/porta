@@ -1,7 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
-import type { RemoteHost, RemoteRoute, RemoteHostTest, WgStatus } from "../../lib/commands";
+import type { RemoteHost, RemoteRoute, RemoteHostTest, WgStatus, DiffReport } from "../../lib/commands";
 import {
   getCachedRemoteHosts,
   hasRemoteHostsCache,
@@ -24,6 +24,11 @@ export interface RemoteSlice {
   loadRemoteRoutes: () => Promise<void>;
   loadWgStatus: (hostId: string) => Promise<void>;
   loadAllWgStatuses: () => Promise<void>;
+
+  remoteDiffs: Record<string, DiffReport>;
+  loadRemoteDiff: (hostId: string) => Promise<void>;
+  pushRemoteHost: (hostId: string) => Promise<void>;
+  removeForeign: (hostId: string, publicHost: string) => Promise<void>;
 }
 
 export const createRemoteSlice: StateCreator<AllSlices, [], [], RemoteSlice> = (set, get) => ({
@@ -80,5 +85,22 @@ export const createRemoteSlice: StateCreator<AllSlices, [], [], RemoteSlice> = (
   loadAllWgStatuses: async () => {
     const hosts = get().remoteHosts;
     await Promise.all(hosts.map((h) => get().loadWgStatus(h.id)));
+  },
+
+  remoteDiffs: {},
+
+  loadRemoteDiff: async (hostId) => {
+    const report = await cmd.remoteDiff(hostId);
+    set((s) => ({ remoteDiffs: { ...s.remoteDiffs, [hostId]: report } }));
+  },
+
+  pushRemoteHost: async (hostId) => {
+    await cmd.remotePushHost(hostId);
+    await get().loadRemoteDiff(hostId);
+  },
+
+  removeForeign: async (hostId, publicHost) => {
+    await cmd.remoteRemoveForeign(hostId, publicHost);
+    await get().loadRemoteDiff(hostId);
   },
 });

@@ -54,6 +54,7 @@ export default function RemoteSection() {
   const {
     remoteHosts, loadRemoteHosts, addRemoteHost, updateRemoteHost, deleteRemoteHost, testRemoteHost,
     wgStatuses, loadAllWgStatuses,
+    remoteDiffs, loadRemoteDiff, pushRemoteHost, removeForeign,
   } = usePortaStore(
     useShallow((s) => ({
       remoteHosts: s.remoteHosts,
@@ -64,8 +65,22 @@ export default function RemoteSection() {
       testRemoteHost: s.testRemoteHost,
       wgStatuses: s.wgStatuses,
       loadAllWgStatuses: s.loadAllWgStatuses,
+      remoteDiffs: s.remoteDiffs,
+      loadRemoteDiff: s.loadRemoteDiff,
+      pushRemoteHost: s.pushRemoteHost,
+      removeForeign: s.removeForeign,
     })),
   );
+  const [syncing, setSyncing] = useState<string | null>(null);
+
+  async function runSync(id: string) {
+    setSyncing(id);
+    try {
+      await loadRemoteDiff(id);
+    } finally {
+      setSyncing(null);
+    }
+  }
 
   const [draft, setDraft] = useState<RemoteHost | null>(null);
   const [saving, setSaving] = useState(false);
@@ -191,6 +206,13 @@ export default function RemoteSection() {
                   {t?.loading ? "Testing…" : "Test"}
                 </button>
                 <button
+                  onClick={() => runSync(h.id)}
+                  disabled={syncing === h.id}
+                  className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
+                >
+                  {syncing === h.id ? "Syncing…" : "Sync"}
+                </button>
+                <button
                   onClick={() => setDraft(h)}
                   className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80"
                 >
@@ -210,6 +232,46 @@ export default function RemoteSection() {
                 {t.message}
               </div>
             )}
+            {remoteDiffs[h.id] && (() => {
+              const d = remoteDiffs[h.id];
+              return (
+                <div className="mt-2 rounded-lg bg-black/20 border border-white/[0.05] p-2.5 text-xs flex flex-col gap-1.5">
+                  <div className="text-white/50">
+                    {d.matched.length} in sync
+                    {d.missing_on_vps.length === 0 && d.foreign_on_vps.length === 0 && " · no drift"}
+                  </div>
+                  {d.missing_on_vps.length > 0 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-amber-300 truncate">
+                        Missing on VPS: {d.missing_on_vps.join(", ")}
+                      </span>
+                      <button
+                        onClick={() => pushRemoteHost(h.id)}
+                        className="shrink-0 rounded px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200"
+                      >
+                        Push
+                      </button>
+                    </div>
+                  )}
+                  {d.foreign_on_vps.map((fh) => (
+                    <div key={fh} className="flex items-center justify-between gap-2">
+                      <span className="text-white/40 truncate" title="Not managed by Porta (CI/manual)">
+                        Foreign: {fh}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`))
+                            removeForeign(h.id, fh);
+                        }}
+                        className="shrink-0 rounded px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-300"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         );
       })}
