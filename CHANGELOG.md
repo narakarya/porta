@@ -4,6 +4,24 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-07-09
+
+### Added
+- **Multiple domains per Porta Relay host**: a remote server can now serve several
+  domains (a primary plus additional ones, all pointing at the VPS). When exposing
+  an app, the tunnel menu shows a domain dropdown if the host has more than one, and
+  each route remembers which domain it used. Existing single-domain hosts are
+  unaffected.
+- **Explicit provider picker in the tunnel menu**: choosing how to expose an app now
+  shows a Cloudflare / Tailscale / Porta Relay switch, so Porta Relay is always
+  reachable instead of being hidden behind the app's current provider.
+
+### Changed
+- **Remote Servers: Edit is now a toggle** — clicking Edit again closes the form
+  (like Cancel).
+- **Per-host activity log** in Remote Servers shows what Test, Sync, Push, and Remove
+  actually do (endpoints probed, drift compared, results), so actions aren't opaque.
+
 ## [0.7.1] — 2026-07-09
 
 ### Fixed
