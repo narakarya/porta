@@ -6,7 +6,22 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.4] — 2026-07-10
+
+### Added
+- **Fullscreen mode for the Docker image-update log**: the update-progress
+  popover now has an expand button that blows the streamed log up to a
+  full-screen overlay (Esc to exit), so long `docker compose` pull/up output is
+  actually readable instead of scrolling inside a tiny 180px box.
+
 ### Fixed
+- **Update-progress log errors were invisible and uncopyable**: every line in
+  the image-update progress box rendered in the same neutral gray, so a failing
+  `docker compose pull`/`up` error blended into ordinary output and there was no
+  way to copy it. Lines are now colored per level (errors red + bold, warn amber,
+  success emerald), the text is selectable, and there is a Copy button. The
+  popover also stays mounted while an update runs so a stray outside click no
+  longer discards in-flight progress.
 - **Fresh-Mac setup failed at "Configure .test resolver"**: on a clean macOS
   install `/etc/resolver` does not exist yet, and the resolver write only ran
   `tee /etc/resolver/test`, which fails because `tee` won't create the parent

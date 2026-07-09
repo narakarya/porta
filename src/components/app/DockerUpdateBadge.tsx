@@ -10,6 +10,7 @@ import {
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import Tooltip from "../shared/Tooltip";
+import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";
 
 interface Props {
   app: App;
@@ -118,6 +119,10 @@ export default function DockerUpdateBadge({ app }: Props) {
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
+      // Keep the popover mounted while an update is in-flight or showing its
+      // result — its ProgressView (and any fullscreen log portal it owns) must
+      // survive stray outside clicks. Dismiss is via the explicit Close button.
+      if (updating || phase === "done" || phase === "error") return;
       const t = e.target as Node;
       if (anchorRef.current?.contains(t)) return;
       if (popoverElRef.current?.contains(t)) return;
@@ -125,7 +130,7 @@ export default function DockerUpdateBadge({ app }: Props) {
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  }, [open, updating, phase]);
 
   useEffect(() => {
     if (!updating) return;
@@ -325,71 +330,198 @@ const PHASE_LABEL: Record<UpdatePhase, string> = {
   error: "✗ Update failed",
 };
 
-function ProgressView({ phase, logLines }: { phase: UpdatePhase; logLines: string[] }) {
-  const logBoxRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (logBoxRef.current) {
-      logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
-    }
-  }, [logLines]);
-
+function PhaseStatus({ phase, size }: { phase: UpdatePhase; size: "sm" | "lg" }) {
   const isError = phase === "error";
   const isDone = phase === "done";
   const isRecovering = phase === "rolling_back" || phase === "restoring";
   const inFlight = !isError && !isDone;
+  const dim = size === "lg" ? 15 : 12;
+  const textCls = size === "lg" ? "text-[13px]" : "text-[11px]";
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      {inFlight ? (
+        <svg
+          className={`animate-spin shrink-0 ${isRecovering ? "text-orange-400" : "text-amber-400"}`}
+          width={dim}
+          height={dim}
+          viewBox="0 0 12 12"
+          fill="none"
+        >
+          <path d="M6 2A4 4 0 1 1 2 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      ) : isDone ? (
+        <svg width={dim} height={dim} viewBox="0 0 12 12" fill="none" className="text-emerald-400 shrink-0">
+          <path d="M2.5 6.5l2.5 2.5L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg width={dim} height={dim} viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0">
+          <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      )}
+      <p
+        className={`${textCls} font-medium truncate ${
+          isError
+            ? "text-red-300"
+            : isDone
+            ? "text-emerald-300"
+            : isRecovering
+            ? "text-orange-300"
+            : "text-amber-200"
+        }`}
+      >
+        {PHASE_LABEL[phase]}
+      </p>
+    </div>
+  );
+}
+
+/** Render streamed log lines with per-level coloring so errors stand out from
+ * ordinary docker output (which otherwise shares the same neutral gray). */
+function LogLines({ lines }: { lines: string[] }) {
+  if (lines.length === 0) {
+    return <p className="text-zinc-600 italic">waiting for output…</p>;
+  }
+  return (
+    <>
+      {lines.map((raw, idx) => {
+        const line = stripAnsi(raw);
+        const level = detectLevel(line);
+        const cls = level ? LEVEL_CLS[level] : "text-zinc-400";
+        const weight = level === "error" ? "font-medium" : "";
+        return (
+          <div key={idx} className={`whitespace-pre-wrap break-all ${cls} ${weight}`}>
+            {line || " "}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function CopyLogButton({ lines }: { lines: string[] }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    const text = lines.map(stripAnsi).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <button
+      onClick={copy}
+      disabled={lines.length === 0}
+      className="text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white/[0.06] transition-colors flex items-center gap-1"
+      title="Copy log to clipboard"
+    >
+      {copied ? (
+        <>
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="text-emerald-400">
+            <path d="M2.5 6.5l2.5 2.5L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Copied
+        </>
+      ) : (
+        <>
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <rect x="3.5" y="3.5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1" />
+            <path d="M2 8V2.5Q2 2 2.5 2H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Copy
+        </>
+      )}
+    </button>
+  );
+}
+
+function ProgressView({ phase, logLines }: { phase: UpdatePhase; logLines: string[] }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  const logBoxRef = useRef<HTMLDivElement | null>(null);
+  const fsLogBoxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
+    if (fsLogBoxRef.current) fsLogBoxRef.current.scrollTop = fsLogBoxRef.current.scrollHeight;
+  }, [logLines, fullscreen]);
+
+  // Esc exits fullscreen without bubbling up to close the whole popover.
+  useEffect(() => {
+    if (!fullscreen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setFullscreen(false);
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [fullscreen]);
 
   return (
     <div className="px-3 py-3">
-      <div className="flex items-center gap-2 mb-2">
-        {inFlight ? (
-          <svg
-            className={`animate-spin shrink-0 ${
-              isRecovering ? "text-orange-400" : "text-amber-400"
-            }`}
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <PhaseStatus phase={phase} size="sm" />
+        <div className="flex items-center gap-0.5 shrink-0">
+          <CopyLogButton lines={logLines} />
+          <button
+            onClick={() => setFullscreen(true)}
+            className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-white/[0.06] transition-colors"
+            title="Fullscreen"
           >
-            <path d="M6 2A4 4 0 1 1 2 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        ) : isDone ? (
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-emerald-400 shrink-0">
-            <path d="M2.5 6.5l2.5 2.5L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : (
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0">
-            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        )}
-        <p
-          className={`text-[11px] font-medium ${
-            isError
-              ? "text-red-300"
-              : isDone
-              ? "text-emerald-300"
-              : isRecovering
-              ? "text-orange-300"
-              : "text-amber-200"
-          }`}
-        >
-          {PHASE_LABEL[phase]}
-        </p>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M4.5 1.5H1.5V4.5M7.5 1.5H10.5V4.5M4.5 10.5H1.5V7.5M7.5 10.5H10.5V7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div
         ref={logBoxRef}
-        className="bg-black/40 border border-white/[0.06] rounded font-mono text-[10px] leading-[1.4] text-zinc-400 px-2 py-1.5 max-h-[180px] overflow-y-auto"
+        className="bg-black/40 border border-white/[0.06] rounded terminal-log-font text-[10px] leading-[1.4] px-2 py-1.5 max-h-[180px] overflow-y-auto select-text"
       >
-        {logLines.length === 0 ? (
-          <p className="text-zinc-600 italic">waiting for output…</p>
-        ) : (
-          logLines.map((line, idx) => (
-            <div key={idx} className="whitespace-pre-wrap break-all">
-              {line}
-            </div>
-          ))
-        )}
+        <LogLines lines={logLines} />
       </div>
+
+      {fullscreen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] bg-[#0a0a0c]/95 backdrop-blur-sm flex flex-col"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.08]">
+              <PhaseStatus phase={phase} size="lg" />
+              <div className="flex items-center gap-1">
+                <CopyLogButton lines={logLines} />
+                <button
+                  onClick={() => setFullscreen(false)}
+                  className="text-zinc-400 hover:text-zinc-200 p-1.5 rounded hover:bg-white/[0.06] transition-colors"
+                  title="Exit fullscreen (Esc)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M5.5 8.5H2.5V5.5M8.5 5.5H11.5V8.5M5.5 2.5V5.5H2.5M8.5 11.5V8.5H11.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </header>
+            <div
+              ref={fsLogBoxRef}
+              className="flex-1 overflow-y-auto select-text terminal-log-font text-[12px] leading-[1.5] px-4 py-3 bg-[#0f0f11]"
+            >
+              <LogLines lines={logLines} />
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
