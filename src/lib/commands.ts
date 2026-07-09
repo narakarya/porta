@@ -1173,6 +1173,15 @@ export const remotePushHost = (hostId: string): Promise<void> =>
 export const remoteRemoveForeign = (hostId: string, publicHost: string): Promise<void> =>
   isTauri ? invoke("remote_remove_foreign", { hostId, publicHost }) : Promise.resolve();
 
+export const remoteLogTail = (hostId: string, lines: number): Promise<AccessLogEntry[]> =>
+  isTauri ? invoke("remote_log_tail", { hostId, lines }) : Promise.resolve([]);
+
+export const remoteLogLiveStart = (hostId: string): Promise<string> =>
+  isTauri ? invoke("remote_log_live_start", { hostId }) : Promise.resolve("");
+
+export const remoteLogLiveStop = (streamId: string): Promise<void> =>
+  isTauri ? invoke("remote_log_live_stop", { streamId }) : Promise.resolve();
+
 export const wgStatus = (hostId: string): Promise<WgStatus> =>
   isTauri
     ? invoke("wg_status", { hostId })

@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
-import type { RemoteHost, RemoteHostTest, WgStatus } from "../../lib/commands";
+import {
+  remoteLogTail,
+  remoteLogLiveStart,
+  remoteLogLiveStop,
+  type RemoteHost,
+  type RemoteHostTest,
+  type WgStatus,
+  type AccessLogEntry,
+  type AccessLogStreamEvent,
+} from "../../lib/commands";
 
 const EMPTY_HOST: RemoteHost = {
   id: "",
@@ -232,6 +242,7 @@ export default function RemoteSection() {
                 {t.message}
               </div>
             )}
+            <RemoteLogViewer hostId={h.id} hasSsh={!!h.ssh_user} />
             {remoteDiffs[h.id] && (() => {
               const d = remoteDiffs[h.id];
               return (
@@ -357,6 +368,109 @@ export default function RemoteSection() {
           + Add remote server
         </button>
       )}
+    </div>
+  );
+}
+
+/** Per-host viewer for the VPS Caddy access log, tailed over SSH (R8). */
+function RemoteLogViewer({ hostId, hasSsh }: { hostId: string; hasSsh: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<AccessLogEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
+  const streamRef = useRef<string | null>(null);
+  const unlistenRef = useRef<(() => void) | null>(null);
+
+  async function loadRecent() {
+    setLoading(true);
+    setError(null);
+    try {
+      setEntries(await remoteLogTail(hostId, 100));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleLive() {
+    if (live) {
+      setLive(false);
+      unlistenRef.current?.();
+      unlistenRef.current = null;
+      if (streamRef.current) {
+        remoteLogLiveStop(streamRef.current).catch(() => {});
+        streamRef.current = null;
+      }
+      return;
+    }
+    setError(null);
+    try {
+      unlistenRef.current = await listen<AccessLogStreamEvent>(`access-log:remote:${hostId}`, (e) => {
+        setEntries((prev) => [...e.payload.entries, ...prev].slice(0, 500));
+      });
+      streamRef.current = await remoteLogLiveStart(hostId);
+      setLive(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      unlistenRef.current?.();
+      unlistenRef.current = null;
+    }
+  }
+
+  // Clean up the live stream on unmount.
+  useEffect(() => {
+    return () => {
+      unlistenRef.current?.();
+      if (streamRef.current) remoteLogLiveStop(streamRef.current).catch(() => {});
+    };
+  }, []);
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => { setOpen(true); void loadRecent(); }}
+        disabled={!hasSsh}
+        title={hasSsh ? "" : "Set an SSH user on this host to enable remote logs"}
+        className="mt-2 text-xs text-white/50 hover:text-white/80 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {hasSsh ? "▸ Remote access logs" : "▸ Remote access logs (set SSH user)"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-black/20 border border-white/[0.05] p-2.5">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-white/60">Remote access logs</span>
+        <div className="flex items-center gap-2">
+          <button onClick={() => void loadRecent()} disabled={loading}
+            className="text-[11px] rounded px-2 py-1 bg-white/[0.06] hover:bg-white/[0.1] text-white/70 disabled:opacity-50">
+            {loading ? "Loading…" : "Load recent"}
+          </button>
+          <button onClick={() => void toggleLive()}
+            className={`text-[11px] rounded px-2 py-1 ${live ? "bg-emerald-500/20 text-emerald-200" : "bg-white/[0.06] text-white/70 hover:bg-white/[0.1]"}`}>
+            {live ? "● Live" : "Go live"}
+          </button>
+          <button onClick={() => setOpen(false)} className="text-[11px] text-white/40 hover:text-white/70">Close</button>
+        </div>
+      </div>
+      {error && <div className="text-[11px] text-red-400 mb-1.5 break-words">{error}</div>}
+      {entries.length === 0 && !error && !loading && (
+        <div className="text-[11px] text-white/30">No entries yet.</div>
+      )}
+      <div className="max-h-[200px] overflow-y-auto font-mono text-[10.5px] flex flex-col gap-0.5">
+        {entries.map((e, i) => (
+          <div key={i} className="flex items-center gap-2 text-white/60">
+            <span className={e.status >= 500 ? "text-red-400" : e.status >= 400 ? "text-amber-400" : "text-emerald-400"}>
+              {e.status}
+            </span>
+            <span className="text-white/40 w-10 shrink-0">{e.method}</span>
+            <span className="truncate">{e.host}{e.uri}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
