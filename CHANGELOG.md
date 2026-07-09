@@ -4,6 +4,38 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-07-09
+
+### Added
+- **Porta Relay — expose local apps through your own VPS.** A third expose
+  backend alongside Cloudflare Tunnel and Tailscale Funnel, for developers who
+  run a VPS + WireGuard. Public traffic hits the VPS's Caddy (which Porta manages
+  over the tunnel via its admin API) and is reverse-proxied back to your Mac's
+  local Caddy, so `localhost`-bound dev servers work unchanged. Pick **Porta
+  Relay** in an app's tunnel menu to get `https://<sub>.<yourdomain>` in a few
+  seconds; disconnect removes the route cleanly. Route state is persisted, so a
+  failed push is marked pending (never a silent partial) with a one-click retry.
+  See `docs/porta-relay-setup.md`.
+- **Remote Servers settings section** — register/edit/delete VPS hosts (tunnel IP,
+  Caddy admin port, base domain, Mac tunnel IP), with a **Test** button that
+  probes the Caddy admin API over the tunnel.
+- **Live WireGuard status** — per-host handshake age (green <2 min, amber <5 min,
+  red ≥5 min), RX/TX, and endpoint, polled while visible. Exposed apps show an
+  amber **degraded** indicator when their tunnel handshake goes stale.
+- **Per-route basic auth** on relay routes — reuses an app's existing HTTP basic
+  auth, shown with a lock indicator on the public URL.
+- **Sync & drift detection** — compare Porta's routes against the live VPS config;
+  **Push** restores missing routes and **Remove** drops unmanaged (foreign) ones.
+- **Cloudflare DNS auto-record** — opt in per host (with the VPS public IP) to
+  auto-create a DNS-only A record for the exposed subdomain on expose.
+- **Remote access logs** — tail the VPS Caddy access log over your system SSH
+  (no credentials stored in Porta) with a one-shot and live viewer per host.
+
+### Changed
+- The internal Caddy client is now multi-target: the local Caddy path is
+  unchanged (byte-identical config), with a new remote target that manages a
+  dedicated `porta` server on the VPS.
+
 ## [0.6.40] — 2026-07-07
 
 ### Fixed
