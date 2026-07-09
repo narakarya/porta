@@ -274,7 +274,16 @@ fn push_host(
         return caddy.delete_porta_server().map_err(|e| e.to_string());
     }
     let server = RemoteCaddy::build_porta_server(&specs, &dial);
-    caddy.put_porta_server(&server).map_err(|e| e.to_string())
+    caddy.put_porta_server(&server).map_err(|e| e.to_string())?;
+    // Configure the VPS access log so the Mac can tail it over SSH (R8).
+    let log_path = host
+        .remote_log_path
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| RemoteCaddy::DEFAULT_LOG_PATH.to_string());
+    // Best-effort: logging misconfig shouldn't fail an otherwise-live expose.
+    let _ = caddy.put_logging(&log_path);
+    Ok(())
 }
 
 fn set_provider(state: &AppState, app_id: &str, provider: Option<&str>) {

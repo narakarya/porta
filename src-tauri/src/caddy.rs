@@ -389,8 +389,44 @@ impl RemoteCaddy {
         json!({
             "listen": [":443"],
             "routes": routes,
-            "automatic_https": {}
+            "automatic_https": {},
+            // Route this server's access logs to the `porta_relay` logger, which
+            // `put_logging` wires to a file the Mac tails over SSH (R8).
+            "logs": { "default_logger_name": "porta_relay" }
         })
+    }
+
+    /// Default path for the VPS Caddy access log when the host doesn't override it.
+    pub const DEFAULT_LOG_PATH: &'static str = "/var/log/caddy/porta-access.log";
+
+    /// Configure the `porta_relay` logger on the VPS to write line-delimited JSON
+    /// to `log_path`, scoped to this server's access events (R8). Merges into any
+    /// existing loggers (preserving the user's) and seeds the `logging` object if
+    /// it doesn't exist yet.
+    pub fn put_logging(&self, log_path: &str) -> Result<()> {
+        let logger = json!({
+            "writer": { "output": "file", "filename": log_path },
+            "encoder": { "format": "json" },
+            "level": "INFO",
+            "include": ["http.log.access.porta_relay"],
+        });
+        let logs_path = format!("{}/config/logging/logs", self.admin_url);
+        let mut logs_obj = self
+            .client
+            .get(&logs_path)
+            .send()
+            .ok()
+            .filter(|r| r.status().is_success())
+            .and_then(|r| r.json::<Value>().ok())
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        logs_obj.insert("porta_relay".to_string(), logger);
+        // Prefer patching just the logs map; if the `logging` parent is absent
+        // the child PUT 404s, so fall back to seeding the whole `logging` object.
+        if self.put(&logs_path, &Value::Object(logs_obj.clone())).is_ok() {
+            return Ok(());
+        }
+        self.put(&format!("{}/config/logging", self.admin_url), &json!({ "logs": logs_obj }))
     }
 
     /// The `:80`→`:443` redirect server Porta also owns on the VPS.
@@ -643,6 +679,8 @@ mod tests {
         // Host header rewritten to the LOCAL domain so local Caddy routes it.
         assert_eq!(proxy["headers"]["request"]["set"]["Host"][0], "myapp.workspace.test");
         assert_eq!(proxy["transport"]["tls"]["insecure_skip_verify"], true);
+        // Access logging is routed to the porta_relay logger (R8).
+        assert_eq!(server["logs"]["default_logger_name"], "porta_relay");
     }
 
     #[test]
