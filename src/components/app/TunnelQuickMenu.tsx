@@ -38,12 +38,19 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
   const [busy, setBusy] = useState(false);
   const [busyError, setBusyError] = useState<string | null>(null);
   // Porta Relay (self-hosted VPS) expose form state.
-  const { remoteHosts, loadRemoteHosts, startTunnel, openSettingsSection } = usePortaStore(
+  const {
+    remoteHosts, loadRemoteHosts, startTunnel, openSettingsSection,
+    remoteRoutes, loadRemoteRoutes, wgStatuses, loadWgStatus,
+  } = usePortaStore(
     useShallow((s) => ({
       remoteHosts: s.remoteHosts,
       loadRemoteHosts: s.loadRemoteHosts,
       startTunnel: s.startTunnel,
       openSettingsSection: s.openSettingsSection,
+      remoteRoutes: s.remoteRoutes,
+      loadRemoteRoutes: s.loadRemoteRoutes,
+      wgStatuses: s.wgStatuses,
+      loadWgStatus: s.loadWgStatus,
     })),
   );
   const [relayHostId, setRelayHostId] = useState("");
@@ -99,8 +106,24 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
   useEffect(() => {
     if (!tunnelMenuOpen) return;
     void loadRemoteHosts();
+    void loadRemoteRoutes();
     setRelaySub((prev) => prev || app.subdomain || app.name);
-  }, [tunnelMenuOpen, loadRemoteHosts, app.subdomain, app.name]);
+  }, [tunnelMenuOpen, loadRemoteHosts, loadRemoteRoutes, app.subdomain, app.name]);
+
+  const myRoute = remoteRoutes.find((r) => r.app_id === app.id);
+  const hostWg = myRoute ? wgStatuses[myRoute.host_id] : undefined;
+  const relayPending = myRoute?.status === "pending";
+  const relayDegraded =
+    app.tunnel_provider === "remote" &&
+    app.tunnel_active &&
+    !!hostWg &&
+    (!hostWg.up || (hostWg.handshake_age_secs ?? 0) >= 300);
+
+  // Refresh this app's host handshake while the menu is open so the degraded
+  // indicator is live.
+  useEffect(() => {
+    if (tunnelMenuOpen && myRoute?.host_id) void loadWgStatus(myRoute.host_id);
+  }, [tunnelMenuOpen, myRoute?.host_id, loadWgStatus]);
 
   async function exposeRelay() {
     const hostId = relayHostId || remoteHosts[0]?.id;
@@ -118,6 +141,23 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     }
   }
 
+  async function retryRelay() {
+    if (!myRoute) return;
+    setBusy(true);
+    setBusyError(null);
+    try {
+      await startTunnel(app.id, "remote", undefined, {
+        hostId: myRoute.host_id,
+        subdomain: myRoute.subdomain,
+      });
+      await loadRemoteRoutes();
+    } catch (e) {
+      setBusyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!isActive && !app.tunnel_active && !tunnelError) return null;
 
   const provider = app.tunnel_provider;
@@ -128,7 +168,9 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     : provider === "cloudflare"
     ? "Cloudflare tunnel connected"
     : provider === "remote"
-    ? "Porta Relay connected"
+    ? relayDegraded
+      ? "Porta Relay connected · tunnel degraded"
+      : "Porta Relay connected"
     : "Tunnel connected";
 
   async function startWithConfig(tunnelName: string | null, hostname: string | null) {
@@ -170,6 +212,8 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
           className={`p-1 rounded-md transition-colors ${
             tunnelError
               ? "text-red-400 hover:bg-red-500/10"
+              : relayDegraded
+              ? "text-amber-400 hover:bg-amber-500/10"
               : app.tunnel_active && app.tunnel_url
               ? connectedColor
               : app.tunnel_active
@@ -212,14 +256,39 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
             className="fixed z-[60] w-[280px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden"
             style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
           >
+            {relayPending && (
+              <div className="px-3 py-2 border-b border-amber-500/20 bg-amber-500/[0.06]">
+                <p className="text-[10.5px] text-amber-300 leading-snug">
+                  Pending — the VPS didn't confirm this route.
+                </p>
+                <button
+                  onClick={() => void retryRelay()}
+                  disabled={busy}
+                  className="mt-1.5 px-2.5 py-1 text-[11px] font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-md disabled:opacity-50 transition-colors"
+                >
+                  {busy ? "Retrying…" : "Retry expose"}
+                </button>
+              </div>
+            )}
             {app.tunnel_active && app.tunnel_url ? (
               <>
                 <div className="px-3 py-2 border-b border-white/[0.06]">
                   <p className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    {isTailscale ? "Tailnet URL" : "Tunnel URL"}
+                    <span className={`w-1.5 h-1.5 rounded-full ${relayDegraded ? "bg-amber-400" : "bg-emerald-400"}`} />
+                    {isTailscale ? "Tailnet URL" : provider === "remote" ? "Porta Relay URL" : "Tunnel URL"}
+                    {app.basic_auth_enabled && (
+                      <svg width="9" height="9" viewBox="0 0 11 11" fill="none" aria-label="Protected by basic auth">
+                        <rect x="2" y="5" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" />
+                        <path d="M3.5 5V3.5a2 2 0 014 0V5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                      </svg>
+                    )}
                   </p>
                   <p className="text-[11px] font-mono truncate text-emerald-300">{app.tunnel_url}</p>
+                  {relayDegraded && (
+                    <p className="text-[10px] text-amber-400 mt-1">
+                      Tunnel degraded — last WireGuard handshake is stale.
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={() => {
@@ -422,7 +491,15 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                 {/* Porta Relay — expose via the user's own VPS. */}
                 <div className="border-t border-white/[0.06] mt-1">
                   <div className="px-3 pt-2 pb-1">
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">Porta Relay</p>
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1">
+                      Porta Relay
+                      {app.basic_auth_enabled && (
+                        <svg width="8" height="8" viewBox="0 0 11 11" fill="none" aria-label="Will be protected by basic auth">
+                          <rect x="2" y="5" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" />
+                          <path d="M3.5 5V3.5a2 2 0 014 0V5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                        </svg>
+                      )}
+                    </p>
                   </div>
                   {remoteHosts.length === 0 ? (
                     <button
