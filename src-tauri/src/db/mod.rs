@@ -225,6 +225,13 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN ssh_user TEXT", []);
         let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN remote_log_path TEXT", []);
 
+        // Multi-domain: a host can serve several domains (all pointing at the VPS).
+        // `base_domain` stays the primary/default; `extra_domains` is a JSON array
+        // of additional ones. A route records which `domain` it was exposed on
+        // (NULL = the host's base_domain, for rows created before this column).
+        let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN extra_domains TEXT NOT NULL DEFAULT '[]'", []);
+        let _ = self.conn.execute("ALTER TABLE remote_routes ADD COLUMN domain TEXT", []);
+
         Ok(())
     }
 }

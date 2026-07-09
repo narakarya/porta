@@ -34,6 +34,10 @@ pub struct RemoteHost {
     pub wg_interface: Option<String>,
     pub mac_tunnel_ip: String,
     pub created_at: i64,
+    /// Additional domains this host serves besides `base_domain` (all pointing at
+    /// the same VPS). Expose can target any of them.
+    #[serde(default)]
+    pub extra_domains: Vec<String>,
     /// VPS public IP — used for the Cloudflare A record (R6). WG `tunnel_ip`
     /// isn't publicly routable, so DNS must point here.
     #[serde(default)]
@@ -63,6 +67,26 @@ pub struct RemoteRoute {
     pub port: u16,
     pub status: String,
     pub created_at: i64,
+    /// Which of the host's domains this route was exposed on. `None` falls back
+    /// to the host's `base_domain` (rows created before multi-domain support).
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+impl RemoteHost {
+    /// All domains this host serves: the primary `base_domain` first, then any
+    /// `extra_domains`, de-duplicated and non-empty.
+    pub fn domains(&self) -> Vec<String> {
+        let mut out = vec![self.base_domain.clone()];
+        for d in &self.extra_domains {
+            let d = d.trim();
+            if !d.is_empty() && !out.iter().any(|x| x == d) {
+                out.push(d.to_string());
+            }
+        }
+        out.retain(|d| !d.trim().is_empty());
+        out
+    }
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────

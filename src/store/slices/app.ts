@@ -59,7 +59,7 @@ export interface AppSlice {
     id: string,
     providerOverride?: string,
     funnel?: boolean,
-    remoteOpts?: { hostId: string; subdomain: string },
+    remoteOpts?: { hostId: string; subdomain: string; domain?: string | null },
   ) => Promise<void>;
   stopTunnel: (id: string) => Promise<void>;
   visibleApps: () => App[];
@@ -401,7 +401,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         if (!remoteOpts) {
           throw new Error("Porta Relay requires a remote host and subdomain");
         }
-        await cmd.exposeRemote(id, remoteOpts.hostId, remoteOpts.subdomain);
+        await cmd.exposeRemote(id, remoteOpts.hostId, remoteOpts.subdomain, remoteOpts.domain ?? null);
       } else {
         await cmd.startTunnel(id, app.port);
       }

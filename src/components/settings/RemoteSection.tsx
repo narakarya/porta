@@ -22,6 +22,7 @@ const EMPTY_HOST: RemoteHost = {
   wg_interface: null,
   mac_tunnel_ip: "10.0.0.2",
   created_at: 0,
+  extra_domains: [],
   public_ip: null,
   auto_dns: false,
   ssh_user: null,
@@ -372,7 +373,7 @@ export default function RemoteSection() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-white/50">Base domain</span>
+              <span className="text-xs text-white/50">Base domain (primary)</span>
               <input className={inputCls} placeholder="example.com" value={draft.base_domain}
                 onChange={(e) => setDraft({ ...draft, base_domain: e.target.value })} />
             </label>
@@ -382,6 +383,12 @@ export default function RemoteSection() {
                 onChange={(e) => setDraft({ ...draft, mac_tunnel_ip: e.target.value })} />
             </label>
           </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-white/50">Additional domains (comma-separated — all must point at this VPS)</span>
+            <input className={inputCls} placeholder="klien-a.id, klien-b.my.id"
+              value={draft.extra_domains.join(", ")}
+              onChange={(e) => setDraft({ ...draft, extra_domains: e.target.value.split(",").map((d) => d.trim()).filter(Boolean) })} />
+          </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs text-white/50">WireGuard interface (optional — auto-detected if blank)</span>
             <input className={inputCls} placeholder="utun6" value={draft.wg_interface ?? ""}

@@ -55,6 +55,8 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
   );
   const [relayHostId, setRelayHostId] = useState("");
   const [relaySub, setRelaySub] = useState("");
+  const [relayDomain, setRelayDomain] = useState("");
+  const [pickerProvider, setPickerProvider] = useState<"cloudflare" | "tailscale" | "remote">("cloudflare");
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -108,7 +110,14 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     void loadRemoteHosts();
     void loadRemoteRoutes();
     setRelaySub((prev) => prev || app.subdomain || app.name);
-  }, [tunnelMenuOpen, loadRemoteHosts, loadRemoteRoutes, app.subdomain, app.name]);
+    const prov = app.tunnel_provider;
+    setPickerProvider(prov === "tailscale" || prov === "remote" ? prov : "cloudflare");
+  }, [tunnelMenuOpen, loadRemoteHosts, loadRemoteRoutes, app.subdomain, app.name, app.tunnel_provider]);
+
+  // The host selected in the relay form, and the domains it serves.
+  const relaySelHost = remoteHosts.find((h) => h.id === (relayHostId || remoteHosts[0]?.id));
+  const relayDomains = relaySelHost ? [relaySelHost.base_domain, ...relaySelHost.extra_domains].filter(Boolean) : [];
+  const effectiveRelayDomain = relayDomains.includes(relayDomain) ? relayDomain : relayDomains[0] ?? "";
 
   const myRoute = remoteRoutes.find((r) => r.app_id === app.id);
   const hostWg = myRoute ? wgStatuses[myRoute.host_id] : undefined;
@@ -132,7 +141,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     setBusy(true);
     setBusyError(null);
     try {
-      await startTunnel(app.id, "remote", undefined, { hostId, subdomain });
+      await startTunnel(app.id, "remote", undefined, { hostId, subdomain, domain: effectiveRelayDomain || null });
       setTunnelMenuOpen(false);
     } catch (e) {
       setBusyError(e instanceof Error ? e.message : String(e));
@@ -326,25 +335,31 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
               <div className="px-3 py-3">
                 <TunnelStatusBadge tunnelActive={app.tunnel_active} tunnelUrl={app.tunnel_url} provider={app.tunnel_provider} />
               </div>
-            ) : tunnelError ? (
+            ) : (
               <>
-                <div className="px-3 py-2 border-b border-white/[0.06]">
-                  <p className="text-[10px] text-red-400 font-medium mb-0.5">Tunnel failed</p>
-                  <p className="text-[11px] text-red-300/70 leading-snug break-words">{tunnelError}</p>
+                {tunnelError && (
+                  <div className="px-3 py-2 border-b border-white/[0.06] bg-red-500/[0.05]">
+                    <p className="text-[10px] text-red-400 font-medium mb-0.5">Tunnel failed</p>
+                    <p className="text-[11px] text-red-300/70 leading-snug break-words">{tunnelError}</p>
+                  </div>
+                )}
+                {/* Provider picker — pick which expose backend to use. */}
+                <div className="flex gap-1 p-1.5 border-b border-white/[0.06]">
+                  {([["cloudflare", "Cloudflare"], ["tailscale", "Tailscale"], ["remote", "Porta Relay"]] as const).map(([p, label]) => (
+                    <button
+                      key={p}
+                      onClick={() => setPickerProvider(p)}
+                      className={`flex-1 text-[10.5px] px-2 py-1 rounded-md transition-colors ${pickerProvider === p ? "bg-white/[0.12] text-white" : "text-zinc-400 hover:bg-white/[0.05]"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-                <button
-                  onClick={() => { onStartTunnel(); setTunnelMenuOpen(false); }}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-sky-400 hover:bg-sky-500/10 transition-colors"
-                >
-                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5a3.5 3.5 0 0 1 7 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 7v2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="4" r="0.8" fill="currentColor"/></svg>
-                  Retry tunnel
-                </button>
-              </>
-            ) : isTailscale ? (
-              <button
-                onClick={() => { onStartTunnel(); setTunnelMenuOpen(false); }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-              >
+                {pickerProvider === "tailscale" ? (
+                  <button
+                    onClick={() => { void startTunnel(app.id, "tailscale"); setTunnelMenuOpen(false); }}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                  >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                   <circle cx="2.5" cy="2.5" r="0.9" fill="currentColor"/>
                   <circle cx="5.5" cy="2.5" r="0.9" fill="currentColor"/>
@@ -357,10 +372,74 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                   <circle cx="8.5" cy="8.5" r="0.9" fill="currentColor"/>
                 </svg>
                 Start Tailscale Serve
-              </button>
-            ) : (
-              <>
-                {/* Quick tunnel — trycloudflare random URL, throwaway. */}
+                  </button>
+                ) : pickerProvider === "remote" ? (
+                  remoteHosts.length === 0 ? (
+                    <button
+                      onClick={() => { openSettingsSection("remote"); setTunnelMenuOpen(false); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-zinc-400 hover:bg-white/[0.05] transition-colors"
+                    >
+                      <span className="flex-1 text-left">No remote servers — set one up</span>
+                      <span className="text-[9px] text-zinc-500">Settings →</span>
+                    </button>
+                  ) : (
+                    <div className="px-3 py-2 flex flex-col gap-1.5">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1">
+                        Expose via your VPS
+                        {app.basic_auth_enabled && (
+                          <svg width="8" height="8" viewBox="0 0 11 11" fill="none" aria-label="Will be protected by basic auth">
+                            <rect x="2" y="5" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" />
+                            <path d="M3.5 5V3.5a2 2 0 014 0V5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                          </svg>
+                        )}
+                      </p>
+                      <select
+                        value={relayHostId || remoteHosts[0].id}
+                        onChange={(e) => { setRelayHostId(e.target.value); setRelayDomain(""); }}
+                        className="input-base w-full text-[11.5px] py-1.5"
+                      >
+                        {remoteHosts.map((h) => (
+                          <option key={h.id} value={h.id}>{h.name}</option>
+                        ))}
+                      </select>
+                      {relayDomains.length > 1 && (
+                        <select
+                          value={effectiveRelayDomain}
+                          onChange={(e) => setRelayDomain(e.target.value)}
+                          className="input-base w-full text-[11.5px] py-1.5"
+                          title="Domain"
+                        >
+                          {relayDomains.map((d) => (
+                            <option key={d} value={d}>.{d}</option>
+                          ))}
+                        </select>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          value={relaySub}
+                          onChange={(e) => setRelaySub(e.target.value)}
+                          placeholder="subdomain"
+                          spellCheck={false}
+                          className="input-base flex-1 min-w-0 font-mono text-[11.5px] py-1.5"
+                          onKeyDown={(e) => { if (e.key === "Enter") void exposeRelay(); }}
+                        />
+                        <span className="text-[10px] text-zinc-500 font-mono truncate max-w-[120px]" title={`.${effectiveRelayDomain}`}>.{effectiveRelayDomain}</span>
+                      </div>
+                      <button
+                        onClick={() => void exposeRelay()}
+                        disabled={busy}
+                        className="px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md disabled:opacity-40 transition-colors"
+                      >
+                        {busy ? "Exposing…" : "Expose via Porta Relay"}
+                      </button>
+                      {busyError && (
+                        <p className="text-[10px] text-red-400 font-mono whitespace-pre-wrap break-words">{busyError}</p>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  <>
+                    {/* Quick tunnel — trycloudflare random URL, throwaway. */}
                 <div className="px-3 pt-2 pb-1">
                   <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">Quick</p>
                 </div>
@@ -488,61 +567,12 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                   </div>
                 </div>
 
-                {/* Porta Relay — expose via the user's own VPS. */}
-                <div className="border-t border-white/[0.06] mt-1">
-                  <div className="px-3 pt-2 pb-1">
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1">
-                      Porta Relay
-                      {app.basic_auth_enabled && (
-                        <svg width="8" height="8" viewBox="0 0 11 11" fill="none" aria-label="Will be protected by basic auth">
-                          <rect x="2" y="5" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" />
-                          <path d="M3.5 5V3.5a2 2 0 014 0V5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-                        </svg>
-                      )}
-                    </p>
-                  </div>
-                  {remoteHosts.length === 0 ? (
-                    <button
-                      onClick={() => { openSettingsSection("remote"); setTunnelMenuOpen(false); }}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-zinc-400 hover:bg-white/[0.05] transition-colors"
-                    >
-                      <span className="flex-1 text-left">No remote servers — set one up</span>
-                      <span className="text-[9px] text-zinc-500">Settings →</span>
-                    </button>
-                  ) : (
-                    <div className="px-3 pb-2 pt-1 flex flex-col gap-1.5">
-                      <select
-                        value={relayHostId || remoteHosts[0].id}
-                        onChange={(e) => setRelayHostId(e.target.value)}
-                        className="input-base w-full text-[11.5px] py-1.5"
-                      >
-                        {remoteHosts.map((h) => (
-                          <option key={h.id} value={h.id}>{h.name} (*.{h.base_domain})</option>
-                        ))}
-                      </select>
-                      <input
-                        value={relaySub}
-                        onChange={(e) => setRelaySub(e.target.value)}
-                        placeholder="subdomain"
-                        spellCheck={false}
-                        className="input-base w-full font-mono text-[11.5px] py-1.5"
-                        onKeyDown={(e) => { if (e.key === "Enter") void exposeRelay(); }}
-                      />
-                      <button
-                        onClick={() => void exposeRelay()}
-                        disabled={busy}
-                        className="px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md disabled:opacity-40 transition-colors"
-                      >
-                        {busy ? "Exposing…" : "Expose via Porta Relay"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
                 {busyError && !expandedTunnel && (
                   <p className="px-3 py-1.5 text-[10px] text-red-400 font-mono whitespace-pre-wrap break-words border-t border-white/[0.06]">
                     {busyError}
                   </p>
+                )}
+                  </>
                 )}
               </>
             )}

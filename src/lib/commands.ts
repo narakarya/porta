@@ -1097,6 +1097,7 @@ export interface RemoteHost {
   wg_interface: string | null;
   mac_tunnel_ip: string;
   created_at: number;
+  extra_domains: string[];
   public_ip: string | null;
   auto_dns: boolean;
   ssh_user: string | null;
@@ -1111,6 +1112,7 @@ export interface RemoteRoute {
   port: number;
   status: string;
   created_at: number;
+  domain: string | null;
 }
 
 export interface RemoteHostTest {
@@ -1138,10 +1140,15 @@ export const testRemoteHost = (id: string): Promise<RemoteHostTest> =>
 export const listRemoteRoutes = (): Promise<RemoteRoute[]> =>
   isTauri ? invoke("list_remote_routes") : Promise.resolve([]);
 
-export const exposeRemote = (appId: string, hostId: string, subdomain: string): Promise<string> =>
+export const exposeRemote = (
+  appId: string,
+  hostId: string,
+  subdomain: string,
+  domain?: string | null,
+): Promise<string> =>
   isTauri
-    ? invoke("expose_remote", { appId, hostId, subdomain })
-    : Promise.resolve(`https://${subdomain}.example.com`);
+    ? invoke("expose_remote", { appId, hostId, subdomain, domain: domain ?? null })
+    : Promise.resolve(`https://${subdomain}.${domain ?? "example.com"}`);
 
 export const unexposeRemote = (appId: string): Promise<void> =>
   isTauri ? invoke("unexpose_remote", { appId }) : Promise.resolve();
