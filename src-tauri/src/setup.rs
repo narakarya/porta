@@ -347,27 +347,46 @@ pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
     let cert_file = certs_dir.join("test.pem");
     let key_file = certs_dir.join("test-key.pem");
 
-    let mut cmd = Command::new(&mkcert);
-    cmd.arg("-cert-file").arg(&cert_file);
-    cmd.arg("-key-file").arg(&key_file);
-    cmd.arg("*.test");   // covers foo.test (one level)
-    cmd.arg("localhost");
-
+    // Assemble the SAN list once — we may run mkcert more than once (retry).
+    let mut names: Vec<String> = vec!["*.test".into(), "localhost".into()];
     // For each workspace domain add both apex and wildcard:
     //   uq.test        → covers the root domain itself
     //   *.uq.test      → covers api.uq.test, app.uq.test, etc.
     let mut seen = std::collections::HashSet::new();
     for domain in workspace_domains {
         if seen.insert(domain.clone()) {
-            cmd.arg(domain);
-            cmd.arg(format!("*.{}", domain));
+            names.push(domain.clone());
+            names.push(format!("*.{}", domain));
         }
     }
 
-    let out = cmd.output()?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow::anyhow!("mkcert generate failed: {}", stderr.trim()));
+    // Retry on a transient "permission denied" reading the CAROOT key: on the
+    // first run right after install/update, the app's initial access to
+    // ~/Library/Application Support/mkcert can be briefly denied (privacy/timing)
+    // and then succeed on a second try — so a one-off failure shouldn't surface
+    // as a hard error to the user.
+    let mut last_err = String::new();
+    for attempt in 0..3 {
+        let out = Command::new(&mkcert)
+            .arg("-cert-file").arg(&cert_file)
+            .arg("-key-file").arg(&key_file)
+            .args(&names)
+            .output()?;
+        if out.status.success() {
+            return Ok(());
+        }
+        last_err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        if last_err.contains("permission denied") && attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            continue;
+        }
+        break;
     }
-    Ok(())
+    if last_err.contains("permission denied") {
+        return Err(anyhow::anyhow!(
+            "mkcert couldn't read its CA key (permission denied). This is usually a \
+             transient first-run hiccup — please run setup again. ({last_err})"
+        ));
+    }
+    Err(anyhow::anyhow!("mkcert generate failed: {last_err}"))
 }

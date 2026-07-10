@@ -6,6 +6,16 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.6] — 2026-07-10
+
+### Fixed
+- **Setup could fail with a one-off "mkcert generate failed: … permission
+  denied"**: on the first run right after install/update, the app's initial
+  read of the mkcert CAROOT key could be briefly denied and then succeed on a
+  retry. `generate_certs` now retries the mkcert run up to 3× on a transient
+  permission-denied, and if it still fails surfaces a clear "transient first-run
+  hiccup — please run setup again" message instead of the raw mkcert error.
+
 ## [0.7.5] — 2026-07-10
 
 ### Fixed
