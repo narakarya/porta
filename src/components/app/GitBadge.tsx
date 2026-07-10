@@ -31,8 +31,17 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
   const probedNonRepo = useRef(false);
   // Unmount guard for run()'s async writes, mirroring the seeding effect's
   // cancelled flag.
+  // Set in setup, not just cleared in cleanup: StrictMode runs setup → cleanup →
+  // setup on mount, and a ref that is only ever set false would stay false for
+  // the component's whole life, wedging every button on `busy`.
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // A root_dir edit can turn a non-repo into a repo; forget the earlier verdict.
+  useEffect(() => { probedNonRepo.current = false; }, [app.root_dir]);
 
   useEffect(() => {
     if (status || probedNonRepo.current || !app.root_dir) return;
