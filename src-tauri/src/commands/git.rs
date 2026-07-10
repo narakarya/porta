@@ -119,13 +119,39 @@ fn find_git_cli() -> Option<String> {
 /// and a corrupt index. Only the first is a normal, uninteresting state for a
 /// Porta app; the rest are things the user can act on, so we surface them.
 ///
-/// This classifies by what git *says*, which is all we have — exit 128 is shared
-/// by every case. One limit is worth knowing: when `.git` itself can't be
-/// validated (HEAD unreadable, `objects/` missing), git reports "not a git
-/// repository" too, so such a repo stays silent rather than warning. Widening
-/// the match would be worse: we'd warn on every ordinary non-repo folder.
+/// This classifies by what git *says*: exit 128 is shared by every case, so the
+/// code alone tells us nothing. Callers MUST run git under `LC_ALL=C` — a git
+/// built with NLS (Homebrew's is; Apple's is not) translates `fatal:` messages,
+/// and a French user would then see a warning on every ordinary folder.
+///
+/// One limit is worth knowing: when `.git` itself can't be validated (HEAD
+/// unreadable, `objects/` missing), git reports "not a git repository" too, so
+/// such a repo stays silent rather than warning. Widening the match would be
+/// worse: we'd warn on every non-repo folder.
 fn is_not_a_repo(stderr: &str) -> bool {
     stderr.contains("not a git repository")
+}
+
+/// The `git status` invocation, built in one place so the locale pin that
+/// `is_not_a_repo` depends on can't drift away from it.
+///
+/// `--no-optional-locks` keeps us from taking `index.lock`, which would race the
+/// user's editor. `core.fsmonitor=false` stops us from spawning (or waking) a
+/// long-lived fsmonitor daemon per repo on every poll.
+fn status_command(bin: &str, root: &Path) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.current_dir(root)
+        .env("LC_ALL", "C")
+        .args([
+            "--no-optional-locks",
+            "-c",
+            "core.fsmonitor=false",
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=normal",
+        ]);
+    cmd
 }
 
 /// Read git status for a working directory.
@@ -150,19 +176,7 @@ pub(crate) fn status_for(root_dir: &str) -> Result<Option<GitStatus>, String> {
     // `--no-optional-locks` keeps us from taking `index.lock`, which would race
     // the user's editor. `core.fsmonitor=false` stops us from spawning (or
     // waking) a long-lived fsmonitor daemon per repo on every poll.
-    let out = Command::new(bin)
-        .current_dir(root)
-        .args([
-            "--no-optional-locks",
-            "-c",
-            "core.fsmonitor=false",
-            "status",
-            "--porcelain=v2",
-            "--branch",
-            "--untracked-files=normal",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let out = status_command(bin, root).output().map_err(|e| e.to_string())?;
 
     if out.status.success() {
         return Ok(Some(parse_porcelain_v2(&String::from_utf8_lossy(&out.stdout))));
@@ -172,7 +186,9 @@ pub(crate) fn status_for(root_dir: &str) -> Result<Option<GitStatus>, String> {
     if is_not_a_repo(&stderr) {
         Ok(None)
     } else if stderr.is_empty() {
-        Err("git status failed".to_string())
+        // Killed by a signal, or a git that failed without a word. The exit
+        // status is the only thing left worth telling the user.
+        Err(format!("git status failed ({})", out.status))
     } else {
         Err(stderr)
     }
@@ -602,6 +618,24 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert!(
             err.contains("bad config"),
             "error must carry git's own words, got: {err}"
+        );
+    }
+
+    #[test]
+    fn status_command_pins_the_locale() {
+        // `is_not_a_repo` matches English stderr. A git built with NLS (Homebrew's
+        // is) would translate it, and every non-repo folder would start warning.
+        // This machine's Apple Git has no NLS, so a behavioural test would pass
+        // for the wrong reason — assert on the spawned command instead.
+        let cmd = status_command("git", Path::new("/tmp"));
+        let locale = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("LC_ALL"))
+            .and_then(|(_, v)| v);
+        assert_eq!(
+            locale,
+            Some(std::ffi::OsStr::new("C")),
+            "git status must run under LC_ALL=C"
         );
     }
 
