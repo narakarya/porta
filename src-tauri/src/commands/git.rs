@@ -71,13 +71,15 @@ fn parse_porcelain_v2(out: &str) -> GitStatus {
     GitStatus { branch, detached, upstream, ahead, behind, dirty }
 }
 
+use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
-use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
 /// Locate the `git` CLI. GUI apps on macOS don't inherit the user's shell PATH,
 /// so we fall back to known install locations — same shape as `docker_bin()`
@@ -150,17 +152,28 @@ pub fn git_status(root_dir: String) -> Option<GitStatus> {
 }
 
 /// Run a git subcommand with a wall-clock budget, returning stdout on success
-/// and git's own stderr on failure.
-///
-/// `std::process::Command` has no timeout and we refuse to take a dependency for
-/// one, so the child is moved into a worker thread and awaited through a
-/// channel. On expiry we kill it by pid — a network op that outlives its budget
-/// is almost always a credential prompt we can never answer, and leaving it
-/// parked would leak a process per poll.
+/// and git's own stderr on failure. Thin wrapper over [`run_bin`] using the
+/// resolved `git` binary; kept separate so `run_bin` can be exercised against a
+/// slow stand-in command (e.g. `/bin/sleep`) in tests.
 fn run_git(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
     let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
+    run_bin(bin, root_dir, args, timeout_secs)
+}
 
-    let child = Command::new(bin)
+/// Spawn `bin` with a wall-clock budget, returning stdout on success and the
+/// child's own stderr on failure.
+///
+/// `std::process::Command` has no timeout and we refuse to take a dependency for
+/// one. Rather than reap the child in a worker thread (which would free its pid
+/// and open a window where we could `kill -9` a pid the kernel has already
+/// reassigned), the main thread keeps ownership of `Child` and polls
+/// `try_wait()` against a deadline. stdout/stderr are drained concurrently on
+/// their own threads so a child writing more than a pipe buffer to either can't
+/// deadlock. On expiry we kill and reap — a network op that outlives its budget
+/// is almost always a credential prompt we can never answer, and leaving it
+/// parked would leak a process per poll.
+fn run_bin(bin: &str, root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
+    let mut child = Command::new(bin)
         .current_dir(root_dir)
         .args(args)
         // Porta has no tty. Without this, HTTPS auth blocks forever asking for a
@@ -168,37 +181,75 @@ fn run_git(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, S
         // have their own `core.sshCommand` or ssh wrapper, and clobbering it
         // would break exactly the setups we're trying to support.
         .env("GIT_TERMINAL_PROMPT", "0")
+        // GIT_TERMINAL_PROMPT governs git's own prompting but not ssh's host-key
+        // or passphrase prompts on an inherited tty. Nulling stdin makes the
+        // no-hang guarantee structural instead of leaning on the timeout.
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // Own process group so a timeout can kill git's descendants (ssh,
+        // credential helpers, gpg) too — killing the top pid alone leaks them.
+        .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
 
     let pid = child.id();
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
+
+    // Drain both pipes concurrently on their own threads — reading them serially
+    // would deadlock if the child fills one pipe buffer while we block on the
+    // other. This preserves what `wait_with_output()` gave us without letting it
+    // reap the child out from under us.
+    let mut child_stdout = child.stdout.take().expect("piped stdout");
+    let mut child_stderr = child.stderr.take().expect("piped stderr");
+    let out_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = child_stdout.read_to_end(&mut buf);
+        buf
+    });
+    let err_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = child_stderr.read_to_end(&mut buf);
+        buf
     });
 
-    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
-        Ok(Ok(out)) if out.status.success() => {
-            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-        }
-        Ok(Ok(out)) => {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            Err(if stderr.is_empty() {
-                format!("git {} failed", args.join(" "))
-            } else {
-                stderr
-            })
-        }
-        Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => {
-            let _ = Command::new("/bin/kill").args(["-9", &pid.to_string()]).output();
-            Err(format!(
-                "git {} timed out after {timeout_secs}s — it may be waiting for credentials. \
-                 Open a terminal in this folder and run it there once.",
-                args.join(" ")
-            ))
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Reap done; join the readers to collect everything the child
+                // wrote before it exited.
+                let stdout = out_reader.join().unwrap_or_default();
+                let stderr = err_reader.join().unwrap_or_default();
+                if status.success() {
+                    return Ok(String::from_utf8_lossy(&stdout).trim().to_string());
+                }
+                let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
+                return Err(if stderr.is_empty() {
+                    format!("git {} failed", args.join(" "))
+                } else {
+                    stderr
+                });
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    // Negative pid targets the whole process group. `/bin/kill`
+                    // because std exposes no group-kill and we take no libc dep.
+                    let _ = Command::new("/bin/kill")
+                        .args(["-9", &format!("-{pid}")])
+                        .output();
+                    // Reap our direct child so we don't leave a zombie. We do NOT
+                    // join the reader threads here: if a descendant survived the
+                    // kill still holding a pipe, read_to_end would block forever.
+                    let _ = child.wait();
+                    return Err(format!(
+                        "git {} timed out after {timeout_secs}s — it may be waiting for credentials. \
+                         Open a terminal in this folder and run it there once.",
+                        args.join(" ")
+                    ));
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e.to_string()),
         }
     }
 }
@@ -397,15 +448,48 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
     }
 
     #[test]
-    fn run_git_kills_the_child_on_timeout() {
+    fn run_bin_times_out_promptly_and_kills_the_process() {
+        // Exercise the timeout path against `/bin/sleep` rather than git so we
+        // can (a) prove `run_bin` returns long before the sleep would, and (b)
+        // prove the spawned process is genuinely dead afterwards — not merely
+        // that a "timed out" string came back. Removing the kill call makes this
+        // test fail: the process stays alive (and, with the reap kept, the
+        // `child.wait()` would block for the full sleep, blowing the budget too).
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path();
-        Command::new("git").current_dir(p).args(["init"]).output().unwrap();
+        let pidfile = dir.path().join("pid");
+        let pidfile_str = pidfile.to_str().unwrap();
 
-        // `git ... --paginate log` on an empty repo returns fast, so instead we
-        // assert the timeout path directly with a 0-second budget.
-        let err = run_git(p.to_str().unwrap(), &["status"], 0)
-            .expect_err("a zero-second budget must time out");
+        // Record our own PID, then `exec sleep` so the recorded PID *is* the
+        // sleep's — the exact pid the timeout must kill. sleep(30) far outlives
+        // the 1s budget.
+        let script = format!("echo $$ > {pidfile_str}; exec sleep 30");
+
+        let start = Instant::now();
+        let err = run_bin("/bin/sh", dir.path().to_str().unwrap(), &["-c", &script], 1)
+            .expect_err("a 1s budget against a 30s sleep must time out");
+        let elapsed = start.elapsed();
+
+        // (a) returned promptly on timeout, not after the 30s sleep.
         assert!(err.contains("timed out"), "got: {err}");
+        assert!(elapsed < Duration::from_secs(5), "run_bin took too long: {elapsed:?}");
+
+        // (b) the process is actually dead. `kill -0` succeeds only while it
+        // exists; poll briefly to absorb reap latency.
+        let pid = std::fs::read_to_string(&pidfile)
+            .expect("child should have written its pid")
+            .trim()
+            .to_string();
+        assert!(!pid.is_empty(), "child never recorded a pid");
+
+        let mut alive = true;
+        for _ in 0..100 {
+            let probe = Command::new("/bin/kill").args(["-0", &pid]).output().unwrap();
+            if !probe.status.success() {
+                alive = false;
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!alive, "process {pid} survived the timeout kill");
     }
 }
