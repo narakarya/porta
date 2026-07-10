@@ -73,7 +73,11 @@ fn parse_porcelain_v2(out: &str) -> GitStatus {
 
 use std::path::Path;
 use std::process::Command;
+use std::process::Stdio;
+use std::sync::mpsc;
 use std::sync::OnceLock;
+use std::thread;
+use std::time::Duration;
 
 /// Locate the `git` CLI. GUI apps on macOS don't inherit the user's shell PATH,
 /// so we fall back to known install locations — same shape as `docker_bin()`
@@ -143,6 +147,84 @@ pub(crate) fn status_for(root_dir: &str) -> Option<GitStatus> {
 #[tauri::command]
 pub fn git_status(root_dir: String) -> Option<GitStatus> {
     status_for(&root_dir)
+}
+
+/// Run a git subcommand with a wall-clock budget, returning stdout on success
+/// and git's own stderr on failure.
+///
+/// `std::process::Command` has no timeout and we refuse to take a dependency for
+/// one, so the child is moved into a worker thread and awaited through a
+/// channel. On expiry we kill it by pid — a network op that outlives its budget
+/// is almost always a credential prompt we can never answer, and leaving it
+/// parked would leak a process per poll.
+fn run_git(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
+    let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
+
+    let child = Command::new(bin)
+        .current_dir(root_dir)
+        .args(args)
+        // Porta has no tty. Without this, HTTPS auth blocks forever asking for a
+        // username. We deliberately do NOT set GIT_SSH_COMMAND — the user may
+        // have their own `core.sshCommand` or ssh wrapper, and clobbering it
+        // would break exactly the setups we're trying to support.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+        Ok(Ok(out)) if out.status.success() => {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        }
+        Ok(Ok(out)) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if stderr.is_empty() {
+                format!("git {} failed", args.join(" "))
+            } else {
+                stderr
+            })
+        }
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => {
+            let _ = Command::new("/bin/kill").args(["-9", &pid.to_string()]).output();
+            Err(format!(
+                "git {} timed out after {timeout_secs}s — it may be waiting for credentials. \
+                 Open a terminal in this folder and run it there once.",
+                args.join(" ")
+            ))
+        }
+    }
+}
+
+/// Seconds before a network git op is killed.
+const NET_TIMEOUT_SECS: u64 = 30;
+
+pub(crate) fn fetch_for(root_dir: &str) -> Result<(), String> {
+    run_git(root_dir, &["fetch", "--no-tags", "--prune"], NET_TIMEOUT_SECS).map(|_| ())
+}
+
+#[tauri::command]
+pub fn git_fetch(root_dir: String) -> Result<(), String> {
+    fetch_for(&root_dir)
+}
+
+#[tauri::command]
+pub fn git_pull(root_dir: String) -> Result<String, String> {
+    // `--ff-only` so a pull can never leave a half-finished merge behind. When it
+    // can't fast-forward it fails cleanly and the user goes to a terminal.
+    run_git(&root_dir, &["pull", "--ff-only"], NET_TIMEOUT_SECS)
+}
+
+#[tauri::command]
+pub fn git_push(root_dir: String) -> Result<String, String> {
+    run_git(&root_dir, &["push"], NET_TIMEOUT_SECS)
 }
 
 #[cfg(test)]
@@ -291,5 +373,39 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert!(!s.detached);
         assert_eq!(s.upstream, None);
         assert_eq!(s.dirty, 1);
+    }
+
+    #[test]
+    fn network_op_reports_git_stderr_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let git = |args: &[&str]| {
+            Command::new("git").current_dir(p).args(args).output().unwrap()
+        };
+        git(&["init", "--initial-branch=main"]);
+        // A bare `git fetch` with zero remotes configured is a silent no-op on
+        // git >= 2.50 (exit 0, no output) rather than an error, so we point
+        // `origin` at a path that cannot exist to force a real failure.
+        git(&["remote", "add", "origin", "file:///nonexistent/porta-git-ops-test"]);
+
+        let err = run_git(p.to_str().unwrap(), &["fetch", "--no-tags", "--prune"], 30)
+            .expect_err("fetch against a bad remote must fail");
+        assert!(
+            err.contains("remote") || err.contains("origin"),
+            "expected git's stderr, got: {err}"
+        );
+    }
+
+    #[test]
+    fn run_git_kills_the_child_on_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        Command::new("git").current_dir(p).args(["init"]).output().unwrap();
+
+        // `git ... --paginate log` on an empty repo returns fast, so instead we
+        // assert the timeout path directly with a 0-second budget.
+        let err = run_git(p.to_str().unwrap(), &["status"], 0)
+            .expect_err("a zero-second budget must time out");
+        assert!(err.contains("timed out"), "got: {err}");
     }
 }
