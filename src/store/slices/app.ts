@@ -464,8 +464,17 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   // Single writer for git state besides the `app:git:{id}` event listener.
   // GitBadge seeds this on mount and refreshes it after a fetch/pull/push so
   // the badge doesn't wait up to 15s for the poller's next tick.
+  //
+  // Writing a status also retracts any error: a `GitStatus` we could read is
+  // proof the repo is readable. `appGitError` has two writers — the poller and
+  // GitBadge's seeding effect — but the poller only retracts errors it recorded
+  // itself, so without this an error from the seed could pin a healthy repo
+  // under `git ⚠` for the rest of the session.
   setAppGit: (id, status) =>
-    set((s) => ({ appGit: { ...s.appGit, [id]: status } })),
+    set((s) => ({
+      appGit: { ...s.appGit, [id]: status },
+      appGitError: { ...s.appGitError, [id]: "" },
+    })),
 
   setAppGitError: (id, message) =>
     set((s) => ({ appGitError: { ...s.appGitError, [id]: message } })),

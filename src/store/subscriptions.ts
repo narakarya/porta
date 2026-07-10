@@ -237,10 +237,14 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
-      // Git status — emitted by the Rust poller every 15s per repo app.
+      // Git status — emitted by the Rust poller every 15s per repo app. A status
+      // we could read retracts any error, for the same reason `setAppGit` does:
+      // the poller only retracts errors it recorded itself, and GitBadge's
+      // seeding effect can record one it never saw.
       listen<GitStatus>(`app:git:${app.id}`, (e) => {
         set((s) => ({
           appGit: { ...s.appGit, [app.id]: e.payload },
+          appGitError: { ...s.appGitError, [app.id]: "" },
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 

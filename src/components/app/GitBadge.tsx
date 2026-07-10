@@ -123,12 +123,24 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
             <pre className="text-[10px] font-mono text-amber-300 whitespace-pre-wrap break-words max-h-28 overflow-y-auto">
               {pollError}
             </pre>
-            <button
-              onClick={() => navigator.clipboard.writeText(pollError)}
-              className="mt-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              Copy error
-            </button>
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={() => navigator.clipboard.writeText(pollError)}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Copy error
+              </button>
+              {/* Every fix for this — `safe.directory`, repairing `.git/config` —
+                  happens in a shell, so give the user one from here. */}
+              {onOpenTerminal && (
+                <button
+                  onClick={() => { setOpen(false); onOpenTerminal(app); }}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Open terminal
+                </button>
+              )}
+            </div>
           </div>,
           document.body,
         )}
