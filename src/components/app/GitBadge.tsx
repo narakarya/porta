@@ -19,6 +19,8 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
   // it through the same action after a fetch/pull/push.
   const status = usePortaStore((s) => s.appGit[app.id]);
   const setAppGit = usePortaStore((s) => s.setAppGit);
+  const pollError = usePortaStore((s) => s.appGitError[app.id]);
+  const setAppGitError = usePortaStore((s) => s.setAppGitError);
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
@@ -46,13 +48,17 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
   useEffect(() => {
     if (status || probedNonRepo.current || !app.root_dir) return;
     let cancelled = false;
-    gitStatus(app.root_dir).then((s) => {
-      if (cancelled) return;
-      if (s) setAppGit(app.id, s);
-      else probedNonRepo.current = true;
-    }).catch(() => {});
+    gitStatus(app.root_dir)
+      .then((s) => {
+        if (cancelled) return;
+        if (s) setAppGit(app.id, s);
+        else probedNonRepo.current = true;
+      })
+      .catch((e) => {
+        if (!cancelled) setAppGitError(app.id, String(e));
+      });
     return () => { cancelled = true; };
-  }, [app.id, app.root_dir, status, setAppGit]);
+  }, [app.id, app.root_dir, status, setAppGit, setAppGitError]);
 
   // A failed op's error must not survive close/reopen — clear it on close.
   useEffect(() => {
@@ -86,7 +92,61 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
     };
   }, [open]);
 
-  if (!status) return null;
+  // A repo we couldn't read still deserves a badge: a silent disappearance is
+  // what this whole change exists to fix.
+  if (!status && !pollError) return null;
+
+  // An error outranks a status, even a status we already have. Once git stops
+  // being readable, the last branch and ahead/behind counts we saw are a claim
+  // we can no longer stand behind — showing them is worse than showing nothing.
+  // The poller emits an empty string here to retract a resolved error.
+  if (pollError) {
+    return (
+      <>
+        <button
+          ref={triggerRef}
+          onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+          className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-amber-400/80 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
+          title="Porta couldn't read this repo"
+        >
+          <span>git ⚠</span>
+        </button>
+        {open && createPortal(
+          <div
+            ref={panelRef}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="fixed z-[60] w-[280px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
+            style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
+          >
+            <div className="text-zinc-400 mb-1.5">Porta couldn't read this repo</div>
+            <pre className="text-[10px] font-mono text-amber-300 whitespace-pre-wrap break-words max-h-28 overflow-y-auto">
+              {pollError}
+            </pre>
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={() => navigator.clipboard.writeText(pollError)}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Copy error
+              </button>
+              {/* Every fix for this — `safe.directory`, repairing `.git/config` —
+                  happens in a shell, so give the user one from here. */}
+              {onOpenTerminal && (
+                <button
+                  onClick={() => { setOpen(false); onOpenTerminal(app); }}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Open terminal
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+      </>
+    );
+  }
 
   async function run(kind: Exclude<Busy, null>) {
     setBusy(kind);

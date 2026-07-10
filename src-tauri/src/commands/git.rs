@@ -76,6 +76,8 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
@@ -113,24 +115,35 @@ fn find_git_cli() -> Option<String> {
     None
 }
 
-/// Read git status for a working directory. Returns `None` — not `Err` — when
-/// the path is empty, missing, or simply isn't a repo. Most Porta apps aren't
-/// repos, and that is not an error worth surfacing.
-pub(crate) fn status_for(root_dir: &str) -> Option<GitStatus> {
-    if root_dir.is_empty() {
-        return None;
-    }
-    let root = Path::new(root_dir);
-    if !root.is_dir() {
-        return None;
-    }
-    let bin = git_bin()?;
+/// Does git's stderr mean "this directory simply isn't a repo"?
+///
+/// git exits 128 for that AND for dubious ownership, a malformed `.git/config`,
+/// and a corrupt index. Only the first is a normal, uninteresting state for a
+/// Porta app; the rest are things the user can act on, so we surface them.
+///
+/// This classifies by what git *says*: exit 128 is shared by every case, so the
+/// code alone tells us nothing. Callers MUST run git under `LC_ALL=C` — a git
+/// built with NLS (Homebrew's is; Apple's is not) translates `fatal:` messages,
+/// and a French user would then see a warning on every ordinary folder.
+///
+/// One limit is worth knowing: when `.git` itself can't be validated (HEAD
+/// unreadable, `objects/` missing), git reports "not a git repository" too, so
+/// such a repo stays silent rather than warning. Widening the match would be
+/// worse: we'd warn on every non-repo folder.
+fn is_not_a_repo(stderr: &str) -> bool {
+    stderr.contains("not a git repository")
+}
 
-    // `--no-optional-locks` keeps us from taking `index.lock`, which would race
-    // the user's editor. `core.fsmonitor=false` stops us from spawning (or
-    // waking) a long-lived fsmonitor daemon per repo on every poll.
-    let out = Command::new(bin)
-        .current_dir(root)
+/// The `git status` invocation, built in one place so the locale pin that
+/// `is_not_a_repo` depends on can't drift away from it.
+///
+/// `--no-optional-locks` keeps us from taking `index.lock`, which would race the
+/// user's editor. `core.fsmonitor=false` stops us from spawning (or waking) a
+/// long-lived fsmonitor daemon per repo on every poll.
+fn status_command(bin: &str, root: &Path) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.current_dir(root)
+        .env("LC_ALL", "C")
         .args([
             "--no-optional-locks",
             "-c",
@@ -139,18 +152,52 @@ pub(crate) fn status_for(root_dir: &str) -> Option<GitStatus> {
             "--porcelain=v2",
             "--branch",
             "--untracked-files=normal",
-        ])
-        .output()
-        .ok()?;
+        ]);
+    cmd
+}
 
-    if !out.status.success() {
-        return None; // not a repo
+/// Read git status for a working directory.
+///
+/// * `Ok(Some(_))` — a repo we could read.
+/// * `Ok(None)`    — not a repo, no `root_dir`, or no `git` binary. Normal;
+///                   most Porta apps aren't repos.
+/// * `Err(_)`      — git ran and failed for a reason the user should see, e.g.
+///                   `detected dubious ownership`. Carries git's own stderr.
+pub(crate) fn status_for(root_dir: &str) -> Result<Option<GitStatus>, String> {
+    if root_dir.is_empty() {
+        return Ok(None);
     }
-    Some(parse_porcelain_v2(&String::from_utf8_lossy(&out.stdout)))
+    let root = Path::new(root_dir);
+    if !root.is_dir() {
+        return Ok(None);
+    }
+    let Some(bin) = git_bin() else {
+        return Ok(None);
+    };
+
+    // `--no-optional-locks` keeps us from taking `index.lock`, which would race
+    // the user's editor. `core.fsmonitor=false` stops us from spawning (or
+    // waking) a long-lived fsmonitor daemon per repo on every poll.
+    let out = status_command(bin, root).output().map_err(|e| e.to_string())?;
+
+    if out.status.success() {
+        return Ok(Some(parse_porcelain_v2(&String::from_utf8_lossy(&out.stdout))));
+    }
+
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if is_not_a_repo(&stderr) {
+        Ok(None)
+    } else if stderr.is_empty() {
+        // Killed by a signal, or a git that failed without a word. The exit
+        // status is the only thing left worth telling the user.
+        Err(format!("git status failed ({})", out.status))
+    } else {
+        Err(stderr)
+    }
 }
 
 #[tauri::command]
-pub fn git_status(root_dir: String) -> Option<GitStatus> {
+pub fn git_status(root_dir: String) -> Result<Option<GitStatus>, String> {
     status_for(&root_dir)
 }
 
@@ -305,6 +352,24 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
         let mut last_emitted: std::collections::HashMap<String, GitStatus> =
             std::collections::HashMap::new();
 
+        // Same gate as `last_emitted`, for the error channel. Without it a repo
+        // with dubious ownership would re-emit the identical error every 15s.
+        let mut last_error: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        // A fetch pass runs on its own thread so a hung remote can't delay the
+        // 15s status tick. This flag stops a second pass starting while one is
+        // still going — with 30s timeouts, a slow pass can outlive its interval.
+        let fetching = Arc::new(AtomicBool::new(false));
+
+        /// Clears the in-flight flag however the fetch thread ends, panic included.
+        struct FetchGuard(Arc<AtomicBool>);
+        impl Drop for FetchGuard {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+
         loop {
             thread::sleep(Duration::from_secs(15));
 
@@ -325,19 +390,36 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                         )
                 });
 
-            if due {
+            // `compare_exchange` rather than a plain check-then-set: if a pass is
+            // still running we must NOT stamp `last_fetch`, or the interval would
+            // silently restart from a fetch that never happened.
+            if due
+                && fetching
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+            {
                 last_fetch = Some(Instant::now());
-                // Two at a time. Ten repos hitting the SSH agent at once is how
-                // you get spurious auth failures.
-                for pair in roots.chunks(2) {
-                    thread::scope(|s| {
-                        for (_, root) in pair {
-                            s.spawn(|| {
-                                let _ = fetch_for(root);
-                            });
-                        }
-                    });
-                }
+                let roots_for_fetch: Vec<String> =
+                    roots.iter().map(|(_, root)| root.clone()).collect();
+                let guard = FetchGuard(Arc::clone(&fetching));
+                thread::spawn(move || {
+                    // Clearing the flag on drop, not on the last statement:
+                    // `thread::scope` re-propagates a panic from a scoped
+                    // closure, and a flag left `true` would disable autofetch
+                    // for the rest of the session with nothing to show for it.
+                    let _guard = guard;
+                    // Two at a time. Ten repos hitting the SSH agent at once is
+                    // how you get spurious auth failures.
+                    for pair in roots_for_fetch.chunks(2) {
+                        thread::scope(|s| {
+                            for root in pair {
+                                s.spawn(|| {
+                                    let _ = fetch_for(root);
+                                });
+                            }
+                        });
+                    }
+                });
             }
 
             // Drop tracking for apps that no longer appear in `roots` — deleted
@@ -346,13 +428,29 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
             let current_ids: std::collections::HashSet<&str> =
                 roots.iter().map(|(id, _)| id.as_str()).collect();
             last_emitted.retain(|id, _| current_ids.contains(id.as_str()));
+            last_error.retain(|id, _| current_ids.contains(id.as_str()));
 
             for (app_id, root) in &roots {
-                if let Some(status) = status_for(root) {
-                    let changed = last_emitted.get(app_id) != Some(&status);
-                    if changed {
-                        app.emit(&format!("app:git:{}", app_id), &status).ok();
-                        last_emitted.insert(app_id.clone(), status);
+                match status_for(root) {
+                    Ok(Some(status)) => {
+                        // Recovered: clear a previously-reported error so the
+                        // badge stops showing a stale warning.
+                        if last_error.remove(app_id).is_some() {
+                            app.emit(&format!("app:git-error:{}", app_id), "").ok();
+                        }
+                        if last_emitted.get(app_id) != Some(&status) {
+                            app.emit(&format!("app:git:{}", app_id), &status).ok();
+                            last_emitted.insert(app_id.clone(), status);
+                        }
+                    }
+                    Ok(None) => {
+                        // Not a repo. Nothing to say, and nothing to retract.
+                    }
+                    Err(msg) => {
+                        if last_error.get(app_id) != Some(&msg) {
+                            app.emit(&format!("app:git-error:{}", app_id), &msg).ok();
+                            last_error.insert(app_id.clone(), msg);
+                        }
                     }
                 }
             }
@@ -364,9 +462,17 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
 /// pure reverse-proxy (those have no folder at all).
 fn repo_roots(app: &tauri::AppHandle) -> Vec<(String, String)> {
     let state = app.state::<AppState>();
-    // Hold the DB lock only for the call itself, as `metrics.rs:28` does — the
+    // Hold the DB lock only for the call itself, as `spawn_metrics_poller` does — the
     // loop below must not block start/stop commands.
-    let db_apps = state.db.lock().unwrap().list_apps().ok();
+    //
+    // A panic elsewhere poisons the mutex. Recover the guard rather than let it
+    // kill this detached thread — a dead poller is silent and permanent.
+    let db_apps = state
+        .db
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .list_apps()
+        .ok();
     db_apps
         .unwrap_or_default()
         .into_iter()
@@ -502,15 +608,31 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
     }
 
     #[test]
-    fn status_for_returns_none_outside_a_repo() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(status_for(dir.path().to_str().unwrap()), None);
+    fn not_a_repo_is_recognised_from_git_stderr() {
+        assert!(is_not_a_repo(
+            "fatal: not a git repository (or any of the parent directories): .git"
+        ));
     }
 
     #[test]
-    fn status_for_returns_none_for_empty_or_missing_path() {
-        assert_eq!(status_for(""), None);
-        assert_eq!(status_for("/nonexistent/path/xyzzy"), None);
+    fn dubious_ownership_is_not_mistaken_for_a_missing_repo() {
+        // git exits 128 for this too, but the repo is right there — the user
+        // just needs `git config --global --add safe.directory <path>`.
+        assert!(!is_not_a_repo(
+            "fatal: detected dubious ownership in repository at '/Users/x/app'"
+        ));
+    }
+
+    #[test]
+    fn status_for_returns_ok_none_outside_a_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(status_for(dir.path().to_str().unwrap()), Ok(None));
+    }
+
+    #[test]
+    fn status_for_returns_ok_none_for_empty_or_missing_path() {
+        assert_eq!(status_for(""), Ok(None));
+        assert_eq!(status_for("/nonexistent/path/xyzzy"), Ok(None));
     }
 
     #[test]
@@ -526,11 +648,56 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         std::fs::write(p.join("a.txt"), "hello").unwrap();
 
         // Untracked file, no commits yet.
-        let s = status_for(p.to_str().unwrap()).expect("repo should be detected");
+        let s = status_for(p.to_str().unwrap())
+            .expect("reading a valid repo must not error")
+            .expect("repo should be detected");
         assert_eq!(s.branch, "main");
         assert!(!s.detached);
         assert_eq!(s.upstream, None);
         assert_eq!(s.dirty, 1);
+    }
+
+    #[test]
+    fn status_for_surfaces_a_real_git_failure() {
+        // A malformed `.git/config` makes git exit 128 with `fatal: bad config
+        // line 1 in file .git/config` — a genuine failure, worded nothing like
+        // "not a git repository". Verified against git 2.50.1 before writing
+        // this test; corrupting HEAD or removing `.git/objects` does NOT work
+        // as a fixture, because git then fails repo validation and reports
+        // "not a git repository" instead.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        Command::new("git")
+            .current_dir(p)
+            .args(["init", "--initial-branch=main"])
+            .output()
+            .unwrap();
+        std::fs::write(p.join(".git/config"), "[core\nbroken\n").unwrap();
+
+        let err = status_for(p.to_str().unwrap())
+            .expect_err("a malformed config must surface, not read as 'not a repo'");
+        assert!(
+            err.contains("bad config"),
+            "error must carry git's own words, got: {err}"
+        );
+    }
+
+    #[test]
+    fn status_command_pins_the_locale() {
+        // `is_not_a_repo` matches English stderr. A git built with NLS (Homebrew's
+        // is) would translate it, and every non-repo folder would start warning.
+        // This machine's Apple Git has no NLS, so a behavioural test would pass
+        // for the wrong reason — assert on the spawned command instead.
+        let cmd = status_command("git", Path::new("/tmp"));
+        let locale = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("LC_ALL"))
+            .and_then(|(_, v)| v);
+        assert_eq!(
+            locale,
+            Some(std::ffi::OsStr::new("C")),
+            "git status must run under LC_ALL=C"
+        );
     }
 
     #[test]

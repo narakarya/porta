@@ -99,7 +99,7 @@ fn append_auto_start_note(app_id: &str, message: &str) {
 pub fn spawn_auto_start(app: &tauri::App) {
     let auto_start_apps = {
         let state = app.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let all = db.list_apps().unwrap_or_default();
         topo_sort_auto_start(all)
     };

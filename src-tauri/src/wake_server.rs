@@ -90,7 +90,7 @@ fn handle_request(
 
     let state = handle.state::<AppState>();
     let (apps, workspaces, alias_routes) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         (
             db.list_apps().unwrap_or_default(),
             db.list_workspaces().unwrap_or_default(),

@@ -25,7 +25,15 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
             // Snapshot the DB list with the lock held only for the call itself —
             // the lock drops at the end of this let statement, so iteration below
             // doesn't block concurrent start/stop/update commands.
-            let db_apps = state.db.lock().unwrap().list_apps().ok();
+            //
+            // A panic elsewhere poisons the mutex. Recover the guard rather than let it
+            // kill this detached thread — a dead poller is silent and permanent.
+            let db_apps = state
+                .db
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .list_apps()
+                .ok();
             if let Some(db_apps) = db_apps {
                 for a in &db_apps {
                     if a.status == "running" && !a.is_docker() {
