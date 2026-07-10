@@ -1542,7 +1542,11 @@ export interface GitStatus {
   dirty: number;
 }
 
-/** `null` when root_dir isn't a git repo — the common case, not an error. */
+/**
+ * Resolves `null` when `rootDir` isn't a git repo — the common case, not an
+ * error. REJECTS with git's own stderr when git ran and failed for a reason
+ * worth showing, e.g. `detected dubious ownership`.
+ */
 export const gitStatus = (rootDir: string): Promise<GitStatus | null> =>
   isTauri ? invoke("git_status", { rootDir }) : Promise.resolve(null);
 

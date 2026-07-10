@@ -37,6 +37,8 @@ export interface AppSlice {
   appMetrics: Record<string, { cpu: number; mem_mb: number }>;
   /** Git state per app, fed by the `app:git:{id}` event. Absent for non-repos. */
   appGit: Record<string, GitStatus>;
+  /** Last `git status` failure per app, from `app:git-error:{id}`. Empty string clears it. */
+  appGitError: Record<string, string>;
   appStartedAt: Record<string, number>;
   healthStatuses: Record<string, HealthStatus>;
   imageUpdateCache: Record<string, ImageUpdateInfo[]>;
@@ -68,6 +70,7 @@ export interface AppSlice {
   visibleApps: () => App[];
   setImageUpdateCache: (appId: string, info: ImageUpdateInfo[]) => void;
   setAppGit: (id: string, status: GitStatus) => void;
+  setAppGitError: (id: string, message: string) => void;
 }
 
 export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, get) => ({
@@ -80,6 +83,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appTunnelErrors: {},
   appMetrics: {},
   appGit: {},
+  appGitError: {},
   appStartedAt: {},
   healthStatuses: {},
   imageUpdateCache: {},
@@ -462,4 +466,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   // the badge doesn't wait up to 15s for the poller's next tick.
   setAppGit: (id, status) =>
     set((s) => ({ appGit: { ...s.appGit, [id]: status } })),
+
+  setAppGitError: (id, message) =>
+    set((s) => ({ appGitError: { ...s.appGitError, [id]: message } })),
 });

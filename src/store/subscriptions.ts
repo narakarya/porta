@@ -244,6 +244,14 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
+      // Git status failure — e.g. dubious ownership. An empty payload means the
+      // poller recovered and the badge should stop warning.
+      listen<string>(`app:git-error:${app.id}`, (e) => {
+        set((s) => ({
+          appGitError: { ...s.appGitError, [app.id]: e.payload },
+        }));
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
       // Tunnel URL from cloudflared
       listen<{ active: boolean; url?: string | null; error?: string }>(`app:tunnel:${app.id}`, (e) => {
         set((s) => ({
