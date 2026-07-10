@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
-import { gitFetch, gitPull, gitPush, gitStatus, type GitStatus } from "../../lib/commands";
+import { gitFetch, gitPull, gitPush, gitStatus } from "../../lib/commands";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 import type { App } from "../../types";
 
@@ -13,22 +13,42 @@ interface Props {
 type Busy = "fetch" | "pull" | "push" | null;
 
 export default function GitBadge({ app, onOpenTerminal }: Props) {
-  // The Rust poller keeps this fresh every 15s. We seed it once on mount so a
-  // newly-added app doesn't sit blank until the first tick.
-  const fromStore = usePortaStore((s) => s.appGit[app.id]);
-  const [seed, setSeed] = useState<GitStatus | null>(null);
-  const status = fromStore ?? seed;
+  // The store is the single source of truth. The Rust poller writes
+  // `appGit[app.id]` every 15s; we seed it once on mount (via setAppGit) so a
+  // newly-added app doesn't sit blank until the first tick, and run() refreshes
+  // it through the same action after a fetch/pull/push.
+  const status = usePortaStore((s) => s.appGit[app.id]);
+  const setAppGit = usePortaStore((s) => s.setAppGit);
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Tracks "already probed, this dir isn't a repo". The store maps to
+  // GitStatus (never null), so a non-repo can't be recorded there — this ref
+  // is local UI bookkeeping that stops the seeding effect from re-firing
+  // gitStatus on every render for a non-repo app.
+  const probedNonRepo = useRef(false);
+  // Unmount guard for run()'s async writes, mirroring the seeding effect's
+  // cancelled flag.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   useEffect(() => {
-    if (fromStore || !app.root_dir) return;
+    if (status || probedNonRepo.current || !app.root_dir) return;
     let cancelled = false;
-    gitStatus(app.root_dir).then((s) => { if (!cancelled) setSeed(s); }).catch(() => {});
+    gitStatus(app.root_dir).then((s) => {
+      if (cancelled) return;
+      if (s) setAppGit(app.id, s);
+      else probedNonRepo.current = true;
+    }).catch(() => {});
     return () => { cancelled = true; };
-  }, [app.root_dir, fromStore]);
+  }, [app.id, app.root_dir, status, setAppGit]);
+
+  // A failed op's error must not survive close/reopen — clear it on close.
+  useEffect(() => {
+    if (!open) setError(null);
+  }, [open]);
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -67,12 +87,14 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
       else if (kind === "pull") await gitPull(app.root_dir);
       else await gitPush(app.root_dir);
       // Refresh immediately rather than waiting up to 15s for the next poll.
+      // Writes through the store so the badge (which reads only the store) updates.
       const fresh = await gitStatus(app.root_dir);
-      if (fresh) setSeed(fresh);
+      if (!mountedRef.current) return;
+      if (fresh) setAppGit(app.id, fresh);
     } catch (e) {
-      setError(String(e));
+      if (mountedRef.current) setError(String(e));
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   }
 
@@ -94,6 +116,13 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
       {open && createPortal(
         <div
           ref={panelRef}
+          // createPortal moves this to <body>, but React synthetic events still
+          // bubble along the React tree into AppCard's clickable region (which
+          // opens the settings modal). Stop propagation here so no click inside
+          // the popover reaches it. The window `mousedown` outside-click listener
+          // uses real-DOM contains(), so it's unaffected.
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
           className="fixed z-[60] w-[260px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
           style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
         >
@@ -137,7 +166,7 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
               onClick={() => { setOpen(false); onOpenTerminal(app); }}
               className="w-full mt-1 px-2 py-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors text-left"
             >
-              Open terminal in {app.root_dir.split("/").pop()}
+              Open terminal in {app.root_dir.replace(/\/+$/, "").split("/").pop() || app.root_dir}
             </button>
           )}
 
