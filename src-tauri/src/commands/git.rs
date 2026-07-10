@@ -76,6 +76,8 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
@@ -350,6 +352,16 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
         let mut last_emitted: std::collections::HashMap<String, GitStatus> =
             std::collections::HashMap::new();
 
+        // Same gate as `last_emitted`, for the error channel. Without it a repo
+        // with dubious ownership would re-emit the identical error every 15s.
+        let mut last_error: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        // A fetch pass runs on its own thread so a hung remote can't delay the
+        // 15s status tick. This guard stops a second pass starting while one is
+        // still going — with 30s timeouts, a slow pass can outlive its interval.
+        let fetching = Arc::new(AtomicBool::new(false));
+
         loop {
             thread::sleep(Duration::from_secs(15));
 
@@ -370,19 +382,32 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                         )
                 });
 
-            if due {
+            // `compare_exchange` rather than a plain check-then-set: if a pass is
+            // still running we must NOT stamp `last_fetch`, or the interval would
+            // silently restart from a fetch that never happened.
+            if due
+                && fetching
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+            {
                 last_fetch = Some(Instant::now());
-                // Two at a time. Ten repos hitting the SSH agent at once is how
-                // you get spurious auth failures.
-                for pair in roots.chunks(2) {
-                    thread::scope(|s| {
-                        for (_, root) in pair {
-                            s.spawn(|| {
-                                let _ = fetch_for(root);
-                            });
-                        }
-                    });
-                }
+                let roots_for_fetch: Vec<String> =
+                    roots.iter().map(|(_, root)| root.clone()).collect();
+                let fetching = Arc::clone(&fetching);
+                thread::spawn(move || {
+                    // Two at a time. Ten repos hitting the SSH agent at once is
+                    // how you get spurious auth failures.
+                    for pair in roots_for_fetch.chunks(2) {
+                        thread::scope(|s| {
+                            for root in pair {
+                                s.spawn(|| {
+                                    let _ = fetch_for(root);
+                                });
+                            }
+                        });
+                    }
+                    fetching.store(false, Ordering::SeqCst);
+                });
             }
 
             // Drop tracking for apps that no longer appear in `roots` — deleted
@@ -391,13 +416,29 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
             let current_ids: std::collections::HashSet<&str> =
                 roots.iter().map(|(id, _)| id.as_str()).collect();
             last_emitted.retain(|id, _| current_ids.contains(id.as_str()));
+            last_error.retain(|id, _| current_ids.contains(id.as_str()));
 
             for (app_id, root) in &roots {
-                if let Ok(Some(status)) = status_for(root) {
-                    let changed = last_emitted.get(app_id) != Some(&status);
-                    if changed {
-                        app.emit(&format!("app:git:{}", app_id), &status).ok();
-                        last_emitted.insert(app_id.clone(), status);
+                match status_for(root) {
+                    Ok(Some(status)) => {
+                        // Recovered: clear a previously-reported error so the
+                        // badge stops showing a stale warning.
+                        if last_error.remove(app_id).is_some() {
+                            app.emit(&format!("app:git-error:{}", app_id), "").ok();
+                        }
+                        if last_emitted.get(app_id) != Some(&status) {
+                            app.emit(&format!("app:git:{}", app_id), &status).ok();
+                            last_emitted.insert(app_id.clone(), status);
+                        }
+                    }
+                    Ok(None) => {
+                        // Not a repo. Nothing to say, and nothing to retract.
+                    }
+                    Err(msg) => {
+                        if last_error.get(app_id) != Some(&msg) {
+                            app.emit(&format!("app:git-error:{}", app_id), &msg).ok();
+                            last_error.insert(app_id.clone(), msg);
+                        }
                     }
                 }
             }
@@ -411,7 +452,15 @@ fn repo_roots(app: &tauri::AppHandle) -> Vec<(String, String)> {
     let state = app.state::<AppState>();
     // Hold the DB lock only for the call itself, as `metrics.rs:28` does — the
     // loop below must not block start/stop commands.
-    let db_apps = state.db.lock().unwrap().list_apps().ok();
+    //
+    // A panic elsewhere poisons the mutex. Recover the guard rather than let it
+    // kill this detached thread — a dead poller is silent and permanent.
+    let db_apps = state
+        .db
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .list_apps()
+        .ok();
     db_apps
         .unwrap_or_default()
         .into_iter()
