@@ -20,43 +20,6 @@ const TerminalModal = lazy(() => import("../terminal/TerminalModal"));
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** Compute topological start order from depends_on chains. Returns a map of appId -> 1-based order number. */
-function computeStartOrder(apps: { id: string; depends_on: string[] }[]): Record<string, number> {
-  const order: Record<string, number> = {};
-  const hasDeps = apps.some((a) => a.depends_on.length > 0);
-  if (!hasDeps) return order;
-
-  // Build in-degree map and adjacency
-  const inDeg: Record<string, number> = {};
-  const children: Record<string, string[]> = {};
-  for (const a of apps) {
-    inDeg[a.id] = inDeg[a.id] ?? 0;
-    for (const dep of a.depends_on) {
-      if (!children[dep]) children[dep] = [];
-      children[dep].push(a.id);
-      inDeg[a.id] = (inDeg[a.id] ?? 0) + 1;
-    }
-  }
-
-  // Kahn's algorithm
-  const queue = apps.filter((a) => (inDeg[a.id] ?? 0) === 0).map((a) => a.id);
-  let level = 1;
-  while (queue.length > 0) {
-    const size = queue.length;
-    for (let i = 0; i < size; i++) {
-      const id = queue.shift()!;
-      order[id] = level;
-      for (const child of children[id] ?? []) {
-        inDeg[child]--;
-        if (inDeg[child] === 0) queue.push(child);
-      }
-    }
-    level++;
-  }
-
-  return order;
-}
-
 export default function WorkspaceView() {
   const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore(
     useShallow((s) => ({
@@ -266,7 +229,6 @@ export default function WorkspaceView() {
   const stoppedWithCommand = allVisibleApps.filter((a) => a.status === "stopped" && (a.start_command || (a.kind === "docker" && a.docker_image) || (a.kind === "compose" && a.compose_file)));
   const hasStoppedApps = stoppedWithCommand.length > 0;
   const hasActiveApps = activeCount > 0;
-  const startOrder = useMemo(() => computeStartOrder(allVisibleApps), [allVisibleApps]);
 
   // Keep settingsApp in sync with latest store data so the modal sees fresh
   // values (tunnel URL arrives async, status flips, metrics update, etc.).
@@ -442,7 +404,6 @@ export default function WorkspaceView() {
                     <AppCard
                       app={app}
                       workspace={workspace}
-                      startOrder={startOrder[app.id]}
                       onOpenSettings={handleOpenSettings}
                       onOpenTerminal={openTerminal}
                     />

@@ -22,28 +22,16 @@ import LogToast from "./LogToast";
 import TunnelQuickMenu from "./TunnelQuickMenu";
 import DockerUpdateBadge from "./DockerUpdateBadge";
 import AppDiskBadge from "./AppDiskBadge";
-import ContainerStatsBadge from "./ContainerStatsBadge";
+import GitBadge from "./GitBadge";
 import { yieldToFrame } from "../../lib/ui";
 
 interface Props {
   app: App;
   workspace: Workspace | null;
-  startOrder?: number;
   // Callbacks take `app` so parents can share one stable ref across all cards
   // (required for React.memo below to actually skip re-renders).
   onOpenSettings?: (app: App) => void;
   onOpenTerminal?: (app: App, startupCommand?: string) => void;
-}
-
-function formatUptime(startedAt: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ${minutes % 60}m`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
 }
 
 function resolvedHost(app: App, workspace: Workspace | null): string {
@@ -59,7 +47,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
   return [primary, ...extras];
 }
 
-function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }: Props) {
+function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
   // Actions — stable refs, picked once via shallow compare.
   const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions } = usePortaStore(
     useShallow((s) => ({
@@ -83,8 +71,6 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
   );
   // Per-app state slices — component only re-renders when ITS slice changes.
   const setupStatus = usePortaStore((s) => s.setupStatus);
-  const metrics = usePortaStore((s) => s.appMetrics[app.id]);
-  const startedAt = usePortaStore((s) => s.appStartedAt[app.id]);
   const health = usePortaStore((s) => s.healthStatuses[app.id]);
   const appLogs = usePortaStore((s) => s.appLogs[app.id]);
   const appExitCode = usePortaStore((s) => s.appExitCode[app.id]);
@@ -383,11 +369,6 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
                 </svg>
               </Tooltip>
             )}
-            {startOrder !== undefined && (
-              <span className="text-[9px] font-medium text-zinc-600 bg-white/[0.04] border border-white/[0.06] px-1 py-0.5 rounded leading-none">
-                {startOrder}
-              </span>
-            )}
             {onOpenSettings && (
               <svg
                 width="10" height="10" viewBox="0 0 10 10" fill="none"
@@ -421,16 +402,7 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
             ) : (
               <p className="text-[11px] text-zinc-600">port {app.port}</p>
             )}
-            {isManaged && metrics && isRunning && !(isDocker || isCompose) && (
-              <Tooltip label={startedAt ? `Up ${formatUptime(startedAt, Date.now())}` : "Running"}>
-                <span className="text-[10px] text-zinc-400 font-mono bg-white/[0.04] border border-white/[0.06] px-1.5 py-0.5 rounded leading-none opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                  {metrics.cpu.toFixed(1)}% · {metrics.mem_mb}MB
-                </span>
-              </Tooltip>
-            )}
-            {(isDocker || isCompose) && isRunning && (
-              <ContainerStatsBadge appId={app.id} active={isRunning} />
-            )}
+            {!isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} />}
             {isManaged && portCheck && !portCheck.available && (() => {
               // `ps -o comm=` returns the full command path for binaries
               // launched by version managers (mise/asdf/nvm) — strip to the
@@ -517,11 +489,6 @@ function AppCard({ app, workspace, startOrder, onOpenSettings, onOpenTerminal }:
                 </div>
               );
             })()}
-            {extraCount > 0 && (
-              <span className="text-[10px] font-medium text-zinc-500 bg-white/[0.05] border border-white/[0.08] px-1 py-0.5 rounded leading-none" title={(app.extra_subdomains ?? []).join(", ")}>
-                +{extraCount}
-              </span>
-            )}
           </div>
         </div>
 

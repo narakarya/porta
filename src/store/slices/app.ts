@@ -1,5 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { App, HealthStatus, ImageUpdateInfo } from "../../types";
+import type { GitStatus } from "../../lib/commands";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
 import { startMockProcess, stopMockProcess, killMockProcess } from "../../lib/mock-data";
@@ -34,6 +35,8 @@ export interface AppSlice {
   appRestarting: Record<string, boolean>;
   appTunnelErrors: Record<string, string | null>;
   appMetrics: Record<string, { cpu: number; mem_mb: number }>;
+  /** Git state per app, fed by the `app:git:{id}` event. Absent for non-repos. */
+  appGit: Record<string, GitStatus>;
   appStartedAt: Record<string, number>;
   healthStatuses: Record<string, HealthStatus>;
   imageUpdateCache: Record<string, ImageUpdateInfo[]>;
@@ -64,6 +67,7 @@ export interface AppSlice {
   stopTunnel: (id: string) => Promise<void>;
   visibleApps: () => App[];
   setImageUpdateCache: (appId: string, info: ImageUpdateInfo[]) => void;
+  setAppGit: (id: string, status: GitStatus) => void;
 }
 
 export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, get) => ({
@@ -75,6 +79,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appRestarting: {},
   appTunnelErrors: {},
   appMetrics: {},
+  appGit: {},
   appStartedAt: {},
   healthStatuses: {},
   imageUpdateCache: {},
@@ -451,4 +456,10 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       imageUpdateCache: { ...s.imageUpdateCache, [appId]: info },
       imageUpdateLastChecked: { ...s.imageUpdateLastChecked, [appId]: Date.now() },
     })),
+
+  // Single writer for git state besides the `app:git:{id}` event listener.
+  // GitBadge seeds this on mount and refreshes it after a fetch/pull/push so
+  // the badge doesn't wait up to 15s for the poller's next tick.
+  setAppGit: (id, status) =>
+    set((s) => ({ appGit: { ...s.appGit, [id]: status } })),
 });

@@ -274,17 +274,6 @@ export const createConfigFromTemplate = (
     ? invoke("create_config_from_template", { sourcePath, targetPath })
     : Promise.resolve("");
 
-export interface GitStatus {
-  in_repo: boolean;
-  branch: string | null;
-  dirty: boolean;
-}
-
-export const getGitStatus = (rootDir: string): Promise<GitStatus> =>
-  isTauri
-    ? invoke("get_git_status", { rootDir })
-    : Promise.resolve({ in_repo: false, branch: null, dirty: false });
-
 export const openInTerminal = (rootDir: string): Promise<void> =>
   isTauri ? invoke("open_in_terminal", { rootDir }) : Promise.resolve();
 
@@ -1540,3 +1529,40 @@ export const readExtensionFile = (path: string): Promise<string> =>
   isTauri
     ? invoke("read_extension_file", { path })
     : Promise.reject(new Error("read_extension_file not available in browser mode"));
+
+// ── Git ───────────────────────────────────────────────────────────────────────
+
+export interface GitStatus {
+  /** Branch name, or a short SHA when HEAD is detached. */
+  branch: string;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  dirty: number;
+}
+
+/** `null` when root_dir isn't a git repo — the common case, not an error. */
+export const gitStatus = (rootDir: string): Promise<GitStatus | null> =>
+  isTauri ? invoke("git_status", { rootDir }) : Promise.resolve(null);
+
+export const gitFetch = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_fetch", { rootDir }) : Promise.resolve();
+
+export const gitPull = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_pull", { rootDir }) : Promise.resolve("");
+
+export const gitPush = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_push", { rootDir }) : Promise.resolve("");
+
+export const getGitAutofetchEnabled = (): Promise<boolean> =>
+  isTauri ? invoke("get_git_autofetch_enabled") : Promise.resolve(true);
+
+export const setGitAutofetchEnabled = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_git_autofetch_enabled", { enabled }) : Promise.resolve();
+
+export const getGitAutofetchIntervalSecs = (): Promise<number> =>
+  isTauri ? invoke("get_git_autofetch_interval_secs") : Promise.resolve(180);
+
+export const setGitAutofetchIntervalSecs = (secs: number): Promise<void> =>
+  isTauri ? invoke("set_git_autofetch_interval_secs", { secs }) : Promise.resolve();

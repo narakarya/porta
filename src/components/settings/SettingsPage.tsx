@@ -10,6 +10,7 @@ import type { SettingsSection as Section } from "../../store/slices/ui";
 // xterm in Tailscale, etc.) and the user saw a macOS beachball cursor.
 const SetupSection = lazy(() => import("./SetupSection"));
 const NotificationsSection = lazy(() => import("./NotificationsSection"));
+const GitSection = lazy(() => import("./GitSection"));
 const BackupSection = lazy(() => import("./BackupSection"));
 const CloudflareSection = lazy(() => import("./CloudflareSection"));
 const TailscaleSection = lazy(() => import("./TailscaleSection"));
@@ -85,6 +86,18 @@ const NAV: { id: Section; label: string; icon: React.ReactNode }[] = [
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
         <path d="M10 2.5C7 2.5 4.5 5 4.5 8v5l-1.5 2h14l-1.5-2V8C15.5 5 13 2.5 10 2.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
         <path d="M8 15.5a2 2 0 004 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
+  {
+    id: "git",
+    label: "Git",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="6" cy="15" r="2" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="14" cy="10" r="2" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M6 7v6M8 15h1a3 3 0 003-3v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     ),
   },
@@ -238,6 +251,11 @@ export default function SettingsPage({ onBack }: Props) {
           {visited.has("notifications") && (
             <div hidden={activeSection !== "notifications"}>
               <NotificationsSection />
+            </div>
+          )}
+          {visited.has("git") && (
+            <div hidden={activeSection !== "git"}>
+              <GitSection />
             </div>
           )}
           {visited.has("backup") && (

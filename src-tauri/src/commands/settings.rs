@@ -117,6 +117,45 @@ pub fn set_image_update_notify_enabled(enabled: bool) {
     write_porta_config(&cfg);
 }
 
+// ── Git autofetch ─────────────────────────────────────────────────────────────
+
+pub(crate) fn git_autofetch_enabled() -> bool {
+    read_porta_config()["git_autofetch"].as_bool().unwrap_or(true)
+}
+
+/// Clamped to the choices the settings UI offers, so a hand-edited config can't
+/// make the poller hammer every remote once a second.
+pub(crate) fn git_autofetch_interval_secs() -> u64 {
+    read_porta_config()["git_autofetch_interval_secs"]
+        .as_u64()
+        .unwrap_or(180)
+        .clamp(60, 600)
+}
+
+#[tauri::command]
+pub fn get_git_autofetch_enabled() -> bool {
+    git_autofetch_enabled()
+}
+
+#[tauri::command]
+pub fn set_git_autofetch_enabled(enabled: bool) {
+    let mut cfg = read_porta_config();
+    cfg["git_autofetch"] = serde_json::json!(enabled);
+    write_porta_config(&cfg);
+}
+
+#[tauri::command]
+pub fn get_git_autofetch_interval_secs() -> u64 {
+    git_autofetch_interval_secs()
+}
+
+#[tauri::command]
+pub fn set_git_autofetch_interval_secs(secs: u64) {
+    let mut cfg = read_porta_config();
+    cfg["git_autofetch_interval_secs"] = serde_json::json!(secs.clamp(60, 600));
+    write_porta_config(&cfg);
+}
+
 #[tauri::command]
 pub fn notify_image_updates_found(app: tauri::AppHandle, app_names: Vec<String>) {
     if !image_update_notify_enabled() { return; }

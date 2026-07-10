@@ -183,6 +183,7 @@ pub fn run() {
             menu::setup_app_menu(app)?;
             auto_start::spawn_auto_start(app);
             metrics::spawn_metrics_poller(app.handle().clone());
+            commands::spawn_git_poller(app.handle().clone());
             commands::spawn_tailscale_poller(app.handle().clone());
             commands::spawn_backup_scheduler(app.handle().clone());
             commands::spawn_log_rotation_task();
@@ -224,7 +225,14 @@ pub fn run() {
             commands::read_config_file,
             commands::write_config_file,
             commands::create_config_from_template,
-            commands::get_git_status,
+            commands::git_status,
+            commands::git_fetch,
+            commands::git_pull,
+            commands::git_push,
+            commands::get_git_autofetch_enabled,
+            commands::set_git_autofetch_enabled,
+            commands::get_git_autofetch_interval_secs,
+            commands::set_git_autofetch_interval_secs,
             commands::start_app,
             commands::stop_app,
             commands::restart_app,

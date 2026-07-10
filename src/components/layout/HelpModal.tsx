@@ -22,6 +22,7 @@ const GROUPS: Group[] = [
       { keys: ["⌘", "K"], desc: "Open command palette" },
       { keys: ["⌘", "?"], desc: "Open this help" },
       { keys: ["⌘", ","], desc: "Open Settings" },
+      { keys: ["⌘", "⇧", "M"], desc: "Toggle resource drawer" },
       { keys: ["⌘", "F"], desc: "Focus filter (in workspace view)" },
       { keys: ["/"],      desc: "Focus filter (without modifier)" },
       { keys: ["Esc"],    desc: "Close modal / clear filter" },
