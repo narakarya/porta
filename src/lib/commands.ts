@@ -1529,3 +1529,28 @@ export const readExtensionFile = (path: string): Promise<string> =>
   isTauri
     ? invoke("read_extension_file", { path })
     : Promise.reject(new Error("read_extension_file not available in browser mode"));
+
+// ── Git ───────────────────────────────────────────────────────────────────────
+
+export interface GitStatus {
+  /** Branch name, or a short SHA when HEAD is detached. */
+  branch: string;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  dirty: number;
+}
+
+/** `null` when root_dir isn't a git repo — the common case, not an error. */
+export const gitStatus = (rootDir: string): Promise<GitStatus | null> =>
+  isTauri ? invoke("git_status", { rootDir }) : Promise.resolve(null);
+
+export const gitFetch = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_fetch", { rootDir }) : Promise.resolve();
+
+export const gitPull = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_pull", { rootDir }) : Promise.resolve("");
+
+export const gitPush = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_push", { rootDir }) : Promise.resolve("");

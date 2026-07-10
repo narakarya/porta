@@ -1,6 +1,7 @@
 import type { App, Service } from "../types";
 import { setMockEventCallback } from "../lib/mock-data";
 import * as cmd from "../lib/commands";
+import type { GitStatus } from "../lib/commands";
 import { isDockerRuntimeUnavailable } from "../lib/docker-errors";
 import { MAX_LOG_LINES } from "./slices/app";
 import type { AllSlices } from "./index";
@@ -233,6 +234,13 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       listen<{ cpu: number; mem_mb: number }>(`app:metrics:${app.id}`, (e) => {
         set((s) => ({
           appMetrics: { ...s.appMetrics, [app.id]: e.payload },
+        }));
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+      // Git status — emitted by the Rust poller every 15s per repo app.
+      listen<GitStatus>(`app:git:${app.id}`, (e) => {
+        set((s) => ({
+          appGit: { ...s.appGit, [app.id]: e.payload },
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
