@@ -113,18 +113,39 @@ fn find_git_cli() -> Option<String> {
     None
 }
 
-/// Read git status for a working directory. Returns `None` — not `Err` — when
-/// the path is empty, missing, or simply isn't a repo. Most Porta apps aren't
-/// repos, and that is not an error worth surfacing.
-pub(crate) fn status_for(root_dir: &str) -> Option<GitStatus> {
+/// Does git's stderr mean "this directory simply isn't a repo"?
+///
+/// git exits 128 for that AND for dubious ownership, a malformed `.git/config`,
+/// and a corrupt index. Only the first is a normal, uninteresting state for a
+/// Porta app; the rest are things the user can act on, so we surface them.
+///
+/// This classifies by what git *says*, which is all we have — exit 128 is shared
+/// by every case. One limit is worth knowing: when `.git` itself can't be
+/// validated (HEAD unreadable, `objects/` missing), git reports "not a git
+/// repository" too, so such a repo stays silent rather than warning. Widening
+/// the match would be worse: we'd warn on every ordinary non-repo folder.
+fn is_not_a_repo(stderr: &str) -> bool {
+    stderr.contains("not a git repository")
+}
+
+/// Read git status for a working directory.
+///
+/// * `Ok(Some(_))` — a repo we could read.
+/// * `Ok(None)`    — not a repo, no `root_dir`, or no `git` binary. Normal;
+///                   most Porta apps aren't repos.
+/// * `Err(_)`      — git ran and failed for a reason the user should see, e.g.
+///                   `detected dubious ownership`. Carries git's own stderr.
+pub(crate) fn status_for(root_dir: &str) -> Result<Option<GitStatus>, String> {
     if root_dir.is_empty() {
-        return None;
+        return Ok(None);
     }
     let root = Path::new(root_dir);
     if !root.is_dir() {
-        return None;
+        return Ok(None);
     }
-    let bin = git_bin()?;
+    let Some(bin) = git_bin() else {
+        return Ok(None);
+    };
 
     // `--no-optional-locks` keeps us from taking `index.lock`, which would race
     // the user's editor. `core.fsmonitor=false` stops us from spawning (or
@@ -141,16 +162,24 @@ pub(crate) fn status_for(root_dir: &str) -> Option<GitStatus> {
             "--untracked-files=normal",
         ])
         .output()
-        .ok()?;
+        .map_err(|e| e.to_string())?;
 
-    if !out.status.success() {
-        return None; // not a repo
+    if out.status.success() {
+        return Ok(Some(parse_porcelain_v2(&String::from_utf8_lossy(&out.stdout))));
     }
-    Some(parse_porcelain_v2(&String::from_utf8_lossy(&out.stdout)))
+
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if is_not_a_repo(&stderr) {
+        Ok(None)
+    } else if stderr.is_empty() {
+        Err("git status failed".to_string())
+    } else {
+        Err(stderr)
+    }
 }
 
 #[tauri::command]
-pub fn git_status(root_dir: String) -> Option<GitStatus> {
+pub fn git_status(root_dir: String) -> Result<Option<GitStatus>, String> {
     status_for(&root_dir)
 }
 
@@ -348,7 +377,7 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
             last_emitted.retain(|id, _| current_ids.contains(id.as_str()));
 
             for (app_id, root) in &roots {
-                if let Some(status) = status_for(root) {
+                if let Ok(Some(status)) = status_for(root) {
                     let changed = last_emitted.get(app_id) != Some(&status);
                     if changed {
                         app.emit(&format!("app:git:{}", app_id), &status).ok();
@@ -502,15 +531,31 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
     }
 
     #[test]
-    fn status_for_returns_none_outside_a_repo() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(status_for(dir.path().to_str().unwrap()), None);
+    fn not_a_repo_is_recognised_from_git_stderr() {
+        assert!(is_not_a_repo(
+            "fatal: not a git repository (or any of the parent directories): .git"
+        ));
     }
 
     #[test]
-    fn status_for_returns_none_for_empty_or_missing_path() {
-        assert_eq!(status_for(""), None);
-        assert_eq!(status_for("/nonexistent/path/xyzzy"), None);
+    fn dubious_ownership_is_not_mistaken_for_a_missing_repo() {
+        // git exits 128 for this too, but the repo is right there — the user
+        // just needs `git config --global --add safe.directory <path>`.
+        assert!(!is_not_a_repo(
+            "fatal: detected dubious ownership in repository at '/Users/x/app'"
+        ));
+    }
+
+    #[test]
+    fn status_for_returns_ok_none_outside_a_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(status_for(dir.path().to_str().unwrap()), Ok(None));
+    }
+
+    #[test]
+    fn status_for_returns_ok_none_for_empty_or_missing_path() {
+        assert_eq!(status_for(""), Ok(None));
+        assert_eq!(status_for("/nonexistent/path/xyzzy"), Ok(None));
     }
 
     #[test]
@@ -526,11 +571,38 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         std::fs::write(p.join("a.txt"), "hello").unwrap();
 
         // Untracked file, no commits yet.
-        let s = status_for(p.to_str().unwrap()).expect("repo should be detected");
+        let s = status_for(p.to_str().unwrap())
+            .expect("reading a valid repo must not error")
+            .expect("repo should be detected");
         assert_eq!(s.branch, "main");
         assert!(!s.detached);
         assert_eq!(s.upstream, None);
         assert_eq!(s.dirty, 1);
+    }
+
+    #[test]
+    fn status_for_surfaces_a_real_git_failure() {
+        // A malformed `.git/config` makes git exit 128 with `fatal: bad config
+        // line 1 in file .git/config` — a genuine failure, worded nothing like
+        // "not a git repository". Verified against git 2.50.1 before writing
+        // this test; corrupting HEAD or removing `.git/objects` does NOT work
+        // as a fixture, because git then fails repo validation and reports
+        // "not a git repository" instead.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        Command::new("git")
+            .current_dir(p)
+            .args(["init", "--initial-branch=main"])
+            .output()
+            .unwrap();
+        std::fs::write(p.join(".git/config"), "[core\nbroken\n").unwrap();
+
+        let err = status_for(p.to_str().unwrap())
+            .expect_err("a malformed config must surface, not read as 'not a repo'");
+        assert!(
+            err.contains("bad config"),
+            "error must carry git's own words, got: {err}"
+        );
     }
 
     #[test]
