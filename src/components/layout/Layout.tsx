@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import Sidebar from "./Sidebar";
 import ExtensionSidebar from "../extension/ExtensionSidebar";
+import ResourceDrawer from "./ResourceDrawer";
 
 interface Props {
   children: ReactNode;
@@ -12,13 +13,26 @@ interface Props {
 export default function Layout({ children, onOpenSettings }: Props) {
   // Derive counts via selector so Layout only re-renders when running/total count
   // flips, not on every apps array mutation (metrics tick etc).
-  const { running, total, extSidebarOpen } = usePortaStore(
+  const { running, total, extSidebarOpen, drawerOpen } = usePortaStore(
     useShallow((s) => ({
       running: s.apps.filter((a) => a.status === "running").length,
       total: s.apps.length,
       extSidebarOpen: s.extensionSidebar !== null,
+      drawerOpen: s.resourceDrawerOpen,
     }))
   );
+  const toggleDrawer = usePortaStore((s) => s.toggleResourceDrawer);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey) return;
+      if (e.key.toLowerCase() !== "m") return;
+      e.preventDefault();
+      toggleDrawer();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleDrawer]);
 
   return (
     <div className="flex h-screen bg-[#111113] text-zinc-100 font-sans overflow-hidden">
@@ -39,10 +53,21 @@ export default function Layout({ children, onOpenSettings }: Props) {
 
         <div className="flex-1" />
 
-        {/* Running count — right */}
-        <div className="no-drag flex items-center gap-1.5 mr-3">
-          <span className={`w-1.5 h-1.5 rounded-full ${running > 0 ? "bg-emerald-400" : "bg-zinc-700"}`} />
-          <span className="text-[10px] text-zinc-600 tabular-nums">{running}/{total}</span>
+        {/* Running count + resource drawer toggle — right */}
+        <div className="no-drag flex items-center gap-2 mr-3">
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${running > 0 ? "bg-emerald-400" : "bg-zinc-700"}`} />
+            <span className="text-[10px] text-zinc-600 tabular-nums">{running}/{total}</span>
+          </div>
+          <button
+            onClick={toggleDrawer}
+            title="Resources (⌘⇧M)"
+            className={`p-1 rounded transition-colors ${drawerOpen ? "text-zinc-200 bg-white/[0.08]" : "text-zinc-600 hover:text-zinc-300"}`}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M1.5 9.5l2.5-4 2.5 2.5 4-6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -53,6 +78,7 @@ export default function Layout({ children, onOpenSettings }: Props) {
       <main className={`flex-1 overflow-y-auto overflow-x-hidden pt-14 px-6 pb-6 no-drag transition-[padding-right] duration-200 ${extSidebarOpen ? "pr-[272px]" : ""}`}>
         {children}
       </main>
+      <ResourceDrawer />
       <ExtensionSidebar />
     </div>
   );
