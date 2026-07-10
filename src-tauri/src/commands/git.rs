@@ -358,9 +358,17 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
             std::collections::HashMap::new();
 
         // A fetch pass runs on its own thread so a hung remote can't delay the
-        // 15s status tick. This guard stops a second pass starting while one is
+        // 15s status tick. This flag stops a second pass starting while one is
         // still going — with 30s timeouts, a slow pass can outlive its interval.
         let fetching = Arc::new(AtomicBool::new(false));
+
+        /// Clears the in-flight flag however the fetch thread ends, panic included.
+        struct FetchGuard(Arc<AtomicBool>);
+        impl Drop for FetchGuard {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
 
         loop {
             thread::sleep(Duration::from_secs(15));
@@ -393,8 +401,13 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                 last_fetch = Some(Instant::now());
                 let roots_for_fetch: Vec<String> =
                     roots.iter().map(|(_, root)| root.clone()).collect();
-                let fetching = Arc::clone(&fetching);
+                let guard = FetchGuard(Arc::clone(&fetching));
                 thread::spawn(move || {
+                    // Clearing the flag on drop, not on the last statement:
+                    // `thread::scope` re-propagates a panic from a scoped
+                    // closure, and a flag left `true` would disable autofetch
+                    // for the rest of the session with nothing to show for it.
+                    let _guard = guard;
                     // Two at a time. Ten repos hitting the SSH agent at once is
                     // how you get spurious auth failures.
                     for pair in roots_for_fetch.chunks(2) {
@@ -406,7 +419,6 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                             }
                         });
                     }
-                    fetching.store(false, Ordering::SeqCst);
                 });
             }
 
@@ -450,7 +462,7 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
 /// pure reverse-proxy (those have no folder at all).
 fn repo_roots(app: &tauri::AppHandle) -> Vec<(String, String)> {
     let state = app.state::<AppState>();
-    // Hold the DB lock only for the call itself, as `metrics.rs:28` does — the
+    // Hold the DB lock only for the call itself, as `spawn_metrics_poller` does — the
     // loop below must not block start/stop commands.
     //
     // A panic elsewhere poisons the mutex. Recover the guard rather than let it

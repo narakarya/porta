@@ -36,7 +36,7 @@ pub fn spawn_idle_watcher(handle: tauri::AppHandle) {
             thread::sleep(POLL_INTERVAL);
 
             let state = handle.state::<AppState>();
-            let apps = match state.db.lock().unwrap().list_apps() {
+            let apps = match state.db.lock().unwrap_or_else(|e| e.into_inner()).list_apps() {
                 Ok(a) => a,
                 Err(_) => continue,
             };
@@ -116,7 +116,7 @@ fn sleep_app(handle: &tauri::AppHandle, app: &App) {
     }
 
     {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
         db.update_app_status(id, "stopped", None).ok();
         db.set_app_auto_slept(id, true).ok();
     }
