@@ -6,6 +6,41 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.9] — 2026-07-10
+
+### Added
+- **App cards show git state instead of resource numbers.** A card whose folder
+  is a git repo now displays its branch, plus `↑N` for commits waiting to be
+  pushed and `↓N` for commits waiting to be pulled. Unlike the badges it
+  replaces, it is visible at rest rather than on hover — a repo that needs a
+  pull should not require you to go looking. Clicking it opens Fetch, Pull, and
+  Push, and a shortcut to open a Porta terminal in the repo for anything more
+  involved. Pull is always `--ff-only` and push is never forced, so neither can
+  leave a half-finished merge or overwrite a remote branch. When git fails, its
+  own error is shown verbatim with a copy button.
+- **Background autofetch, so `↓N` tells the truth.** Git can only know how far
+  behind you are by asking the remote; without a fetch, `refs/remotes/origin/*`
+  is a frozen snapshot and the count stays at zero. Porta now runs
+  `git fetch --no-tags --prune` on an interval — never touching your working
+  tree, index, or HEAD. Settings → Git has the toggle and the interval (1, 3, 5,
+  or 10 minutes); it is on by default, every 3 minutes, and pauses whenever the
+  Porta window is hidden. Network operations time out after 30 seconds and never
+  prompt for credentials, so a repo with a passphrase-locked key fails with a
+  readable message instead of hanging.
+- **Resource monitoring moved to its own drawer (`⌘⇧M`).** It lists every app in
+  the workspace with CPU, memory, and a rolling CPU sparkline; container rows
+  expand to show network and disk I/O — the same figures the old per-card
+  tooltip carried. Polling stops entirely when the drawer is closed.
+
+### Removed
+- **Three badges are gone from the app card**: the CPU·memory readout (now in the
+  resource drawer), the extra-subdomains `+N` count (the subdomains themselves
+  are still in the card's open-in-browser menu), and the start-order number. The
+  start-order number is removed outright, not relocated; what determined it —
+  each app's `depends_on` — remains editable in App Settings.
+- The internal `get_git_status` command, superseded by the new git module. It had
+  no callers.
+
 ## [0.7.8] — 2026-07-10
 
 ### Added
