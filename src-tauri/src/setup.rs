@@ -296,6 +296,28 @@ fn mkcert_path() -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Where mkcert keeps its CA (rootCA.pem / rootCA-key.pem).
+///
+/// mkcert's default is `~/Library/Application Support/mkcert`, but that lives
+/// under `~/Library`, which macOS TCC gates for GUI apps: a Terminal shell (as
+/// the user) can read the CA key there, yet the Porta app's mkcert subprocess
+/// is denied — so cert generation fails with "permission denied" reading the CA
+/// key. Point CAROOT at Porta's own data dir instead (the same place we already
+/// read/write the DB, config and certs), which the app can always access.
+fn caroot_dir() -> std::path::PathBuf {
+    crate::porta_dir().join("mkcert")
+}
+
+/// Build an mkcert `Command` with `CAROOT` pinned to [`caroot_dir`], creating
+/// the directory first so mkcert can write the CA into it.
+fn mkcert_command(mkcert: &str) -> Result<Command> {
+    let caroot = caroot_dir();
+    std::fs::create_dir_all(&caroot)?;
+    let mut cmd = Command::new(mkcert);
+    cmd.env("CAROOT", &caroot);
+    Ok(cmd)
+}
+
 pub fn certs_exist() -> bool {
     let cert = crate::porta_dir().join("certs").join("test.pem");
     cert.exists()
@@ -310,12 +332,12 @@ pub fn certs_exist() -> bool {
 /// Wrapping it in osascript runs mkcert as root detached from that session, so
 /// the nested trust-settings auth fails with "authorization was denied since no
 /// user interaction was possible". Running as the user lets macOS present its
-/// own native admin prompt, and keeps CAROOT in the user's home — the same
-/// place `generate_certs` and Caddy look for the CA.
+/// own native admin prompt. CAROOT is pinned to Porta's own data dir (see
+/// [`caroot_dir`]) so the app can always read the CA it just created.
 pub fn install_mkcert_ca() -> Result<()> {
     let mkcert = mkcert_path()
         .ok_or_else(|| anyhow::anyhow!("mkcert not found"))?;
-    let out = Command::new(&mkcert).arg("-install").output()?;
+    let out = mkcert_command(&mkcert)?.arg("-install").output()?;
     if !out.status.success() {
         // mkcert logs progress and errors to stderr; fall back to stdout.
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -342,7 +364,9 @@ pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
 
     // Re-run -install each time (idempotent) to ensure CA stays trusted in the
     // system keychain — matches the nexus-infra pattern.
-    let _ = Command::new(&mkcert).arg("-install").output();
+    if let Ok(mut c) = mkcert_command(&mkcert) {
+        let _ = c.arg("-install").output();
+    }
 
     let cert_file = certs_dir.join("test.pem");
     let key_file = certs_dir.join("test-key.pem");
@@ -360,14 +384,13 @@ pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
         }
     }
 
-    // Retry on a transient "permission denied" reading the CAROOT key: on the
-    // first run right after install/update, the app's initial access to
-    // ~/Library/Application Support/mkcert can be briefly denied (privacy/timing)
-    // and then succeed on a second try — so a one-off failure shouldn't surface
-    // as a hard error to the user.
+    // Retry guards against a rare transient read of the CAROOT key; with CAROOT
+    // pinned to Porta's own data dir (see caroot_dir) the persistent macOS-TCC
+    // denial on ~/Library is gone, but a one-off hiccup still shouldn't surface
+    // as a hard error.
     let mut last_err = String::new();
     for attempt in 0..3 {
-        let out = Command::new(&mkcert)
+        let out = mkcert_command(&mkcert)?
             .arg("-cert-file").arg(&cert_file)
             .arg("-key-file").arg(&key_file)
             .args(&names)

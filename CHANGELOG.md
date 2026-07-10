@@ -6,6 +6,19 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.7] — 2026-07-10
+
+### Fixed
+- **Setup persistently failed with "mkcert couldn't read its CA key (permission
+  denied)"**: mkcert's default CAROOT is `~/Library/Application Support/mkcert`,
+  and macOS TCC blocks the Porta app (unlike a Terminal shell) from reading the
+  CA key there — so cert generation failed every time, and the 0.7.6 retry
+  couldn't help because the denial is persistent, not transient. mkcert's CAROOT
+  is now pinned (via the `CAROOT` env) to Porta's own data dir
+  (`~/.porta/mkcert`), which the app can always access. Note: this creates a
+  fresh local CA there on the next setup run, so macOS will prompt once to trust
+  it; the old CA under `~/Library` is left untouched and can be removed.
+
 ## [0.7.6] — 2026-07-10
 
 ### Fixed
