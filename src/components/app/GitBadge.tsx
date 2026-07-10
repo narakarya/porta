@@ -96,7 +96,11 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
   // what this whole change exists to fix.
   if (!status && !pollError) return null;
 
-  if (!status && pollError) {
+  // An error outranks a status, even a status we already have. Once git stops
+  // being readable, the last branch and ahead/behind counts we saw are a claim
+  // we can no longer stand behind — showing them is worse than showing nothing.
+  // The poller emits an empty string here to retract a resolved error.
+  if (pollError) {
     return (
       <>
         <button
