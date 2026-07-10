@@ -25,6 +25,7 @@ export type SettingsSection =
   | "tailscale"
   | "remote"
   | "notifications"
+  | "git"
   | "backup"
   | "disk"
   | "extensions"

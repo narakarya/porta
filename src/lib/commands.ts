@@ -1554,3 +1554,15 @@ export const gitPull = (rootDir: string): Promise<string> =>
 
 export const gitPush = (rootDir: string): Promise<string> =>
   isTauri ? invoke("git_push", { rootDir }) : Promise.resolve("");
+
+export const getGitAutofetchEnabled = (): Promise<boolean> =>
+  isTauri ? invoke("get_git_autofetch_enabled") : Promise.resolve(true);
+
+export const setGitAutofetchEnabled = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_git_autofetch_enabled", { enabled }) : Promise.resolve();
+
+export const getGitAutofetchIntervalSecs = (): Promise<number> =>
+  isTauri ? invoke("get_git_autofetch_interval_secs") : Promise.resolve(180);
+
+export const setGitAutofetchIntervalSecs = (secs: number): Promise<void> =>
+  isTauri ? invoke("set_git_autofetch_interval_secs", { secs }) : Promise.resolve();
