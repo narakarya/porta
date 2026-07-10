@@ -274,17 +274,6 @@ export const createConfigFromTemplate = (
     ? invoke("create_config_from_template", { sourcePath, targetPath })
     : Promise.resolve("");
 
-export interface GitStatus {
-  in_repo: boolean;
-  branch: string | null;
-  dirty: boolean;
-}
-
-export const getGitStatus = (rootDir: string): Promise<GitStatus> =>
-  isTauri
-    ? invoke("get_git_status", { rootDir })
-    : Promise.resolve({ in_repo: false, branch: null, dirty: false });
-
 export const openInTerminal = (rootDir: string): Promise<void> =>
   isTauri ? invoke("open_in_terminal", { rootDir }) : Promise.resolve();
 

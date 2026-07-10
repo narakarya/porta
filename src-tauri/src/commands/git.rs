@@ -26,9 +26,6 @@ pub struct GitStatus {
 /// The `--porcelain` formats are contractually stable across git versions —
 /// that is the whole point of them — so parsing here is safe in a way that
 /// parsing `git status` prose would not be.
-// Only called from tests so far; Task 2 wires this into the `git status`
-// command that shells out and feeds it real output.
-#[allow(dead_code)]
 fn parse_porcelain_v2(out: &str) -> GitStatus {
     let mut oid = String::new();
     let mut head = String::new();
@@ -72,6 +69,80 @@ fn parse_porcelain_v2(out: &str) -> GitStatus {
     };
 
     GitStatus { branch, detached, upstream, ahead, behind, dirty }
+}
+
+use std::path::Path;
+use std::process::Command;
+use std::sync::OnceLock;
+
+/// Locate the `git` CLI. GUI apps on macOS don't inherit the user's shell PATH,
+/// so we fall back to known install locations — same shape as `docker_bin()`
+/// in `docker_manager.rs`.
+pub(crate) fn git_bin() -> Option<&'static str> {
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED.get_or_init(find_git_cli).as_deref()
+}
+
+fn find_git_cli() -> Option<String> {
+    if Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return Some("git".into());
+    }
+    for path in [
+        "/usr/bin/git",            // Xcode Command Line Tools
+        "/opt/homebrew/bin/git",   // Homebrew (Apple Silicon)
+        "/usr/local/bin/git",      // Homebrew (Intel)
+    ] {
+        if Path::new(path).exists() {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
+/// Read git status for a working directory. Returns `None` — not `Err` — when
+/// the path is empty, missing, or simply isn't a repo. Most Porta apps aren't
+/// repos, and that is not an error worth surfacing.
+pub(crate) fn status_for(root_dir: &str) -> Option<GitStatus> {
+    if root_dir.is_empty() {
+        return None;
+    }
+    let root = Path::new(root_dir);
+    if !root.is_dir() {
+        return None;
+    }
+    let bin = git_bin()?;
+
+    // `--no-optional-locks` keeps us from taking `index.lock`, which would race
+    // the user's editor. `core.fsmonitor=false` stops us from spawning (or
+    // waking) a long-lived fsmonitor daemon per repo on every poll.
+    let out = Command::new(bin)
+        .current_dir(root)
+        .args([
+            "--no-optional-locks",
+            "-c",
+            "core.fsmonitor=false",
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=normal",
+        ])
+        .output()
+        .ok()?;
+
+    if !out.status.success() {
+        return None; // not a repo
+    }
+    Some(parse_porcelain_v2(&String::from_utf8_lossy(&out.stdout)))
+}
+
+#[tauri::command]
+pub fn git_status(root_dir: String) -> Option<GitStatus> {
+    status_for(&root_dir)
 }
 
 #[cfg(test)]
@@ -188,5 +259,37 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
 ");
         assert!(!s.detached);
         assert_eq!(s.branch, "main");
+    }
+
+    #[test]
+    fn status_for_returns_none_outside_a_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(status_for(dir.path().to_str().unwrap()), None);
+    }
+
+    #[test]
+    fn status_for_returns_none_for_empty_or_missing_path() {
+        assert_eq!(status_for(""), None);
+        assert_eq!(status_for("/nonexistent/path/xyzzy"), None);
+    }
+
+    #[test]
+    fn status_for_reads_a_real_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let git = |args: &[&str]| {
+            Command::new("git").current_dir(p).args(args).output().unwrap()
+        };
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "hello").unwrap();
+
+        // Untracked file, no commits yet.
+        let s = status_for(p.to_str().unwrap()).expect("repo should be detected");
+        assert_eq!(s.branch, "main");
+        assert!(!s.detached);
+        assert_eq!(s.upstream, None);
+        assert_eq!(s.dirty, 1);
     }
 }

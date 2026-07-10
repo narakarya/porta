@@ -100,4 +100,4 @@ mod extension_shell;
 pub use extension_shell::*;
 
 mod git;
-pub use git::GitStatus;
+pub use git::*;
