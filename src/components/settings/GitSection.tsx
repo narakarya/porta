@@ -6,6 +6,10 @@ import {
   setGitAutofetchIntervalSecs,
 } from "../../lib/commands";
 
+// Rust clamps this to 60..=600 on both read and write
+// (src-tauri/src/commands/settings.rs) and never reports back what it
+// clamped to. Any choice added here must stay inside that range, or the
+// UI will highlight a value that silently disagrees with what's on disk.
 const INTERVALS = [
   { secs: 60, label: "1 minute" },
   { secs: 180, label: "3 minutes" },
@@ -15,22 +19,41 @@ const INTERVALS = [
 
 export default function GitSection() {
   const [enabled, setEnabled] = useState(true);
-  const [interval, setInterval] = useState(180);
+  const [intervalSecs, setIntervalSecs] = useState(180);
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    getGitAutofetchEnabled().then(setEnabled).catch(() => {});
-    getGitAutofetchIntervalSecs().then(setInterval).catch(() => {});
+    getGitAutofetchEnabled()
+      .then(setEnabled)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    getGitAutofetchIntervalSecs()
+      .then(setIntervalSecs)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
   async function toggle() {
+    const prev = enabled;
     const next = !enabled;
     setEnabled(next);
-    await setGitAutofetchEnabled(next);
+    setError("");
+    try {
+      await setGitAutofetchEnabled(next);
+    } catch (e) {
+      setEnabled(prev);
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function pick(secs: number) {
-    setInterval(secs);
-    await setGitAutofetchIntervalSecs(secs);
+    const prev = intervalSecs;
+    setIntervalSecs(secs);
+    setError("");
+    try {
+      await setGitAutofetchIntervalSecs(secs);
+    } catch (e) {
+      setIntervalSecs(prev);
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   return (
@@ -61,15 +84,16 @@ export default function GitSection() {
         </span>
       </label>
 
-      <div className={enabled ? "" : "opacity-40 pointer-events-none"}>
+      <div className={enabled ? "" : "opacity-40"}>
         <p className="text-[12px] text-zinc-200 mb-1.5">Check every</p>
         <div className="flex gap-1.5">
           {INTERVALS.map((i) => (
             <button
               key={i.secs}
               onClick={() => pick(i.secs)}
-              className={`px-2.5 py-1 rounded text-[11px] transition-colors ${
-                interval === i.secs
+              disabled={!enabled}
+              className={`px-2.5 py-1 rounded text-[11px] transition-colors disabled:cursor-not-allowed ${
+                intervalSecs === i.secs
                   ? "bg-blue-500/15 border border-blue-500/30 text-blue-300"
                   : "bg-white/[0.04] border border-white/[0.06] text-zinc-400 hover:bg-white/[0.07]"
               }`}
@@ -79,6 +103,8 @@ export default function GitSection() {
           ))}
         </div>
       </div>
+
+      {error && <p className="text-[12px] text-red-400">{error}</p>}
     </div>
   );
 }
