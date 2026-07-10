@@ -297,6 +297,14 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
         // opening Porta should show you truth, not a three-minute-old snapshot.
         let mut last_fetch: Option<Instant> = None;
 
+        // Last status emitted per app id, owned by this thread across loop
+        // iterations. `GitStatus` derives `PartialEq` so we can skip emitting
+        // when nothing actually changed — the frontend deserializes a fresh
+        // event payload every tick regardless, so without this gate every
+        // `GitBadge` re-renders on a 15s cadence even at rest.
+        let mut last_emitted: std::collections::HashMap<String, GitStatus> =
+            std::collections::HashMap::new();
+
         loop {
             thread::sleep(Duration::from_secs(15));
 
@@ -332,9 +340,20 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                 }
             }
 
+            // Drop tracking for apps that no longer appear in `roots` — deleted
+            // apps, or ones whose `root_dir` stopped being a repo — so this map
+            // can't grow unbounded over the app's lifetime.
+            let current_ids: std::collections::HashSet<&str> =
+                roots.iter().map(|(id, _)| id.as_str()).collect();
+            last_emitted.retain(|id, _| current_ids.contains(id.as_str()));
+
             for (app_id, root) in &roots {
                 if let Some(status) = status_for(root) {
-                    app.emit(&format!("app:git:{}", app_id), &status).ok();
+                    let changed = last_emitted.get(app_id) != Some(&status);
+                    if changed {
+                        app.emit(&format!("app:git:{}", app_id), &status).ok();
+                        last_emitted.insert(app_id.clone(), status);
+                    }
                 }
             }
         }

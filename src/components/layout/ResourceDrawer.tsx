@@ -7,7 +7,11 @@ import {
 } from "../../lib/commands";
 import type { App } from "../../types";
 
-/** Samples kept per app — 60 × ~2s ≈ two minutes of history, memory only. */
+/**
+ * Samples kept per app, memory only. `ProcessRow` rides the 2s `app:metrics:{id}`
+ * event (~2 minutes of history); `DockerRow` polls `containerStats` every 3s
+ * (~3 minutes of history).
+ */
 const HISTORY = 60;
 
 function fmtBytes(n: number): string {
