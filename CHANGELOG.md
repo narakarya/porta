@@ -6,6 +6,28 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.5] — 2026-07-10
+
+### Fixed
+- **First-time setup failed at "Installing mkcert CA" on a fresh Mac**:
+  `install_mkcert_ca` ran `mkcert -install` as root via `osascript … with
+  administrator privileges`. mkcert's `security add-trusted-cert` needs an
+  interactive authorization from the user's GUI security session, which a
+  detached root shell doesn't have — so it failed with *"SecTrustSettings…: The
+  authorization was denied since no user interaction was possible."* mkcert now
+  runs as the current user, letting macOS present its own native trust prompt,
+  and keeping CAROOT in the user's home where Caddy looks for the CA.
+- **Setup errors couldn't be copied**: the setup wizard's error box (and live
+  log) had no way to copy the text. Added a Copy button and selectable text, and
+  the live log is now colored per level (errors red) so failures stand out.
+
+### Changed
+- **Setup now asks for the admin password once, not per privileged step**: the
+  `/etc/resolver` write and the Caddy launchd-daemon install are batched into a
+  single `osascript` admin prompt at the end of setup. Combined with mkcert's
+  own (unavoidable) keychain prompt, a fresh-Mac setup now shows two prompts
+  instead of three.
+
 ## [0.7.4] — 2026-07-10
 
 ### Added

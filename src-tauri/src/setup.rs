@@ -140,11 +140,47 @@ fn caddy_plist_content() -> String {
     )
 }
 
+/// Run a batch of privileged shell commands in ONE `osascript … with
+/// administrator privileges` call, so several root-requiring setup operations
+/// share a single password prompt instead of one prompt each.
+///
+/// Commands must use only single quotes (no `"`), since they're spliced into an
+/// AppleScript double-quoted `do shell script`. Non-cancel failures are logged
+/// as warnings rather than hard errors (matching the old Caddy path, where a
+/// stray `launchctl unload` of a missing daemon exits non-zero); callers that
+/// care about the result verify it separately (e.g. the Caddy wait loop).
+fn run_privileged_batch(cmds: &[String], on_log: &dyn Fn(&str)) -> Result<()> {
+    if cmds.is_empty() {
+        return Ok(());
+    }
+    let script = format!(
+        "do shell script \"{}\" with administrator privileges",
+        cmds.join("; "),
+    );
+    let out = Command::new("osascript").arg("-e").arg(&script).output()?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if stderr.contains("User canceled") || stderr.contains("cancelled") {
+            return Err(anyhow::anyhow!("Admin permission was cancelled."));
+        }
+        on_log(&format!("osascript warning: {}", stderr.trim()));
+    }
+    Ok(())
+}
+
 pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
-    // Fast path: already running — skip everything, no password dialog needed
+    start_caddy_inner(on_log, &[])
+}
+
+/// Start Caddy, optionally folding `extra_privileged` shell commands (e.g. the
+/// `/etc/resolver` write) into the same admin prompt used to install the Caddy
+/// launchd daemon — so full setup asks for the password once, not per step.
+pub fn start_caddy_inner(on_log: &dyn Fn(&str), extra_privileged: &[String]) -> Result<()> {
+    // Fast path: already running — no daemon install needed. But any queued
+    // privileged commands still have to run; give them their own single prompt.
     if crate::caddy::CaddyManager::new().is_running() {
         on_log("Caddy is already running.");
-        return Ok(());
+        return run_privileged_batch(extra_privileged, on_log);
     }
 
     let plist_path = format!("/Library/LaunchDaemons/{}.plist", PLIST_LABEL);
@@ -156,33 +192,20 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
     if certs_exist() {
         // HTTPS mode: Caddy must bind :443 — requires root via launchd daemon.
         // Install a custom plist that runs `caddy run --resume` (API mode).
-        on_log("Installing Caddy as a persistent service (port 443, admin required)…");
-        on_log("(macOS will ask for your password)");
+        on_log("Applying admin configuration (port 443 service + DNS resolver)…");
+        on_log("(macOS will ask for your password once)");
 
         let plist_content = caddy_plist_content();
         // Write plist to temp file, then use osascript to move and load (avoids quoting issues)
         let tmp_plist = "/tmp/porta-caddy-daemon.plist";
         std::fs::write(tmp_plist, &plist_content)?;
 
-        let script = format!(
-            "do shell script \"launchctl unload '{plist_path}' 2>/dev/null; \
-             cp '{tmp_plist}' '{plist_path}'; \
-             launchctl load -w '{plist_path}'\" \
-             with administrator privileges",
-            plist_path = plist_path,
-            tmp_plist = tmp_plist,
-        );
-        let out = Command::new("osascript")
-            .arg("-e").arg(&script)
-            .output()?;
-
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            if stderr.contains("User canceled") || stderr.contains("cancelled") {
-                return Err(anyhow::anyhow!("Admin permission was cancelled. HTTPS requires Caddy to run with admin privileges."));
-            }
-            on_log(&format!("osascript warning: {}", stderr.trim()));
-        }
+        // One prompt covers the queued commands (resolver, …) plus the daemon.
+        let mut cmds: Vec<String> = extra_privileged.to_vec();
+        cmds.push(format!("launchctl unload '{plist_path}' 2>/dev/null || true"));
+        cmds.push(format!("cp '{tmp_plist}' '{plist_path}'"));
+        cmds.push(format!("launchctl load -w '{plist_path}'"));
+        run_privileged_batch(&cmds, on_log)?;
 
         on_log("Waiting for Caddy to come up…");
         for i in 0..15 {
@@ -201,7 +224,9 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
         ));
     }
 
-    // HTTP-only mode — no admin needed, just start directly
+    // HTTP-only mode — Caddy needs no admin, but queued privileged commands
+    // (resolver) still do; run them in their own prompt first.
+    run_privileged_batch(extra_privileged, on_log)?;
     on_log("Starting Caddy (HTTP mode)…");
     let out = Command::new(caddy_path()).arg("start").output()?;
     if out.status.success() { return Ok(()); }
@@ -218,6 +243,10 @@ pub fn run_full_setup(
     on_log: &dyn Fn(&str),
 ) -> Result<()> {
     let status = check();
+    // Root-requiring shell commands are collected here and applied together in a
+    // single admin prompt at the Caddy step, so setup asks for the password once
+    // (plus mkcert's own keychain prompt) instead of once per privileged step.
+    let mut priv_cmds: Vec<String> = Vec::new();
     if !status.caddy_installed {
         on_step("caddy_installed");
         on_log("Installing Caddy via Homebrew — this may take a few minutes…");
@@ -230,9 +259,8 @@ pub fn run_full_setup(
     }
     if !status.test_resolver_exists {
         on_step("test_resolver_exists");
-        on_log("Writing /etc/resolver/test…");
-        crate::dns::write_resolver("test")?;
-        on_log("Done.");
+        on_log("Queuing /etc/resolver/test for the single admin prompt…");
+        priv_cmds.push(crate::dns::resolver_write_command("test"));
     }
     if !status.mkcert_installed {
         on_step("mkcert_installed");
@@ -251,7 +279,9 @@ pub fn run_full_setup(
     on_log(&format!("Certificates written to {}/certs/", crate::porta_dir().display()));
 
     on_step("caddy_running");
-    start_caddy(on_log)?;
+    // Folds the queued resolver write (if any) into the same admin prompt that
+    // installs the Caddy launchd daemon.
+    start_caddy_inner(on_log, &priv_cmds)?;
     on_log("Setup complete ✓");
     Ok(())
 }
@@ -271,22 +301,31 @@ pub fn certs_exist() -> bool {
     cert.exists()
 }
 
-/// Install the mkcert CA into the macOS Keychain (requires admin).
+/// Install the mkcert CA into the macOS Keychain.
+///
+/// Run mkcert as the *current user* — NOT via `osascript … with administrator
+/// privileges`. mkcert adds its root to the System keychain through
+/// `security add-trusted-cert`, whose `SecTrustSettingsSetTrustSettings` call
+/// needs an interactive authorization from the user's GUI security session.
+/// Wrapping it in osascript runs mkcert as root detached from that session, so
+/// the nested trust-settings auth fails with "authorization was denied since no
+/// user interaction was possible". Running as the user lets macOS present its
+/// own native admin prompt, and keeps CAROOT in the user's home — the same
+/// place `generate_certs` and Caddy look for the CA.
 pub fn install_mkcert_ca() -> Result<()> {
     let mkcert = mkcert_path()
         .ok_or_else(|| anyhow::anyhow!("mkcert not found"))?;
-    // mkcert -install modifies the macOS Keychain — needs admin privileges
-    let script = format!(
-        "do shell script \"{}  -install\" with administrator privileges",
-        mkcert
-    );
-    let out = Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()?;
+    let out = Command::new(&mkcert).arg("-install").output()?;
     if !out.status.success() {
+        // mkcert logs progress and errors to stderr; fall back to stdout.
         let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow::anyhow!("mkcert -install failed: {}", stderr.trim()));
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        return Err(anyhow::anyhow!("mkcert -install failed: {}", detail));
     }
     Ok(())
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { runSetup } from "../../lib/commands";
 import { usePortaStore } from "../../store";
+import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";
 
 type StepState = "idle" | "loading" | "done" | "error";
 
@@ -40,6 +41,50 @@ function StepIcon({ state }: { state: StepState }) {
     );
   }
   return <span className="w-[13px] h-[13px] rounded-full border border-zinc-700 shrink-0" />;
+}
+
+function CopyButton({ text, className = "" }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <button
+      onClick={copy}
+      className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors ${className}`}
+      title="Copy to clipboard"
+    >
+      {copied ? (
+        <>
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 6.5l2.5 2.5L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Copied
+        </>
+      ) : (
+        <>
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <rect x="3.5" y="3.5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1" />
+            <path d="M2 8V2.5Q2 2 2.5 2H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Copy
+        </>
+      )}
+    </button>
+  );
 }
 
 interface Props {
@@ -228,10 +273,21 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
             {activeStepLabel && running && (
               <p className="text-[11px] text-blue-400 font-medium">{activeStepLabel}…</p>
             )}
-            <div className="bg-black/40 rounded-lg border border-white/[0.06] h-[120px] overflow-auto px-3 py-2 terminal-log-font">
-              {logs.map((line, i) => (
-                <p key={i} className="terminal-log-line text-[11px] text-zinc-400">{line}</p>
-              ))}
+            <div className="relative bg-black/40 rounded-lg border border-white/[0.06] h-[120px] overflow-auto px-3 py-2 terminal-log-font select-text">
+              {logs.length > 0 && (
+                <CopyButton
+                  text={logs.map(stripAnsi).join("\n")}
+                  className="sticky top-0 float-right z-10 bg-white/[0.04] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.08]"
+                />
+              )}
+              {logs.map((line, i) => {
+                const clean = stripAnsi(line);
+                const level = detectLevel(clean);
+                const cls = level ? LEVEL_CLS[level] : "text-zinc-400";
+                return (
+                  <p key={i} className={`terminal-log-line text-[11px] ${cls}`}>{clean}</p>
+                );
+              })}
               {running && logs.length === 0 && (
                 <p className="text-[11px] text-zinc-600">Starting…</p>
               )}
@@ -243,7 +299,13 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
         {/* Error */}
         {error && (
           <div className="px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
-            <p className="text-[12px] text-red-400 leading-relaxed font-mono">{error}</p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[12px] text-red-400 leading-relaxed font-mono select-text whitespace-pre-wrap break-words">{error}</p>
+              <CopyButton
+                text={error}
+                className="shrink-0 text-red-300/80 hover:text-red-200 hover:bg-red-500/15"
+              />
+            </div>
           </div>
         )}
 
