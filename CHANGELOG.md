@@ -6,6 +6,22 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.8] — 2026-07-10
+
+### Added
+- **Create `.env` from `.env.example` without leaving Porta.** The config editor
+  now spots a template whose target is missing and offers a one-click create.
+  The target name is derived by stripping the template suffix, so `.env.example`
+  makes `.env` and `.env.dev.example` makes `.env.dev`; `.env.sample`,
+  `.env.template`, and `.env.dist` work the same way. Creation refuses to
+  overwrite an existing file.
+- **Secret values are blanked on copy, and empty values are flagged.** Keys that
+  look like credentials (`SECRET`, `PASSWORD`, `TOKEN`, `API_KEY`, …) come across
+  with an empty value, while defaults worth keeping — `API_URL`, `AUTH_URL`,
+  `SIGNUP_ENABLED` — are preserved. Any variable with an empty value gets an
+  amber marker in the rows editor and a "N values need filling" count in the
+  toolbar.
+
 ## [0.7.7] — 2026-07-10
 
 ### Fixed

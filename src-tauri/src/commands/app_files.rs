@@ -111,6 +111,11 @@ pub struct ConfigFileInfo {
     pub kind: String,
     /// Syntax-highlight language hint for the generic editor: "toml" | "json" | "text" | "env".
     pub language: String,
+    /// Absolute path this file would create if copied as a template (e.g.
+    /// `.env.example` → `.env`). Only set when the target does NOT exist yet,
+    /// so the UI's "create from template" banner clears itself on the next
+    /// listing without any client-side bookkeeping.
+    pub template_target: Option<String>,
 }
 
 /// Returns true for filenames that look like an env file. Matches:
@@ -162,6 +167,93 @@ fn classify_extra_config(name: &str) -> Option<(&'static str, &'static str)> {
         ".nvmrc" | ".ruby-version" => Some(("generic", "text")),
         _ => None,
     }
+}
+
+/// Filename suffixes that mark a file as a template of its stem, in descending
+/// priority. When two templates derive the same target, the earlier one wins.
+const TEMPLATE_SUFFIXES: &[&str] = &["example", "sample", "template", "dist"];
+
+/// Lowercased final extension of `name`, if it is a template suffix.
+fn template_suffix(name: &str) -> Option<String> {
+    let (_, ext) = name.rsplit_once('.')?;
+    let lower = ext.to_ascii_lowercase();
+    TEMPLATE_SUFFIXES.contains(&lower.as_str()).then_some(lower)
+}
+
+/// Position of `name`'s template suffix in [`TEMPLATE_SUFFIXES`]. Lower wins.
+fn template_priority(name: &str) -> usize {
+    template_suffix(name)
+        .and_then(|s| TEMPLATE_SUFFIXES.iter().position(|t| *t == s))
+        .unwrap_or(usize::MAX)
+}
+
+/// The filename a template would produce: strip one trailing template suffix,
+/// and only accept the result if it is still an env file we know how to edit.
+///
+///   `.env.example`     → `.env`
+///   `.env.dev.example` → `.env.dev`
+///   `.env.local`       → None (not a template)
+///   `.example`         → None (empty stem)
+fn derive_template_target(name: &str) -> Option<String> {
+    let (stem, _) = name.rsplit_once('.')?;
+    template_suffix(name)?;
+    is_env_file_name(stem).then(|| stem.to_string())
+}
+
+/// Substrings (matched against the uppercased key) whose values get emptied when
+/// a template is copied. Deliberately narrower than the frontend's masking regex:
+/// masking is reversible, blanking is not, so a false positive here costs the user
+/// a default they must retype — `API_URL`, `AUTH_URL`, and `SIGNUP_ENABLED` are
+/// all safe. Known false positive: `TOKEN_URL`.
+const SECRET_BLANK_TOKENS: &[&str] = &[
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "PWD",
+    "TOKEN",
+    "PRIVATE_KEY",
+    "API_KEY",
+    "APIKEY",
+    "ACCESS_KEY",
+    "CREDENTIAL",
+    "JWT",
+    "HMAC",
+    "SALT",
+];
+
+fn should_blank_key(key: &str) -> bool {
+    let upper = key.to_ascii_uppercase();
+    SECRET_BLANK_TOKENS.iter().any(|t| upper.contains(t))
+}
+
+/// Empty the value of every secret-looking `KEY=VALUE` line, leaving comments,
+/// blank lines, `export ` prefixes, and non-secret lines byte-identical. Lines
+/// whose value is already empty are left alone.
+fn blank_secret_values(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    for (i, line) in content.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out.push_str(line);
+            continue;
+        }
+        let Some(eq) = line.find('=') else {
+            out.push_str(line);
+            continue;
+        };
+        let raw_key = line[..eq].trim();
+        let key = raw_key.strip_prefix("export ").map(str::trim).unwrap_or(raw_key);
+        if line[eq + 1..].is_empty() || !should_blank_key(key) {
+            out.push_str(line);
+            continue;
+        }
+        // Keep everything through the `=`, drop the value.
+        out.push_str(&line[..=eq]);
+    }
+    out
 }
 
 /// Combined sort key for the config file list: env files first (in their own
@@ -371,10 +463,43 @@ pub fn list_app_config_files(
                 is_in_compose,
                 kind: kind.to_string(),
                 language: language.to_string(),
+                template_target: None,
             })
         })
         .collect();
     infos.sort_by(|a, b| config_sort_key(a).cmp(&config_sort_key(b)));
+
+    // Templates whose target doesn't exist yet become "create from template"
+    // offers. If several templates derive the same target (a repo carrying both
+    // `.env.example` and `.env.sample`), only the highest-priority one offers it.
+    let mut claimed: std::collections::HashMap<std::path::PathBuf, usize> =
+        std::collections::HashMap::new();
+    for (i, info) in infos.iter().enumerate() {
+        let path = std::path::Path::new(&info.path);
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(target_name) = derive_template_target(name) else { continue };
+        let target = path.with_file_name(&target_name);
+        if target.exists() {
+            continue;
+        }
+        let better = match claimed.get(&target) {
+            Some(&j) => {
+                let held = std::path::Path::new(&infos[j].path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                template_priority(name) < template_priority(held)
+            }
+            None => true,
+        };
+        if better {
+            claimed.insert(target, i);
+        }
+    }
+    for (target, i) in claimed {
+        infos[i].template_target = Some(target.to_string_lossy().into_owned());
+    }
+
     Ok(infos)
 }
 
@@ -423,6 +548,51 @@ pub fn write_config_file(
         e.to_string()
     })?;
     Ok(())
+}
+
+/// Copy `source` to `target` with secret values blanked. Fails if `target`
+/// already exists.
+///
+/// Unlike [`write_config_file`]'s tmp-file + rename (which would happily clobber),
+/// this opens with `create_new`, so "don't overwrite" is enforced by the kernel
+/// rather than by a check-then-write that could lose a race.
+fn create_from_template_at(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<String, String> {
+    use std::io::Write;
+
+    let content = std::fs::read_to_string(source)
+        .map_err(|e| format!("Cannot read {}: {}", source.display(), e))?;
+    let blanked = blank_secret_values(&content);
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                format!("{} already exists", target.display())
+            }
+            _ => format!("Cannot create {}: {}", target.display(), e),
+        })?;
+    file.write_all(blanked.as_bytes())
+        .map_err(|e| format!("Cannot write {}: {}", target.display(), e))?;
+
+    Ok(blanked)
+}
+
+/// Create `target_path` from template `source_path`, returning the new content
+/// so the caller can render it without a follow-up read.
+#[tauri::command]
+pub fn create_config_from_template(
+    state: tauri::State<'_, crate::app_state::AppState>,
+    source_path: String,
+    target_path: String,
+) -> Result<String, String> {
+    let source = validate_path_in_any_app(&state, &source_path)?;
+    let target = validate_path_in_any_app(&state, &target_path)?;
+    create_from_template_at(&source, &target)
 }
 
 #[tauri::command]
@@ -541,5 +711,116 @@ mod tests {
         let mut names = vec![".env.dev", ".env", ".envrc", ".env.example", "zzz.env"];
         names.sort_by_key(|a| env_file_sort_key(a));
         assert_eq!(names, vec![".env", ".env.example", ".envrc", ".env.dev", "zzz.env"]);
+    }
+
+    #[test]
+    fn derives_template_targets() {
+        assert_eq!(derive_template_target(".env.example").as_deref(), Some(".env"));
+        assert_eq!(derive_template_target(".env.sample").as_deref(), Some(".env"));
+        assert_eq!(derive_template_target(".env.template").as_deref(), Some(".env"));
+        assert_eq!(derive_template_target(".env.dist").as_deref(), Some(".env"));
+        // Suffix stripping preserves the rest of the name.
+        assert_eq!(derive_template_target(".env.dev.example").as_deref(), Some(".env.dev"));
+        assert_eq!(derive_template_target(".env.prod.sample").as_deref(), Some(".env.prod"));
+        // Case-insensitive suffix.
+        assert_eq!(derive_template_target(".env.EXAMPLE").as_deref(), Some(".env"));
+    }
+
+    #[test]
+    fn rejects_non_templates() {
+        // Real env files, not templates.
+        assert_eq!(derive_template_target(".env"), None);
+        assert_eq!(derive_template_target(".env.local"), None);
+        assert_eq!(derive_template_target(".env.production"), None);
+        assert_eq!(derive_template_target(".envrc"), None);
+        // Template suffix but the stem isn't an env file we can edit.
+        assert_eq!(derive_template_target(".example"), None);
+        assert_eq!(derive_template_target("config.yml.example"), None);
+        assert_eq!(derive_template_target("README.example"), None);
+        // No extension at all.
+        assert_eq!(derive_template_target("example"), None);
+    }
+
+    #[test]
+    fn template_priority_prefers_example() {
+        assert!(template_priority(".env.example") < template_priority(".env.sample"));
+        assert!(template_priority(".env.sample") < template_priority(".env.template"));
+        assert!(template_priority(".env.template") < template_priority(".env.dist"));
+        assert_eq!(template_priority(".env.local"), usize::MAX);
+    }
+
+    #[test]
+    fn blanks_only_secret_values() {
+        let src = "\
+# Database
+DB_PASSWORD=hunter2
+DATABASE_URL=postgres://localhost/dev
+
+API_URL=http://localhost:3000
+AUTH_URL=http://localhost:4000
+SIGNUP_ENABLED=true
+KEYCLOAK_HOST=localhost
+export SECRET_KEY_BASE=abc123
+STRIPE_API_KEY=sk_test_123
+EMPTY_TOKEN=
+";
+        let want = "\
+# Database
+DB_PASSWORD=
+DATABASE_URL=postgres://localhost/dev
+
+API_URL=http://localhost:3000
+AUTH_URL=http://localhost:4000
+SIGNUP_ENABLED=true
+KEYCLOAK_HOST=localhost
+export SECRET_KEY_BASE=
+STRIPE_API_KEY=
+EMPTY_TOKEN=
+";
+        assert_eq!(blank_secret_values(src), want);
+    }
+
+    #[test]
+    fn blanking_preserves_structure() {
+        // Comments, blank lines, and lines without `=` pass through untouched,
+        // including a missing trailing newline.
+        let src = "#!/bin/sh\n\n# comment with PASSWORD=x inside\nNOT_AN_ASSIGNMENT\nFOO=bar";
+        assert_eq!(blank_secret_values(src), src);
+    }
+
+    #[test]
+    fn create_from_template_blanks_and_refuses_overwrite() {
+        let dir = std::env::temp_dir().join(format!("porta-tpl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let source = dir.join(".env.example");
+        let target = dir.join(".env");
+        std::fs::write(&source, "API_URL=http://x\nDB_PASSWORD=secret\n").unwrap();
+
+        let content = create_from_template_at(&source, &target).unwrap();
+        assert_eq!(content, "API_URL=http://x\nDB_PASSWORD=\n");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), content);
+
+        // Second call must not clobber the file the user has since filled in.
+        std::fs::write(&target, "DB_PASSWORD=filled-in\n").unwrap();
+        let err = create_from_template_at(&source, &target).unwrap_err();
+        assert!(err.contains("already exists"), "unexpected error: {err}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "DB_PASSWORD=filled-in\n");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_from_template_errors_on_missing_source() {
+        let dir = std::env::temp_dir().join(format!("porta-tpl-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let err = create_from_template_at(&dir.join(".env.example"), &dir.join(".env")).unwrap_err();
+        assert!(err.starts_with("Cannot read"), "unexpected error: {err}");
+        assert!(!dir.join(".env").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

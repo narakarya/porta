@@ -3,6 +3,7 @@ import {
   listAppConfigFiles,
   readConfigFile,
   writeConfigFile,
+  createConfigFromTemplate,
   loadComposeYaml,
   saveComposeYaml,
   parseDockerCompose,
@@ -23,6 +24,12 @@ interface FileEntry {
   language?: CodeLanguage;
   size?: number;
   modified_at?: number | null;
+  /** Absolute path this template would create, if that target doesn't exist yet. */
+  templateTarget?: string | null;
+}
+
+function baseName(path: string): string {
+  return path.split("/").pop() || path;
 }
 
 interface Props {
@@ -80,6 +87,12 @@ function serializeRows(rows: EnvRow[]): string {
 
 function isSensitiveKey(key: string): boolean {
   return SECRET_KEY_RE.test(key);
+}
+
+/** A variable that has a name but no value yet. Rows with no name are still
+ *  being typed, so they aren't flagged. */
+function needsValue(row: EnvRow): boolean {
+  return row.kind === "var" && row.key !== "" && row.value === "";
 }
 
 const SECRET_MASK = "••••••••";
@@ -166,10 +179,20 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   const [restartPrompt, setRestartPrompt] = useState<{ oldPort: number; newPort: number } | null>(null);
   const [fileMissing, setFileMissing] = useState(false);
   const [relinking, setRelinking] = useState(false);
+  /** Target path currently being created, so its button can show progress. */
+  const [creating, setCreating] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const toastTimer = useRef<number | null>(null);
 
   const active = files.find((f) => f.path === activePath) ?? null;
+  /** Templates whose target is still missing. Backend only sets the field in
+   *  that case, so this list empties itself once the file is created. */
+  const templateCandidates = files.filter((f) => f.templateTarget);
+  /** A declared key with an empty value is the single signal for "you still need
+   *  to fill this in", whether it came from blanking a template's secret or was
+   *  empty already. A row with no key yet is one the user is still typing (see
+   *  `addRow`), so it doesn't count. */
+  const emptyValueCount = rows.filter((r) => r.kind === "var" && needsValue(r)).length;
   const isDirty = active?.kind === "env"
     ? envMode === "raw"
       ? rawContent !== serializeRows(originalRows)
@@ -198,6 +221,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           language: c.kind === "generic" ? (c.language as CodeLanguage) : undefined,
           size: c.size,
           modified_at: c.modified_at ?? null,
+          templateTarget: c.template_target ?? null,
         });
       }
     } catch { /* non-fatal */ }
@@ -377,6 +401,45 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
       if (!ok) return;
     }
     await loadEntry(entry);
+  }
+
+  /** Copy a template (`.env.example`) to its target (`.env`) with secrets blanked,
+   *  then open the new file. Refreshing the list clears the banner, since the
+   *  backend stops offering a template once its target exists. */
+  async function handleCreateFromTemplate(entry: FileEntry) {
+    const target = entry.templateTarget;
+    if (!target || creating) return;
+    if (isDirty) {
+      const ok = window.confirm("You have unsaved changes. Create the file and discard them?");
+      if (!ok) return;
+    }
+    setCreating(target);
+    setError(null);
+    try {
+      const text = await createConfigFromTemplate(entry.path, target);
+      await refreshList();
+      // Seed the editor from what the command returned rather than reading the
+      // file back — it's the same bytes we just wrote.
+      const parsed = parseEnvContent(text);
+      setActivePath(target);
+      setRows(parsed);
+      setOriginalRows(parsed);
+      rowsHistoryRef.current = [serializeRows(parsed)];
+      rowsHistoryIdxRef.current = 0;
+      setRevealed({});
+      setEnvMode("rows");
+      setRawContent("");
+      setErrorLine(undefined);
+      setFileMissing(false);
+      setRestartPrompt(null);
+      showToast(true, `Created ${baseName(target)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      // Someone may have created it behind our back; resync so the banner agrees.
+      await refreshList();
+    } finally {
+      setCreating(null);
+    }
   }
 
   async function handleRestart() {
@@ -619,6 +682,18 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
           <div className="flex-1" />
 
+          {/* Empty values still to fill. Rows-mode only: in raw mode `rows` is
+              stale, `rawContent` is the source of truth. */}
+          {active?.kind === "env" && envMode === "rows" && emptyValueCount > 0 && (
+            <span
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] bg-amber-500/10 border border-amber-500/25 text-amber-300"
+              title="Variables with an empty value"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              {emptyValueCount} {emptyValueCount === 1 ? "value needs" : "values need"} filling
+            </span>
+          )}
+
           {/* Mode toggle — env files only */}
           {active?.kind === "env" && (
             <div className="flex items-center rounded-md border border-white/[0.08] overflow-hidden text-[11px]">
@@ -709,6 +784,27 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             </button>
           </div>
         )}
+
+        {/* Template prompt — a template exists but its target doesn't */}
+        {templateCandidates.map((f) => (
+          <div
+            key={f.path}
+            className="flex items-center gap-3 px-4 py-2.5 bg-blue-500/[0.07] border-b border-blue-500/20 text-[12px] text-blue-100"
+          >
+            <span>
+              No <span className="font-mono">{baseName(f.templateTarget!)}</span> yet — create it from{" "}
+              <span className="font-mono">{f.name}</span>. Secret values are left blank for you to fill in.
+            </span>
+            <div className="flex-1" />
+            <button
+              onClick={() => handleCreateFromTemplate(f)}
+              disabled={creating !== null}
+              className="px-2.5 py-1 text-[11px] font-medium bg-blue-600/80 hover:bg-blue-500 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creating === f.templateTarget ? "Creating…" : `Create ${baseName(f.templateTarget!)}`}
+            </button>
+          </div>
+        ))}
 
         {/* Body */}
         <div className="flex flex-1 min-h-0">
@@ -871,7 +967,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                         const blank = row.raw.trim() === "";
                         return (
                           <tr key={i}>
-                            <td colSpan={3} className={blank ? "h-2.5" : "px-3 pt-2.5 pb-0.5"}>
+                            <td
+                              colSpan={3}
+                              className={`border-l-2 border-transparent ${blank ? "h-2.5" : "px-3 pt-2.5 pb-0.5"}`}
+                            >
                               {!blank && (
                                 <span className="text-[11px] font-mono text-zinc-600 select-none">
                                   {row.raw}
@@ -884,9 +983,13 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                       const sensitive = isSensitiveKey(row.key);
                       const isRevealed = showAllSensitive || !!revealed[i];
                       const masked = sensitive && !isRevealed;
+                      const unfilled = needsValue(row);
                       return (
                         <tr key={i} className="group/row hover:bg-white/[0.02]">
-                          <td className="px-2 py-1">
+                          <td
+                            className={`px-2 py-1 border-l-2 ${unfilled ? "border-amber-400/60" : "border-transparent"}`}
+                            title={unfilled ? "This value is empty" : undefined}
+                          >
                             <input
                               type="text"
                               value={row.key}

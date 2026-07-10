@@ -223,6 +223,7 @@ pub fn run() {
             commands::list_app_config_files,
             commands::read_config_file,
             commands::write_config_file,
+            commands::create_config_from_template,
             commands::get_git_status,
             commands::start_app,
             commands::stop_app,

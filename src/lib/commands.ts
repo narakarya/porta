@@ -248,6 +248,11 @@ export interface ConfigFileInfo {
   kind: "env" | "generic";
   /** Syntax-highlight hint for the generic editor. */
   language: "env" | "toml" | "json" | "text";
+  /**
+   * Absolute path this file would create if used as a template
+   * (`.env.example` → `.env`). Only set when that target doesn't exist yet.
+   */
+  template_target: string | null;
 }
 
 export const listAppConfigFiles = (appId: string): Promise<ConfigFileInfo[]> =>
@@ -258,6 +263,16 @@ export const readConfigFile = (absolutePath: string): Promise<string> =>
 
 export const writeConfigFile = (absolutePath: string, content: string): Promise<void> =>
   isTauri ? invoke("write_config_file", { absolutePath, content }) : Promise.resolve();
+
+/** Copy a template to its target with secret values blanked. Rejects if the
+ *  target already exists. Resolves with the newly written content. */
+export const createConfigFromTemplate = (
+  sourcePath: string,
+  targetPath: string,
+): Promise<string> =>
+  isTauri
+    ? invoke("create_config_from_template", { sourcePath, targetPath })
+    : Promise.resolve("");
 
 export interface GitStatus {
   in_repo: boolean;
