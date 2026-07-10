@@ -6,6 +6,35 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.10] — 2026-07-10
+
+### Fixed
+- **A repo Porta couldn't read looked like it wasn't a repo at all.** `git status`
+  exits 128 both for "not a git repository" and for real problems — `detected
+  dubious ownership` on a folder owned by another user, a malformed
+  `.git/config`, a corrupt index. Porta treated them alike and simply hid the git
+  badge, with no way to tell why. It now shows `git ⚠` on the card; clicking it
+  gives you git's own error and a copy button. An unreadable repo also takes
+  precedence over the last status Porta saw: once git stops answering, the branch
+  and ahead/behind counts on screen are a claim Porta can no longer stand behind.
+- **On a git built with translations, every ordinary folder would have warned.**
+  Telling "not a repo" apart from a real failure means reading git's message, and
+  Homebrew's git — unlike Apple's — localizes it. Porta now runs `git status`
+  under `LC_ALL=C`.
+- **A hung remote could freeze the ahead/behind counts for minutes.** The
+  background `git fetch` pass ran on the same thread as the 15-second status
+  poll, two repos at a time with a 30-second timeout each, so fifteen repos
+  behind an unreachable remote stalled every card's `↑N` for up to four minutes.
+  Fetching now runs on its own thread and never overlaps itself.
+- **A panic anywhere could silently kill a background poller for the rest of the
+  session.** Auto-start, idle-sleep, wake-on-request, metrics, and git status all
+  took the app database's lock with `.unwrap()`, so one poisoned mutex ended the
+  thread — no CPU readings, no git status, no auto-sleep, and no sign anything
+  had stopped. They now recover the lock instead.
+- **Autofetch could switch itself off for the session.** A panicking fetch pass
+  left its in-flight flag raised, and no later pass could start. The flag is now
+  cleared however the pass ends.
+
 ## [0.7.9] — 2026-07-10
 
 ### Added
