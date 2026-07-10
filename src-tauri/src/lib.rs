@@ -183,6 +183,7 @@ pub fn run() {
             menu::setup_app_menu(app)?;
             auto_start::spawn_auto_start(app);
             metrics::spawn_metrics_poller(app.handle().clone());
+            commands::spawn_git_poller(app.handle().clone());
             commands::spawn_tailscale_poller(app.handle().clone());
             commands::spawn_backup_scheduler(app.handle().clone());
             commands::spawn_log_rotation_task();

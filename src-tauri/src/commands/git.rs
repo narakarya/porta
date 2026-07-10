@@ -80,6 +80,9 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use tauri::{Emitter, Manager};
+
+use crate::app_state::AppState;
 
 /// Locate the `git` CLI. GUI apps on macOS don't inherit the user's shell PATH,
 /// so we fall back to known install locations — same shape as `docker_bin()`
@@ -276,6 +279,91 @@ pub fn git_pull(root_dir: String) -> Result<String, String> {
 #[tauri::command]
 pub fn git_push(root_dir: String) -> Result<String, String> {
     run_git(&root_dir, &["push"], NET_TIMEOUT_SECS)
+}
+
+/// Poll git state for every app whose `root_dir` is a repo.
+///
+/// Two rhythms, deliberately different:
+///
+/// * every 15s — `git status`, which only touches local files. This is what
+///   makes `↑N` update the moment you commit in a terminal.
+/// * every `git_autofetch_interval_secs` — `git fetch`, which touches the
+///   network. `behind` is otherwise frozen: `refs/remotes/origin/*` is a
+///   snapshot, and nothing refreshes it but a fetch. VS Code's `git.autofetch`
+///   exists for exactly this reason.
+pub fn spawn_git_poller(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        // Fetch on the very first visible tick rather than after one interval —
+        // opening Porta should show you truth, not a three-minute-old snapshot.
+        let mut last_fetch: Option<Instant> = None;
+
+        loop {
+            thread::sleep(Duration::from_secs(15));
+
+            if git_bin().is_none() || !window_visible(&app) {
+                continue;
+            }
+
+            let roots = repo_roots(&app);
+            if roots.is_empty() {
+                continue;
+            }
+
+            let due = crate::commands::settings::git_autofetch_enabled()
+                && last_fetch.map_or(true, |t| {
+                    t.elapsed()
+                        >= Duration::from_secs(
+                            crate::commands::settings::git_autofetch_interval_secs(),
+                        )
+                });
+
+            if due {
+                last_fetch = Some(Instant::now());
+                // Two at a time. Ten repos hitting the SSH agent at once is how
+                // you get spurious auth failures.
+                for pair in roots.chunks(2) {
+                    thread::scope(|s| {
+                        for (_, root) in pair {
+                            s.spawn(|| {
+                                let _ = fetch_for(root);
+                            });
+                        }
+                    });
+                }
+            }
+
+            for (app_id, root) in &roots {
+                if let Some(status) = status_for(root) {
+                    app.emit(&format!("app:git:{}", app_id), &status).ok();
+                }
+            }
+        }
+    });
+}
+
+/// Apps that could plausibly be repos: anything with a `root_dir` that isn't a
+/// pure reverse-proxy (those have no folder at all).
+fn repo_roots(app: &tauri::AppHandle) -> Vec<(String, String)> {
+    let state = app.state::<AppState>();
+    // Hold the DB lock only for the call itself, as `metrics.rs:28` does — the
+    // loop below must not block start/stop commands.
+    let db_apps = state.db.lock().unwrap().list_apps().ok();
+    db_apps
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| !a.is_proxy() && !a.root_dir.is_empty())
+        .map(|a| (a.id, a.root_dir))
+        .collect()
+}
+
+/// No point fetching for cards nobody is looking at.
+fn window_visible(app: &tauri::AppHandle) -> bool {
+    match app.get_webview_window("main") {
+        Some(w) => {
+            w.is_visible().unwrap_or(true) && !w.is_minimized().unwrap_or(false)
+        }
+        None => false,
+    }
 }
 
 #[cfg(test)]
