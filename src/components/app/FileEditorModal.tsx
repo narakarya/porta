@@ -342,25 +342,28 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
       setMatchInfo({ index: -1, count: 0 });
       return;
     }
+    // Key the "new search" detection on (file, query) so switching files with
+    // the same query text still selects the new file's first match.
+    const ctxKey = `${active?.path ?? ""}\u0000${q}`;
     const ranges = cmMatchRanges(view, q);
     const count = ranges.length;
     if (count === 0) {
-      lastCmQueryRef.current = q;
+      lastCmQueryRef.current = ctxKey;
       setMatchInfo({ index: -1, count: 0 });
       return;
     }
     const head = view.state.selection.main.from;
     let index = ranges.findIndex((r) => r.from >= head);
     if (index === -1) index = 0;
-    // On a brand-new query (user typed in the search box), select + scroll the
-    // first match so the highlighted "current" match agrees with the counter.
-    // Doc edits and reveal toggles also re-run this effect, but must NOT move
-    // the caret — they only recount.
-    if (q !== lastCmQueryRef.current) {
+    // On a brand-new search context (user typed in the search box, or switched
+    // files), select + scroll the first match so the highlighted "current"
+    // match agrees with the counter. Doc edits and reveal toggles also re-run
+    // this effect, but must NOT move the caret — they only recount.
+    if (ctxKey !== lastCmQueryRef.current) {
       const r = ranges[index];
       view.dispatch({ selection: { anchor: r.from, head: r.to }, effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
     }
-    lastCmQueryRef.current = q;
+    lastCmQueryRef.current = ctxKey;
     setMatchInfo({ index, count });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, searchOpen, active, envMode, content, rawContent, showAllSensitive]);
