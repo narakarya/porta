@@ -638,6 +638,15 @@ pub async fn update_app_images(
             .ok_or_else(|| format!("app {} not found", id))?
     };
 
+    // Hold this app's lifecycle lock for the whole update. The update stops the
+    // container, pulls, and starts it again (via `start_app_inner`), so without
+    // this a user Start/Stop on the same app — or a second update — could
+    // interleave with the `down`/`up -d` here, exactly the race the lifecycle
+    // commands already guard against. A manual Stop mid-update queues behind it
+    // instead; the update UI shows why. Different apps are unaffected.
+    let lock = state.lifecycle_lock(&id);
+    let _guard = lock.lock().await;
+
     if app_data.is_docker() {
         return update_docker_app(state, app, app_data, tag_replacements, opts).await;
     }
