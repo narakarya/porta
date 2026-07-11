@@ -51,6 +51,17 @@ impl Database {
         Ok(())
     }
 
+    /// Status-only update that preserves the current `pid` — for transitions
+    /// (e.g. "starting" → "running", or on process exit) where the caller
+    /// doesn't have (or shouldn't clobber) the pid value.
+    pub fn update_instance_status_only(&self, id: &str, status: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE app_instances SET status = ?1 WHERE id = ?2",
+            params![status, id],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_instance(&mut self, id: &str) -> Result<()> {
         let tx = self.conn.transaction()?;
         // Free the port: remove exactly this instance's (port, app_id) row,
