@@ -101,3 +101,6 @@ pub use extension_shell::*;
 
 mod git;
 pub use git::*;
+
+pub mod worktree;
+pub use worktree::*;
