@@ -6,6 +6,27 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.12] — 2026-07-11
+
+### Fixed
+- **Starting, stopping, or restarting an app froze the window.** The lifecycle
+  commands ran synchronously on the main thread, and for a Compose app they
+  waited inline on `docker compose down`/`up -d` — several seconds during which
+  the whole UI was unresponsive. They now run off the main thread, still waiting
+  for the work to finish so the card reflects reality, just without locking the
+  window. Ops on the same app are serialized (a Start clicked mid-Stop queues
+  behind it rather than racing `down` against `up -d`); different apps still act
+  in parallel.
+
+### Performance
+- **The git poller stopped re-scanning folders that aren't repos.** It ran
+  `git status` on every app folder every 15 seconds and `git fetch` on each one
+  every interval, including the ones with no `.git`. Folders known not to be
+  repos are now checked about every 2 minutes instead, and skipped by the fetch
+  pass — cutting most of the poller's background process churn on setups with
+  many plain (non-git) app folders. A folder that becomes a repo shows its badge
+  within ~2 minutes instead of 15 seconds.
+
 ## [0.7.11] — 2026-07-11
 
 ### Fixed
