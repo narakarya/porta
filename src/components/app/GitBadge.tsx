@@ -12,6 +12,20 @@ interface Props {
 
 type Busy = "fetch" | "pull" | "push" | null;
 
+/** Inline spinner — the ops run off the main thread now, so this actually animates. */
+function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      width="10" height="10" viewBox="0 0 12 12" fill="none"
+      className={`animate-spin ${className}`}
+      role="status" aria-label="Loading"
+    >
+      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
+      <path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function GitBadge({ app, onOpenTerminal }: Props) {
   // The store is the single source of truth. The Rust poller writes
   // `appGit[app.id]` every 15s; we seed it once on mount (via setAppGit) so a
@@ -180,6 +194,8 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
         <span className="text-zinc-500 truncate max-w-[14ch]">{branch}</span>
         {ahead > 0 && <span className="text-blue-300">↑{ahead}</span>}
         {behind > 0 && <span className="text-amber-300">↓{behind}</span>}
+        {/* Activity stays visible on the card even with the popover closed. */}
+        {busy !== null && <Spinner className="text-zinc-400" />}
       </button>
 
       {open && createPortal(
@@ -210,23 +226,26 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
             <button
               onClick={() => run("fetch")}
               disabled={busy !== null}
-              className="flex-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
             >
-              {busy === "fetch" ? "…" : "Fetch"}
+              {busy === "fetch" && <Spinner />}
+              Fetch
             </button>
             <button
               onClick={() => run("pull")}
               disabled={busy !== null || behind === 0}
-              className="flex-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
             >
-              {busy === "pull" ? "…" : "Pull"}
+              {busy === "pull" && <Spinner />}
+              Pull
             </button>
             <button
               onClick={() => run("push")}
               disabled={busy !== null || ahead === 0}
-              className="flex-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
             >
-              {busy === "push" ? "…" : "Push"}
+              {busy === "push" && <Spinner />}
+              Push
             </button>
           </div>
 

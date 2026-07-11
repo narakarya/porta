@@ -6,6 +6,16 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.11] — 2026-07-11
+
+### Fixed
+- **Fetch, Pull, and Push froze the whole window.** The git network commands ran
+  synchronously on the main thread, so the WebView locked up until git returned —
+  up to the 30-second timeout on a slow remote. They now run off the main thread,
+  the same way the Porta Relay operations do, and the button you clicked shows a
+  spinner. A spinner also appears on the card's git badge, so an operation you
+  kicked off stays visible after you close the popover.
+
 ## [0.7.10] — 2026-07-10
 
 ### Fixed
