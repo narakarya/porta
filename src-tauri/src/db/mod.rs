@@ -4,6 +4,7 @@ mod workspace_repo;
 mod app_repo;
 mod service_repo;
 mod remote_repo;
+mod instance_repo;
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -29,7 +30,7 @@ impl Database {
         Ok(Database { conn })
     }
 
-    fn migrate(&self) -> Result<()> {
+    pub(crate) fn migrate(&self) -> Result<()> {
         self.conn.execute_batch("
             PRAGMA journal_mode=WAL;
 
@@ -189,6 +190,20 @@ impl Database {
         ")?;
         // Remote install source (GitHub url/ref); NULL for local-folder installs.
         let _ = self.conn.execute("ALTER TABLE extensions ADD COLUMN source TEXT", []);
+
+        // Per-worktree app instances (multi-instance runner).
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS app_instances (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+                worktree_path TEXT NOT NULL,
+                branch TEXT NOT NULL,
+                subdomain TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                pid INTEGER,
+                status TEXT NOT NULL DEFAULT 'stopped'
+            );
+        ")?;
 
         // Porta Relay: user-owned VPS hosts (WireGuard + remote Caddy) and the
         // public routes Porta manages on them. `tunnel_ip` is the VPS's WG IP

@@ -585,6 +585,22 @@ impl App {
     }
 }
 
+/// A running (or last-known) instance of an app launched from a git worktree.
+/// Distinct from the primary app: its own worktree path, port, subdomain, and
+/// process. `id` is `<app_id>:<sanitized-branch>` and doubles as the
+/// ProcessManager key so it can't collide with the primary app's key (app_id).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AppInstance {
+    pub id: String,
+    pub app_id: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub subdomain: String,
+    pub port: u16,
+    pub pid: Option<u32>,
+    pub status: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
