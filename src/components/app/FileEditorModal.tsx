@@ -194,6 +194,11 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchViewRef = useRef<EditorView | null>(null);
 
+  // Find-in-file search (env rows editor)
+  const [envMatchRows, setEnvMatchRows] = useState<number[]>([]);
+  const [envMatchPos, setEnvMatchPos] = useState(0);
+  const rowRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
+
   const active = files.find((f) => f.path === activePath) ?? null;
   /** Templates whose target is still missing. Backend only sets the field in
    *  that case, so this list empties itself once the file is created. */
@@ -339,21 +344,59 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, searchOpen, active]);
 
+  // ── Find-in-file search (env rows editor) ───────────────────────────────
+
+  useEffect(() => {
+    if (active?.kind !== "env" || envMode !== "rows" || !searchOpen || searchQuery === "") {
+      setEnvMatchRows([]); setEnvMatchPos(0);
+      if (active?.kind === "env") setMatchInfo({ index: -1, count: 0 });
+      return;
+    }
+    const q = searchQuery.toLowerCase();
+    const hits: number[] = [];
+    rows.forEach((row, i) => {
+      if (row.kind === "var" && (row.key.toLowerCase().includes(q) || row.value.toLowerCase().includes(q))) hits.push(i);
+    });
+    setEnvMatchRows(hits);
+    setEnvMatchPos(0);
+    setMatchInfo({ index: hits.length ? 0 : -1, count: hits.length });
+  }, [active, envMode, searchOpen, searchQuery, rows]);
+
+  useEffect(() => {
+    if (active?.kind !== "env" || envMode !== "rows" || envMatchRows.length === 0) return;
+    const rowIdx = envMatchRows[envMatchPos];
+    const el = rowRefs.current[rowIdx];
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [envMatchPos, envMatchRows]);
+
   const searchNext = useCallback(() => {
+    if (active?.kind === "env" && envMode === "rows") {
+      if (envMatchRows.length === 0) return;
+      const pos = (envMatchPos + 1) % envMatchRows.length;
+      setEnvMatchPos(pos); setMatchInfo({ index: pos, count: envMatchRows.length });
+      return;
+    }
     const view = searchViewRef.current;
     if (!view || matchInfo.count === 0) return;
     findNext(view);
     setMatchInfo((m) => ({ ...m, index: (m.index + 1) % m.count }));
     view.focus();
-  }, [matchInfo.count]);
+  }, [active, envMode, envMatchRows, envMatchPos, matchInfo.count]);
 
   const searchPrev = useCallback(() => {
+    if (active?.kind === "env" && envMode === "rows") {
+      if (envMatchRows.length === 0) return;
+      const pos = (envMatchPos - 1 + envMatchRows.length) % envMatchRows.length;
+      setEnvMatchPos(pos); setMatchInfo({ index: pos, count: envMatchRows.length });
+      return;
+    }
     const view = searchViewRef.current;
     if (!view || matchInfo.count === 0) return;
     findPrevious(view);
     setMatchInfo((m) => ({ ...m, index: (m.index - 1 + m.count) % m.count }));
     view.focus();
-  }, [matchInfo.count]);
+  }, [active, envMode, envMatchRows, envMatchPos, matchInfo.count]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
@@ -745,7 +788,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <span className="text-[12px] text-zinc-500">files</span>
 
           <div className="flex-1 flex items-center justify-end px-2">
-            {searchOpen && (active?.kind === "compose" || active?.kind === "generic") && (
+            {searchOpen && (active?.kind === "compose" || active?.kind === "generic" || (active?.kind === "env" && envMode === "rows")) && (
               <EditorSearchBar
                 query={searchQuery}
                 matchIndex={matchInfo.index}
@@ -1065,8 +1108,14 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                       const isRevealed = showAllSensitive || !!revealed[i];
                       const masked = sensitive && !isRevealed;
                       const unfilled = needsValue(row);
+                      const isMatch = envMatchRows.includes(i);
+                      const isCurrentMatch = isMatch && envMatchRows[envMatchPos] === i;
                       return (
-                        <tr key={i} className="group/row hover:bg-white/[0.02]">
+                        <tr
+                          key={i}
+                          ref={(el) => { rowRefs.current[i] = el; }}
+                          className={`group/row hover:bg-white/[0.02] ${isCurrentMatch ? "bg-amber-400/15" : isMatch ? "bg-amber-400/[0.06]" : ""}`}
+                        >
                           <td
                             className={`px-2 py-1 border-l-2 ${unfilled ? "border-amber-400/60" : "border-transparent"}`}
                             title={unfilled ? "This value is empty" : undefined}
