@@ -350,7 +350,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   useEffect(() => {
     if (active?.kind !== "env" || envMode !== "rows" || !searchOpen || searchQuery === "") {
       setEnvMatchRows([]); setEnvMatchPos(0);
-      if (active?.kind === "env") setMatchInfo({ index: -1, count: 0 });
+      if (active?.kind === "env" && envMode === "rows") setMatchInfo({ index: -1, count: 0 });
       return;
     }
     const q = searchQuery.toLowerCase();
