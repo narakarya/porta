@@ -6,6 +6,38 @@ use crate::commands::git::git_bin;
 use std::path::Path;
 use std::process::Command;
 
+/// Reduce an arbitrary string to a safe DNS label: lowercase, every run of
+/// characters outside `[a-z0-9]` becomes a single `-`, and leading/trailing
+/// `-` are trimmed.
+#[allow(dead_code)]
+fn sanitize_label(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_dash = false;
+    for ch in s.to_ascii_lowercase().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// `<app-subdomain>-<sanitized-branch>` — the instance's DNS label.
+#[allow(dead_code)]
+fn instance_subdomain(app_sub: &str, branch: &str) -> String {
+    sanitize_label(&format!("{app_sub}-{branch}"))
+}
+
+/// `<app_id>:<sanitized-branch>` — unique key used as the instance row id and
+/// the ProcessManager key (can't collide with the primary app's key = app_id).
+#[allow(dead_code)]
+fn instance_id(app_id: &str, branch: &str) -> String {
+    format!("{app_id}:{}", sanitize_label(branch))
+}
+
 /// One entry from `git worktree list --porcelain`. `branch` is the short branch
 /// name (no `refs/heads/`); `None` for a detached or bare worktree.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -153,5 +185,20 @@ detached
             .get_envs()
             .any(|(k, v)| k == std::ffi::OsStr::new("LC_ALL") && v == Some(std::ffi::OsStr::new("C")));
         assert!(has_lc_all, "worktree list command must pin LC_ALL=C");
+    }
+
+    #[test]
+    fn sanitize_label_handles_slashes_and_case() {
+        assert_eq!(sanitize_label("codex/Event-Organizer_Migration"),
+                   "codex-event-organizer-migration");
+        assert_eq!(sanitize_label("feat//x--y"), "feat-x-y");
+        assert_eq!(sanitize_label("-trim-"), "trim");
+    }
+
+    #[test]
+    fn builds_subdomain_and_id() {
+        assert_eq!(instance_subdomain("eventorg", "codex/migration"),
+                   "eventorg-codex-migration");
+        assert_eq!(instance_id("app123", "feature/x"), "app123:feature-x");
     }
 }
