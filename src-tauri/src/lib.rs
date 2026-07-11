@@ -162,6 +162,7 @@ pub fn run() {
         caddy: CaddyManager::new(),
         db_path: db_path.clone(),
         extensions: Mutex::new(vec![]),
+        lifecycle_locks: Mutex::new(std::collections::HashMap::new()),
     };
 
     tauri::Builder::default()
