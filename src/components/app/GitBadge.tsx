@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
-import { gitFetch, gitPull, gitPush, gitStatus } from "../../lib/commands";
+import { gitFetch, gitPull, gitPush, gitStatus, gitWorktreeList, type WorktreeEntry } from "../../lib/commands";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 import type { App } from "../../types";
 
@@ -35,10 +35,17 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
   const setAppGit = usePortaStore((s) => s.setAppGit);
   const pollError = usePortaStore((s) => s.appGitError[app.id]);
   const setAppGitError = usePortaStore((s) => s.setAppGitError);
+  const instances = usePortaStore((s) => s.instances[app.id] ?? []);
+  const runInstance = usePortaStore((s) => s.runInstance);
+  const stopInstanceAction = usePortaStore((s) => s.stopInstanceAction);
+  const refreshInstances = usePortaStore((s) => s.refreshInstances);
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
+  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
+  const [wtQuery, setWtQuery] = useState("");
+  const [wtBusy, setWtBusy] = useState<string | null>(null);
 
   // Tracks "already probed, this dir isn't a repo". The store maps to
   // GitStatus (never null), so a non-repo can't be recorded there — this ref
@@ -105,6 +112,26 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
       window.removeEventListener("mousedown", onClick);
     };
   }, [open]);
+
+  // Load existing worktrees + current instances whenever the popover opens.
+  useEffect(() => {
+    if (!open || !app.root_dir) return;
+    gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
+    refreshInstances(app.id);
+  }, [open, app.root_dir, app.id, refreshInstances]);
+
+  // Keep instance state fresh on ready/exit events for this app's instances.
+  useEffect(() => {
+    if (!open) return;
+    const unlisten: Array<() => void> = [];
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      for (const inst of instances) {
+        listen(`instance:ready:${inst.id}`, () => refreshInstances(app.id)).then((u) => unlisten.push(u));
+        listen(`instance:exit:${inst.id}`, () => refreshInstances(app.id)).then((u) => unlisten.push(u));
+      }
+    });
+    return () => unlisten.forEach((u) => u());
+  }, [open, instances, app.id, refreshInstances]);
 
   // A repo we couldn't read still deserves a badge: a silent disappearance is
   // what this whole change exists to fix.
@@ -248,6 +275,82 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
               Push
             </button>
           </div>
+
+          {/* Run from worktree — existing worktrees only; exclude the primary checkout. */}
+          {(() => {
+            const branchWts = worktrees.filter((w) => w.path !== app.root_dir && w.branch);
+            const others = branchWts.filter(
+              (w) =>
+                wtQuery === "" ||
+                (w.branch ?? "").toLowerCase().includes(wtQuery.toLowerCase()) ||
+                w.path.toLowerCase().includes(wtQuery.toLowerCase()),
+            );
+            const runningByPath = new Map(instances.map((i) => [i.worktree_path, i]));
+            return (
+              <div className="mt-2 border-t border-white/10 pt-2">
+                <div className="text-[10px] text-zinc-500 mb-1">Run from worktree</div>
+                {branchWts.length > 3 && (
+                  <input
+                    value={wtQuery}
+                    onChange={(e) => setWtQuery(e.target.value)}
+                    placeholder="Search branch…"
+                    className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
+                  />
+                )}
+                {others.length === 0 && (
+                  <div className="text-[10px] text-zinc-600">No other worktrees.</div>
+                )}
+                {others.map((w) => {
+                  const inst = runningByPath.get(w.path);
+                  return (
+                    <div key={w.path} className="flex items-center gap-1 py-0.5 text-[11px]">
+                      <span className="font-mono text-zinc-300 truncate flex-1" title={w.path}>
+                        {w.branch}
+                      </span>
+                      {inst ? (
+                        <>
+                          <span
+                            className="text-emerald-400/80 text-[10px] font-mono truncate max-w-[10ch]"
+                            title={`${inst.subdomain}.test → :${inst.port}`}
+                          >
+                            {inst.status === "running" ? `:${inst.port}` : inst.status}
+                          </span>
+                          <button
+                            onClick={() => stopInstanceAction(inst.id, app.id)}
+                            className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                          >
+                            Stop
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          disabled={wtBusy !== null}
+                          onClick={async () => {
+                            setWtBusy(w.path);
+                            setError(null);
+                            try {
+                              await runInstance(app.id, w.path);
+                            } catch (e) {
+                              setError(String(e));
+                            } finally {
+                              setWtBusy(null);
+                            }
+                          }}
+                          className="text-[10px] text-zinc-300 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
+                        >
+                          {wtBusy === w.path ? "…" : "Run"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="text-[9px] text-zinc-600 mt-1 leading-tight">
+                  Sets a distinct PORT per instance. Stateful apps (e.g. Phoenix) may still
+                  share a dev DB unless configured to read PORT/env.
+                </div>
+              </div>
+            );
+          })()}
 
           {onOpenTerminal && (
             <button
