@@ -15,7 +15,7 @@ import YamlEditor from "../shared/YamlEditor";
 import CodeEditor, { type CodeLanguage } from "../shared/CodeEditor";
 import EditorSearchBar from "../shared/EditorSearchBar";
 import { SearchQuery, setSearchQuery, findNext, findPrevious, SearchCursor } from "@codemirror/search";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 type FileKind = "compose" | "env" | "generic";
 
@@ -193,6 +193,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   const [matchInfo, setMatchInfo] = useState<{ index: number; count: number }>({ index: -1, count: 0 });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchViewRef = useRef<EditorView | null>(null);
+  const lastCmQueryRef = useRef<string | null>(null);
 
   // Find-in-file search (env rows editor)
   const [envMatchRows, setEnvMatchRows] = useState<number[]>([]);
@@ -320,30 +321,49 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
   // ── Find-in-file search (CodeMirror editors) ────────────────────────────
 
-  // Push a query into a CodeMirror view and report match position/count.
-  function applyCmSearch(view: EditorView, q: string): { index: number; count: number } {
-    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: q, caseSensitive: false })) });
-    if (q === "") return { index: -1, count: 0 };
+  // Collect all match ranges for `q` in the view's doc (case-insensitive).
+  function cmMatchRanges(view: EditorView, q: string): { from: number; to: number }[] {
+    if (q === "") return [];
     const doc = view.state.doc;
-    let count = 0;
-    let index = -1;
-    const head = view.state.selection.main.from;
+    const ranges: { from: number; to: number }[] = [];
     const cursor = new SearchCursor(doc, q, 0, doc.length, (x) => x.toLowerCase());
-    while (!cursor.next().done) {
-      if (index === -1 && cursor.value.from >= head) index = count;
-      count++;
-    }
-    if (index === -1 && count > 0) index = 0;
-    return { index, count };
+    while (!cursor.next().done) ranges.push({ from: cursor.value.from, to: cursor.value.to });
+    return ranges;
   }
 
   useEffect(() => {
     const view = searchViewRef.current;
     const isCm = active?.kind !== "env" || envMode === "raw";
-    if (!view || !isCm) return; // env-rows handled separately in Task 4
-    setMatchInfo(applyCmSearch(view, searchOpen ? searchQuery : ""));
+    if (!view || !isCm) return; // env-rows handled by its own effect
+    const q = searchOpen ? searchQuery : "";
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: q, caseSensitive: false })) });
+    if (q === "") {
+      lastCmQueryRef.current = "";
+      setMatchInfo({ index: -1, count: 0 });
+      return;
+    }
+    const ranges = cmMatchRanges(view, q);
+    const count = ranges.length;
+    if (count === 0) {
+      lastCmQueryRef.current = q;
+      setMatchInfo({ index: -1, count: 0 });
+      return;
+    }
+    const head = view.state.selection.main.from;
+    let index = ranges.findIndex((r) => r.from >= head);
+    if (index === -1) index = 0;
+    // On a brand-new query (user typed in the search box), select + scroll the
+    // first match so the highlighted "current" match agrees with the counter.
+    // Doc edits and reveal toggles also re-run this effect, but must NOT move
+    // the caret — they only recount.
+    if (q !== lastCmQueryRef.current) {
+      const r = ranges[index];
+      view.dispatch({ selection: { anchor: r.from, head: r.to }, effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
+    }
+    lastCmQueryRef.current = q;
+    setMatchInfo({ index, count });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, searchOpen, active, envMode]);
+  }, [searchQuery, searchOpen, active, envMode, content, rawContent, showAllSensitive]);
 
   // ── Find-in-file search (env rows editor) ───────────────────────────────
 
