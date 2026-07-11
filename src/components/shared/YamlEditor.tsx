@@ -19,6 +19,8 @@ interface Props {
   errorMessage?: string;
   /** Called once the CodeMirror EditorView is created (for external search control). */
   onReady?: (view: EditorViewType) => void;
+  /** Disable CodeMirror's native Cmd+F search panel — set true when the parent supplies its own search UI. Default false. */
+  disableNativeSearch?: boolean;
 }
 
 /**
@@ -31,7 +33,7 @@ interface Props {
  * Linting: takes optional errorLine/errorMessage from the parent (which calls
  * serde_yaml via `parse_compose_string`) and underlines that line.
  */
-export default function YamlEditor({ value, onChange, placeholder, rows = 14, maxHeight = "60vh", errorLine, errorMessage, onReady }: Props) {
+export default function YamlEditor({ value, onChange, placeholder, rows = 14, maxHeight = "60vh", errorLine, errorMessage, onReady, disableNativeSearch = false }: Props) {
   const extensions = useMemo(() => {
     const exts = [
       yaml(),
@@ -79,9 +81,10 @@ export default function YamlEditor({ value, onChange, placeholder, rows = 14, ma
           highlightActiveLineGutter: true,
           tabSize: 2,
           autocompletion: false,
-          // Cmd/Ctrl+F is driven by FileEditorModal's own search bar; disable
-          // CodeMirror's built-in keymap so its native panel doesn't also open.
-          searchKeymap: false,
+          // Cmd/Ctrl+F is driven by the parent's own search bar (opt-in via
+          // disableNativeSearch); disable CodeMirror's built-in keymap so its
+          // native panel doesn't also open.
+          searchKeymap: !disableNativeSearch,
         }}
       />
     </div>

@@ -24,6 +24,8 @@ interface Props {
   onReady?: (view: EditorViewType) => void;
   /** Render read-only (used for the masked env-raw view). Default false. */
   readOnly?: boolean;
+  /** Disable CodeMirror's native Cmd+F search panel — set true when the parent supplies its own search UI. Default false. */
+  disableNativeSearch?: boolean;
 }
 
 function languageExtension(language: CodeLanguage): Extension[] {
@@ -49,7 +51,7 @@ function languageExtension(language: CodeLanguage): Extension[] {
  * Compose YAML keeps using the dedicated `YamlEditor` (it adds serde_yaml lint
  * underlines fed from the Rust parser).
  */
-export default function CodeEditor({ value, onChange, language, placeholder, rows = 14, maxHeight = "60vh", onReady, readOnly = false }: Props) {
+export default function CodeEditor({ value, onChange, language, placeholder, rows = 14, maxHeight = "60vh", onReady, readOnly = false, disableNativeSearch = false }: Props) {
   const extensions = useMemo(
     () => [...languageExtension(language), EditorView.lineWrapping, search({ top: true })],
     [language],
@@ -74,9 +76,10 @@ export default function CodeEditor({ value, onChange, language, placeholder, row
           highlightActiveLineGutter: true,
           tabSize: 2,
           autocompletion: false,
-          // Cmd/Ctrl+F is driven by FileEditorModal's own search bar; disable
-          // CodeMirror's built-in keymap so its native panel doesn't also open.
-          searchKeymap: false,
+          // Cmd/Ctrl+F is driven by the parent's own search bar (opt-in via
+          // disableNativeSearch); disable CodeMirror's built-in keymap so its
+          // native panel doesn't also open.
+          searchKeymap: !disableNativeSearch,
         }}
       />
     </div>

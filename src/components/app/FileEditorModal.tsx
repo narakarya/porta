@@ -984,6 +984,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   errorLine={errorLine}
                   errorMessage={error ?? undefined}
                   onReady={(view) => { searchViewRef.current = view; }}
+                  disableNativeSearch
                 />
               </div>
             ) : active.kind === "generic" ? (
@@ -995,6 +996,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   rows={28}
                   maxHeight="100%"
                   onReady={(view) => { searchViewRef.current = view; }}
+                  disableNativeSearch
                 />
               </div>
             ) : envMode === "raw" ? (
