@@ -6,6 +6,8 @@ import { StreamLanguage } from "@codemirror/language";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
+import { search } from "@codemirror/search";
+import type { EditorView as EditorViewType } from "@codemirror/view";
 
 export type CodeLanguage = "yaml" | "toml" | "json" | "text";
 
@@ -18,6 +20,10 @@ interface Props {
   rows?: number;
   /** Max height as CSS value. Default "60vh" — editor auto-grows with content. */
   maxHeight?: string;
+  /** Called once the CodeMirror EditorView is created (for external search control). */
+  onReady?: (view: EditorViewType) => void;
+  /** Render read-only (used for the masked env-raw view). Default false. */
+  readOnly?: boolean;
 }
 
 function languageExtension(language: CodeLanguage): Extension[] {
@@ -43,9 +49,9 @@ function languageExtension(language: CodeLanguage): Extension[] {
  * Compose YAML keeps using the dedicated `YamlEditor` (it adds serde_yaml lint
  * underlines fed from the Rust parser).
  */
-export default function CodeEditor({ value, onChange, language, placeholder, rows = 14, maxHeight = "60vh" }: Props) {
+export default function CodeEditor({ value, onChange, language, placeholder, rows = 14, maxHeight = "60vh", onReady, readOnly = false }: Props) {
   const extensions = useMemo(
-    () => [...languageExtension(language), EditorView.lineWrapping],
+    () => [...languageExtension(language), EditorView.lineWrapping, search({ top: true })],
     [language],
   );
 
@@ -59,6 +65,8 @@ export default function CodeEditor({ value, onChange, language, placeholder, row
         minHeight={`${rows * 20}px`}
         maxHeight={maxHeight}
         placeholder={placeholder}
+        onCreateEditor={(view) => onReady?.(view)}
+        readOnly={readOnly}
         basicSetup={{
           lineNumbers: true,
           foldGutter: true,
