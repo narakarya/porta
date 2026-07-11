@@ -1570,3 +1570,37 @@ export const getGitAutofetchIntervalSecs = (): Promise<number> =>
 
 export const setGitAutofetchIntervalSecs = (secs: number): Promise<void> =>
   isTauri ? invoke("set_git_autofetch_interval_secs", { secs }) : Promise.resolve();
+
+// ── Worktree instances ────────────────────────────────────────────────────────
+
+export interface WorktreeEntry {
+  path: string;
+  branch: string | null;
+  head: string;
+  detached: boolean;
+}
+
+export interface AppInstance {
+  id: string;
+  app_id: string;
+  worktree_path: string;
+  branch: string;
+  subdomain: string;
+  port: number;
+  pid: number | null;
+  status: string; // "stopped" | "starting" | "running"
+}
+
+export const gitWorktreeList = (rootDir: string): Promise<WorktreeEntry[]> =>
+  isTauri ? invoke("git_worktree_list", { rootDir }) : Promise.resolve([]);
+
+export const listInstances = (appId: string): Promise<AppInstance[]> =>
+  isTauri ? invoke("list_instances", { appId }) : Promise.resolve([]);
+
+export const startInstance = (appId: string, worktreePath: string): Promise<AppInstance> =>
+  isTauri
+    ? invoke("start_instance", { appId, worktreePath })
+    : Promise.reject(new Error("[mock] start_instance"));
+
+export const stopInstance = (instanceId: string): Promise<void> =>
+  isTauri ? invoke("stop_instance", { instanceId }) : Promise.resolve();
