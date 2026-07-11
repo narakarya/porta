@@ -339,10 +339,11 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
   useEffect(() => {
     const view = searchViewRef.current;
-    if (!view || active?.kind === "env") return; // env handled separately in Task 4
+    const isCm = active?.kind !== "env" || envMode === "raw";
+    if (!view || !isCm) return; // env-rows handled separately in Task 4
     setMatchInfo(applyCmSearch(view, searchOpen ? searchQuery : ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, searchOpen, active]);
+  }, [searchQuery, searchOpen, active, envMode]);
 
   // ── Find-in-file search (env rows editor) ───────────────────────────────
 
@@ -788,7 +789,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <span className="text-[12px] text-zinc-500">files</span>
 
           <div className="flex-1 flex items-center justify-end px-2">
-            {searchOpen && (active?.kind === "compose" || active?.kind === "generic" || (active?.kind === "env" && envMode === "rows")) && (
+            {searchOpen && (active?.kind === "compose" || active?.kind === "generic" || active?.kind === "env") && (
               <EditorSearchBar
                 query={searchQuery}
                 matchIndex={matchInfo.index}
@@ -1043,18 +1044,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                 />
               </div>
             ) : envMode === "raw" ? (
-              /* ── Env raw textarea ── secrets masked (read-only) until revealed,
+              /* ── Env raw editor ── secrets masked (read-only) until revealed,
                  so the raw view is as private as the rows view. */
-              showAllSensitive ? (
-                <textarea
-                  value={rawContent}
-                  onChange={(e) => handleRawChange(e.target.value)}
-                  spellCheck={false}
-                  className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-200 p-4 resize-none focus:outline-none leading-relaxed"
-                  style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-                />
-              ) : (
-                <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 flex flex-col">
+                {!showAllSensitive && (
                   <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-zinc-500 border-b border-white/[0.05] bg-white/[0.02]">
                     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400/70">
                       <path d="M1.5 5.5S3.5 2 5.5 2s4 3.5 4 3.5-2 3.5-4 3.5S1.5 5.5 1.5 5.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -1063,15 +1056,20 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                     </svg>
                     Secrets hidden — click “Reveal secrets” to edit the raw file.
                   </div>
-                  <textarea
-                    readOnly
-                    value={maskRawSecrets(rawContent)}
-                    spellCheck={false}
-                    className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-400 p-4 resize-none focus:outline-none leading-relaxed cursor-default"
-                    style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                )}
+                <div className="flex-1 min-h-0 overflow-auto p-4">
+                  <CodeEditor
+                    value={showAllSensitive ? rawContent : maskRawSecrets(rawContent)}
+                    onChange={handleRawChange}
+                    language="text"
+                    readOnly={!showAllSensitive}
+                    rows={28}
+                    maxHeight="100%"
+                    onReady={(view) => { searchViewRef.current = view; }}
+                    disableNativeSearch
                   />
                 </div>
-              )
+              </div>
             ) : (
               /* ── Env per-line row editor ── */
               <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
