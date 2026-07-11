@@ -6,6 +6,17 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.14] — 2026-07-11
+
+### Added
+- **Find-in-file search in the file editor.** Cmd+F opens a search bar that
+  highlights matches with next/prev (Enter / Shift+Enter) across compose
+  YAML, generic config (TOML/JSON/text), and `.env` files. The `.env` rows
+  view highlights and steps through matching key/value rows; the `.env` raw
+  view is now a CodeMirror editor and stays masked + read-only while secrets
+  are hidden. Native Cmd+F search is preserved in the Add App / App Settings
+  compose editors.
+
 ## [0.7.13] — 2026-07-11
 
 ### Fixed
