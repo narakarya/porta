@@ -77,14 +77,23 @@ pub async fn git_worktree_list(root_dir: String) -> Result<Vec<WorktreeEntry>, S
         .map_err(|e| e.to_string())?
 }
 
+/// Build the `git worktree list --porcelain` command. Pinning `LC_ALL=C` keeps
+/// a Homebrew (NLS) git from translating "fatal:" messages, so our non-repo
+/// detection matches on every locale — same reason `status_command` does it.
+fn worktree_list_command(bin: &str, root_dir: &str) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.current_dir(root_dir)
+        .env("LC_ALL", "C")
+        .args(["worktree", "list", "--porcelain"]);
+    cmd
+}
+
 pub(crate) fn worktree_list_for(root_dir: &str) -> Result<Vec<WorktreeEntry>, String> {
     if root_dir.is_empty() || !Path::new(root_dir).is_dir() {
         return Ok(Vec::new());
     }
     let Some(bin) = git_bin() else { return Ok(Vec::new()); };
-    let out = Command::new(bin)
-        .current_dir(root_dir)
-        .args(["worktree", "list", "--porcelain"])
+    let out = worktree_list_command(bin, root_dir)
         .output()
         .map_err(|e| e.to_string())?;
     if !out.status.success() {
@@ -130,5 +139,19 @@ detached
     #[test]
     fn empty_input_yields_no_entries() {
         assert!(parse_worktree_porcelain("").is_empty());
+    }
+
+    #[test]
+    fn worktree_list_command_pins_the_locale() {
+        // `stderr.contains("not a git repository")` matches English stderr. A git
+        // built with NLS (Homebrew's is) would translate it, and every non-repo
+        // folder would start returning an error. This machine's Apple Git may have
+        // no NLS, so a behavioural test would pass for the wrong reason — assert
+        // on the spawned command instead.
+        let cmd = worktree_list_command("git", "/tmp");
+        let has_lc_all = cmd
+            .get_envs()
+            .any(|(k, v)| k == std::ffi::OsStr::new("LC_ALL") && v == Some(std::ffi::OsStr::new("C")));
+        assert!(has_lc_all, "worktree list command must pin LC_ALL=C");
     }
 }
