@@ -3,6 +3,8 @@ import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
+import { search } from "@codemirror/search";
+import type { EditorView as EditorViewType } from "@codemirror/view";
 
 interface Props {
   value: string;
@@ -15,6 +17,10 @@ interface Props {
   /** 1-based line number of a backend-reported error (from serde_yaml). */
   errorLine?: number;
   errorMessage?: string;
+  /** Called once the CodeMirror EditorView is created (for external search control). */
+  onReady?: (view: EditorViewType) => void;
+  /** Disable CodeMirror's native Cmd+F search panel — set true when the parent supplies its own search UI. Default false. */
+  disableNativeSearch?: boolean;
 }
 
 /**
@@ -27,12 +33,13 @@ interface Props {
  * Linting: takes optional errorLine/errorMessage from the parent (which calls
  * serde_yaml via `parse_compose_string`) and underlines that line.
  */
-export default function YamlEditor({ value, onChange, placeholder, rows = 14, maxHeight = "60vh", errorLine, errorMessage }: Props) {
+export default function YamlEditor({ value, onChange, placeholder, rows = 14, maxHeight = "60vh", errorLine, errorMessage, onReady, disableNativeSearch = false }: Props) {
   const extensions = useMemo(() => {
     const exts = [
       yaml(),
       lintGutter(),
       EditorView.lineWrapping,
+      search({ top: true }),
     ];
     if (errorLine && errorMessage) {
       const line = errorLine;
@@ -66,6 +73,7 @@ export default function YamlEditor({ value, onChange, placeholder, rows = 14, ma
         minHeight={`${rows * 20}px`}
         maxHeight={maxHeight}
         placeholder={placeholder}
+        onCreateEditor={(view) => onReady?.(view)}
         basicSetup={{
           lineNumbers: true,
           foldGutter: true,
@@ -73,6 +81,10 @@ export default function YamlEditor({ value, onChange, placeholder, rows = 14, ma
           highlightActiveLineGutter: true,
           tabSize: 2,
           autocompletion: false,
+          // Cmd/Ctrl+F is driven by the parent's own search bar (opt-in via
+          // disableNativeSearch); disable CodeMirror's built-in keymap so its
+          // native panel doesn't also open.
+          searchKeymap: !disableNativeSearch,
         }}
       />
     </div>

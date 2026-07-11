@@ -13,6 +13,9 @@ import {
 import { usePortaStore } from "../../store";
 import YamlEditor from "../shared/YamlEditor";
 import CodeEditor, { type CodeLanguage } from "../shared/CodeEditor";
+import EditorSearchBar from "../shared/EditorSearchBar";
+import { SearchQuery, setSearchQuery, findNext, findPrevious, SearchCursor } from "@codemirror/search";
+import { EditorView } from "@codemirror/view";
 
 type FileKind = "compose" | "env" | "generic";
 
@@ -184,6 +187,19 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const toastTimer = useRef<number | null>(null);
 
+  // Find-in-file search (compose + generic editors)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQueryState] = useState("");
+  const [matchInfo, setMatchInfo] = useState<{ index: number; count: number }>({ index: -1, count: 0 });
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchViewRef = useRef<EditorView | null>(null);
+  const lastCmQueryRef = useRef<string | null>(null);
+
+  // Find-in-file search (env rows editor)
+  const [envMatchRows, setEnvMatchRows] = useState<number[]>([]);
+  const [envMatchPos, setEnvMatchPos] = useState(0);
+  const rowRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
+
   const active = files.find((f) => f.path === activePath) ?? null;
   /** Templates whose target is still missing. Backend only sets the field in
    *  that case, so this list empties itself once the file is created. */
@@ -303,11 +319,126 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     onClose();
   }, [isDirty, onClose]);
 
+  // ── Find-in-file search (CodeMirror editors) ────────────────────────────
+
+  // Collect all match ranges for `q` in the view's doc (case-insensitive).
+  function cmMatchRanges(view: EditorView, q: string): { from: number; to: number }[] {
+    if (q === "") return [];
+    const doc = view.state.doc;
+    const ranges: { from: number; to: number }[] = [];
+    const cursor = new SearchCursor(doc, q, 0, doc.length, (x) => x.toLowerCase());
+    while (!cursor.next().done) ranges.push({ from: cursor.value.from, to: cursor.value.to });
+    return ranges;
+  }
+
+  useEffect(() => {
+    const view = searchViewRef.current;
+    const isCm = active?.kind !== "env" || envMode === "raw";
+    if (!view || !isCm) return; // env-rows handled by its own effect
+    const q = searchOpen ? searchQuery : "";
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: q, caseSensitive: false })) });
+    if (q === "") {
+      lastCmQueryRef.current = "";
+      setMatchInfo({ index: -1, count: 0 });
+      return;
+    }
+    // Key the "new search" detection on (file, query) so switching files with
+    // the same query text still selects the new file's first match.
+    const ctxKey = `${active?.path ?? ""}\u0000${q}`;
+    const ranges = cmMatchRanges(view, q);
+    const count = ranges.length;
+    if (count === 0) {
+      lastCmQueryRef.current = ctxKey;
+      setMatchInfo({ index: -1, count: 0 });
+      return;
+    }
+    const head = view.state.selection.main.from;
+    let index = ranges.findIndex((r) => r.from >= head);
+    if (index === -1) index = 0;
+    // On a brand-new search context (user typed in the search box, or switched
+    // files), select + scroll the first match so the highlighted "current"
+    // match agrees with the counter. Doc edits and reveal toggles also re-run
+    // this effect, but must NOT move the caret — they only recount.
+    if (ctxKey !== lastCmQueryRef.current) {
+      const r = ranges[index];
+      view.dispatch({ selection: { anchor: r.from, head: r.to }, effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
+    }
+    lastCmQueryRef.current = ctxKey;
+    setMatchInfo({ index, count });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, searchOpen, active, envMode, content, rawContent, showAllSensitive]);
+
+  // ── Find-in-file search (env rows editor) ───────────────────────────────
+
+  useEffect(() => {
+    if (active?.kind !== "env" || envMode !== "rows" || !searchOpen || searchQuery === "") {
+      setEnvMatchRows([]); setEnvMatchPos(0);
+      if (active?.kind === "env" && envMode === "rows") setMatchInfo({ index: -1, count: 0 });
+      return;
+    }
+    const q = searchQuery.toLowerCase();
+    const hits: number[] = [];
+    rows.forEach((row, i) => {
+      if (row.kind === "var" && (row.key.toLowerCase().includes(q) || row.value.toLowerCase().includes(q))) hits.push(i);
+    });
+    setEnvMatchRows(hits);
+    setEnvMatchPos(0);
+    setMatchInfo({ index: hits.length ? 0 : -1, count: hits.length });
+  }, [active, envMode, searchOpen, searchQuery, rows]);
+
+  useEffect(() => {
+    if (active?.kind !== "env" || envMode !== "rows" || envMatchRows.length === 0) return;
+    const rowIdx = envMatchRows[envMatchPos];
+    const el = rowRefs.current[rowIdx];
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [envMatchPos, envMatchRows]);
+
+  const searchNext = useCallback(() => {
+    if (active?.kind === "env" && envMode === "rows") {
+      if (envMatchRows.length === 0) return;
+      const pos = (envMatchPos + 1) % envMatchRows.length;
+      setEnvMatchPos(pos); setMatchInfo({ index: pos, count: envMatchRows.length });
+      return;
+    }
+    const view = searchViewRef.current;
+    if (!view || matchInfo.count === 0) return;
+    findNext(view);
+    setMatchInfo((m) => ({ ...m, index: (m.index + 1) % m.count }));
+    view.focus();
+  }, [active, envMode, envMatchRows, envMatchPos, matchInfo.count]);
+
+  const searchPrev = useCallback(() => {
+    if (active?.kind === "env" && envMode === "rows") {
+      if (envMatchRows.length === 0) return;
+      const pos = (envMatchPos - 1 + envMatchRows.length) % envMatchRows.length;
+      setEnvMatchPos(pos); setMatchInfo({ index: pos, count: envMatchRows.length });
+      return;
+    }
+    const view = searchViewRef.current;
+    if (!view || matchInfo.count === 0) return;
+    findPrevious(view);
+    setMatchInfo((m) => ({ ...m, index: (m.index - 1 + m.count) % m.count }));
+    view.focus();
+  }, [active, envMode, envMatchRows, envMatchPos, matchInfo.count]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQueryState("");
+    const view = searchViewRef.current;
+    if (view) view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) });
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
+        if (searchOpen) { closeSearch(); return; }
         attemptClose();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (isDirty && !saving && active) handleSave();
@@ -328,7 +459,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, saving, content, rows, active, envMode, attemptClose]);
+  }, [isDirty, saving, content, rows, active, envMode, attemptClose, searchOpen, closeSearch]);
 
   async function handleSave() {
     if (!active) return;
@@ -680,7 +811,20 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <span className="text-zinc-700 text-[12px]">·</span>
           <span className="text-[12px] text-zinc-500">files</span>
 
-          <div className="flex-1" />
+          <div className="flex-1 flex items-center justify-end px-2">
+            {searchOpen && (active?.kind === "compose" || active?.kind === "generic" || active?.kind === "env") && (
+              <EditorSearchBar
+                query={searchQuery}
+                matchIndex={matchInfo.index}
+                matchCount={matchInfo.count}
+                onQueryChange={setSearchQueryState}
+                onNext={searchNext}
+                onPrev={searchPrev}
+                onClose={closeSearch}
+                inputRef={searchInputRef}
+              />
+            )}
+          </div>
 
           {/* Empty values still to fill. Rows-mode only: in raw mode `rows` is
               stale, `rawContent` is the source of truth. */}
@@ -906,6 +1050,8 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   maxHeight="100%"
                   errorLine={errorLine}
                   errorMessage={error ?? undefined}
+                  onReady={(view) => { searchViewRef.current = view; }}
+                  disableNativeSearch
                 />
               </div>
             ) : active.kind === "generic" ? (
@@ -916,21 +1062,15 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   language={active.language ?? "text"}
                   rows={28}
                   maxHeight="100%"
+                  onReady={(view) => { searchViewRef.current = view; }}
+                  disableNativeSearch
                 />
               </div>
             ) : envMode === "raw" ? (
-              /* ── Env raw textarea ── secrets masked (read-only) until revealed,
+              /* ── Env raw editor ── secrets masked (read-only) until revealed,
                  so the raw view is as private as the rows view. */
-              showAllSensitive ? (
-                <textarea
-                  value={rawContent}
-                  onChange={(e) => handleRawChange(e.target.value)}
-                  spellCheck={false}
-                  className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-200 p-4 resize-none focus:outline-none leading-relaxed"
-                  style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-                />
-              ) : (
-                <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 flex flex-col">
+                {!showAllSensitive && (
                   <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-zinc-500 border-b border-white/[0.05] bg-white/[0.02]">
                     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400/70">
                       <path d="M1.5 5.5S3.5 2 5.5 2s4 3.5 4 3.5-2 3.5-4 3.5S1.5 5.5 1.5 5.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -939,15 +1079,20 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                     </svg>
                     Secrets hidden — click “Reveal secrets” to edit the raw file.
                   </div>
-                  <textarea
-                    readOnly
-                    value={maskRawSecrets(rawContent)}
-                    spellCheck={false}
-                    className="flex-1 min-h-0 w-full bg-transparent text-[12px] font-mono text-zinc-400 p-4 resize-none focus:outline-none leading-relaxed cursor-default"
-                    style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                )}
+                <div className="flex-1 min-h-0 overflow-auto p-4">
+                  <CodeEditor
+                    value={showAllSensitive ? rawContent : maskRawSecrets(rawContent)}
+                    onChange={handleRawChange}
+                    language="text"
+                    readOnly={!showAllSensitive}
+                    rows={28}
+                    maxHeight="100%"
+                    onReady={(view) => { searchViewRef.current = view; }}
+                    disableNativeSearch
                   />
                 </div>
-              )
+              </div>
             ) : (
               /* ── Env per-line row editor ── */
               <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
@@ -984,8 +1129,14 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                       const isRevealed = showAllSensitive || !!revealed[i];
                       const masked = sensitive && !isRevealed;
                       const unfilled = needsValue(row);
+                      const isMatch = envMatchRows.includes(i);
+                      const isCurrentMatch = isMatch && envMatchRows[envMatchPos] === i;
                       return (
-                        <tr key={i} className="group/row hover:bg-white/[0.02]">
+                        <tr
+                          key={i}
+                          ref={(el) => { rowRefs.current[i] = el; }}
+                          className={`group/row hover:bg-white/[0.02] ${isCurrentMatch ? "bg-amber-400/15" : isMatch ? "bg-amber-400/[0.06]" : ""}`}
+                        >
                           <td
                             className={`px-2 py-1 border-l-2 ${unfilled ? "border-amber-400/60" : "border-transparent"}`}
                             title={unfilled ? "This value is empty" : undefined}
