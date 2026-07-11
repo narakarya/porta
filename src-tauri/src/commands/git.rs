@@ -197,8 +197,12 @@ pub(crate) fn status_for(root_dir: &str) -> Result<Option<GitStatus>, String> {
 }
 
 #[tauri::command]
-pub fn git_status(root_dir: String) -> Result<Option<GitStatus>, String> {
-    status_for(&root_dir)
+pub async fn git_status(root_dir: String) -> Result<Option<GitStatus>, String> {
+    // Off the main thread too: this runs in GitBadge's mount seed and in the
+    // post-op refresh right after a pull, and a large repo's status isn't free.
+    tokio::task::spawn_blocking(move || status_for(&root_dir))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Run a git subcommand with a wall-clock budget, returning stdout on success
@@ -311,21 +315,31 @@ pub(crate) fn fetch_for(root_dir: &str) -> Result<(), String> {
     run_git(root_dir, &["fetch", "--no-tags", "--prune"], NET_TIMEOUT_SECS).map(|_| ())
 }
 
+// The network ops run on `spawn_blocking`, not the main thread: a sync Tauri
+// command blocks the WebView, and `run_git`'s wall-clock budget is 30s. Mirrors
+// how `remote.rs` keeps its ssh/HTTP work off the UI thread.
+
 #[tauri::command]
-pub fn git_fetch(root_dir: String) -> Result<(), String> {
-    fetch_for(&root_dir)
+pub async fn git_fetch(root_dir: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || fetch_for(&root_dir))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn git_pull(root_dir: String) -> Result<String, String> {
+pub async fn git_pull(root_dir: String) -> Result<String, String> {
     // `--ff-only` so a pull can never leave a half-finished merge behind. When it
     // can't fast-forward it fails cleanly and the user goes to a terminal.
-    run_git(&root_dir, &["pull", "--ff-only"], NET_TIMEOUT_SECS)
+    tokio::task::spawn_blocking(move || run_git(&root_dir, &["pull", "--ff-only"], NET_TIMEOUT_SECS))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn git_push(root_dir: String) -> Result<String, String> {
-    run_git(&root_dir, &["push"], NET_TIMEOUT_SECS)
+pub async fn git_push(root_dir: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || run_git(&root_dir, &["push"], NET_TIMEOUT_SECS))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Poll git state for every app whose `root_dir` is a repo.
