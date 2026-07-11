@@ -334,8 +334,28 @@ pub(crate) fn spawn_port_watcher(handle: tauri::AppHandle, id: String, port: u16
     });
 }
 
+// These three commands are async wrappers over sync `*_inner` bodies run on
+// `spawn_blocking`. The bodies block — `compose_stop_and_wait` waits on
+// `docker compose`, `start_single` spawns a process — and a sync Tauri command
+// runs that on the main thread, freezing the WebView. The wrappers still
+// `.await` the work, so the "returns when the containers are really gone"
+// contract holds; it just no longer happens on the UI thread. `AppState` is
+// fetched via `app.state()` inside the closure because a borrowed `State<'_>`
+// can't cross into a `'static` blocking task.
+
 #[tauri::command]
-pub fn start_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub async fn start_app(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let lock = app.state::<AppState>().lifecycle_lock(&id);
+    let _guard = lock.lock().await;
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        start_app_inner(&state, &app, id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub(crate) fn start_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let apps = db.list_apps().map_err(|e| e.to_string())?;
     let app_data = apps
@@ -425,7 +445,18 @@ fn signal_orphan_pid(app_data: &Option<App>, sig: nix::sys::signal::Signal) {
 }
 
 #[tauri::command]
-pub fn stop_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub async fn stop_app(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let lock = app.state::<AppState>().lifecycle_lock(&id);
+    let _guard = lock.lock().await;
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        stop_app_inner(&state, &app, id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn stop_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Result<(), String> {
     let app_data = state.db.lock().unwrap().list_apps().ok()
         .and_then(|apps| apps.into_iter().find(|a| a.id == id));
     let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
@@ -507,7 +538,21 @@ pub fn kill_port_holder(port: u16) -> Result<u32, String> {
 }
 
 #[tauri::command]
-pub fn restart_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub async fn restart_app(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    // Held across the whole stop-then-start, so a concurrent start/stop on the
+    // same app queues behind it. `restart_app_inner` calls `start_app_inner`
+    // directly (not the command), so it never re-acquires this lock — no deadlock.
+    let lock = app.state::<AppState>().lifecycle_lock(&id);
+    let _guard = lock.lock().await;
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        restart_app_inner(&state, &app, id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn restart_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Result<(), String> {
     // Read the port and kind before stopping so we can route to the right manager.
     let (port_opt, is_static, is_proxy, is_docker, is_compose, compose_file, root_dir) = {
         let db = state.db.lock().unwrap();
@@ -563,7 +608,7 @@ pub fn restart_app(state: State<AppState>, app: tauri::AppHandle, id: String) ->
     } }
 
     state.db.lock().unwrap().update_app_status(&id, "stopped", None).map_err(|e| e.to_string())?;
-    start_app(state, app, id)
+    start_app_inner(state, app, id)
 }
 
 #[tauri::command]

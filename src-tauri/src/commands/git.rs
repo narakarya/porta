@@ -342,6 +342,21 @@ pub async fn git_push(root_dir: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// How many 15s status ticks between probes of a folder we already know isn't a
+/// repo. Repos and errored folders are probed every tick; non-repos far less
+/// often, since a plain folder becoming a repo is rare and a couple of minutes
+/// of latency on its first badge is fine. At 8 that's one probe every 2 minutes.
+const NON_REPO_PROBE_EVERY: u64 = 8;
+
+/// Should a known non-repo be probed on this tick? Spawning `git status` on
+/// every plain folder every 15s is the bulk of the poller's subprocess churn —
+/// on a machine with many non-repo apps, most of the spawns are just
+/// rediscovering "still not a repo". This keeps that correct (we still run real
+/// `git status`, so a subdirectory-of-a-repo is never mis-skipped) but rare.
+fn should_probe_non_repo(tick: u64) -> bool {
+    tick % NON_REPO_PROBE_EVERY == 0
+}
+
 /// Poll git state for every app whose `root_dir` is a repo.
 ///
 /// Two rhythms, deliberately different:
@@ -371,6 +386,14 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
         let mut last_error: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
 
+        // Apps last seen to be non-repos. They're probed on a slow cadence
+        // (`should_probe_non_repo`) instead of every tick, which is where most of
+        // the poller's subprocess churn came from on machines with many plain
+        // (non-git) app folders.
+        let mut non_repos: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut tick: u64 = 0;
+
         // A fetch pass runs on its own thread so a hung remote can't delay the
         // 15s status tick. This flag stops a second pass starting while one is
         // still going — with 30s timeouts, a slow pass can outlive its interval.
@@ -386,6 +409,7 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
 
         loop {
             thread::sleep(Duration::from_secs(15));
+            tick = tick.wrapping_add(1);
 
             if git_bin().is_none() || !window_visible(&app) {
                 continue;
@@ -413,8 +437,13 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                     .is_ok()
             {
                 last_fetch = Some(Instant::now());
-                let roots_for_fetch: Vec<String> =
-                    roots.iter().map(|(_, root)| root.clone()).collect();
+                // Don't fetch folders we already know aren't repos — `git fetch`
+                // there just fails fast, but it's still a wasted subprocess.
+                let roots_for_fetch: Vec<String> = roots
+                    .iter()
+                    .filter(|(id, _)| !non_repos.contains(id))
+                    .map(|(_, root)| root.clone())
+                    .collect();
                 let guard = FetchGuard(Arc::clone(&fetching));
                 thread::spawn(move || {
                     // Clearing the flag on drop, not on the last statement:
@@ -443,10 +472,17 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                 roots.iter().map(|(id, _)| id.as_str()).collect();
             last_emitted.retain(|id, _| current_ids.contains(id.as_str()));
             last_error.retain(|id, _| current_ids.contains(id.as_str()));
+            non_repos.retain(|id| current_ids.contains(id.as_str()));
 
             for (app_id, root) in &roots {
+                // Skip a known non-repo unless its slow cadence is due — this is
+                // where most of the every-15s subprocess churn was.
+                if non_repos.contains(app_id) && !should_probe_non_repo(tick) {
+                    continue;
+                }
                 match status_for(root) {
                     Ok(Some(status)) => {
+                        non_repos.remove(app_id);
                         // Recovered: clear a previously-reported error so the
                         // badge stops showing a stale warning.
                         if last_error.remove(app_id).is_some() {
@@ -458,9 +494,12 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                         }
                     }
                     Ok(None) => {
-                        // Not a repo. Nothing to say, and nothing to retract.
+                        // Not a repo. Nothing to say, nothing to retract — just
+                        // remember so we probe it on the slow cadence from now on.
+                        non_repos.insert(app_id.clone());
                     }
                     Err(msg) => {
+                        non_repos.remove(app_id);
                         if last_error.get(app_id) != Some(&msg) {
                             app.emit(&format!("app:git-error:{}", app_id), &msg).ok();
                             last_error.insert(app_id.clone(), msg);
@@ -712,6 +751,23 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
             Some(std::ffi::OsStr::new("C")),
             "git status must run under LC_ALL=C"
         );
+    }
+
+    #[test]
+    fn non_repos_are_probed_on_the_slow_cadence() {
+        // Repos are probed every tick; a known non-repo only every
+        // NON_REPO_PROBE_EVERY. Lock the interval and the modulo direction so a
+        // refactor can't quietly turn it into "every tick" (no saving) or
+        // "never" (a new repo's badge would never appear).
+        assert_eq!(NON_REPO_PROBE_EVERY, 8);
+        for tick in 1..=7 {
+            assert!(!should_probe_non_repo(tick), "tick {tick} should skip");
+        }
+        assert!(should_probe_non_repo(8), "tick 8 is due");
+        for tick in 9..=15 {
+            assert!(!should_probe_non_repo(tick), "tick {tick} should skip");
+        }
+        assert!(should_probe_non_repo(16), "tick 16 is due");
     }
 
     #[test]

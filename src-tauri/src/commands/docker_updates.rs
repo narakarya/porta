@@ -741,7 +741,7 @@ async fn update_docker_app(
     if was_running {
         emit_phase(&app, &id, "starting");
         emit_log(&app, &id, "Restarting container with new image…");
-        if let Err(e) = crate::commands::start_app(state.clone(), app.clone(), id.clone()) {
+        if let Err(e) = crate::commands::app_lifecycle::start_app_inner(&state, &app, id.clone()) {
             emit_phase(&app, &id, "error");
             emit_log(&app, &id, &format!("start failed: {}", e));
             if opts.auto_rollback {
@@ -1372,7 +1372,7 @@ async fn rollback_docker(
     }
 
     emit_log(app, id, "Restarting with the original image…");
-    if let Err(e) = crate::commands::start_app(state.clone(), app.clone(), id.to_string()) {
+    if let Err(e) = crate::commands::app_lifecycle::start_app_inner(state, app, id.to_string()) {
         emit_log(app, id, &format!("rollback restart failed: {}", e));
     } else {
         emit_log(app, id, "Rollback complete. Original image is running.");
