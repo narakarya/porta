@@ -13,6 +13,9 @@ import {
 import { usePortaStore } from "../../store";
 import YamlEditor from "../shared/YamlEditor";
 import CodeEditor, { type CodeLanguage } from "../shared/CodeEditor";
+import EditorSearchBar from "../shared/EditorSearchBar";
+import { SearchQuery, setSearchQuery, findNext, findPrevious, SearchCursor } from "@codemirror/search";
+import type { EditorView } from "@codemirror/view";
 
 type FileKind = "compose" | "env" | "generic";
 
@@ -184,6 +187,13 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const toastTimer = useRef<number | null>(null);
 
+  // Find-in-file search (compose + generic editors)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQueryState] = useState("");
+  const [matchInfo, setMatchInfo] = useState<{ index: number; count: number }>({ index: -1, count: 0 });
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchViewRef = useRef<EditorView | null>(null);
+
   const active = files.find((f) => f.path === activePath) ?? null;
   /** Templates whose target is still missing. Backend only sets the field in
    *  that case, so this list empties itself once the file is created. */
@@ -303,11 +313,65 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     onClose();
   }, [isDirty, onClose]);
 
+  // ── Find-in-file search (CodeMirror editors) ────────────────────────────
+
+  // Push a query into a CodeMirror view and report match position/count.
+  function applyCmSearch(view: EditorView, q: string): { index: number; count: number } {
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: q, caseSensitive: false })) });
+    if (q === "") return { index: -1, count: 0 };
+    const doc = view.state.doc;
+    let count = 0;
+    let index = -1;
+    const head = view.state.selection.main.from;
+    const cursor = new SearchCursor(doc, q, 0, doc.length, (x) => x.toLowerCase());
+    while (!cursor.next().done) {
+      if (index === -1 && cursor.value.from >= head) index = count;
+      count++;
+    }
+    if (index === -1 && count > 0) index = 0;
+    return { index, count };
+  }
+
+  useEffect(() => {
+    const view = searchViewRef.current;
+    if (!view || active?.kind === "env") return; // env handled separately in Task 4
+    setMatchInfo(applyCmSearch(view, searchOpen ? searchQuery : ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, searchOpen, active]);
+
+  const searchNext = useCallback(() => {
+    const view = searchViewRef.current;
+    if (!view || matchInfo.count === 0) return;
+    findNext(view);
+    setMatchInfo((m) => ({ ...m, index: (m.index + 1) % m.count }));
+    view.focus();
+  }, [matchInfo.count]);
+
+  const searchPrev = useCallback(() => {
+    const view = searchViewRef.current;
+    if (!view || matchInfo.count === 0) return;
+    findPrevious(view);
+    setMatchInfo((m) => ({ ...m, index: (m.index - 1 + m.count) % m.count }));
+    view.focus();
+  }, [matchInfo.count]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQueryState("");
+    const view = searchViewRef.current;
+    if (view) view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) });
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
+        if (searchOpen) { closeSearch(); return; }
         attemptClose();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (isDirty && !saving && active) handleSave();
@@ -328,7 +392,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, saving, content, rows, active, envMode, attemptClose]);
+  }, [isDirty, saving, content, rows, active, envMode, attemptClose, searchOpen, closeSearch]);
 
   async function handleSave() {
     if (!active) return;
@@ -680,7 +744,20 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <span className="text-zinc-700 text-[12px]">·</span>
           <span className="text-[12px] text-zinc-500">files</span>
 
-          <div className="flex-1" />
+          <div className="flex-1 flex items-center justify-end px-2">
+            {searchOpen && (active?.kind === "compose" || active?.kind === "generic") && (
+              <EditorSearchBar
+                query={searchQuery}
+                matchIndex={matchInfo.index}
+                matchCount={matchInfo.count}
+                onQueryChange={setSearchQueryState}
+                onNext={searchNext}
+                onPrev={searchPrev}
+                onClose={closeSearch}
+                inputRef={searchInputRef}
+              />
+            )}
+          </div>
 
           {/* Empty values still to fill. Rows-mode only: in raw mode `rows` is
               stale, `rawContent` is the source of truth. */}
@@ -906,6 +983,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   maxHeight="100%"
                   errorLine={errorLine}
                   errorMessage={error ?? undefined}
+                  onReady={(view) => { searchViewRef.current = view; }}
                 />
               </div>
             ) : active.kind === "generic" ? (
@@ -916,6 +994,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   language={active.language ?? "text"}
                   rows={28}
                   maxHeight="100%"
+                  onReady={(view) => { searchViewRef.current = view; }}
                 />
               </div>
             ) : envMode === "raw" ? (
