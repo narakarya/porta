@@ -6,6 +6,16 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.13] — 2026-07-11
+
+### Fixed
+- **A running image update no longer races a manual Start/Stop of the same app.**
+  Updating a Docker or Compose app stops the container, pulls, and starts it
+  again; that sequence now holds the same per-app lock the Start/Stop/Restart
+  buttons use, so clicking Stop mid-update (or kicking off a second update)
+  queues behind it instead of interleaving `down` and `up -d` on one project.
+  Other apps are unaffected.
+
 ## [0.7.12] — 2026-07-11
 
 ### Fixed
