@@ -271,7 +271,7 @@ fn start_instance_inner(
         exit_handle.emit(&format!("instance:exit:{}", exit_id), code).ok();
     };
 
-    let pid = state.processes.start(
+    let pid = match state.processes.start(
         &iid,
         &app_row.start_command,
         std::path::Path::new(&worktree_path),
@@ -281,7 +281,17 @@ fn start_instance_inner(
         true,
         on_log,
         on_exit,
-    ).map_err(|e| e.to_string())?;
+    ) {
+        Ok(pid) => pid,
+        Err(e) => {
+            // Spawn failed — roll back the row we inserted so we don't leak a
+            // ghost "starting" instance and a permanently-reserved port
+            // (delete_instance removes both the row and its port_registry entry).
+            let mut db = state.db.lock().unwrap();
+            let _ = db.delete_instance(&iid);
+            return Err(e.to_string());
+        }
+    };
 
     {
         let db = state.db.lock().unwrap();
