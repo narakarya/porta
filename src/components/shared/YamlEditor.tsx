@@ -79,6 +79,9 @@ export default function YamlEditor({ value, onChange, placeholder, rows = 14, ma
           highlightActiveLineGutter: true,
           tabSize: 2,
           autocompletion: false,
+          // Cmd/Ctrl+F is driven by FileEditorModal's own search bar; disable
+          // CodeMirror's built-in keymap so its native panel doesn't also open.
+          searchKeymap: false,
         }}
       />
     </div>
