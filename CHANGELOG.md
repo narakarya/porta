@@ -6,6 +6,13 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.18] — 2026-07-12
+
+### Changed
+- **GitBadge marquee only in the popover, slower.** The app-card branch badge
+  goes back to a plain ellipsis truncation (no hover-scroll); the marquee now
+  lives only in the popover header and scrolls at half the previous speed.
+
 ## [0.7.17] — 2026-07-12
 
 ### Changed
