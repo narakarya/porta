@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
 import { gitFetch, gitPull, gitPush, gitStatus, gitWorktreeList, type WorktreeEntry, type AppInstance } from "../../lib/commands";
@@ -17,17 +17,86 @@ type Busy = "fetch" | "pull" | "push" | null;
 // snapshot each time → infinite re-render ("Maximum update depth exceeded").
 const EMPTY_INSTANCES: AppInstance[] = [];
 
-/** Inline spinner — the ops run off the main thread now, so this actually animates. */
-function Spinner({ className = "" }: { className?: string }) {
+// The ops run off the main thread now, so these actually animate. Each git op
+// gets a directional icon whose loading animation mirrors its meaning: fetch
+// spins (sync), pull pulls down, push pushes up.
+
+/** Circular sync arrows — fetch. Spins while fetching. */
+function SyncIcon({ spinning = false, className = "" }: { spinning?: boolean; className?: string }) {
   return (
     <svg
       width="10" height="10" viewBox="0 0 12 12" fill="none"
-      className={`animate-spin ${className}`}
-      role="status" aria-label="Loading"
+      className={`${spinning ? "animate-spin" : ""} ${className}`}
+      role={spinning ? "status" : undefined} aria-label={spinning ? "Fetching" : undefined}
     >
-      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
-      <path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M2 6a4 4 0 0 1 6.9-2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M9 1.2v2.4H6.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 6a4 4 0 0 1-6.9 2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** Down arrow — pull. Bounces downward while pulling. */
+function ArrowDownIcon({ animate = false, className = "" }: { animate?: boolean; className?: string }) {
+  return (
+    <svg
+      width="10" height="10" viewBox="0 0 12 12" fill="none"
+      className={`${animate ? "animate-bounce-down" : ""} ${className}`}
+      role={animate ? "status" : undefined} aria-label={animate ? "Pulling" : undefined}
+    >
+      <path d="M6 2v7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3 6.5 6 9.5 9 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Up arrow — push. Bounces upward while pushing. */
+function ArrowUpIcon({ animate = false, className = "" }: { animate?: boolean; className?: string }) {
+  return (
+    <svg
+      width="10" height="10" viewBox="0 0 12 12" fill="none"
+      className={`${animate ? "animate-bounce-up" : ""} ${className}`}
+      role={animate ? "status" : undefined} aria-label={animate ? "Pushing" : undefined}
+    >
+      <path d="M6 10V3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3 5.5 6 2.5 9 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/**
+ * Truncates with an ellipsis by default; on hover, if the text overflows, it
+ * slides sideways (marquee) far enough to reveal the tail, then settles back.
+ * The shift distance is measured on enter and fed to the keyframe via a CSS var,
+ * so a branch that fits never animates.
+ */
+function MarqueeOnHover({ text, className = "" }: { text: string; className?: string }) {
+  const outerRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  const animating = shift < 0;
+
+  function onEnter() {
+    const el = outerRef.current;
+    if (!el) return;
+    const overflow = el.scrollWidth - el.clientWidth;
+    if (overflow > 1) setShift(-overflow);
+  }
+
+  return (
+    <span
+      ref={outerRef}
+      onMouseEnter={onEnter}
+      onMouseLeave={() => setShift(0)}
+      className={`inline-block max-w-full overflow-hidden align-bottom ${animating ? "whitespace-nowrap" : "truncate"} ${className}`}
+    >
+      <span
+        className={animating ? "inline-block animate-marquee-hover" : ""}
+        style={animating ? ({ "--marquee-shift": `${shift}px` } as CSSProperties) : undefined}
+      >
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -223,11 +292,14 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
         className="inline-flex items-center gap-1 text-[10px] font-mono leading-none hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
         title={detached ? "Detached HEAD" : upstream ?? "No upstream"}
       >
-        <span className="text-zinc-500 truncate max-w-[14ch]">{branch}</span>
+        <MarqueeOnHover text={branch} className="text-zinc-500 max-w-[14ch]" />
         {ahead > 0 && <span className="text-blue-300">↑{ahead}</span>}
         {behind > 0 && <span className="text-amber-300">↓{behind}</span>}
-        {/* Activity stays visible on the card even with the popover closed. */}
-        {busy !== null && <Spinner className="text-zinc-400" />}
+        {/* Activity stays visible on the card even with the popover closed —
+            the directional icon shows which op is running. */}
+        {busy === "fetch" && <SyncIcon spinning className="text-zinc-400" />}
+        {busy === "pull" && <ArrowDownIcon animate className="text-zinc-400" />}
+        {busy === "push" && <ArrowUpIcon animate className="text-zinc-400" />}
       </button>
 
       {open && createPortal(
@@ -243,9 +315,8 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
           className="fixed z-[60] w-[260px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
           style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
         >
-          <div className="font-mono text-zinc-400 truncate mb-1.5">
-            {branch}
-            {upstream && <span className="text-zinc-600"> → {upstream}</span>}
+          <div className="mb-1.5">
+            <MarqueeOnHover text={branch} className="font-mono text-zinc-400 w-full" />
           </div>
 
           <div className="grid grid-cols-3 gap-1 mb-2 font-mono text-[10px]">
@@ -260,7 +331,7 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
               disabled={busy !== null}
               className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
             >
-              {busy === "fetch" && <Spinner />}
+              <SyncIcon spinning={busy === "fetch"} />
               Fetch
             </button>
             <button
@@ -268,7 +339,7 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
               disabled={busy !== null || behind === 0}
               className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
             >
-              {busy === "pull" && <Spinner />}
+              <ArrowDownIcon animate={busy === "pull"} />
               Pull
             </button>
             <button
@@ -276,7 +347,7 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
               disabled={busy !== null || ahead === 0}
               className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
             >
-              {busy === "push" && <Spinner />}
+              <ArrowUpIcon animate={busy === "push"} />
               Push
             </button>
           </div>
