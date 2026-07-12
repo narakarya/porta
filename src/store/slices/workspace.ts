@@ -45,6 +45,10 @@ export const createWorkspaceSlice: StateCreator<AllSlices, [], [], WorkspaceSlic
       }
       set({ workspaces, apps, services, serviceTemplates, selectedWorkspaceId, loading: false, appStartedAt });
 
+      // Populate worktree instances so nested cards render without waiting for
+      // the GitBadge popover to open.
+      await Promise.all(apps.map((a) => get().refreshInstances(a.id).catch(() => {})));
+
       if (isTauri) {
         const { MAX_LOG_LINES } = await import("../index");
         for (const app of apps) {

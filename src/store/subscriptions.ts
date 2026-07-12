@@ -1,7 +1,7 @@
 import type { App, Service } from "../types";
 import { setMockEventCallback } from "../lib/mock-data";
 import * as cmd from "../lib/commands";
-import type { GitStatus } from "../lib/commands";
+import type { GitStatus, AppInstance } from "../lib/commands";
 import { isDockerRuntimeUnavailable } from "../lib/docker-errors";
 import { MAX_LOG_LINES } from "./slices/app";
 import type { AllSlices } from "./index";
@@ -273,6 +273,61 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
     });
   };
 
+  // ── Instance event subscriptions ───────────────────────────────────────
+  // Mirrors subscribeForApps but keyed by instance id. Instance ids never
+  // collide with app ids (UUIDs), so reusing appLogs/appExitCode is safe.
+  const instanceUnlisteners: Array<() => void> = [];
+  let cancelInstancePending = () => {};
+
+  const subscribeForInstances = async (instances: AppInstance[]) => {
+    const { listen } = await import("@tauri-apps/api/event");
+    cancelInstancePending();
+    instanceUnlisteners.forEach((fn) => fn());
+    instanceUnlisteners.length = 0;
+
+    let cancelled = false;
+    cancelInstancePending = () => { cancelled = true; };
+
+    instances.forEach((inst) => {
+      listen<string>(`instance:log:${inst.id}`, (e) => {
+        set((s) => {
+          const prev = s.appLogs[inst.id] ?? [];
+          const next = [...prev, e.payload];
+          return {
+            appLogs: {
+              ...s.appLogs,
+              [inst.id]: next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next,
+            },
+          };
+        });
+      }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
+
+      listen<number>(`instance:exit:${inst.id}`, (e) => {
+        set((s) => ({
+          appExitCode: { ...s.appExitCode, [inst.id]: e.payload },
+          instances: {
+            ...s.instances,
+            [inst.app_id]: (s.instances[inst.app_id] ?? []).map((i) =>
+              i.id === inst.id ? { ...i, status: "stopped", pid: null } : i
+            ),
+          },
+        }));
+      }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
+
+      listen(`instance:ready:${inst.id}`, () => {
+        set((s) => ({
+          appExitCode: { ...s.appExitCode, [inst.id]: null },
+          instances: {
+            ...s.instances,
+            [inst.app_id]: (s.instances[inst.app_id] ?? []).map((i) =>
+              i.id === inst.id ? { ...i, status: "running" } : i
+            ),
+          },
+        }));
+      }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
+    });
+  };
+
   // ── Service event subscriptions ────────────────────────────────────────
   const subscribeForServices = async (services: Service[]) => {
     const { listen } = await import("@tauri-apps/api/event");
@@ -305,15 +360,22 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
     });
   };
 
+  // Flattens the per-app instance map into a single list for subscribeForInstances.
+  const flattenInstances = (m: Record<string, AppInstance[]>) => Object.values(m).flat();
+
   subscribeForApps(get().apps);
   subscribeForServices(get().services);
+  subscribeForInstances(flattenInstances(get().instances));
 
-  // Only re-subscribe when the apps/services list itself changes (added/removed),
-  // not on every status update — avoids thrashing listeners on start/stop.
+  // Only re-subscribe when the apps/services/instances list itself changes
+  // (added/removed), not on every status update — avoids thrashing listeners
+  // on start/stop.
   const subscribedIds = () => get().apps.map((a) => a.id).join(",");
   const subscribedSvcIds = () => get().services.map((s) => s.id).join(",");
+  const subscribedInstanceIds = () => flattenInstances(get().instances).map((i) => i.id).join(",");
   let lastIds = subscribedIds();
   let lastSvcIds = subscribedSvcIds();
+  let lastInstanceIds = subscribedInstanceIds();
 
   // ── Periodic Docker image update polling ───────────────────────────────────
   const IMAGE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
@@ -358,6 +420,11 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         lastSvcIds = svcIds;
         subscribeForServices(state.services);
       }
+      const instanceIds = flattenInstances(state.instances).map((i) => i.id).join(",");
+      if (instanceIds !== lastInstanceIds) {
+        lastInstanceIds = instanceIds;
+        subscribeForInstances(flattenInstances(state.instances));
+      }
       // Run first image check once apps are loaded, then schedule repeating interval
       if (!hasRunInitialImageCheck && state.apps.length > 0) {
         hasRunInitialImageCheck = true;
@@ -370,6 +437,8 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
   return () => {
     cancelPending();
     unlisteners.forEach((fn) => fn());
+    cancelInstancePending();
+    instanceUnlisteners.forEach((fn) => fn());
     unsub();
     if (imageCheckIntervalId) clearInterval(imageCheckIntervalId);
   };
