@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
-import { gitFetch, gitPull, gitPush, gitStatus, gitWorktreeList, type WorktreeEntry, type AppInstance } from "../../lib/commands";
+import { gitBranches, gitFetch, gitPull, gitPush, gitStatus, gitSwitchBranch, gitWorktreeList, type BranchList, type WorktreeEntry, type AppInstance } from "../../lib/commands";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 import type { App } from "../../types";
 
@@ -126,6 +126,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const [wtQuery, setWtQuery] = useState("");
   const [wtBusy, setWtBusy] = useState<string | null>(null);
   const [showAllWorktrees, setShowAllWorktrees] = useState(false);
+  const [branches, setBranches] = useState<BranchList | null>(null);
+  const [branchQuery, setBranchQuery] = useState("");
+  const [switching, setSwitching] = useState<string | null>(null);
 
   // Tracks "already probed, this dir isn't a repo". The store maps to
   // GitStatus (never null), so a non-repo can't be recorded there — this ref
@@ -197,6 +200,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   useEffect(() => {
     if (!open || !app.root_dir) return;
     gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
+    gitBranches(app.root_dir).then(setBranches).catch(() => setBranches(null));
     refreshInstances(app.id);
   }, [open, app.root_dir, app.id, refreshInstances]);
 
@@ -288,6 +292,23 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
     }
   }
 
+  async function switchTo(name: string, create: boolean) {
+    setSwitching(name);
+    setError(null);
+    try {
+      await gitSwitchBranch(app.root_dir, name, create);
+      const fresh = await gitStatus(app.root_dir);
+      if (!mountedRef.current) return;
+      if (fresh) setAppGit(app.id, fresh);
+      await gitBranches(app.root_dir).then(setBranches).catch(() => {});
+      setBranchQuery("");
+    } catch (e) {
+      if (mountedRef.current) setError(String(e));
+    } finally {
+      if (mountedRef.current) setSwitching(null);
+    }
+  }
+
   const { branch, ahead, behind, dirty, upstream, detached } = status;
 
   return (
@@ -357,6 +378,96 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
               Push
             </button>
           </div>
+
+          {/* Switch branch — in-place checkout on the primary repo. Hidden on
+              instance cards (branch-pinned, synthetic app id). */}
+          {!hideWorktreeLauncher && branches && (() => {
+            // Branches held by another worktree can't be switched to in the
+            // primary checkout — git refuses. We already have `worktrees`.
+            const heldByWorktree = new Set(
+              worktrees
+                .filter((w) => w.path !== app.root_dir && w.branch)
+                .map((w) => w.branch as string),
+            );
+            const localSet = new Set(branches.local);
+            // Merge local + remote-only, remote names stripped to short form so
+            // `git switch <short>` triggers DWIM tracking-branch creation.
+            type Row = { name: string; kind: "local" | "remote" };
+            const rows: Row[] = [
+              ...branches.local.map((name) => ({ name, kind: "local" as const })),
+              ...branches.remote
+                .map((r) => r.replace(/^[^/]+\//, "")) // origin/foo → foo
+                .filter((short) => !localSet.has(short))
+                .map((name) => ({ name, kind: "remote" as const })),
+            ];
+            const q = branchQuery.trim();
+            const filtered = rows.filter(
+              (r) => q === "" || r.name.toLowerCase().includes(q.toLowerCase()),
+            );
+            const LAUNCHER_CAP = 5;
+            const isSearching = q !== "";
+            const capped = isSearching ? filtered : filtered.slice(0, LAUNCHER_CAP);
+            const hiddenCount = filtered.length - capped.length;
+            // Offer create only when the query matches no branch name exactly
+            // (branch names are case-sensitive).
+            const exactMatch = rows.some((r) => r.name === q);
+            const showCreate = q !== "" && !exactMatch;
+            return (
+              <div className="mt-2 border-t border-white/10 pt-2">
+                <div className="text-[10px] text-zinc-500 mb-1">Switch branch</div>
+                <input
+                  value={branchQuery}
+                  onChange={(e) => setBranchQuery(e.target.value)}
+                  placeholder="Search or create branch…"
+                  className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
+                />
+                {capped.length === 0 && !showCreate && (
+                  <div className="text-[10px] text-zinc-600">No matching branch.</div>
+                )}
+                {capped.map((r) => {
+                  const isCurrent = branches.current === r.name;
+                  const held = heldByWorktree.has(r.name);
+                  const disabled = isCurrent || held || switching !== null;
+                  return (
+                    <div key={`${r.kind}:${r.name}`} className="flex items-center gap-1 py-0.5 text-[11px]">
+                      <span className="font-mono text-zinc-300 truncate flex-1" title={r.name}>
+                        {isCurrent && <span className="text-emerald-400/80">● </span>}
+                        {r.name}
+                        {r.kind === "remote" && <span className="text-zinc-600"> ↗</span>}
+                      </span>
+                      {isCurrent ? (
+                        <span className="text-[10px] text-zinc-600 px-1">current</span>
+                      ) : held ? (
+                        <span className="text-[10px] text-zinc-600 px-1" title="Checked out in a worktree">in worktree</span>
+                      ) : (
+                        <button
+                          disabled={disabled}
+                          onClick={() => switchTo(r.name, false)}
+                          className="text-[10px] text-zinc-300 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
+                        >
+                          {switching === r.name ? "…" : "Switch"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {!isSearching && hiddenCount > 0 && (
+                  <div className="mt-1 text-[10px] text-zinc-600">
+                    {hiddenCount} more — type to search
+                  </div>
+                )}
+                {showCreate && (
+                  <button
+                    disabled={switching !== null}
+                    onClick={() => switchTo(q, true)}
+                    className="mt-1 w-full text-left text-[10px] text-emerald-300/90 hover:bg-white/[0.06] rounded px-1.5 py-1 disabled:opacity-40"
+                  >
+                    {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Run from worktree — existing worktrees only; exclude the primary checkout.
               Hidden on instance cards: app.id there is an instance id, not a real
