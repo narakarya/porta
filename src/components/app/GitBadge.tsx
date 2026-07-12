@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
-import { gitFetch, gitPull, gitPush, gitStatus, gitWorktreeList, type WorktreeEntry } from "../../lib/commands";
+import { gitFetch, gitPull, gitPush, gitStatus, gitWorktreeList, type WorktreeEntry, type AppInstance } from "../../lib/commands";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 import type { App } from "../../types";
 
@@ -11,6 +11,11 @@ interface Props {
 }
 
 type Busy = "fetch" | "pull" | "push" | null;
+
+// Stable empty reference. Returning `?? []` straight from a Zustand selector
+// yields a new array every render, which `useSyncExternalStore` reads as a new
+// snapshot each time → infinite re-render ("Maximum update depth exceeded").
+const EMPTY_INSTANCES: AppInstance[] = [];
 
 /** Inline spinner — the ops run off the main thread now, so this actually animates. */
 function Spinner({ className = "" }: { className?: string }) {
@@ -35,7 +40,7 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
   const setAppGit = usePortaStore((s) => s.setAppGit);
   const pollError = usePortaStore((s) => s.appGitError[app.id]);
   const setAppGitError = usePortaStore((s) => s.setAppGitError);
-  const instances = usePortaStore((s) => s.instances[app.id] ?? []);
+  const instances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
   const runInstance = usePortaStore((s) => s.runInstance);
   const stopInstanceAction = usePortaStore((s) => s.stopInstanceAction);
   const refreshInstances = usePortaStore((s) => s.refreshInstances);
