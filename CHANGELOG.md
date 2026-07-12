@@ -6,6 +6,13 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.16] — 2026-07-12
+
+### Changed
+- **Dev builds now run an isolated Caddy on `:8443`** (admin `:2119`) instead
+  of sharing the production `:443` daemon. Running `npm run tauri dev` no
+  longer disturbs the production Caddy config, certs, or routes.
+
 ## [0.7.15] — 2026-07-12
 
 ### Added

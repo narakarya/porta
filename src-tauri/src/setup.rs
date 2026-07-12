@@ -100,6 +100,58 @@ fn caddy_path() -> &'static str {
     }
 }
 
+/// Build the child-process command for a dev-profile Caddy: `caddy run --config
+/// <init.json>` with XDG dirs pinned to the dev caddy dir so its autosave and
+/// cert/ACME data never touch prod's `~/.porta/caddy`. Mirrors the prod plist's
+/// env (setup.rs `caddy_plist_content`), just as an un-privileged child.
+fn dev_caddy_command(
+    caddy: &str,
+    init_json: &std::path::Path,
+    xdg_dir: &std::path::Path,
+) -> Command {
+    let mut cmd = Command::new(caddy);
+    cmd.arg("run")
+        .arg("--config")
+        .arg(init_json)
+        .env("XDG_CONFIG_HOME", xdg_dir)
+        .env("XDG_DATA_HOME", xdg_dir);
+    cmd
+}
+
+/// Start a dev-profile Caddy as an ordinary child (ports > 1024, no root, no
+/// osascript). Idempotent: if the dev admin API already answers, reuse it.
+fn start_dev_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
+    if crate::caddy::CaddyManager::new().is_running() {
+        on_log("Dev Caddy already running.");
+        return Ok(());
+    }
+    let caddy_dir = crate::porta_dir().join("caddy");
+    std::fs::create_dir_all(&caddy_dir)?;
+
+    // Seed config already carries the dev admin :2119 + :8443/:8080 listeners.
+    let init = crate::caddy::CaddyManager::build_config_with(&[], &crate::caddy::CaddyProfile::DEV);
+    let init_path = caddy_dir.join("init.json");
+    std::fs::write(&init_path, serde_json::to_vec_pretty(&init)?)?;
+
+    on_log("Starting dev Caddy (child process on :8443/:8080)…");
+    dev_caddy_command(caddy_path(), &init_path, &caddy_dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+
+    for i in 0..15 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if crate::caddy::CaddyManager::new().is_running() {
+            on_log("Dev Caddy is running.");
+            return Ok(());
+        }
+        if i == 5 {
+            on_log("Still waiting for dev Caddy admin API…");
+        }
+    }
+    Err(anyhow::anyhow!("Dev Caddy did not respond after 15 seconds"))
+}
+
 const PLIST_LABEL: &str = "com.narakarya.porta.caddy";
 
 /// Generate the launchd plist that runs Caddy in API mode with --resume.
@@ -176,6 +228,15 @@ pub fn start_caddy(on_log: &dyn Fn(&str)) -> Result<()> {
 /// `/etc/resolver` write) into the same admin prompt used to install the Caddy
 /// launchd daemon — so full setup asks for the password once, not per step.
 pub fn start_caddy_inner(on_log: &dyn Fn(&str), extra_privileged: &[String]) -> Result<()> {
+    // Dev profile: un-privileged child, fully isolated from the prod :443 daemon.
+    if !crate::caddy::CaddyProfile::current().privileged {
+        // Queued privileged commands (resolver writes) are a prod-setup concern;
+        // dev shares the system dnsmasq/resolver already, so run any that exist
+        // but don't block dev Caddy on them.
+        run_privileged_batch(extra_privileged, on_log).ok();
+        return start_dev_caddy(on_log);
+    }
+
     // Fast path: already running — no daemon install needed. But any queued
     // privileged commands still have to run; give them their own single prompt.
     if crate::caddy::CaddyManager::new().is_running() {
@@ -412,4 +473,33 @@ pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
         ));
     }
     Err(anyhow::anyhow!("mkcert generate failed: {last_err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::path::Path;
+
+    #[test]
+    fn dev_caddy_command_runs_with_init_config_and_isolated_xdg() {
+        let cmd = dev_caddy_command(
+            "/opt/homebrew/bin/caddy",
+            Path::new("/Users/x/.porta-dev/caddy/init.json"),
+            Path::new("/Users/x/.porta-dev/caddy"),
+        );
+        // Args: run --config <init.json>
+        let args: Vec<String> = cmd.get_args()
+            .map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(args, vec![
+            "run".to_string(),
+            "--config".to_string(),
+            "/Users/x/.porta-dev/caddy/init.json".to_string(),
+        ]);
+        // XDG env points at the dev caddy dir, isolating autosave + data from prod.
+        let has = |k: &str, v: &str| cmd.get_envs()
+            .any(|(ek, ev)| ek == OsStr::new(k) && ev == Some(OsStr::new(v)));
+        assert!(has("XDG_CONFIG_HOME", "/Users/x/.porta-dev/caddy"), "XDG_CONFIG_HOME isolated");
+        assert!(has("XDG_DATA_HOME", "/Users/x/.porta-dev/caddy"), "XDG_DATA_HOME isolated");
+    }
 }

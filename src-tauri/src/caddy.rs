@@ -5,14 +5,46 @@ use std::collections::BTreeMap;
 
 use crate::db::models::{BasicAuth, Route};
 
-const CADDY_API: &str = "http://localhost:2019";
+/// Build-time endpoint profile so a debug build's Caddy can't collide with the
+/// production `:443` daemon. Release = PROD, debug = DEV.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CaddyProfile {
+    /// Admin API `host:port` (no scheme).
+    pub admin: &'static str,
+    /// HTTPS listener address.
+    pub https: &'static str,
+    /// HTTP listener address.
+    pub http: &'static str,
+    /// Wake-server bind address.
+    pub wake: &'static str,
+    /// Write an `admin` block into the loaded config. DEV must pin it so a
+    /// `POST /load` doesn't reset the admin API back to the default `:2019`
+    /// and collide with prod. PROD leaves it unset (Caddy default `:2019`).
+    pub pin_admin: bool,
+    /// Needs root / a `:443` launchd daemon. DEV runs a plain child on >1024.
+    pub privileged: bool,
+}
+
+impl CaddyProfile {
+    pub const PROD: Self = Self {
+        admin: "localhost:2019", https: ":443", http: ":80",
+        wake: "127.0.0.1:2021", pin_admin: false, privileged: true,
+    };
+    pub const DEV: Self = Self {
+        admin: "localhost:2119", https: ":8443", http: ":8080",
+        wake: "127.0.0.1:2121", pin_admin: true, privileged: false,
+    };
+    pub const fn current() -> Self {
+        if cfg!(debug_assertions) { Self::DEV } else { Self::PROD }
+    }
+}
 
 /// Porta's wake server (see `wake_server.rs`). When an app is asleep its port is
 /// dead, so Caddy's reverse_proxy dial fails (a handler *error*, distinct from a
 /// 5xx the upstream itself returns). We register a server-level `errors` route
 /// that proxies those failures here; the wake server identifies the app by Host,
 /// starts it, and 307-redirects back so the retried request hits the live app.
-pub const WAKE_ADDR: &str = "127.0.0.1:2021";
+pub const WAKE_ADDR: &str = CaddyProfile::current().wake;
 
 /// Server-level `errors` block: route dial failures to the wake server. Always
 /// installed — the wake server returns a clean 502 for non-sleep apps, so this
@@ -238,6 +270,10 @@ impl CaddyManager {
     }
 
     pub fn build_config(routes: &[Route]) -> Value {
+        Self::build_config_with(routes, &CaddyProfile::current())
+    }
+
+    pub fn build_config_with(routes: &[Route], profile: &CaddyProfile) -> Value {
         let has_certs = crate::setup::certs_exist();
         let base = crate::porta_dir();
         let cert_file = base.join("certs").join("test.pem").to_string_lossy().to_string();
@@ -248,9 +284,9 @@ impl CaddyManager {
         let (server_logs, loggers) = collect_loggers(routes);
 
         let mut cfg = if has_certs {
-            // HTTPS server on :443 with mkcert wildcard cert + HTTP→HTTPS redirect on :80
+            // HTTPS server with mkcert wildcard cert + HTTP→HTTPS redirect
             let mut https_server = json!({
-                "listen": [":443"],
+                "listen": [profile.https],
                 "routes": route_json,
                 // Empty policy = use any available cert (our wildcard *.test)
                 "tls_connection_policies": [{}],
@@ -265,7 +301,7 @@ impl CaddyManager {
                         "servers": {
                             "porta_https": https_server,
                             "porta_redirect": {
-                                "listen": [":80"],
+                                "listen": [profile.http],
                                 "routes": [{
                                     "handle": [{
                                         "handler": "static_response",
@@ -289,8 +325,8 @@ impl CaddyManager {
                 }
             })
         } else {
-            // Fallback: plain HTTP on :80
-            let mut http_server = json!({ "listen": [":80"], "routes": route_json, "errors": wake_errors_block() });
+            // Fallback: plain HTTP
+            let mut http_server = json!({ "listen": [profile.http], "routes": route_json, "errors": wake_errors_block() });
             if !server_logs.is_null() {
                 http_server["logs"] = server_logs.clone();
             }
@@ -304,12 +340,18 @@ impl CaddyManager {
             cfg["logging"] = json!({ "logs": loggers });
         }
 
+        // DEV pins the admin listener so a POST /load keeps the admin API off :2019.
+        if profile.pin_admin {
+            cfg["admin"] = json!({ "listen": profile.admin });
+        }
+
         cfg
     }
 
     pub fn reload(&self, routes: &[Route]) -> Result<()> {
         let config = Self::build_config(routes);
-        let resp = self.client.post(format!("{}/load", CADDY_API))
+        let admin = CaddyProfile::current().admin;
+        let resp = self.client.post(format!("http://{}/load", admin))
             .header("Content-Type", "application/json")
             .json(&config).send()?;
         if !resp.status().is_success() {
@@ -319,8 +361,9 @@ impl CaddyManager {
     }
 
     pub fn is_running(&self) -> bool {
+        let admin = CaddyProfile::current().admin;
         self.client
-            .get(format!("{}/config/", CADDY_API))
+            .get(format!("http://{}/config/", admin))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .is_ok()
@@ -341,7 +384,7 @@ pub struct RemoteRouteSpec {
 }
 
 /// Client for a remote VPS Caddy admin API (reached over the WireGuard tunnel).
-/// Unlike the local `CaddyManager` (hardcoded `localhost:2019`, mkcert certs),
+/// Unlike the local `CaddyManager` (profile-selected admin address, mkcert certs),
 /// this targets a per-host `admin_url` and manages exactly one server object,
 /// `apps.http.servers.porta`, which Porta owns end to end.
 pub struct RemoteCaddy {
@@ -517,6 +560,33 @@ impl RemoteCaddy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caddy_profiles_have_expected_endpoints() {
+        let p = CaddyProfile::PROD;
+        assert_eq!(p.admin, "localhost:2019");
+        assert_eq!(p.https, ":443");
+        assert_eq!(p.http, ":80");
+        assert_eq!(p.wake, "127.0.0.1:2021");
+        assert!(!p.pin_admin);
+        assert!(p.privileged);
+
+        let d = CaddyProfile::DEV;
+        assert_eq!(d.admin, "localhost:2119");
+        assert_eq!(d.https, ":8443");
+        assert_eq!(d.http, ":8080");
+        assert_eq!(d.wake, "127.0.0.1:2121");
+        assert!(d.pin_admin);
+        assert!(!d.privileged);
+    }
+
+    #[test]
+    fn current_profile_follows_build_and_wake_addr_matches() {
+        let expected = if cfg!(debug_assertions) { CaddyProfile::DEV } else { CaddyProfile::PROD };
+        assert_eq!(CaddyProfile::current().admin, expected.admin);
+        // WAKE_ADDR is derived from the current profile.
+        assert_eq!(WAKE_ADDR, expected.wake);
+    }
 
     #[test]
     fn test_build_config_empty_http() {
@@ -696,6 +766,32 @@ mod tests {
         let handlers = server["routes"][0]["handle"].as_array().unwrap();
         assert_eq!(handlers[0]["handler"], "authentication");
         assert_eq!(handlers[1]["handler"], "reverse_proxy");
+    }
+
+    #[test]
+    fn prod_config_uses_443_and_no_admin_block() {
+        let cfg = CaddyManager::build_config_with(&[], &CaddyProfile::PROD);
+        // No admin block for prod (Caddy default :2019).
+        assert!(cfg.get("admin").is_none(), "prod must not pin admin, got {cfg}");
+        // Some server listens on :443 or :80 depending on certs; assert no dev port.
+        let servers = cfg["apps"]["http"]["servers"].as_object().unwrap();
+        let listens: Vec<String> = servers.values()
+            .filter_map(|s| s["listen"][0].as_str().map(str::to_string))
+            .collect();
+        assert!(listens.iter().all(|l| l == ":443" || l == ":80"),
+            "prod listeners must be :443/:80, got {listens:?}");
+    }
+
+    #[test]
+    fn dev_config_pins_admin_2119_and_uses_8443_or_8080() {
+        let cfg = CaddyManager::build_config_with(&[], &CaddyProfile::DEV);
+        assert_eq!(cfg["admin"]["listen"], "localhost:2119");
+        let servers = cfg["apps"]["http"]["servers"].as_object().unwrap();
+        let listens: Vec<String> = servers.values()
+            .filter_map(|s| s["listen"][0].as_str().map(str::to_string))
+            .collect();
+        assert!(listens.iter().all(|l| l == ":8443" || l == ":8080"),
+            "dev listeners must be :8443/:8080, got {listens:?}");
     }
 
     #[test]
