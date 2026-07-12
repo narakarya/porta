@@ -6,6 +6,35 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.16] — 2026-07-12
+
+### Changed
+- **Dev builds now run an isolated Caddy on `:8443`** (admin `:2119`) instead
+  of sharing the production `:443` daemon. Running `npm run tauri dev` no
+  longer disturbs the production Caddy config, certs, or routes.
+
+## [0.7.15] — 2026-07-12
+
+### Added
+- **Run apps from a git worktree.** GitBadge gains a picker that lists an
+  app's existing worktrees and starts each as an isolated instance: its own
+  process, an auto-allocated port, and a dedicated Caddy route at
+  `<app>-<branch>.<domain>`. Instances get a store slice with
+  start/stop/list actions, and their routes are torn down when the app is
+  deleted.
+
+### Fixed
+- **Instance subdomains no longer collide with a primary app's host.**
+  Disambiguation now also avoids every primary app label sharing the same
+  effective domain, so a rare instance label can't produce two Caddy routes
+  for one host.
+- **Instance port allocation is serialized** to close a TOCTOU between
+  picking a free port and reserving it, preventing two concurrent starts
+  from grabbing the same port.
+- **Stale instance rows are reconciled on boot** — instances left
+  `running`/`starting` after a Porta restart are marked `stopped` so Caddy
+  rebuilds without their dead routes.
+
 ## [0.7.14] — 2026-07-11
 
 ### Added
