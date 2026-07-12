@@ -36,7 +36,10 @@ pub fn startup_caddy_sync(app: &tauri::AppHandle) {
 /// pattern (`"http.log.access"` without a per-app sub-logger suffix).
 fn caddy_has_legacy_broadcast_log_config() -> bool {
     let Ok(resp) = reqwest::blocking::Client::new()
-        .get("http://localhost:2019/config/logging/logs")
+        .get(format!(
+            "http://{}/config/logging/logs",
+            crate::caddy::CaddyProfile::current().admin
+        ))
         .timeout(std::time::Duration::from_secs(3))
         .send()
     else {

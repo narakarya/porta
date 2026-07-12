@@ -5,14 +5,46 @@ use std::collections::BTreeMap;
 
 use crate::db::models::{BasicAuth, Route};
 
-const CADDY_API: &str = "http://localhost:2019";
+/// Build-time endpoint profile so a debug build's Caddy can't collide with the
+/// production `:443` daemon. Release = PROD, debug = DEV.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CaddyProfile {
+    /// Admin API `host:port` (no scheme).
+    pub admin: &'static str,
+    /// HTTPS listener address.
+    pub https: &'static str,
+    /// HTTP listener address.
+    pub http: &'static str,
+    /// Wake-server bind address.
+    pub wake: &'static str,
+    /// Write an `admin` block into the loaded config. DEV must pin it so a
+    /// `POST /load` doesn't reset the admin API back to the default `:2019`
+    /// and collide with prod. PROD leaves it unset (Caddy default `:2019`).
+    pub pin_admin: bool,
+    /// Needs root / a `:443` launchd daemon. DEV runs a plain child on >1024.
+    pub privileged: bool,
+}
+
+impl CaddyProfile {
+    pub const PROD: Self = Self {
+        admin: "localhost:2019", https: ":443", http: ":80",
+        wake: "127.0.0.1:2021", pin_admin: false, privileged: true,
+    };
+    pub const DEV: Self = Self {
+        admin: "localhost:2119", https: ":8443", http: ":8080",
+        wake: "127.0.0.1:2121", pin_admin: true, privileged: false,
+    };
+    pub const fn current() -> Self {
+        if cfg!(debug_assertions) { Self::DEV } else { Self::PROD }
+    }
+}
 
 /// Porta's wake server (see `wake_server.rs`). When an app is asleep its port is
 /// dead, so Caddy's reverse_proxy dial fails (a handler *error*, distinct from a
 /// 5xx the upstream itself returns). We register a server-level `errors` route
 /// that proxies those failures here; the wake server identifies the app by Host,
 /// starts it, and 307-redirects back so the retried request hits the live app.
-pub const WAKE_ADDR: &str = "127.0.0.1:2021";
+pub const WAKE_ADDR: &str = CaddyProfile::current().wake;
 
 /// Server-level `errors` block: route dial failures to the wake server. Always
 /// installed — the wake server returns a clean 502 for non-sleep apps, so this
@@ -309,7 +341,8 @@ impl CaddyManager {
 
     pub fn reload(&self, routes: &[Route]) -> Result<()> {
         let config = Self::build_config(routes);
-        let resp = self.client.post(format!("{}/load", CADDY_API))
+        let admin = CaddyProfile::current().admin;
+        let resp = self.client.post(format!("http://{}/load", admin))
             .header("Content-Type", "application/json")
             .json(&config).send()?;
         if !resp.status().is_success() {
@@ -319,8 +352,9 @@ impl CaddyManager {
     }
 
     pub fn is_running(&self) -> bool {
+        let admin = CaddyProfile::current().admin;
         self.client
-            .get(format!("{}/config/", CADDY_API))
+            .get(format!("http://{}/config/", admin))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .is_ok()
@@ -517,6 +551,33 @@ impl RemoteCaddy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caddy_profiles_have_expected_endpoints() {
+        let p = CaddyProfile::PROD;
+        assert_eq!(p.admin, "localhost:2019");
+        assert_eq!(p.https, ":443");
+        assert_eq!(p.http, ":80");
+        assert_eq!(p.wake, "127.0.0.1:2021");
+        assert!(!p.pin_admin);
+        assert!(p.privileged);
+
+        let d = CaddyProfile::DEV;
+        assert_eq!(d.admin, "localhost:2119");
+        assert_eq!(d.https, ":8443");
+        assert_eq!(d.http, ":8080");
+        assert_eq!(d.wake, "127.0.0.1:2121");
+        assert!(d.pin_admin);
+        assert!(!d.privileged);
+    }
+
+    #[test]
+    fn current_profile_follows_build_and_wake_addr_matches() {
+        let expected = if cfg!(debug_assertions) { CaddyProfile::DEV } else { CaddyProfile::PROD };
+        assert_eq!(CaddyProfile::current().admin, expected.admin);
+        // WAKE_ADDR is derived from the current profile.
+        assert_eq!(WAKE_ADDR, expected.wake);
+    }
 
     #[test]
     fn test_build_config_empty_http() {
