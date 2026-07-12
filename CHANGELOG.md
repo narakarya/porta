@@ -6,6 +6,17 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.17] — 2026-07-12
+
+### Changed
+- **GitBadge branch names auto-scroll on hover** instead of hard-truncating,
+  and the popover header drops the `→ upstream` arrow for a cleaner look.
+
+### Added
+- **Directional git-op loading in GitBadge.** Fetch spins a sync icon, Pull
+  shows a down arrow that bounces downward, Push an up arrow that bounces
+  upward — the loading animation now mirrors each operation's direction.
+
 ## [0.7.16] — 2026-07-12
 
 ### Changed
