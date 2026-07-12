@@ -821,23 +821,27 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       {/* ── Nested instances region — primary cards only, so instance cards
            never nest their own instances. ── */}
       {!isInstance && appInstances.length > 0 && (
-        <div className="mt-2 border-t border-white/10 pt-2">
-          <button
-            onClick={() => setInstancesExpanded((v) => !v)}
-            className="flex items-center gap-1 mb-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-            aria-expanded={instancesExpanded}
-          >
-            <svg
-              width="8" height="8" viewBox="0 0 8 8"
-              className={`transition-transform ${instancesExpanded ? "rotate-90" : ""}`}
+        <div className="border-t border-white/10">
+          <div className="px-3 py-2">
+            <button
+              onClick={() => setInstancesExpanded((v) => !v)}
+              className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+              aria-expanded={instancesExpanded}
             >
-              <path d="M2 1l4 3-4 3z" fill="currentColor" />
-            </svg>
-            Instances ({appInstances.length})
-          </button>
-          {instancesExpanded && (
-            <>
-              <div className="flex flex-col gap-2 pl-2 border-l border-white/10">
+              <svg
+                width="9" height="9" viewBox="0 0 12 12"
+                className={`shrink-0 transition-transform duration-150 ${instancesExpanded ? "rotate-90" : ""}`}
+              >
+                <path
+                  d="M4.5 3L8 6l-3.5 3"
+                  stroke="currentColor" strokeWidth="1.5" fill="none"
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              </svg>
+              <span className="leading-none">Instances ({appInstances.length})</span>
+            </button>
+            {instancesExpanded && (
+              <div className="mt-2 flex flex-col gap-2">
                 {appInstances.slice(0, 3).map((inst) => (
                   <AppCard
                     key={inst.id}
@@ -848,17 +852,17 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                     onOpenTerminal={onOpenTerminal}
                   />
                 ))}
+                {appInstances.length > 3 && (
+                  <button
+                    onClick={() => setInstancesModalOpen(true)}
+                    className="self-start text-[10px] text-zinc-400 hover:text-zinc-200"
+                  >
+                    View all ({appInstances.length})
+                  </button>
+                )}
               </div>
-              {appInstances.length > 3 && (
-                <button
-                  onClick={() => setInstancesModalOpen(true)}
-                  className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
-                >
-                  View all ({appInstances.length})
-                </button>
-              )}
-            </>
-          )}
+            )}
+          </div>
         </div>
       )}
       {instancesModalOpen && (

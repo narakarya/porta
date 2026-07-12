@@ -296,10 +296,34 @@ fn start_instance_inner(
         exit_handle.emit(&format!("instance:exit:{}", exit_id), code).ok();
     };
 
-    // Instances run with cwd = the worktree, but `.env` is gitignored and only
-    // exists in the primary checkout — a relative env_file would resolve against
-    // the worktree and fail to load. Resolve it against the parent app's
-    // root_dir so instances inherit the parent's `.env`.
+    // Instances run with cwd = the worktree, but `.env` is gitignored so a fresh
+    // worktree checkout doesn't have one. A `source .env` in the start command
+    // (or any relative file read) then fails with "no such file". Symlink the
+    // parent app's env file(s) into the worktree so the shell command AND
+    // Porta's env injection resolve against the parent's copy — "refer
+    // everything from the parent". Best-effort: a missing parent file or an
+    // already-present worktree file is left untouched.
+    #[cfg(unix)]
+    {
+        let mut names: Vec<&str> = vec![".env"];
+        if let Some(ef) = app_row.env_file.as_deref() {
+            if std::path::Path::new(ef).is_relative() && !names.contains(&ef) {
+                names.push(ef);
+            }
+        }
+        for name in names {
+            let parent_env = std::path::Path::new(&app_row.root_dir).join(name);
+            let wt_env = std::path::Path::new(&worktree_path).join(name);
+            // symlink_metadata (unlike exists) doesn't follow links, so an
+            // existing symlink — even a broken one — counts as "already there".
+            if parent_env.exists() && wt_env.symlink_metadata().is_err() {
+                let _ = std::os::unix::fs::symlink(&parent_env, &wt_env);
+            }
+        }
+    }
+
+    // Also hand Porta's own env injection an absolute path resolved against the
+    // parent, so it works regardless of the symlink above.
     let env_file_abs = app_row.env_file.as_deref().map(|ef| {
         let p = std::path::Path::new(ef);
         if p.is_absolute() {
