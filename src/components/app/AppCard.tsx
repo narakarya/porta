@@ -734,6 +734,18 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   Stop
                 </button>
               )}
+              {/* Remove a stopped/crashed instance for good — deletes its row,
+                  frees the port, drops the Caddy route. Instance-only: apps are
+                  removed via Settings, not from the card. */}
+              {isInstance && instance && (
+                <button
+                  onClick={() => stopInstanceAction(instance.id, instance.app_id)}
+                  className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-red-300 hover:bg-red-500/10 rounded-md transition-colors"
+                  title="Remove this instance"
+                >
+                  Remove
+                </button>
+              )}
             </>
           )}
         </div>

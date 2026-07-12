@@ -531,8 +531,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                           <button
                             onClick={() => stopInstanceAction(inst.id, app.id)}
                             className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                            title={inst.status === "running" ? "Stop & remove instance" : "Remove instance"}
                           >
-                            Stop
+                            {inst.status === "running" ? "Stop" : "Remove"}
                           </button>
                         </>
                       ) : (

@@ -505,15 +505,16 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   stopInstanceAction: async (instanceId, appId) => {
     await cmd.stopInstance(instanceId);
-    // Keep the instance visible as a stopped card (mirrors the `instance:exit`
-    // subscription handler) rather than filtering it out — instance cards have
-    // a full lifecycle and a stopped card still offers a working Start button.
+    // Backend `stop_instance` terminates the process AND deletes the row (frees
+    // the port, drops the Caddy route), so the instance is gone for good — drop
+    // it from the list. This is the explicit Stop/Remove path. An instance that
+    // exits on its OWN (crash) instead keeps its row as "stopped" via the
+    // `instance:exit` handler so the user can see the failure and remove it
+    // deliberately (which calls this action).
     set((s) => ({
       instances: {
         ...s.instances,
-        [appId]: (s.instances[appId] ?? []).map((i) =>
-          i.id === instanceId ? { ...i, status: "stopped", pid: null } : i
-        ),
+        [appId]: (s.instances[appId] ?? []).filter((i) => i.id !== instanceId),
       },
     }));
   },
