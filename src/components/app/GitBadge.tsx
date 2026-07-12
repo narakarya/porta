@@ -349,22 +349,9 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
                     </div>
                   );
                 })}
-                <div className="text-[9px] text-zinc-600 mt-1 leading-tight">
-                  Sets a distinct PORT per instance. Stateful apps (e.g. Phoenix) may still
-                  share a dev DB unless configured to read PORT/env.
-                </div>
               </div>
             );
           })()}
-
-          {onOpenTerminal && (
-            <button
-              onClick={() => { setOpen(false); onOpenTerminal(app); }}
-              className="w-full mt-1 px-2 py-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors text-left"
-            >
-              Open terminal in {app.root_dir.replace(/\/+$/, "").split("/").pop() || app.root_dir}
-            </button>
-          )}
 
           {error && (
             <div className="mt-2 p-1.5 rounded bg-red-500/10 border border-red-500/20">
