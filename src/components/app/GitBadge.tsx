@@ -8,6 +8,11 @@ import type { App } from "../../types";
 interface Props {
   app: App;
   onOpenTerminal?: (app: App) => void;
+  /** Instance cards use a synthetic app whose id is an instance id, not a real
+   * app id — the "Run from worktree" launcher's `runInstance(app.id, ...)`
+   * calls would hit the backend with that instance id and fail with "app not
+   * found". Set true on instance-context renders to hide the launcher. */
+  hideWorktreeLauncher?: boolean;
 }
 
 type Busy = "fetch" | "pull" | "push" | null;
@@ -31,7 +36,7 @@ function Spinner({ className = "" }: { className?: string }) {
   );
 }
 
-export default function GitBadge({ app, onOpenTerminal }: Props) {
+export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = false }: Props) {
   // The store is the single source of truth. The Rust poller writes
   // `appGit[app.id]` every 15s; we seed it once on mount (via setAppGit) so a
   // newly-added app doesn't sit blank until the first tick, and run() refreshes
@@ -281,8 +286,10 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
             </button>
           </div>
 
-          {/* Run from worktree — existing worktrees only; exclude the primary checkout. */}
-          {(() => {
+          {/* Run from worktree — existing worktrees only; exclude the primary checkout.
+              Hidden on instance cards: app.id there is an instance id, not a real
+              app id, so runInstance/stopInstanceAction would target the wrong thing. */}
+          {!hideWorktreeLauncher && (() => {
             const branchWts = worktrees.filter((w) => w.path !== app.root_dir && w.branch);
             const others = branchWts.filter(
               (w) =>

@@ -431,7 +431,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             ) : (
               <p className="text-[11px] text-zinc-600">port {app.port}</p>
             )}
-            {!isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} />}
+            {!isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} hideWorktreeLauncher={isInstance} />}
             {isManaged && portCheck && !portCheck.available && (() => {
               // `ps -o comm=` returns the full command path for binaries
               // launched by version managers (mise/asdf/nvm) — strip to the
