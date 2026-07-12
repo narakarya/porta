@@ -24,6 +24,14 @@ fn parse_branch_lines(out: &str) -> Vec<String> {
         .collect()
 }
 
+/// Remote short names from `git branch -r --format=%(refname:short)`, dropping
+/// the `refs/remotes/<remote>/HEAD` symref — which `%(refname:short)` renders as
+/// the bare remote name (`origin`, no slash). Real remote-tracking names always
+/// contain a `/`, so slash-less entries are exactly the symref.
+fn remote_branch_names(out: &str) -> Vec<String> {
+    parse_branch_lines(out).into_iter().filter(|b| b.contains('/')).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct GitStatus {
     /// Branch name, or a short SHA when HEAD is detached.
@@ -367,7 +375,7 @@ fn branches_for(root_dir: &str) -> Result<BranchList, String> {
         &["branch", "--format=%(refname:short)"],
         NET_TIMEOUT_SECS,
     )?);
-    let remote = parse_branch_lines(&run_git(
+    let remote = remote_branch_names(&run_git(
         root_dir,
         &["branch", "-r", "--format=%(refname:short)"],
         NET_TIMEOUT_SECS,
@@ -840,13 +848,11 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
     }
 
     #[test]
-    fn parse_branch_lines_drops_origin_head_symref() {
-        // `git branch -r --format=%(refname:short)` emits origin/HEAD for the symref.
-        let out = "origin/HEAD\norigin/main\norigin/fix/foo\n";
-        assert_eq!(
-            parse_branch_lines(out),
-            vec!["origin/main", "origin/fix/foo"]
-        );
+    fn remote_branch_names_drops_bare_remote_symref() {
+        // `git branch -r --format=%(refname:short)` shortens refs/remotes/origin/HEAD
+        // to the bare remote name "origin" (no slash), not "origin/HEAD".
+        let out = "origin\norigin/main\norigin/fix/foo\n";
+        assert_eq!(remote_branch_names(out), vec!["origin/main", "origin/fix/foo"]);
     }
 
     #[test]
