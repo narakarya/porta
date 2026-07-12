@@ -125,6 +125,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [wtQuery, setWtQuery] = useState("");
   const [wtBusy, setWtBusy] = useState<string | null>(null);
+  const [showAllWorktrees, setShowAllWorktrees] = useState(false);
 
   // Tracks "already probed, this dir isn't a repo". The store maps to
   // GitStatus (never null), so a non-repo can't be recorded there — this ref
@@ -369,10 +370,21 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                 w.path.toLowerCase().includes(wtQuery.toLowerCase()),
             );
             const runningByPath = new Map(instances.map((i) => [i.worktree_path, i]));
+            // Keep the list short by default; searching or "Show more" reveals the
+            // rest. Running instances always show so an active one is never hidden.
+            const LAUNCHER_CAP = 5;
+            const isSearching = wtQuery.trim() !== "";
+            const capped =
+              showAllWorktrees || isSearching ? others : others.slice(0, LAUNCHER_CAP);
+            const running = others.filter((w) => runningByPath.has(w.path));
+            const visible = capped.concat(
+              running.filter((w) => !capped.some((c) => c.path === w.path)),
+            );
+            const hiddenCount = others.length - visible.length;
             return (
               <div className="mt-2 border-t border-white/10 pt-2">
                 <div className="text-[10px] text-zinc-500 mb-1">Run from worktree</div>
-                {branchWts.length > 3 && (
+                {branchWts.length > LAUNCHER_CAP && (
                   <input
                     value={wtQuery}
                     onChange={(e) => setWtQuery(e.target.value)}
@@ -383,7 +395,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                 {others.length === 0 && (
                   <div className="text-[10px] text-zinc-600">No other worktrees.</div>
                 )}
-                {others.map((w) => {
+                {visible.map((w) => {
                   const inst = runningByPath.get(w.path);
                   return (
                     <div key={w.path} className="flex items-center gap-1 py-0.5 text-[11px]">
@@ -427,6 +439,14 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                     </div>
                   );
                 })}
+                {!isSearching && (hiddenCount > 0 || showAllWorktrees) && others.length > LAUNCHER_CAP && (
+                  <button
+                    onClick={() => setShowAllWorktrees((v) => !v)}
+                    className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
+                  >
+                    {hiddenCount > 0 ? `Show ${hiddenCount} more…` : "Show less"}
+                  </button>
+                )}
               </div>
             );
           })()}

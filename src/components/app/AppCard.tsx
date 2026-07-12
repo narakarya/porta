@@ -143,6 +143,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   }, [isRestarting, isRunning, app.status]);
 
   const [instancesModalOpen, setInstancesModalOpen] = useState(false);
+  const [instancesExpanded, setInstancesExpanded] = useState(true);
   const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
@@ -821,26 +822,42 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
            never nest their own instances. ── */}
       {!isInstance && appInstances.length > 0 && (
         <div className="mt-2 border-t border-white/10 pt-2">
-          <div className="text-[10px] text-zinc-500 mb-1">Instances ({appInstances.length})</div>
-          <div className="flex flex-col gap-2">
-            {appInstances.slice(0, 3).map((inst) => (
-              <AppCard
-                key={inst.id}
-                app={deriveInstanceApp(app, inst)}
-                workspace={workspace}
-                variant="instance"
-                instance={inst}
-                onOpenTerminal={onOpenTerminal}
-              />
-            ))}
-          </div>
-          {appInstances.length > 3 && (
-            <button
-              onClick={() => setInstancesModalOpen(true)}
-              className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
+          <button
+            onClick={() => setInstancesExpanded((v) => !v)}
+            className="flex items-center gap-1 mb-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+            aria-expanded={instancesExpanded}
+          >
+            <svg
+              width="8" height="8" viewBox="0 0 8 8"
+              className={`transition-transform ${instancesExpanded ? "rotate-90" : ""}`}
             >
-              View all ({appInstances.length})
-            </button>
+              <path d="M2 1l4 3-4 3z" fill="currentColor" />
+            </svg>
+            Instances ({appInstances.length})
+          </button>
+          {instancesExpanded && (
+            <>
+              <div className="flex flex-col gap-2 pl-2 border-l border-white/10">
+                {appInstances.slice(0, 3).map((inst) => (
+                  <AppCard
+                    key={inst.id}
+                    app={deriveInstanceApp(app, inst)}
+                    workspace={workspace}
+                    variant="instance"
+                    instance={inst}
+                    onOpenTerminal={onOpenTerminal}
+                  />
+                ))}
+              </div>
+              {appInstances.length > 3 && (
+                <button
+                  onClick={() => setInstancesModalOpen(true)}
+                  className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
+                >
+                  View all ({appInstances.length})
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
