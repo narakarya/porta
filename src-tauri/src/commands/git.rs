@@ -392,6 +392,30 @@ pub async fn git_branches(root_dir: String) -> Result<BranchList, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Build the `git` argv for a switch. `create` prepends `-c` so the branch is
+/// made from current HEAD; otherwise a bare switch, relying on git DWIM to
+/// create a tracking branch from a remote-only match.
+fn switch_args(branch: &str, create: bool) -> Vec<&str> {
+    if create {
+        vec!["switch", "-c", branch]
+    } else {
+        vec!["switch", branch]
+    }
+}
+
+#[tauri::command]
+pub async fn git_switch_branch(
+    root_dir: String,
+    branch: String,
+    create: bool,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &switch_args(&branch, create), NET_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// How many 15s status ticks between probes of a folder we already know isn't a
 /// repo. Repos and errored folders are probed every tick; non-repos far less
 /// often, since a plain folder becoming a repo is rare and a couple of minutes
@@ -853,6 +877,16 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         // to the bare remote name "origin" (no slash), not "origin/HEAD".
         let out = "origin\norigin/main\norigin/fix/foo\n";
         assert_eq!(remote_branch_names(out), vec!["origin/main", "origin/fix/foo"]);
+    }
+
+    #[test]
+    fn switch_args_create_uses_dash_c() {
+        assert_eq!(switch_args("feature", true), vec!["switch", "-c", "feature"]);
+    }
+
+    #[test]
+    fn switch_args_existing_is_plain_switch() {
+        assert_eq!(switch_args("main", false), vec!["switch", "main"]);
     }
 
     #[test]
