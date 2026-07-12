@@ -553,8 +553,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
         </Tooltip>
         )}
 
-        {/* Files editor — unified config editor (compose, .env, mise.toml, …) */}
-        {(app.root_dir || (isCompose && app.compose_file)) && (
+        {/* Files editor — unified config editor (compose, .env, mise.toml, …).
+            Hidden on instance cards (branch-pinned worktrees). */}
+        {!isInstance && (app.root_dir || (isCompose && app.compose_file)) && (
         <Tooltip label="Edit config files">
           <button
             onClick={(e) => { e.stopPropagation(); setFileEditorInitialPath(undefined); setFileEditorOpen(true); }}
@@ -580,8 +581,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
 
         {/* HTTP traffic inspector — non-wildcard host served by Caddy.
             Hidden for docker/compose: container logs already cover the
-            request-time view, and Caddy<->container traffic is noisy. */}
-        {!isWildcard && !isDocker && !isCompose && (
+            request-time view, and Caddy<->container traffic is noisy.
+            Hidden on instance cards (branch-pinned worktrees). */}
+        {!isInstance && !isWildcard && !isDocker && !isCompose && (
           <Tooltip label="HTTP traffic">
             <button
               onClick={() => setTrafficOpen(true)}

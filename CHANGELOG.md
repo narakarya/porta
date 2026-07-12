@@ -6,6 +6,25 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.23] — 2026-07-12
+
+### Changed
+- **Branch switching moves to a flyout.** The GitBadge now leads with a git
+  branch icon + the current branch name; clicking it opens the popover with
+  fetch/pull/push (unchanged) plus a **Switch branch** row. That row opens a
+  second popover to the *right* — a searchable branch list where you click a
+  branch name to check it out directly (no separate "Switch" button) or
+  "Create <name>". Instance cards keep only the git-ops popover (branch-pinned).
+- **Instance cards drop the config-editor and HTTP-traffic buttons.** Both were
+  primary-app affordances that didn't belong on a branch-pinned worktree card.
+
+### Fixed
+- **Terminal opens on instance cards.** The terminal button on a sub-instance
+  did nothing: the modal render loop only iterated real apps, so an instance id
+  (which never appears in `apps`) never mounted a `TerminalModal`. It now
+  resolves running instances too, so their terminal opens against the worktree
+  path.
+
 ## [0.7.22] — 2026-07-12
 
 ### Added

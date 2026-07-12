@@ -4,6 +4,7 @@ import { usePortaStore } from "../../store";
 import type { App } from "../../types";
 import { detectStartCommand } from "../../lib/commands";
 import AppCard from "../app/AppCard";
+import { deriveInstanceApp } from "../../lib/instance-app";
 import type { AddAppDefaultValues } from "../app/AddAppModal";
 import ServiceCard from "../service/ServiceCard";
 import SelectionBar from "./SelectionBar";
@@ -21,11 +22,12 @@ const TerminalModal = lazy(() => import("../terminal/TerminalModal"));
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export default function WorkspaceView() {
-  const { workspaces, apps, services, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore(
+  const { workspaces, apps, services, instances, selectedWorkspaceId, startAllInWorkspace, stopAllInWorkspace } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
       services: s.services,
+      instances: s.instances,
       selectedWorkspaceId: s.selectedWorkspaceId,
       startAllInWorkspace: s.startAllInWorkspace,
       stopAllInWorkspace: s.stopAllInWorkspace,
@@ -235,6 +237,21 @@ export default function WorkspaceView() {
   const liveSettingsApp = settingsApp
     ? (apps.find((a) => a.id === settingsApp.id) ?? settingsApp)
     : null;
+
+  // Terminal modals are keyed by app.id, but a sub-instance's terminal is
+  // opened with the *instance* id (see deriveInstanceApp). Instance ids never
+  // appear in `apps`, so the modal render loop below must also resolve them
+  // from `instances` — otherwise the terminal button on an instance card does
+  // nothing (no modal ever mounts).
+  const terminalApps = useMemo(() => {
+    const instApps: App[] = [];
+    for (const [appId, list] of Object.entries(instances)) {
+      const parent = apps.find((a) => a.id === appId);
+      if (!parent) continue;
+      for (const inst of list) instApps.push(deriveInstanceApp(parent, inst));
+    }
+    return [...apps, ...instApps];
+  }, [apps, instances]);
 
   // Show services scoped to this workspace, plus global services
   const visibleServices = services.filter(
@@ -532,7 +549,7 @@ export default function WorkspaceView() {
             {/* One TerminalModal per app that has been opened — each isolated with its own PTY sessions.
                 Use the full `apps` list (not `visibleApps`) so switching workspace doesn't unmount
                 a modal whose app now lives in a different workspace — that would kill the PTYs. */}
-            {apps.filter((app) => openedTerminalIds.has(app.id)).map((app) => (
+            {terminalApps.filter((app) => openedTerminalIds.has(app.id)).map((app) => (
               <TerminalModal
                 key={app.id}
                 initialApp={app}

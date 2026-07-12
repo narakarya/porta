@@ -119,7 +119,12 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const stopInstanceAction = usePortaStore((s) => s.stopInstanceAction);
   const refreshInstances = usePortaStore((s) => s.refreshInstances);
 
-  const [open, setOpen] = useState(false);
+  // Clicking the badge (git icon + branch name) opens the main popover: stats,
+  // fetch/pull/push, and — on non-instance cards — a "Switch branch" row and
+  // "Run from worktree". "Switch branch" opens a second popover (`switchOpen`)
+  // that flies out to the right of the main one, so the git-ops stay put.
+  const [mainOpen, setMainOpen] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
@@ -164,29 +169,51 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
     return () => { cancelled = true; };
   }, [app.id, app.root_dir, status, setAppGit, setAppGitError]);
 
-  // A failed op's error must not survive close/reopen — clear it on close.
+  // A failed op's error must not survive close/reopen — clear it once the main
+  // popover shuts (the switch flyout can't outlive it).
   useEffect(() => {
-    if (!open) setError(null);
-  }, [open]);
+    if (!mainOpen) { setError(null); setSwitchOpen(false); }
+  }, [mainOpen]);
 
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const panelSize = useMeasuredSize(panelRef, open);
-  const coords = useFloatingPosition({
-    triggerRef,
-    panelSize,
-    active: open,
+  // Badge chip → main popover (anchored below the badge).
+  const mainTriggerRef = useRef<HTMLButtonElement>(null);
+  const mainPanelRef = useRef<HTMLDivElement>(null);
+  const mainSize = useMeasuredSize(mainPanelRef, mainOpen);
+  const mainCoords = useFloatingPosition({
+    triggerRef: mainTriggerRef,
+    panelSize: mainSize,
+    active: mainOpen,
     side: "bottom",
     align: "start",
     gap: 4,
   });
 
+  // "Switch branch" row inside the main popover → flyout to its right.
+  const switchTriggerRef = useRef<HTMLButtonElement>(null);
+  const switchPanelRef = useRef<HTMLDivElement>(null);
+  const switchSize = useMeasuredSize(switchPanelRef, switchOpen);
+  const switchCoords = useFloatingPosition({
+    triggerRef: switchTriggerRef,
+    panelSize: switchSize,
+    active: switchOpen,
+    side: "right",
+    align: "start",
+    gap: 6,
+  });
+
   useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    if (!mainOpen) return;
+    function onKey(e: KeyboardEvent) {
+      // Esc peels one layer: close the flyout first, then the main popover.
+      if (e.key !== "Escape") return;
+      if (switchOpen) setSwitchOpen(false);
+      else setMainOpen(false);
+    }
     function onClick(e: MouseEvent) {
       const t = e.target as Node;
-      if (!triggerRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
+      const inMain = !!mainTriggerRef.current?.contains(t) || !!mainPanelRef.current?.contains(t);
+      const inSwitch = !!switchPanelRef.current?.contains(t);
+      if (!inMain && !inSwitch) { setMainOpen(false); setSwitchOpen(false); }
     }
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onClick);
@@ -194,19 +221,20 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onClick);
     };
-  }, [open]);
+  }, [mainOpen, switchOpen]);
 
-  // Load existing worktrees + current instances whenever the popover opens.
+  // Load worktrees + branches + current instances when the main popover opens —
+  // both "Switch branch" and "Run from worktree" read them.
   useEffect(() => {
-    if (!open || !app.root_dir) return;
+    if (!mainOpen || !app.root_dir) return;
     gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
     gitBranches(app.root_dir).then(setBranches).catch(() => setBranches(null));
     refreshInstances(app.id);
-  }, [open, app.root_dir, app.id, refreshInstances]);
+  }, [mainOpen, app.root_dir, app.id, refreshInstances]);
 
   // Keep instance state fresh on ready/exit events for this app's instances.
   useEffect(() => {
-    if (!open) return;
+    if (!mainOpen) return;
     const unlisten: Array<() => void> = [];
     import("@tauri-apps/api/event").then(({ listen }) => {
       for (const inst of instances) {
@@ -215,7 +243,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
       }
     });
     return () => unlisten.forEach((u) => u());
-  }, [open, instances, app.id, refreshInstances]);
+  }, [mainOpen, instances, app.id, refreshInstances]);
 
   // A repo we couldn't read still deserves a badge: a silent disappearance is
   // what this whole change exists to fix.
@@ -229,20 +257,20 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
     return (
       <>
         <button
-          ref={triggerRef}
-          onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+          ref={mainTriggerRef}
+          onClick={(e) => { e.stopPropagation(); setMainOpen((v) => !v); }}
           className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-amber-400/80 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
           title="Porta couldn't read this repo"
         >
           <span>git ⚠</span>
         </button>
-        {open && createPortal(
+        {mainOpen && createPortal(
           <div
-            ref={panelRef}
+            ref={mainPanelRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-[60] w-[280px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
-            style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
+            style={mainCoords ? { top: mainCoords.top, left: mainCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
           >
             <div className="text-zinc-400 mb-1.5">Porta couldn't read this repo</div>
             <pre className="text-[10px] font-mono text-amber-300 whitespace-pre-wrap break-words max-h-28 overflow-y-auto">
@@ -259,7 +287,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                   happens in a shell, so give the user one from here. */}
               {onOpenTerminal && (
                 <button
-                  onClick={() => { setOpen(false); onOpenTerminal(app); }}
+                  onClick={() => { setMainOpen(false); onOpenTerminal(app); }}
                   className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
                   Open terminal
@@ -313,25 +341,33 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
 
   return (
     <>
+      {/* Badge — git-branch icon + current branch name. Opens the main popover. */}
       <button
-        ref={triggerRef}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="inline-flex items-center gap-1 text-[10px] font-mono leading-none hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
+        ref={mainTriggerRef}
+        onClick={(e) => { e.stopPropagation(); setMainOpen((v) => !v); }}
+        className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-zinc-500 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
         title={detached ? "Detached HEAD" : upstream ?? "No upstream"}
       >
-        <span className="text-zinc-500 truncate max-w-[14ch]">{branch}</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 text-zinc-500">
+          <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
+          <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
+          <circle cx="11.5" cy="4.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M4.5 5.25v5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          <path d="M11.5 6.25c0 2.6-1.9 3.5-4.2 3.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+        <span className="truncate max-w-[14ch]">{branch}</span>
         {ahead > 0 && <span className="text-blue-300">↑{ahead}</span>}
         {behind > 0 && <span className="text-amber-300">↓{behind}</span>}
-        {/* Activity stays visible on the card even with the popover closed —
-            the directional icon shows which op is running. */}
         {busy === "fetch" && <SyncIcon spinning className="text-zinc-400" />}
         {busy === "pull" && <ArrowDownIcon animate className="text-zinc-400" />}
         {busy === "push" && <ArrowUpIcon animate className="text-zinc-400" />}
       </button>
 
-      {open && createPortal(
+      {/* ── Main popover: stats + fetch/pull/push, plus (non-instance cards) the
+           branch-switch trigger and worktree launcher ── */}
+      {mainOpen && createPortal(
         <div
-          ref={panelRef}
+          ref={mainPanelRef}
           // createPortal moves this to <body>, but React synthetic events still
           // bubble along the React tree into AppCard's clickable region (which
           // opens the settings modal). Stop propagation here so no click inside
@@ -340,7 +376,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           className="fixed z-[60] w-[260px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
-          style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
+          style={mainCoords ? { top: mainCoords.top, left: mainCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
         >
           <div className="mb-1.5">
             <MarqueeOnHover text={branch} className="font-mono text-zinc-400 w-full" />
@@ -379,106 +415,25 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
             </button>
           </div>
 
-          {/* Switch branch — in-place checkout on the primary repo. Hidden on
-              instance cards (branch-pinned, synthetic app id). */}
-          {!hideWorktreeLauncher && branches && (() => {
-            // Branches held by another worktree can't be switched to in the
-            // primary checkout — git refuses. We already have `worktrees`.
-            const heldByWorktree = new Set(
-              worktrees
-                .filter((w) => w.path !== app.root_dir && w.branch)
-                .map((w) => w.branch as string),
-            );
-            // Merge local + remote-only, remote names stripped to short form so
-            // `git switch <short>` triggers DWIM tracking-branch creation. Only
-            // offer a remote short name when it's unambiguous: absent locally and
-            // present in exactly one remote. When two remotes share it
-            // (origin/foo + upstream/foo), a bare `git switch foo` is ambiguous,
-            // so we skip it rather than surface a row that can only error — and
-            // list keys stay unique.
-            type Row = { name: string; kind: "local" | "remote" };
-            const localSet = new Set(branches.local);
-            const remoteShortCounts = new Map<string, number>();
-            for (const r of branches.remote) {
-              const short = r.replace(/^[^/]+\//, ""); // origin/foo → foo
-              remoteShortCounts.set(short, (remoteShortCounts.get(short) ?? 0) + 1);
-            }
-            const rows: Row[] = branches.local.map((name) => ({ name, kind: "local" as const }));
-            for (const [short, count] of remoteShortCounts) {
-              if (count === 1 && !localSet.has(short)) rows.push({ name: short, kind: "remote" });
-            }
-            const q = branchQuery.trim();
-            const filtered = rows.filter(
-              (r) => q === "" || r.name.toLowerCase().includes(q.toLowerCase()),
-            );
-            const LAUNCHER_CAP = 5;
-            const isSearching = q !== "";
-            const capped = isSearching ? filtered : filtered.slice(0, LAUNCHER_CAP);
-            const hiddenCount = filtered.length - capped.length;
-            // Offer create only when the query matches no branch name exactly
-            // (branch names are case-sensitive).
-            const exactMatch = rows.some((r) => r.name === q);
-            const showCreate = q !== "" && !exactMatch;
-            return (
-              <div className="mt-2 border-t border-white/10 pt-2">
-                <div className="text-[10px] text-zinc-500 mb-1">Switch branch</div>
-                <input
-                  value={branchQuery}
-                  onChange={(e) => setBranchQuery(e.target.value)}
-                  placeholder="Search or create branch…"
-                  className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
-                />
-                {capped.length === 0 && !showCreate && (
-                  <div className="text-[10px] text-zinc-600">No matching branch.</div>
-                )}
-                {capped.map((r) => {
-                  const isCurrent = branches.current === r.name;
-                  const held = heldByWorktree.has(r.name);
-                  const disabled = isCurrent || held || switching !== null;
-                  return (
-                    <div key={`${r.kind}:${r.name}`} className="flex items-center gap-1 py-0.5 text-[11px]">
-                      <span className="font-mono text-zinc-300 truncate flex-1" title={r.name}>
-                        {isCurrent && <span className="text-emerald-400/80">● </span>}
-                        {r.name}
-                        {r.kind === "remote" && <span className="text-zinc-600"> ↗</span>}
-                      </span>
-                      {isCurrent ? (
-                        <span className="text-[10px] text-zinc-600 px-1">current</span>
-                      ) : held ? (
-                        <span className="text-[10px] text-zinc-600 px-1" title="Checked out in a worktree">in worktree</span>
-                      ) : (
-                        <button
-                          disabled={disabled}
-                          onClick={() => switchTo(r.name, false)}
-                          className="text-[10px] text-zinc-300 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
-                        >
-                          {switching === r.name ? "…" : "Switch"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-                {!isSearching && hiddenCount > 0 && (
-                  <div className="mt-1 text-[10px] text-zinc-600">
-                    {hiddenCount} more — type to search
-                  </div>
-                )}
-                {showCreate && (
-                  <button
-                    disabled={switching !== null}
-                    onClick={() => switchTo(q, true)}
-                    className="mt-1 w-full text-left text-[10px] text-emerald-300/90 hover:bg-white/[0.06] rounded px-1.5 py-1 disabled:opacity-40"
-                  >
-                    {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
-                  </button>
-                )}
-              </div>
-            );
-          })()}
+          {/* Switch branch — opens the branch-list flyout to the right, so the
+              git-ops above stay put. Hidden on instance cards (branch-pinned,
+              synthetic app id). */}
+          {!hideWorktreeLauncher && (
+            <button
+              ref={switchTriggerRef}
+              onClick={() => { setError(null); setSwitchOpen((v) => !v); }}
+              className={`mt-2 w-full flex items-center justify-between gap-1 px-2 py-1 rounded text-[11px] transition-colors ${switchOpen ? "bg-white/[0.09] text-zinc-100" : "bg-white/[0.05] hover:bg-white/[0.09] text-zinc-300"}`}
+            >
+              <span>Switch branch</span>
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0 text-zinc-500">
+                <path d="M3 1.5l2.5 2.5L3 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
 
-          {/* Run from worktree — existing worktrees only; exclude the primary checkout.
-              Hidden on instance cards: app.id there is an instance id, not a real
-              app id, so runInstance/stopInstanceAction would target the wrong thing. */}
+          {/* Run from worktree — existing worktrees only; exclude the primary
+              checkout. Hidden on instance cards (app.id there is an instance id,
+              so runInstance/stopInstanceAction would target the wrong thing). */}
           {!hideWorktreeLauncher && (() => {
             const branchWts = worktrees.filter((w) => w.path !== app.root_dir && w.branch);
             const others = branchWts.filter(
@@ -583,6 +538,116 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
               </button>
             </div>
           )}
+        </div>,
+        document.body,
+      )}
+
+      {/* ── Branch-list flyout — opens to the right of the main popover. Click a
+           branch name to switch (or "Create <name>"); there is no Switch button. ── */}
+      {switchOpen && createPortal(
+        <div
+          ref={switchPanelRef}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed z-[61] w-[240px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
+          style={switchCoords ? { top: switchCoords.top, left: switchCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
+        >
+          {branches && (() => {
+            // Branches held by another worktree can't be switched to in the
+            // primary checkout — git refuses. We already have `worktrees`.
+            const heldByWorktree = new Set(
+              worktrees
+                .filter((w) => w.path !== app.root_dir && w.branch)
+                .map((w) => w.branch as string),
+            );
+            // Merge local + remote-only, remote names stripped to short form so
+            // `git switch <short>` triggers DWIM tracking-branch creation. Only
+            // offer a remote short name when it's unambiguous: absent locally and
+            // present in exactly one remote. When two remotes share it
+            // (origin/foo + upstream/foo), a bare `git switch foo` is ambiguous,
+            // so we skip it rather than surface a row that can only error — and
+            // list keys stay unique.
+            type Row = { name: string; kind: "local" | "remote" };
+            const localSet = new Set(branches.local);
+            const remoteShortCounts = new Map<string, number>();
+            for (const r of branches.remote) {
+              const short = r.replace(/^[^/]+\//, ""); // origin/foo → foo
+              remoteShortCounts.set(short, (remoteShortCounts.get(short) ?? 0) + 1);
+            }
+            const rows: Row[] = branches.local.map((name) => ({ name, kind: "local" as const }));
+            for (const [short, count] of remoteShortCounts) {
+              if (count === 1 && !localSet.has(short)) rows.push({ name: short, kind: "remote" });
+            }
+            const q = branchQuery.trim();
+            const filtered = rows.filter(
+              (r) => q === "" || r.name.toLowerCase().includes(q.toLowerCase()),
+            );
+            const LAUNCHER_CAP = 5;
+            const isSearching = q !== "";
+            const capped = isSearching ? filtered : filtered.slice(0, LAUNCHER_CAP);
+            const hiddenCount = filtered.length - capped.length;
+            // Offer create only when the query matches no branch name exactly
+            // (branch names are case-sensitive).
+            const exactMatch = rows.some((r) => r.name === q);
+            const showCreate = q !== "" && !exactMatch;
+            return (
+              <div>
+                <div className="text-[10px] text-zinc-500 mb-1">Switch branch</div>
+                <input
+                  value={branchQuery}
+                  onChange={(e) => setBranchQuery(e.target.value)}
+                  placeholder="Search or create branch…"
+                  className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
+                />
+                {capped.length === 0 && !showCreate && (
+                  <div className="text-[10px] text-zinc-600">No matching branch.</div>
+                )}
+                {capped.map((r) => {
+                  const isCurrent = branches.current === r.name;
+                  const held = heldByWorktree.has(r.name);
+                  const disabled = isCurrent || held || switching !== null;
+                  // The whole row is the switch action — click the name, no button.
+                  return (
+                    <button
+                      key={`${r.kind}:${r.name}`}
+                      disabled={disabled}
+                      onClick={() => switchTo(r.name, false)}
+                      title={held ? "Checked out in a worktree" : r.name}
+                      className="w-full flex items-center gap-1 py-0.5 px-1 rounded text-[11px] text-left hover:bg-white/[0.07] disabled:cursor-default disabled:hover:bg-transparent"
+                    >
+                      <span className="font-mono text-zinc-300 truncate flex-1">
+                        {isCurrent && <span className="text-emerald-400/80">● </span>}
+                        {r.name}
+                        {r.kind === "remote" && <span className="text-zinc-600"> ↗</span>}
+                      </span>
+                      {isCurrent ? (
+                        <span className="text-[10px] text-zinc-600">current</span>
+                      ) : held ? (
+                        <span className="text-[10px] text-zinc-600">in worktree</span>
+                      ) : switching === r.name ? (
+                        <span className="text-[10px] text-zinc-500">…</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                {!isSearching && hiddenCount > 0 && (
+                  <div className="mt-1 text-[10px] text-zinc-600">
+                    {hiddenCount} more — type to search
+                  </div>
+                )}
+                {showCreate && (
+                  <button
+                    disabled={switching !== null}
+                    onClick={() => switchTo(q, true)}
+                    className="mt-1 w-full text-left text-[10px] text-emerald-300/90 hover:bg-white/[0.06] rounded px-1.5 py-1 disabled:opacity-40"
+                  >
+                    {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
         </div>,
         document.body,
       )}
