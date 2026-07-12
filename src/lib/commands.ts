@@ -1568,6 +1568,28 @@ export const gitPull = (rootDir: string): Promise<string> =>
 export const gitPush = (rootDir: string): Promise<string> =>
   isTauri ? invoke("git_push", { rootDir }) : Promise.resolve("");
 
+export interface BranchList {
+  local: string[];
+  remote: string[];
+  /** Current branch short name; null when HEAD is detached. */
+  current: string | null;
+}
+
+/** Local + remote-tracking branch names for a repo. REJECTS with git's stderr. */
+export const gitBranches = (rootDir: string): Promise<BranchList> =>
+  isTauri
+    ? invoke("git_branches", { rootDir })
+    : Promise.resolve({ local: [], remote: [], current: null });
+
+/**
+ * Switch the primary checkout to `branch`. Pass the short name (`foo`, not
+ * `origin/foo`) — git DWIM creates a local tracking branch from a remote-only
+ * match. `create` uses `git switch -c` to branch from current HEAD.
+ * REJECTS with git's stderr (dirty-tree conflict, already-checked-out, etc.).
+ */
+export const gitSwitchBranch = (rootDir: string, branch: string, create: boolean): Promise<void> =>
+  isTauri ? invoke("git_switch_branch", { rootDir, branch, create }) : Promise.resolve();
+
 export const getGitAutofetchEnabled = (): Promise<boolean> =>
   isTauri ? invoke("get_git_autofetch_enabled") : Promise.resolve(true);
 
