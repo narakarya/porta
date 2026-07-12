@@ -25,6 +25,14 @@ import DockerUpdateBadge from "./DockerUpdateBadge";
 import AppDiskBadge from "./AppDiskBadge";
 import GitBadge from "./GitBadge";
 import { yieldToFrame } from "../../lib/ui";
+import { deriveInstanceApp } from "../../lib/instance-app";
+import InstancesModal from "./InstancesModal";
+
+// Stable empty reference — mirrors GitBadge's own module-level const (not
+// exported from there). Returning `?? []` straight from a Zustand selector
+// yields a new array every render, which `useSyncExternalStore` reads as a
+// new snapshot each time → infinite re-render ("Maximum update depth exceeded").
+const EMPTY_INSTANCES: AppInstance[] = [];
 
 interface Props {
   app: App;
@@ -133,6 +141,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   useEffect(() => {
     if (isRestarting || isRunning || app.status === "stopped") setPendingRestart(false);
   }, [isRestarting, isRunning, app.status]);
+
+  const [instancesModalOpen, setInstancesModalOpen] = useState(false);
+  const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
@@ -802,6 +813,43 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           stackIndex={getToastIndex(app.id)}
           onExpand={() => { closeToast(); setLogViewerOpen(true); }}
           onClose={closeToast}
+        />
+      )}
+
+      {/* ── Nested instances region — primary cards only, so instance cards
+           never nest their own instances. ── */}
+      {!isInstance && appInstances.length > 0 && (
+        <div className="mt-2 border-t border-white/10 pt-2">
+          <div className="text-[10px] text-zinc-500 mb-1">Instances ({appInstances.length})</div>
+          <div className="flex flex-col gap-2">
+            {appInstances.slice(0, 3).map((inst) => (
+              <AppCard
+                key={inst.id}
+                app={deriveInstanceApp(app, inst)}
+                workspace={workspace}
+                variant="instance"
+                instance={inst}
+                onOpenTerminal={onOpenTerminal}
+              />
+            ))}
+          </div>
+          {appInstances.length > 3 && (
+            <button
+              onClick={() => setInstancesModalOpen(true)}
+              className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
+            >
+              View all ({appInstances.length})
+            </button>
+          )}
+        </div>
+      )}
+      {instancesModalOpen && (
+        <InstancesModal
+          app={app}
+          workspace={workspace}
+          instances={appInstances}
+          onOpenTerminal={onOpenTerminal}
+          onClose={() => setInstancesModalOpen(false)}
         />
       )}
 
