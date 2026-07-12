@@ -634,8 +634,10 @@ pub fn stop_tunnel(id: String) -> Result<(), String> {
 // named tunnels / DNS routing are intentionally unsupported here — quick
 // (trycloudflare) only. `tunnel_pids`/`tunnel_stopping` above are already a
 // generic `HashMap<String, _>` / `HashSet<String>` keyed by id, and instance
-// ids never collide with app ids (both are UUIDs), so we reuse them directly
-// instead of adding a parallel map to `AppState`.
+// ids can never collide with app ids — app ids are bare UUIDs, while instance
+// ids are always `format!("{app_id}:{branch}")` (they always contain a
+// colon), so a bare UUID can never equal `<uuid>:<branch>` — so we reuse
+// them directly instead of adding a parallel map to `AppState`.
 //
 // This does NOT call into `start_tunnel_blocking` or share a helper with it.
 // That function interleaves named-tunnel DNS routing, multi-host ingress-yaml

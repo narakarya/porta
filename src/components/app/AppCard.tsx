@@ -532,6 +532,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           app={app}
           isActive={isActive}
           tunnelError={tunnelError}
+          quickOnly={isInstance}
           onStartTunnel={isInstance && instance ? () => startInstanceTunnel(instance.id) : () => startTunnel(app.id)}
           onStopTunnel={isInstance && instance ? () => stopInstanceTunnel(instance.id) : () => stopTunnel(app.id)}
         />

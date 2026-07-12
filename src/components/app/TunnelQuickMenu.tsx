@@ -19,9 +19,13 @@ interface TunnelQuickMenuProps {
   tunnelError: string | null;
   onStartTunnel: () => void;
   onStopTunnel: () => void;
+  // Instance cards only ever run throwaway quick (trycloudflare) tunnels —
+  // named/Tailscale/Porta Relay tunnels don't map to a per-instance identity.
+  // When true, hide everything except the quick-tunnel start/stop control.
+  quickOnly?: boolean;
 }
 
-export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTunnel, onStopTunnel }: TunnelQuickMenuProps) {
+export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTunnel, onStopTunnel, quickOnly }: TunnelQuickMenuProps) {
   const [tunnelMenuOpen, setTunnelMenuOpen] = useState(false);
   const [tunnelUrlCopied, setTunnelUrlCopied] = useState(false);
   // Cached saved-tunnels list — hydrates instantly from the in-memory cache
@@ -343,19 +347,45 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                     <p className="text-[11px] text-red-300/70 leading-snug break-words">{tunnelError}</p>
                   </div>
                 )}
-                {/* Provider picker — pick which expose backend to use. */}
-                <div className="flex gap-1 p-1.5 border-b border-white/[0.06]">
-                  {([["cloudflare", "Cloudflare"], ["tailscale", "Tailscale"], ["remote", "Porta Relay"]] as const).map(([p, label]) => (
+                {/* Provider picker — pick which expose backend to use. Hidden
+                    in quickOnly mode: instances only ever run throwaway
+                    quick tunnels, so Tailscale/Porta Relay/named tunnels
+                    don't apply. */}
+                {!quickOnly && (
+                  <div className="flex gap-1 p-1.5 border-b border-white/[0.06]">
+                    {([["cloudflare", "Cloudflare"], ["tailscale", "Tailscale"], ["remote", "Porta Relay"]] as const).map(([p, label]) => (
+                      <button
+                        key={p}
+                        onClick={() => setPickerProvider(p)}
+                        className={`flex-1 text-[10.5px] px-2 py-1 rounded-md transition-colors ${pickerProvider === p ? "bg-white/[0.12] text-white" : "text-zinc-400 hover:bg-white/[0.05]"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {quickOnly ? (
+                  <>
+                    {/* Quick tunnel only — no saved/named tunnels for instances. */}
+                    <div className="px-3 pt-2 pb-1">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">Quick</p>
+                    </div>
                     <button
-                      key={p}
-                      onClick={() => setPickerProvider(p)}
-                      className={`flex-1 text-[10.5px] px-2 py-1 rounded-md transition-colors ${pickerProvider === p ? "bg-white/[0.12] text-white" : "text-zinc-400 hover:bg-white/[0.05]"}`}
+                      onClick={() => startWithConfig(null, null)}
+                      disabled={busy}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-50"
                     >
-                      {label}
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C5.5 1.5 7.5 2.5 8.5 4.5c.5 1 .5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 1.5C5.5 1.5 3.5 2.5 2.5 4.5c-.5 1-.5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M1.5 5.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                      <span className="flex-1 text-left">Quick tunnel</span>
+                      <span className="text-[9px] text-zinc-500">trycloudflare</span>
                     </button>
-                  ))}
-                </div>
-                {pickerProvider === "tailscale" ? (
+                    {busyError && (
+                      <p className="px-3 py-1.5 text-[10px] text-red-400 font-mono whitespace-pre-wrap break-words border-t border-white/[0.06]">
+                        {busyError}
+                      </p>
+                    )}
+                  </>
+                ) : pickerProvider === "tailscale" ? (
                   <button
                     onClick={() => { void startTunnel(app.id, "tailscale"); setTunnelMenuOpen(false); }}
                     className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-emerald-400 hover:bg-emerald-500/10 transition-colors"
