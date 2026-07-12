@@ -384,7 +384,7 @@ pub struct RemoteRouteSpec {
 }
 
 /// Client for a remote VPS Caddy admin API (reached over the WireGuard tunnel).
-/// Unlike the local `CaddyManager` (hardcoded `localhost:2019`, mkcert certs),
+/// Unlike the local `CaddyManager` (profile-selected admin address, mkcert certs),
 /// this targets a per-host `admin_url` and manages exactly one server object,
 /// `apps.http.servers.porta`, which Porta owns end to end.
 pub struct RemoteCaddy {
