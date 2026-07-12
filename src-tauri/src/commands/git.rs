@@ -5,6 +5,25 @@
 //! `~/.ssh/config` and the `osxkeychain` credential helper unless we reimplement
 //! them ourselves. The CLI already speaks the user's git config.
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BranchList {
+    pub local: Vec<String>,
+    pub remote: Vec<String>,
+    pub current: Option<String>,
+}
+
+/// Split `git branch --format=%(refname:short)` output into names, dropping
+/// blank lines and git's `origin/HEAD` symref (and any `->` alias line, a
+/// defensive guard in case a caller uses a format that includes it).
+fn parse_branch_lines(out: &str) -> Vec<String> {
+    out.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .filter(|l| *l != "origin/HEAD" && !l.ends_with("/HEAD") && !l.contains("->"))
+        .map(|l| l.to_string())
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct GitStatus {
     /// Branch name, or a short SHA when HEAD is detached.
@@ -338,6 +357,29 @@ pub async fn git_pull(root_dir: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn git_push(root_dir: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || run_git(&root_dir, &["push"], NET_TIMEOUT_SECS))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn branches_for(root_dir: &str) -> Result<BranchList, String> {
+    let local = parse_branch_lines(&run_git(
+        root_dir,
+        &["branch", "--format=%(refname:short)"],
+        NET_TIMEOUT_SECS,
+    )?);
+    let remote = parse_branch_lines(&run_git(
+        root_dir,
+        &["branch", "-r", "--format=%(refname:short)"],
+        NET_TIMEOUT_SECS,
+    )?);
+    let cur = run_git(root_dir, &["branch", "--show-current"], NET_TIMEOUT_SECS)?;
+    let current = if cur.trim().is_empty() { None } else { Some(cur.trim().to_string()) };
+    Ok(BranchList { local, remote, current })
+}
+
+#[tauri::command]
+pub async fn git_branches(root_dir: String) -> Result<BranchList, String> {
+    tokio::task::spawn_blocking(move || branches_for(&root_dir))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -788,6 +830,22 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert!(
             err.contains("remote") || err.contains("origin"),
             "expected git's stderr, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_branch_lines_filters_symref_and_blanks() {
+        let out = "main\nfix/foo\n\n";
+        assert_eq!(parse_branch_lines(out), vec!["main", "fix/foo"]);
+    }
+
+    #[test]
+    fn parse_branch_lines_drops_origin_head_symref() {
+        // `git branch -r --format=%(refname:short)` emits origin/HEAD for the symref.
+        let out = "origin/HEAD\norigin/main\norigin/fix/foo\n";
+        assert_eq!(
+            parse_branch_lines(out),
+            vec!["origin/main", "origin/fix/foo"]
         );
     }
 

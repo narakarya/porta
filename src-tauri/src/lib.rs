@@ -244,6 +244,7 @@ pub fn run() {
             commands::git_fetch,
             commands::git_pull,
             commands::git_push,
+            commands::git_branches,
             commands::get_git_autofetch_enabled,
             commands::set_git_autofetch_enabled,
             commands::get_git_autofetch_interval_secs,
