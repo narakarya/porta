@@ -296,12 +296,28 @@ fn start_instance_inner(
         exit_handle.emit(&format!("instance:exit:{}", exit_id), code).ok();
     };
 
+    // Instances run with cwd = the worktree, but `.env` is gitignored and only
+    // exists in the primary checkout — a relative env_file would resolve against
+    // the worktree and fail to load. Resolve it against the parent app's
+    // root_dir so instances inherit the parent's `.env`.
+    let env_file_abs = app_row.env_file.as_deref().map(|ef| {
+        let p = std::path::Path::new(ef);
+        if p.is_absolute() {
+            ef.to_string()
+        } else {
+            std::path::Path::new(&app_row.root_dir)
+                .join(ef)
+                .to_string_lossy()
+                .into_owned()
+        }
+    });
+
     let pid = match state.processes.start(
         &iid,
         &app_row.start_command,
         std::path::Path::new(&worktree_path),
         port,
-        app_row.env_file.as_deref(),
+        env_file_abs.as_deref(),
         &app_row.env_vars,
         true,
         on_log,
