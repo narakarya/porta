@@ -270,6 +270,10 @@ impl CaddyManager {
     }
 
     pub fn build_config(routes: &[Route]) -> Value {
+        Self::build_config_with(routes, &CaddyProfile::current())
+    }
+
+    pub fn build_config_with(routes: &[Route], profile: &CaddyProfile) -> Value {
         let has_certs = crate::setup::certs_exist();
         let base = crate::porta_dir();
         let cert_file = base.join("certs").join("test.pem").to_string_lossy().to_string();
@@ -280,9 +284,9 @@ impl CaddyManager {
         let (server_logs, loggers) = collect_loggers(routes);
 
         let mut cfg = if has_certs {
-            // HTTPS server on :443 with mkcert wildcard cert + HTTP→HTTPS redirect on :80
+            // HTTPS server with mkcert wildcard cert + HTTP→HTTPS redirect
             let mut https_server = json!({
-                "listen": [":443"],
+                "listen": [profile.https],
                 "routes": route_json,
                 // Empty policy = use any available cert (our wildcard *.test)
                 "tls_connection_policies": [{}],
@@ -297,7 +301,7 @@ impl CaddyManager {
                         "servers": {
                             "porta_https": https_server,
                             "porta_redirect": {
-                                "listen": [":80"],
+                                "listen": [profile.http],
                                 "routes": [{
                                     "handle": [{
                                         "handler": "static_response",
@@ -321,8 +325,8 @@ impl CaddyManager {
                 }
             })
         } else {
-            // Fallback: plain HTTP on :80
-            let mut http_server = json!({ "listen": [":80"], "routes": route_json, "errors": wake_errors_block() });
+            // Fallback: plain HTTP
+            let mut http_server = json!({ "listen": [profile.http], "routes": route_json, "errors": wake_errors_block() });
             if !server_logs.is_null() {
                 http_server["logs"] = server_logs.clone();
             }
@@ -334,6 +338,11 @@ impl CaddyManager {
         if !loggers.is_null() {
             // Top-level `logging.logs` registers each app's logger with a file writer.
             cfg["logging"] = json!({ "logs": loggers });
+        }
+
+        // DEV pins the admin listener so a POST /load keeps the admin API off :2019.
+        if profile.pin_admin {
+            cfg["admin"] = json!({ "listen": profile.admin });
         }
 
         cfg
@@ -757,6 +766,32 @@ mod tests {
         let handlers = server["routes"][0]["handle"].as_array().unwrap();
         assert_eq!(handlers[0]["handler"], "authentication");
         assert_eq!(handlers[1]["handler"], "reverse_proxy");
+    }
+
+    #[test]
+    fn prod_config_uses_443_and_no_admin_block() {
+        let cfg = CaddyManager::build_config_with(&[], &CaddyProfile::PROD);
+        // No admin block for prod (Caddy default :2019).
+        assert!(cfg.get("admin").is_none(), "prod must not pin admin, got {cfg}");
+        // Some server listens on :443 or :80 depending on certs; assert no dev port.
+        let servers = cfg["apps"]["http"]["servers"].as_object().unwrap();
+        let listens: Vec<String> = servers.values()
+            .filter_map(|s| s["listen"][0].as_str().map(str::to_string))
+            .collect();
+        assert!(listens.iter().all(|l| l == ":443" || l == ":80"),
+            "prod listeners must be :443/:80, got {listens:?}");
+    }
+
+    #[test]
+    fn dev_config_pins_admin_2119_and_uses_8443_or_8080() {
+        let cfg = CaddyManager::build_config_with(&[], &CaddyProfile::DEV);
+        assert_eq!(cfg["admin"]["listen"], "localhost:2119");
+        let servers = cfg["apps"]["http"]["servers"].as_object().unwrap();
+        let listens: Vec<String> = servers.values()
+            .filter_map(|s| s["listen"][0].as_str().map(str::to_string))
+            .collect();
+        assert!(listens.iter().all(|l| l == ":8443" || l == ":8080"),
+            "dev listeners must be :8443/:8080, got {listens:?}");
     }
 
     #[test]
