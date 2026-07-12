@@ -292,7 +292,7 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
         className="inline-flex items-center gap-1 text-[10px] font-mono leading-none hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
         title={detached ? "Detached HEAD" : upstream ?? "No upstream"}
       >
-        <MarqueeOnHover text={branch} className="text-zinc-500 max-w-[14ch]" />
+        <span className="text-zinc-500 truncate max-w-[14ch]">{branch}</span>
         {ahead > 0 && <span className="text-blue-300">↑{ahead}</span>}
         {behind > 0 && <span className="text-amber-300">↓{behind}</span>}
         {/* Activity stays visible on the card even with the popover closed —

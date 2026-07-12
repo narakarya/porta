@@ -28,7 +28,7 @@ export default {
       animation: {
         "bounce-down": "bounce-down 0.7s ease-in-out infinite",
         "bounce-up": "bounce-up 0.7s ease-in-out infinite",
-        "marquee-hover": "marquee-hover 3s ease-in-out infinite alternate",
+        "marquee-hover": "marquee-hover 6s ease-in-out infinite alternate",
       },
     },
   },
