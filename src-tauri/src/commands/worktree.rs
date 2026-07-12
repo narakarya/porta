@@ -6,9 +6,11 @@ use crate::app_state::AppState;
 use crate::commands::git::git_bin;
 use crate::commands::setup::sync_caddy;
 use crate::db::models::AppInstance;
+use crate::db::Database;
 use crate::port_scanner::find_available_port;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Reduce an arbitrary string to a safe DNS label: lowercase, every run of
@@ -230,13 +232,6 @@ fn start_instance_inner(
         }
     }
 
-    // 4. Allocate a distinct port.
-    let port = {
-        let db = state.db.lock().unwrap();
-        let used = db.used_ports().map_err(|e| e.to_string())?;
-        find_available_port(&used, 3000, 9999).ok_or_else(|| "no free port".to_string())?
-    };
-
     // 5. Compute subdomain. An instance's Caddy host is
     //    `<label>.<parent app's effective domain>`, and a primary app owns
     //    `<its label>.<its domain>` — so the instance label must dodge not just
@@ -265,15 +260,26 @@ fn start_instance_inner(
         )
     };
 
-    // 6. Insert the row (status "starting").
-    let instance = AppInstance {
-        id: iid.clone(), app_id: app_id.clone(), worktree_path: worktree_path.clone(),
-        branch: branch.clone(), subdomain, port, pid: None, status: "starting".into(),
-    };
-    {
-        let mut db = state.db.lock().unwrap();
-        db.insert_instance(&instance).map_err(|e| e.to_string())?;
-    }
+    // 6. Allocate a free port and insert the "starting" row as ONE atomic step,
+    //    guarded by `instance_alloc_lock`. Doing the port read and the insert
+    //    under one guard closes the TOCTOU window where two concurrent starts
+    //    (even for different apps) both read the same free port before either
+    //    reserves it in `port_registry`, leaving one process unable to bind.
+    let instance = allocate_and_insert_instance(
+        &state.db,
+        &state.instance_alloc_lock,
+        AppInstance {
+            id: iid.clone(),
+            app_id: app_id.clone(),
+            worktree_path: worktree_path.clone(),
+            branch: branch.clone(),
+            subdomain,
+            port: 0, // replaced with a free port chosen under the lock
+            pid: None,
+            status: "starting".into(),
+        },
+    )?;
+    let port = instance.port;
 
     // 7. Spawn: reuse the app's start_command, cwd = worktree, PORT = new port.
     let log_handle = app.clone();
@@ -329,6 +335,33 @@ fn start_instance_inner(
     Ok(out)
 }
 
+/// Pick a free port for `instance` and insert its row atomically.
+///
+/// `alloc_lock` is held across the whole read → insert so two concurrent
+/// `start_instance` calls can't both read the same free port from
+/// `used_ports()` before either reserves it via `insert_instance` (which writes
+/// `port_registry`). Primary apps get this serialization for free from their
+/// per-id `lifecycle_lock`; instances need a lock too, but a *shared* one — the
+/// racing callers are different apps/instances with different ids, so a per-id
+/// lock wouldn't make them contend. `find_available_port` also binds a probe
+/// socket per candidate, so the `db` lock is released across it — the alloc
+/// lock alone provides the mutual exclusion, without blocking unrelated DB work.
+fn allocate_and_insert_instance(
+    db: &Mutex<Database>,
+    alloc_lock: &Mutex<()>,
+    mut instance: AppInstance,
+) -> Result<AppInstance, String> {
+    let _alloc = alloc_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let used = {
+        let db = db.lock().unwrap();
+        db.used_ports().map_err(|e| e.to_string())?
+    };
+    instance.port =
+        find_available_port(&used, 3000, 9999).ok_or_else(|| "no free port".to_string())?;
+    db.lock().unwrap().insert_instance(&instance).map_err(|e| e.to_string())?;
+    Ok(instance)
+}
+
 /// Pick a unique instance subdomain label. An instance's Caddy host is
 /// `<label>.<domain>`, so the label must avoid every existing instance label
 /// *and* every primary app label that resolves to the same `domain` — otherwise
@@ -364,19 +397,35 @@ fn disambiguate(base: String, taken: &[String]) -> String {
 fn spawn_instance_port_watcher(app: AppHandle, iid: String, port: u16) {
     std::thread::spawn(move || {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-        for _ in 0..120 {
-            std::thread::sleep(std::time::Duration::from_millis(500));
+
+        let still_starting = |app: &AppHandle| -> bool {
             let state = app.state::<AppState>();
-            let still_starting = state.db.lock().ok()
+            state.db.lock().ok()
                 .and_then(|db| db.list_instances().ok())
                 .and_then(|is| is.into_iter().find(|i| i.id == iid).map(|i| i.status))
-                .map(|s| s == "starting").unwrap_or(false);
-            if !still_starting { return; }
+                .map(|s| s == "starting").unwrap_or(false)
+        };
+
+        let resolve = |app: &AppHandle| {
+            let state = app.state::<AppState>();
+            state.db.lock().unwrap().update_instance_status_only(&iid, "running").ok();
+            app.emit(&format!("instance:ready:{}", iid), ()).ok();
+        };
+
+        for _ in 0..120 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if !still_starting(&app) { return; }
             if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok() {
-                state.db.lock().unwrap().update_instance_status_only(&iid, "running").ok();
-                app.emit(&format!("instance:ready:{}", iid), ()).ok();
+                resolve(&app);
                 return;
             }
+        }
+        // Timeout fallback — the port never opened. Only resolve if the user is
+        // still expecting a startup; otherwise a stop already happened and we'd
+        // flip the dot back to running. Mirrors `spawn_port_watcher` in
+        // app_lifecycle.rs so the UI never stays stuck on "starting".
+        if still_starting(&app) {
+            resolve(&app);
         }
     });
 }
@@ -509,5 +558,66 @@ detached
 
         pm.stop(&k1).ok();
         pm.stop(&k2).ok();
+    }
+
+    #[test]
+    fn concurrent_allocations_never_share_a_port() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        // Shared registry + the shared allocation lock, exactly as AppState holds
+        // them. Without the lock, the read-used-ports → insert window lets two
+        // starts pick the same free port; the lock must make every start distinct.
+        const N: usize = 16;
+
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        // Seed the parent app rows — `insert_instance` has an FK to `apps`.
+        for i in 0..N {
+            db.conn
+                .execute(
+                    "INSERT INTO apps (id, name, root_dir, port) VALUES (?1, 'a', '/tmp', ?2)",
+                    rusqlite::params![format!("app{i}"), 4000 + i as i64],
+                )
+                .unwrap();
+        }
+        let db = Arc::new(Mutex::new(db));
+        let alloc = Arc::new(Mutex::new(()));
+
+        // A barrier lines every thread up on the allocate→insert window at once,
+        // maximizing contention so a missing lock would collide, not pass by luck.
+        let barrier = Arc::new(Barrier::new(N));
+
+        let handles: Vec<_> = (0..N)
+            .map(|i| {
+                let db = db.clone();
+                let alloc = alloc.clone();
+                let barrier = barrier.clone();
+                thread::spawn(move || {
+                    // Each thread is a start for a *different* app — the exact
+                    // cross-app case a per-id lock wouldn't serialize.
+                    let inst = AppInstance {
+                        id: format!("app{i}:main"),
+                        app_id: format!("app{i}"),
+                        worktree_path: "/wt".into(),
+                        branch: "main".into(),
+                        subdomain: format!("app{i}"),
+                        port: 0,
+                        pid: None,
+                        status: "starting".into(),
+                    };
+                    barrier.wait();
+                    allocate_and_insert_instance(&db, &alloc, inst).unwrap().port
+                })
+            })
+            .collect();
+
+        let ports: Vec<u16> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let unique: std::collections::BTreeSet<u16> = ports.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            N,
+            "every concurrent start must get a distinct port, got {ports:?}"
+        );
     }
 }
