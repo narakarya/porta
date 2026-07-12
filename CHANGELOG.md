@@ -17,6 +17,18 @@ All notable changes to Porta are documented in this file. Format follows
   a remote-only branch creates a local tracking branch; ambiguous names shared
   across multiple remotes are omitted. Hidden on instance cards, which are
   branch-pinned.
+- **Instances are removable.** Running instances remove on Stop (process
+  killed, row deleted, Caddy route dropped); a crashed/stopped instance card
+  now has a **Remove** button to clear it. The worktree launcher labels the
+  action "Stop" while running and "Remove" once stopped.
+
+### Fixed
+- **Instances inherit the parent app's `.env` for `source .env` too.** The
+  parent's env file is symlinked into the worktree before launch, so a
+  `source .env` in the start command no longer fails with "no such file"
+  (exit 127) in a fresh worktree where `.env` is gitignored.
+- **Collapse chevron on the nested instances region is aligned and centered**,
+  and the region's content lines up with the parent card's header.
 
 ## [0.7.20] — 2026-07-12
 
