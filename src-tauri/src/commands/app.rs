@@ -368,6 +368,23 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
     } else if !is_static && !is_proxy {
         state.processes.stop(&id).ok();
     }
+    // Tear down any worktree instances first. The app_instances FK cascade is
+    // inert (PRAGMA foreign_keys is off), so without this an instance would
+    // outlive its app as a leaked process + reserved port + orphaned row — with
+    // no UI card left to Stop it.
+    let instance_ids: Vec<String> = state
+        .db
+        .lock()
+        .unwrap()
+        .list_instances_for(&id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|i| i.id)
+        .collect();
+    for iid in &instance_ids {
+        state.processes.stop(iid).ok();
+        state.db.lock().unwrap().delete_instance(iid).ok();
+    }
     state.db.lock().unwrap().delete_app(&id).map_err(|e| e.to_string())?;
     // Remove any pasted compose YAML Porta was managing for this app.
     super::compose::cleanup_managed_compose(&id);

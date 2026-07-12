@@ -22,6 +22,16 @@ pub struct AppState {
     /// main thread used to serialize them for free; this restores that per app,
     /// while different apps still run in parallel.
     pub lifecycle_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Serializes the port-allocate → row-insert window of `start_instance`.
+    /// Picking a free port (`db.used_ports()`) and reserving it (`insert_instance`,
+    /// which writes `port_registry`) happen under two separate `db` locks, so two
+    /// concurrent starts could read the same free port before either reserves it,
+    /// and one process then fails to bind. A single process-wide mutex closes that
+    /// gap. Unlike `lifecycle_locks` this is NOT keyed per id: the racing callers
+    /// are different apps/instances with different ids, so a per-id lock wouldn't
+    /// make them contend. The critical section is a couple of tiny queries, so
+    /// global serialization is effectively free.
+    pub instance_alloc_lock: Mutex<()>,
 }
 
 impl AppState {

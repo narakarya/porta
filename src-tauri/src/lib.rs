@@ -151,6 +151,19 @@ pub fn run() {
         }
     }
 
+    // Worktree instances are plain child processes that never survive a Porta
+    // restart, so any row still flagged "running"/"starting" is stale. Mark them
+    // "stopped"; the boot-time startup_caddy_sync then rebuilds Caddy without
+    // their routes (sync_caddy skips "stopped" instances).
+    if let Ok(instances) = db.list_instances() {
+        for inst in instances
+            .iter()
+            .filter(|i| i.status == "running" || i.status == "starting")
+        {
+            db.update_instance_status_only(&inst.id, "stopped").ok();
+        }
+    }
+
     // Re-hydrate Tailscale Serve tracking from tailscaled so Disconnect works
     // after a Porta restart. No-op if tailscale isn't installed/running.
     commands::reconcile_on_startup(&db);
@@ -163,6 +176,7 @@ pub fn run() {
         db_path: db_path.clone(),
         extensions: Mutex::new(vec![]),
         lifecycle_locks: Mutex::new(std::collections::HashMap::new()),
+        instance_alloc_lock: Mutex::new(()),
     };
 
     tauri::Builder::default()
@@ -234,6 +248,10 @@ pub fn run() {
             commands::set_git_autofetch_enabled,
             commands::get_git_autofetch_interval_secs,
             commands::set_git_autofetch_interval_secs,
+            commands::git_worktree_list,
+            commands::list_instances,
+            commands::start_instance,
+            commands::stop_instance,
             commands::start_app,
             commands::stop_app,
             commands::restart_app,
