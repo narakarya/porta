@@ -29,6 +29,29 @@ pub async fn check_app_health(state: State<'_, AppState>, id: String) -> Result<
         .map_err(|e| format!("health task failed: {}", e))
 }
 
+/// Build the list of (id, port, health_check_path) probes from running apps
+/// and running instances. Instances inherit their parent app's health path.
+/// Pure so it can be unit-tested without a DB or network.
+fn collect_probes(
+    apps: &[crate::db::models::App],
+    instances: &[crate::db::models::AppInstance],
+) -> Vec<(String, u16, Option<String>)> {
+    let mut probes: Vec<(String, u16, Option<String>)> = apps
+        .iter()
+        .filter(|a| a.status == "running")
+        .map(|a| (a.id.clone(), a.port, a.health_check_path.clone()))
+        .collect();
+
+    for inst in instances.iter().filter(|i| i.status == "running") {
+        let path = apps
+            .iter()
+            .find(|a| a.id == inst.app_id)
+            .and_then(|a| a.health_check_path.clone());
+        probes.push((inst.id.clone(), inst.port, path));
+    }
+    probes
+}
+
 /// Bulk health probe. We collect the (port, path) pairs first, drop the DB
 /// lock, then run all probes concurrently on the blocking pool. Sequential
 /// blocking probes inside one sync command was the worst case — with 10
@@ -38,10 +61,8 @@ pub async fn check_all_health(state: State<'_, AppState>) -> Result<HashMap<Stri
     let probes: Vec<(String, u16, Option<String>)> = {
         let db = state.db.lock().unwrap();
         let apps = db.list_apps().map_err(|e| e.to_string())?;
-        apps.into_iter()
-            .filter(|a| a.status == "running")
-            .map(|a| (a.id, a.port, a.health_check_path))
-            .collect()
+        let instances = db.list_instances().map_err(|e| e.to_string())?;
+        collect_probes(&apps, &instances)
     };
 
     let mut handles = Vec::with_capacity(probes.len());
@@ -314,6 +335,37 @@ fn truncate(s: &str, n: usize) -> String {
         let mut out: String = s.chars().take(n).collect();
         out.push('…');
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::models::{App, AppInstance};
+
+    fn test_app() -> App {
+        App::default()
+    }
+
+    fn test_inst() -> AppInstance {
+        AppInstance::default()
+    }
+
+    #[test]
+    fn collect_probes_instance_inherits_parent_health_path_and_only_running() {
+        let app = App {
+            id: "app1".into(), port: 4000, status: "running".into(),
+            health_check_path: Some("/up".into()), ..test_app()
+        };
+        let running = AppInstance { id: "i1".into(), app_id: "app1".into(), port: 4100, status: "running".into(), ..test_inst() };
+        let stopped = AppInstance { id: "i2".into(), app_id: "app1".into(), port: 4101, status: "stopped".into(), ..test_inst() };
+
+        let probes = collect_probes(&[app], &[running, stopped]);
+        // app1 + i1 only; i2 is stopped
+        assert_eq!(probes.len(), 2);
+        assert!(probes.iter().any(|(id, port, path)| id == "i1" && *port == 4100 && path.as_deref() == Some("/up")));
+        assert!(probes.iter().any(|(id, port, path)| id == "app1" && *port == 4000 && path.as_deref() == Some("/up")));
+        assert!(!probes.iter().any(|(id, _, _)| id == "i2"));
     }
 }
 
