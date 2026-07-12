@@ -130,4 +130,36 @@ mod tests {
         assert!(db.list_instances().unwrap().is_empty());
         assert!(!db.used_ports().unwrap().contains(&5001));
     }
+
+    #[test]
+    fn delete_instance_frees_only_target_port() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        seed_app(&db, "app1");
+        // Register the app's primary port (4001) the way insert_app would, so it
+        // participates in used_ports() alongside the instance ports.
+        db.conn
+            .execute(
+                "INSERT INTO port_registry (port, app_id) VALUES (4001, 'app1')",
+                [],
+            )
+            .unwrap();
+
+        // Two sibling instances of the same app on distinct ports.
+        db.insert_instance(&instance("app1:one", "app1", 5001)).unwrap();
+        db.insert_instance(&instance("app1:two", "app1", 5002)).unwrap();
+
+        let before = db.used_ports().unwrap();
+        assert!(before.contains(&4001));
+        assert!(before.contains(&5001));
+        assert!(before.contains(&5002));
+
+        // Deleting one instance must free ONLY its own (port, app_id) row.
+        db.delete_instance("app1:one").unwrap();
+
+        let after = db.used_ports().unwrap();
+        assert!(!after.contains(&5001), "deleted instance's port must be freed");
+        assert!(after.contains(&5002), "sibling instance's port must survive");
+        assert!(after.contains(&4001), "app's primary port must survive");
+    }
 }
