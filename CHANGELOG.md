@@ -6,6 +6,21 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.20] — 2026-07-12
+
+### Changed
+- **Nested instances region is collapsible** and its cards are indented under
+  the parent for a clearer parent/child hierarchy.
+- **"Run from worktree" launcher shows 5 entries by default** with a "Show N
+  more…" toggle (search still reveals all; worktrees with an active instance
+  always stay visible).
+
+### Fixed
+- **Instances inherit the parent app's `.env`.** A relative `env_file` was
+  resolved against the worktree dir (where `.env` is gitignored and absent);
+  it now resolves against the parent app's root, so instances load the same
+  env as the primary checkout.
+
 ## [0.7.19] — 2026-07-12
 
 ### Added
