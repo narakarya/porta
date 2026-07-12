@@ -60,7 +60,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, removeInstanceAction } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -80,6 +80,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       cacheAppExtensions: s.cacheAppExtensions,
       runInstance: s.runInstance,
       stopInstanceAction: s.stopInstanceAction,
+      removeInstanceAction: s.removeInstanceAction,
     }))
   );
   const isInstance = variant === "instance";
@@ -155,6 +156,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   const [hostsMenuOpen, setHostsMenuOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [killConfirm, setKillConfirm] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
   const [portKillFeedback, setPortKillFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   function showPortFeedback(ok: boolean, msg: string) {
@@ -277,6 +279,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       else setJustStopped(true);
     }
     if (!isActive) setKillConfirm(false); // dismiss confirm if process already stopped
+    if (isActive) setRemoveConfirm(false); // a re-run cancels a pending remove
     prevActive.current = isActive;
   }, [isActive]);
 
@@ -741,12 +744,27 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   </button>
                 </Tooltip>
               )}
+              {/* Kill whatever still holds this instance's OWN port (inst.port,
+                  via the derived app) — an orphan child that outlived the stop.
+                  Instance-only; primary apps have their own port-kill affordance
+                  in the conflict popover. */}
+              {isInstance && instance && (
+                <Tooltip label={`Free port :${app.port}`} className="inline-flex">
+                  <button
+                    onClick={handleKillPortHolder}
+                    disabled={killingPort}
+                    className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-amber-300 hover:bg-amber-500/10 rounded-md transition-colors disabled:opacity-40"
+                  >
+                    {killingPort ? "Killing…" : "Kill port"}
+                  </button>
+                </Tooltip>
+              )}
               {/* Remove a stopped/crashed instance for good — deletes its row,
-                  frees the port, drops the Caddy route. Instance-only: apps are
-                  removed via Settings, not from the card. */}
+                  frees the port, drops the Caddy route. Two-step via the confirm
+                  bar below. Instance-only: apps are removed via Settings. */}
               {isInstance && instance && (
                 <button
-                  onClick={() => stopInstanceAction(instance.id, instance.app_id)}
+                  onClick={() => setRemoveConfirm(true)}
                   className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-red-300 hover:bg-red-500/10 rounded-md transition-colors"
                   title="Remove this instance"
                 >
@@ -799,6 +817,28 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           <button
             onClick={() => setKillConfirm(false)}
             className="text-[11px] text-orange-400/50 hover:text-orange-300 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* ── Remove-instance confirm bar ── */}
+      {removeConfirm && isInstance && instance && (
+        <div className="mx-3 mb-2 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+            <path d="M2 3h7M4 3V2h3v1M3 3l.5 6h4L8 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <p className="text-[11px] text-red-300 flex-1">Remove this instance? Frees the port and drops the route.</p>
+          <button
+            onClick={() => { removeInstanceAction(instance.id, instance.app_id); setRemoveConfirm(false); }}
+            className="text-[11px] font-medium text-red-400 hover:text-red-200 transition-colors"
+          >
+            Remove
+          </button>
+          <button
+            onClick={() => setRemoveConfirm(false)}
+            className="text-[11px] text-red-400/50 hover:text-red-300 transition-colors"
           >
             Cancel
           </button>

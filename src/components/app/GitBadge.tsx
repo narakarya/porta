@@ -118,6 +118,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const instances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
   const runInstance = usePortaStore((s) => s.runInstance);
   const stopInstanceAction = usePortaStore((s) => s.stopInstanceAction);
+  const removeInstanceAction = usePortaStore((s) => s.removeInstanceAction);
   const refreshInstances = usePortaStore((s) => s.refreshInstances);
 
   // Clicking the badge (git icon + branch name) opens the main popover: stats,
@@ -135,6 +136,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const [branches, setBranches] = useState<BranchList | null>(null);
   const [branchQuery, setBranchQuery] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
+  // Two-step confirm for Remove in the tight worktree list: first click arms
+  // (id set), second click on the same row removes. Cleared on flyout close.
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   // Tracks "already probed, this dir isn't a repo". The store maps to
   // GitStatus (never null), so a non-repo can't be recorded there — this ref
@@ -182,7 +186,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   // A failed op's error must not survive close/reopen — clear it once the main
   // popover shuts (the switch flyout can't outlive it).
   useEffect(() => {
-    if (!mainOpen) { setError(null); setSwitchOpen(false); }
+    if (!mainOpen) { setError(null); setSwitchOpen(false); setConfirmRemoveId(null); }
   }, [mainOpen]);
 
   // Badge chip → main popover (anchored below the badge).
@@ -524,14 +528,57 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                               {inst.status === "running" ? `:${inst.port}` : inst.status}
                             </span>
                           </Tooltip>
-                          <Tooltip label={inst.status === "running" ? "Stop & remove instance" : "Remove instance"} side="top">
-                            <button
-                              onClick={() => stopInstanceAction(inst.id, app.id)}
-                              className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
-                            >
-                              {inst.status === "running" ? "Stop" : "Remove"}
-                            </button>
-                          </Tooltip>
+                          {inst.status === "running" ? (
+                            // Stop keeps the row (→ "stopped"); no confirm needed.
+                            <Tooltip label="Stop instance (keeps it in the list)" side="top">
+                              <button
+                                onClick={() => stopInstanceAction(inst.id, app.id)}
+                                className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                              >
+                                Stop
+                              </button>
+                            </Tooltip>
+                          ) : confirmRemoveId === inst.id ? (
+                            // Armed: this click removes for good.
+                            <Tooltip label="Removes the row, frees the port" side="top">
+                              <button
+                                onClick={() => { removeInstanceAction(inst.id, app.id); setConfirmRemoveId(null); }}
+                                className="text-[10px] font-medium text-red-400 hover:text-red-200 px-1"
+                              >
+                                Confirm?
+                              </button>
+                            </Tooltip>
+                          ) : (
+                            <>
+                              <Tooltip label="Re-run this instance" side="top">
+                                <button
+                                  onClick={async () => {
+                                    setWtBusy(w.path);
+                                    setError(null);
+                                    try {
+                                      await runInstance(app.id, w.path);
+                                    } catch (e) {
+                                      setError(String(e));
+                                    } finally {
+                                      setWtBusy(null);
+                                    }
+                                  }}
+                                  disabled={wtBusy !== null}
+                                  className="text-[10px] text-zinc-300 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
+                                >
+                                  {wtBusy === w.path ? "…" : "Run"}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label="Remove instance" side="top">
+                                <button
+                                  onClick={() => setConfirmRemoveId(inst.id)}
+                                  className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                                >
+                                  Remove
+                                </button>
+                              </Tooltip>
+                            </>
+                          )}
                         </>
                       ) : (
                         <button

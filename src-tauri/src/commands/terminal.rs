@@ -89,7 +89,13 @@ pub fn terminal_open(
 
     let cwd = std::path::PathBuf::from(&root_dir);
     let mut cmd = std::process::Command::new("zsh");
-    cmd.arg("-i")
+    // Login + interactive: `-l` sources ~/.zprofile/~/.zlogin (where Homebrew's
+    // `brew shellenv` typically puts /opt/homebrew/bin on PATH), `-i` sources
+    // ~/.zshrc (aliases, `eval "$(starship init zsh)"`). Without `-l`, a .app
+    // bundle's minimal PATH means `starship` isn't found and the prompt silently
+    // falls back to the bare zsh prompt — matches the process launcher, which
+    // also runs a login shell.
+    cmd.arg("-i").arg("-l")
        .env("TERM", "xterm-256color")
        .current_dir(&cwd);
 

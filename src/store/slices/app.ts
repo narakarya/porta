@@ -77,6 +77,7 @@ export interface AppSlice {
   refreshInstances: (appId: string) => Promise<void>;
   runInstance: (appId: string, worktreePath: string) => Promise<void>;
   stopInstanceAction: (instanceId: string, appId: string) => Promise<void>;
+  removeInstanceAction: (instanceId: string, appId: string) => Promise<void>;
 }
 
 export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, get) => ({
@@ -505,12 +506,23 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   stopInstanceAction: async (instanceId, appId) => {
     await cmd.stopInstance(instanceId);
-    // Backend `stop_instance` terminates the process AND deletes the row (frees
-    // the port, drops the Caddy route), so the instance is gone for good — drop
-    // it from the list. This is the explicit Stop/Remove path. An instance that
-    // exits on its OWN (crash) instead keeps its row as "stopped" via the
-    // `instance:exit` handler so the user can see the failure and remove it
-    // deliberately (which calls this action).
+    // Backend `stop_instance` keeps the row and flips it to "stopped" (process
+    // killed, port + route retained). Mirror that here so the card stays put —
+    // the user can re-run, kill a stuck port, or Remove it deliberately.
+    set((s) => ({
+      instances: {
+        ...s.instances,
+        [appId]: (s.instances[appId] ?? []).map((i) =>
+          i.id === instanceId ? { ...i, status: "stopped", pid: null } : i,
+        ),
+      },
+    }));
+  },
+
+  removeInstanceAction: async (instanceId, appId) => {
+    await cmd.removeInstance(instanceId);
+    // Backend `remove_instance` deletes the row, frees the port, drops the Caddy
+    // route — the instance is gone for good. Drop it from the list.
     set((s) => ({
       instances: {
         ...s.instances,

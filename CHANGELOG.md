@@ -6,6 +6,33 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.25] — 2026-07-13
+
+### Changed
+- **Stop no longer removes an instance.** Stopping an instance now kills its
+  process and marks the row **stopped** (port + Caddy route retained), so the
+  card stays put — mirroring how a stopped primary app behaves. Removal is a
+  separate, explicit action.
+- **Instance cards gain Kill port + Remove.** A stopped instance shows
+  **Start · Kill port · Remove**. *Kill port* frees the instance's *own* port
+  (`inst.port`, for an orphan child that outlived the stop); *Remove* deletes
+  the row for good behind a confirm bar.
+- **Terminal runs a login+interactive shell** (`zsh -i -l`, was `-i`) so
+  `~/.zprofile` is sourced. In a `.app` bundle the login file is where Homebrew
+  puts `/opt/homebrew/bin` on PATH — without it, `starship` isn't found and the
+  prompt silently falls back to bare zsh (notably in worktree terminals).
+
+### Added
+- `remove_instance` command — the destructive counterpart to `stop_instance`.
+
+### Fixed
+- **Remove now asks for confirmation** — a confirm bar on instance cards and a
+  two-step `Remove → Confirm?` in the branch flyout, so an instance isn't wiped
+  on a single stray click.
+- **No spurious crash banner on Stop.** An intentional stop now reports exit 0
+  (matching the primary-app path), so the now-persistent stopped row doesn't
+  render a crash banner for a process the user killed deliberately.
+
 ## [0.7.24] — 2026-07-13
 
 ### Changed

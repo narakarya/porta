@@ -254,6 +254,7 @@ pub fn run() {
             commands::list_instances,
             commands::start_instance,
             commands::stop_instance,
+            commands::remove_instance,
             commands::start_app,
             commands::stop_app,
             commands::restart_app,

@@ -155,13 +155,40 @@ pub async fn list_instances(app: AppHandle, app_id: String) -> Result<Vec<AppIns
     .map_err(|e| e.to_string())?
 }
 
+/// Stop an instance's process but KEEP its row (marked "stopped"), so the card
+/// stays put and the user can re-run, kill a stuck port, or remove it
+/// deliberately. Mirrors how a stopped primary app behaves — the process dies,
+/// the row and its port reservation remain. Removal is a separate, explicit
+/// action (`remove_instance`).
 #[tauri::command]
 pub async fn stop_instance(app: AppHandle, instance_id: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
         // Kill the process under the instance key (no-op if already exited).
         state.processes.stop(&instance_id).map_err(|e| e.to_string())?;
-        // Drop the row + free the port, then rebuild Caddy so the route vanishes.
+        // Keep the row; just flip it to "stopped". (The process's on_exit hook
+        // also does this, but setting it here makes Stop deterministic instead
+        // of racing the async exit callback.)
+        {
+            let db = state.db.lock().unwrap();
+            db.update_instance_status_only(&instance_id, "stopped")
+                .map_err(|e| e.to_string())?;
+        }
+        sync_caddy(&state)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Remove an instance for good: stop its process (no-op if already dead), drop
+/// the row + free the port, then rebuild Caddy so the route vanishes. This is
+/// the destructive counterpart to `stop_instance`.
+#[tauri::command]
+pub async fn remove_instance(app: AppHandle, instance_id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        state.processes.stop(&instance_id).map_err(|e| e.to_string())?;
         {
             let mut db = state.db.lock().unwrap();
             db.delete_instance(&instance_id).map_err(|e| e.to_string())?;
@@ -289,11 +316,15 @@ fn start_instance_inner(
     let exit_handle = app.clone();
     let exit_id = iid.clone();
     // No auto-restart for instances in v1: mark stopped, drop the Caddy route.
-    let on_exit = move |code: i32, _intentional: bool| {
+    // Report exit 0 for an intentional Stop so the row (which now persists)
+    // doesn't render a spurious crash banner; a real crash keeps its code.
+    // Mirrors the primary app's on_exit `is_stop` handling.
+    let on_exit = move |code: i32, intentional: bool| {
+        let reported = if intentional { 0 } else { code };
         let st = exit_handle.state::<AppState>();
         st.db.lock().unwrap().update_instance_status_only(&exit_id, "stopped").ok();
         sync_caddy(&st).ok();
-        exit_handle.emit(&format!("instance:exit:{}", exit_id), code).ok();
+        exit_handle.emit(&format!("instance:exit:{}", exit_id), reported).ok();
     };
 
     // Instances run with cwd = the worktree, but `.env` is gitignored so a fresh
