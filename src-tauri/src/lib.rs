@@ -336,6 +336,8 @@ pub fn run() {
             commands::set_tunnel_config,
             commands::start_tunnel,
             commands::stop_tunnel,
+            commands::start_instance_tunnel,
+            commands::stop_instance_tunnel,
             commands::check_tailscale,
             commands::tailscale_status,
             commands::list_tailscale_serves,

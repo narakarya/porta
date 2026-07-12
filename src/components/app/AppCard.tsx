@@ -5,7 +5,8 @@ import { usePortaStore } from "../../store";
 import type { App, Workspace } from "../../types";
 import AppContextMenu from "./AppContextMenu";
 import HostsDropdown from "./HostsDropdown";
-import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, type PortCheckResult } from "../../lib/commands";
+import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, type PortCheckResult } from "../../lib/commands";
+import type { AppInstance } from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
@@ -24,6 +25,14 @@ import DockerUpdateBadge from "./DockerUpdateBadge";
 import AppDiskBadge from "./AppDiskBadge";
 import GitBadge from "./GitBadge";
 import { yieldToFrame } from "../../lib/ui";
+import { deriveInstanceApp } from "../../lib/instance-app";
+import InstancesModal from "./InstancesModal";
+
+// Stable empty reference — mirrors GitBadge's own module-level const (not
+// exported from there). Returning `?? []` straight from a Zustand selector
+// yields a new array every render, which `useSyncExternalStore` reads as a
+// new snapshot each time → infinite re-render ("Maximum update depth exceeded").
+const EMPTY_INSTANCES: AppInstance[] = [];
 
 interface Props {
   app: App;
@@ -32,6 +41,8 @@ interface Props {
   // (required for React.memo below to actually skip re-renders).
   onOpenSettings?: (app: App) => void;
   onOpenTerminal?: (app: App, startupCommand?: string) => void;
+  variant?: "primary" | "instance";
+  instance?: AppInstance;
 }
 
 function resolvedHost(app: App, workspace: Workspace | null): string {
@@ -47,9 +58,9 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
   return [primary, ...extras];
 }
 
-function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
+function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -67,8 +78,23 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
       closeExtensionSidebar: s.closeExtensionSidebar,
       extensionSidebar: s.extensionSidebar,
       cacheAppExtensions: s.cacheAppExtensions,
+      runInstance: s.runInstance,
+      stopInstanceAction: s.stopInstanceAction,
     }))
   );
+  const isInstance = variant === "instance";
+  // Instance cards drive the per-instance lifecycle commands; primary cards
+  // use the app-level ones. Everything else (logs, health, git, terminal)
+  // already keys off app.id, which equals instance.id for instance cards.
+  const doStart = isInstance && instance
+    ? () => runInstance(instance.app_id, instance.worktree_path)
+    : () => startApp(app.id);
+  const doStop = isInstance && instance
+    ? () => stopInstanceAction(instance.id, instance.app_id)
+    : () => stopApp(app.id);
+  const doRestart = isInstance && instance
+    ? async () => { await stopInstanceAction(instance.id, instance.app_id); await runInstance(instance.app_id, instance.worktree_path); }
+    : () => restartApp(app.id);
   // Per-app state slices — component only re-renders when ITS slice changes.
   const setupStatus = usePortaStore((s) => s.setupStatus);
   const health = usePortaStore((s) => s.healthStatuses[app.id]);
@@ -115,6 +141,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
   useEffect(() => {
     if (isRestarting || isRunning || app.status === "stopped") setPendingRestart(false);
   }, [isRestarting, isRunning, app.status]);
+
+  const [instancesModalOpen, setInstancesModalOpen] = useState(false);
+  const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
@@ -271,7 +300,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
 
   async function handleStart() {
     try {
-      await startApp(app.id);
+      await doStart();
     } catch (e) {
       const full = e instanceof Error ? e.message : String(e);
       // For compose apps, a port-already-in-use failure is auto-fixable —
@@ -314,9 +343,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
         }`} />
 
         <div
-          className={`flex-1 min-w-0 ${onOpenSettings ? "cursor-pointer" : ""}`}
-          onClick={onOpenSettings ? () => onOpenSettings(app) : undefined}
-          title={onOpenSettings ? "Open settings" : undefined}
+          className={`flex-1 min-w-0 ${!isInstance && onOpenSettings ? "cursor-pointer" : ""}`}
+          onClick={!isInstance && onOpenSettings ? () => onOpenSettings(app) : undefined}
+          title={!isInstance && onOpenSettings ? "Open settings" : undefined}
         >
           <div className="flex items-center gap-1.5">
             <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
@@ -335,8 +364,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
                 compose
               </span>
             )}
-            {(isDocker || isCompose) && <DockerUpdateBadge app={app} />}
-            {(isDocker || isCompose) && <AppDiskBadge app={app} />}
+            {!isInstance && (isDocker || isCompose) && <DockerUpdateBadge app={app} />}
+            {!isInstance && (isDocker || isCompose) && <AppDiskBadge app={app} />}
             {isProxy && (
               <span className="text-[9px] font-semibold tracking-wider text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded leading-none uppercase opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                 proxy
@@ -369,7 +398,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
                 </svg>
               </Tooltip>
             )}
-            {onOpenSettings && (
+            {!isInstance && onOpenSettings && (
               <svg
                 width="10" height="10" viewBox="0 0 10 10" fill="none"
                 className="text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
@@ -402,7 +431,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
             ) : (
               <p className="text-[11px] text-zinc-600">port {app.port}</p>
             )}
-            {!isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} />}
+            {!isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} hideWorktreeLauncher={isInstance} />}
             {isManaged && portCheck && !portCheck.available && (() => {
               // `ps -o comm=` returns the full command path for binaries
               // launched by version managers (mise/asdf/nvm) — strip to the
@@ -503,8 +532,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
           app={app}
           isActive={isActive}
           tunnelError={tunnelError}
-          onStartTunnel={() => startTunnel(app.id)}
-          onStopTunnel={() => stopTunnel(app.id)}
+          quickOnly={isInstance}
+          onStartTunnel={isInstance && instance ? () => startInstanceTunnel(instance.id) : () => startTunnel(app.id)}
+          onStopTunnel={isInstance && instance ? () => stopInstanceTunnel(instance.id) : () => stopTunnel(app.id)}
         />
 
         {/* Terminal button — needs a folder to cd into */}
@@ -539,11 +569,13 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
         )}
 
         {/* Extension appAction buttons — run commands without opening the panel */}
-        <ExtensionActionButtons
-          app={app}
-          extensions={appExtensions}
-          onOpenExtension={(ext) => openExtensionSidebar(app.id, appExtensions, ext.id)}
-        />
+        {!isInstance && (
+          <ExtensionActionButtons
+            app={app}
+            extensions={appExtensions}
+            onOpenExtension={(ext) => openExtensionSidebar(app.id, appExtensions, ext.id)}
+          />
+        )}
 
         {/* HTTP traffic inspector — non-wildcard host served by Caddy.
             Hidden for docker/compose: container logs already cover the
@@ -620,7 +652,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
             (the hover cluster above has variable width, which made it drift).
             Just the puzzle + count → clutter-free regardless of match count.
             Click: single match → its panel; many → the list. */}
-        {appExtensions.length > 0 && (
+        {!isInstance && appExtensions.length > 0 && (
           <Tooltip label={extSidebarActive ? "Close extensions" : appExtensions.length === 1 ? `Open ${appExtensions[0].name}` : `${appExtensions.length} extensions`}>
             <button
               onClick={(e) => {
@@ -651,7 +683,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
                   await yieldToFrame();
                   openToast();
                   setBannerDismissed(false);
-                  restartApp(app.id);
+                  doRestart();
                 }}
                 disabled={isRestarting || pendingRestart}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
@@ -669,7 +701,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
                 ) : "Restart"}
               </button>
               <button
-                onClick={() => stopApp(app.id)}
+                onClick={doStop}
                 className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
               >
                 Stop
@@ -694,7 +726,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
                   apps don't get a noisy Stop button next to Start. */}
               {(isDocker || isCompose) && crashed && (
                 <button
-                  onClick={() => stopApp(app.id)}
+                  onClick={doStop}
                   className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
                   title="Clean up any orphan containers from the failed start"
                 >
@@ -785,6 +817,43 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
         />
       )}
 
+      {/* ── Nested instances region — primary cards only, so instance cards
+           never nest their own instances. ── */}
+      {!isInstance && appInstances.length > 0 && (
+        <div className="mt-2 border-t border-white/10 pt-2">
+          <div className="text-[10px] text-zinc-500 mb-1">Instances ({appInstances.length})</div>
+          <div className="flex flex-col gap-2">
+            {appInstances.slice(0, 3).map((inst) => (
+              <AppCard
+                key={inst.id}
+                app={deriveInstanceApp(app, inst)}
+                workspace={workspace}
+                variant="instance"
+                instance={inst}
+                onOpenTerminal={onOpenTerminal}
+              />
+            ))}
+          </div>
+          {appInstances.length > 3 && (
+            <button
+              onClick={() => setInstancesModalOpen(true)}
+              className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
+            >
+              View all ({appInstances.length})
+            </button>
+          )}
+        </div>
+      )}
+      {instancesModalOpen && (
+        <InstancesModal
+          app={app}
+          workspace={workspace}
+          instances={appInstances}
+          onOpenTerminal={onOpenTerminal}
+          onClose={() => setInstancesModalOpen(false)}
+        />
+      )}
+
       {/* ── Overlays ── */}
       {contextMenu && (
         <AppContextMenu
@@ -829,13 +898,13 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
               onClick: () => navigator.clipboard.writeText(host).catch(() => {}),
               disabled: isWildcard,
             },
-            {
+            ...(!isInstance ? [{
               label: "Duplicate",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3" width="6.5" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 3V1.5h6v6H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
               onClick: () => cloneApp(app.id).catch(() => {}),
-            },
+            }] : []),
             "separator",
-            ...(onOpenSettings ? [{
+            ...(!isInstance && onOpenSettings ? [{
               label: "App Settings",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M5.5 1v1M5.5 9v1M1 5.5h1M9 5.5h1M2.3 2.3l.7.7M8.2 8.2l.7.7M8.2 2.3l-.7.7M2.3 8.2l.7-.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
               onClick: () => onOpenSettings(app),
@@ -889,7 +958,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal }: Props) {
               if (r) setPortCheck(r);
               showPortFeedback(true, `Port changed — starting ${app.name}…`);
               try {
-                await startApp(app.id);
+                await doStart();
               } catch (e) {
                 showPortFeedback(false, `Start failed: ${e instanceof Error ? e.message : String(e)}`);
               }

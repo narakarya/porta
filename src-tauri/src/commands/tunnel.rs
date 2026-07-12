@@ -628,6 +628,205 @@ pub fn stop_tunnel(id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Per-instance quick tunnel ───────────────────────────────────────────────
+//
+// Worktree instances are ephemeral (spun up/torn down with the worktree), so
+// named tunnels / DNS routing are intentionally unsupported here — quick
+// (trycloudflare) only. `tunnel_pids`/`tunnel_stopping` above are already a
+// generic `HashMap<String, _>` / `HashSet<String>` keyed by id, and instance
+// ids can never collide with app ids — app ids are bare UUIDs, while instance
+// ids are always `format!("{app_id}:{branch}")` (they always contain a
+// colon), so a bare UUID can never equal `<uuid>:<branch>` — so we reuse
+// them directly instead of adding a parallel map to `AppState`.
+//
+// This does NOT call into `start_tunnel_blocking` or share a helper with it.
+// That function interleaves named-tunnel DNS routing, multi-host ingress-yaml
+// generation, and the quick-tunnel scrape so tightly — one closure branching
+// on `is_named` throughout, shared metrics-port bookkeeping, shared
+// provider-switch teardown — that extracting a `spawn_quick_tunnel` piece
+// both paths call would mean restructuring that closure, which risks
+// changing existing app-tunnel behavior. The instance path only needs the
+// "spawn `cloudflared tunnel --url <target>`, scrape the trycloudflare.com
+// URL from stderr, emit, clean up on exit" slice (mirrors tunnel.rs:528-546
+// as closely as possible for parity, minus the named-tunnel branch and Caddy
+// host-header indirection instances don't need), so a small self-contained
+// copy here is safer than a forced refactor of the shared app path.
+//
+// Instances also don't carry the app-level flags (`auto_sleep_enabled`,
+// `basic_auth_enabled`, `is_static()`) that make the app path route through
+// Caddy — the quick tunnel just forwards straight to the instance's own
+// `http://localhost:<port>`, matching `start_tunnel`'s fallback branch for
+// apps that need none of those features.
+fn spawn_quick_tunnel_for_instance(
+    app_handle: tauri::AppHandle,
+    channel: String,
+    key: String,
+    port: u16,
+) -> Result<(), String> {
+    let cf = find_cloudflared().ok_or_else(|| {
+        "cloudflared not installed. Run: brew install cloudflare/cloudflare/cloudflared".to_string()
+    })?;
+
+    // Kill any existing tunnel tracked under this key and clear a stale
+    // "intentional stop" marker from a previous run.
+    {
+        let mut pids = tunnel_pids().lock().unwrap();
+        if let Some(pid) = pids.remove(&key) {
+            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+        }
+    }
+    tunnel_stopping().lock().unwrap().remove(&key);
+
+    let target = format!("http://localhost:{}", port);
+    let key2 = key.clone();
+    let channel2 = channel.clone();
+    let handle = app_handle.clone();
+
+    thread::spawn(move || {
+        let mut child = match std::process::Command::new(&cf)
+            .args(["tunnel", "--url", &target])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                handle
+                    .emit(
+                        &channel2,
+                        serde_json::json!({ "active": false, "url": null, "error": e.to_string() }),
+                    )
+                    .ok();
+                return;
+            }
+        };
+
+        tunnel_pids().lock().unwrap().insert(key2.clone(), child.id());
+
+        // Capture last N stderr lines so we can surface a real error if
+        // cloudflared exits non-zero, same as the app quick-tunnel path.
+        let stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let stderr_handle = if let Some(stderr) = child.stderr.take() {
+            let handle2 = handle.clone();
+            let buf = stderr_buf.clone();
+            let channel3 = channel2.clone();
+            Some(thread::spawn(move || {
+                for line in std::io::BufReader::new(stderr)
+                    .lines()
+                    .map_while(Result::ok)
+                {
+                    {
+                        let mut b = buf.lock().unwrap();
+                        b.push(line.clone());
+                        if b.len() > 30 {
+                            let drop = b.len() - 30;
+                            b.drain(0..drop);
+                        }
+                    }
+                    // Quick tunnel — scrape trycloudflare URL (same detection
+                    // as the app path's quick branch).
+                    if let Some(pos) = line.find("https://") {
+                        let url = line[pos..]
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("")
+                            .trim_end_matches('|')
+                            .trim()
+                            .to_string();
+                        if url.contains("trycloudflare.com") || url.contains(".cloudflare.com") {
+                            handle2
+                                .emit(
+                                    &channel3,
+                                    serde_json::json!({ "active": true, "url": url }),
+                                )
+                                .ok();
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
+        let status = child.wait().ok();
+        if let Some(h) = stderr_handle {
+            let _ = h.join();
+        }
+
+        tunnel_pids().lock().unwrap().remove(&key2);
+        let intentional = tunnel_stopping().lock().unwrap().remove(&key2);
+        let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
+        let err_text = if !intentional && exit_code != 0 {
+            let buf = stderr_buf.lock().unwrap();
+            let lines: Vec<String> = buf
+                .iter()
+                .rev()
+                .filter(|l| !l.trim().is_empty())
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if lines.is_empty() {
+                Some(format!("cloudflared exited with code {}", exit_code))
+            } else {
+                Some(lines.join("\n"))
+            }
+        } else {
+            None
+        };
+
+        handle
+            .emit(
+                &channel2,
+                serde_json::json!({ "active": false, "url": null, "error": err_text }),
+            )
+            .ok();
+    });
+
+    Ok(())
+}
+
+/// Start a QUICK (trycloudflare) tunnel for a worktree instance. Instances are
+/// ephemeral, so named tunnels / DNS are intentionally unsupported here.
+/// Emits `instance:tunnel:{instance_id}` with { active, url, error }.
+#[tauri::command]
+pub async fn start_instance_tunnel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    instance_id: String,
+) -> Result<(), String> {
+    let inst = {
+        let db = state.db.lock().unwrap();
+        db.list_instances()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "instance not found".to_string())?
+    };
+    spawn_quick_tunnel_for_instance(
+        app,
+        format!("instance:tunnel:{}", inst.id),
+        inst.id.clone(),
+        inst.port,
+    )
+}
+
+/// Stop the quick tunnel for a worktree instance. Kills the tracked
+/// cloudflared child (if any); the watcher thread emits the final
+/// `{ active: false }` once the process actually exits.
+#[tauri::command]
+pub fn stop_instance_tunnel(instance_id: String) -> Result<(), String> {
+    tunnel_stopping().lock().unwrap().insert(instance_id.clone());
+    if let Some(pid) = tunnel_pids().lock().unwrap().remove(&instance_id) {
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+    }
+    Ok(())
+}
+
 /// Create a named tunnel. Wraps `cloudflared tunnel create <name>`.
 #[tauri::command]
 pub async fn create_cloudflare_tunnel(name: String) -> Result<(), String> {

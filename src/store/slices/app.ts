@@ -505,10 +505,15 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   stopInstanceAction: async (instanceId, appId) => {
     await cmd.stopInstance(instanceId);
+    // Keep the instance visible as a stopped card (mirrors the `instance:exit`
+    // subscription handler) rather than filtering it out — instance cards have
+    // a full lifecycle and a stopped card still offers a working Start button.
     set((s) => ({
       instances: {
         ...s.instances,
-        [appId]: (s.instances[appId] ?? []).filter((i) => i.id !== instanceId),
+        [appId]: (s.instances[appId] ?? []).map((i) =>
+          i.id === instanceId ? { ...i, status: "stopped", pid: null } : i
+        ),
       },
     }));
   },

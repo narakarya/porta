@@ -1009,6 +1009,15 @@ export const startTunnel = (id: string, port: number): Promise<void> =>
 export const stopTunnel = (id: string): Promise<void> =>
   isTauri ? invoke("stop_tunnel", { id }) : Promise.resolve();
 
+// Per-instance quick (trycloudflare) tunnel — no named-tunnel/DNS support,
+// mirrors the app quick-tunnel path but scoped to a worktree instance's own
+// local endpoint.
+export const startInstanceTunnel = (instanceId: string): Promise<void> =>
+  isTauri ? invoke("start_instance_tunnel", { instanceId }) : Promise.resolve();
+
+export const stopInstanceTunnel = (instanceId: string): Promise<void> =>
+  isTauri ? invoke("stop_instance_tunnel", { instanceId }) : Promise.resolve();
+
 export interface TunnelMetrics {
   requests_total: number;
   errors_total: number;
@@ -1589,6 +1598,11 @@ export interface AppInstance {
   port: number;
   pid: number | null;
   status: string; // "stopped" | "starting" | "running"
+  // Populated client-side from `instance:tunnel:{id}` events (not persisted —
+  // Rust's AppInstance/list_instances has no tunnel fields). Optional so
+  // instances predating a tunnel connect still type-check.
+  tunnel_active?: boolean;
+  tunnel_url?: string | null;
 }
 
 export const gitWorktreeList = (rootDir: string): Promise<WorktreeEntry[]> =>

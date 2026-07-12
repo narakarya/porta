@@ -6,6 +6,19 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.19] — 2026-07-12
+
+### Added
+- **Worktree instances now render as full nested cards** under their parent
+  app (logs, health, terminal, git, quick tunnel), max 3 inline with a
+  fullscreen "View all" modal for more.
+- **Per-instance health checks and per-instance quick (trycloudflare)
+  tunnels.**
+
+### Changed
+- **Removed the PORT note and "Open terminal" shortcut** from the git
+  worktree menu.
+
 ## [0.7.18] — 2026-07-12
 
 ### Changed

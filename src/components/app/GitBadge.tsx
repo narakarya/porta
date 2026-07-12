@@ -8,6 +8,11 @@ import type { App } from "../../types";
 interface Props {
   app: App;
   onOpenTerminal?: (app: App) => void;
+  /** Instance cards use a synthetic app whose id is an instance id, not a real
+   * app id — the "Run from worktree" launcher's `runInstance(app.id, ...)`
+   * calls would hit the backend with that instance id and fail with "app not
+   * found". Set true on instance-context renders to hide the launcher. */
+  hideWorktreeLauncher?: boolean;
 }
 
 type Busy = "fetch" | "pull" | "push" | null;
@@ -100,7 +105,7 @@ function MarqueeOnHover({ text, className = "" }: { text: string; className?: st
   );
 }
 
-export default function GitBadge({ app, onOpenTerminal }: Props) {
+export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = false }: Props) {
   // The store is the single source of truth. The Rust poller writes
   // `appGit[app.id]` every 15s; we seed it once on mount (via setAppGit) so a
   // newly-added app doesn't sit blank until the first tick, and run() refreshes
@@ -352,8 +357,10 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
             </button>
           </div>
 
-          {/* Run from worktree — existing worktrees only; exclude the primary checkout. */}
-          {(() => {
+          {/* Run from worktree — existing worktrees only; exclude the primary checkout.
+              Hidden on instance cards: app.id there is an instance id, not a real
+              app id, so runInstance/stopInstanceAction would target the wrong thing. */}
+          {!hideWorktreeLauncher && (() => {
             const branchWts = worktrees.filter((w) => w.path !== app.root_dir && w.branch);
             const others = branchWts.filter(
               (w) =>
@@ -420,22 +427,9 @@ export default function GitBadge({ app, onOpenTerminal }: Props) {
                     </div>
                   );
                 })}
-                <div className="text-[9px] text-zinc-600 mt-1 leading-tight">
-                  Sets a distinct PORT per instance. Stateful apps (e.g. Phoenix) may still
-                  share a dev DB unless configured to read PORT/env.
-                </div>
               </div>
             );
           })()}
-
-          {onOpenTerminal && (
-            <button
-              onClick={() => { setOpen(false); onOpenTerminal(app); }}
-              className="w-full mt-1 px-2 py-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors text-left"
-            >
-              Open terminal in {app.root_dir.replace(/\/+$/, "").split("/").pop() || app.root_dir}
-            </button>
-          )}
 
           {error && (
             <div className="mt-2 p-1.5 rounded bg-red-500/10 border border-red-500/20">
