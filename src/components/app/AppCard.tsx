@@ -5,7 +5,7 @@ import { usePortaStore } from "../../store";
 import type { App, Workspace } from "../../types";
 import AppContextMenu from "./AppContextMenu";
 import HostsDropdown from "./HostsDropdown";
-import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, type PortCheckResult } from "../../lib/commands";
+import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, type PortCheckResult } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
@@ -532,8 +532,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           app={app}
           isActive={isActive}
           tunnelError={tunnelError}
-          onStartTunnel={() => startTunnel(app.id)}
-          onStopTunnel={() => stopTunnel(app.id)}
+          onStartTunnel={isInstance && instance ? () => startInstanceTunnel(instance.id) : () => startTunnel(app.id)}
+          onStopTunnel={isInstance && instance ? () => stopInstanceTunnel(instance.id) : () => stopTunnel(app.id)}
         />
 
         {/* Terminal button — needs a folder to cd into */}

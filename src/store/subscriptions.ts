@@ -325,6 +325,20 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           },
         }));
       }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
+
+      // Quick tunnel URL from cloudflared — mirrors the app:tunnel handler
+      // above, keyed by instance id.
+      listen<{ active: boolean; url?: string | null; error?: string }>(`instance:tunnel:${inst.id}`, (e) => {
+        set((s) => ({
+          instances: {
+            ...s.instances,
+            [inst.app_id]: (s.instances[inst.app_id] ?? []).map((i) =>
+              i.id === inst.id ? { ...i, tunnel_active: e.payload.active, tunnel_url: e.payload.url ?? null } : i
+            ),
+          },
+          appTunnelErrors: { ...s.appTunnelErrors, [inst.id]: e.payload.error ?? null },
+        }));
+      }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
     });
   };
 
