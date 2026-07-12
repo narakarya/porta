@@ -6,7 +6,7 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
-## [0.7.17] — 2026-07-12
+## [0.7.19] — 2026-07-12
 
 ### Added
 - **Worktree instances now render as full nested cards** under their parent
@@ -18,6 +18,24 @@ All notable changes to Porta are documented in this file. Format follows
 ### Changed
 - **Removed the PORT note and "Open terminal" shortcut** from the git
   worktree menu.
+
+## [0.7.18] — 2026-07-12
+
+### Changed
+- **GitBadge marquee only in the popover, slower.** The app-card branch badge
+  goes back to a plain ellipsis truncation (no hover-scroll); the marquee now
+  lives only in the popover header and scrolls at half the previous speed.
+
+## [0.7.17] — 2026-07-12
+
+### Changed
+- **GitBadge branch names auto-scroll on hover** instead of hard-truncating,
+  and the popover header drops the `→ upstream` arrow for a cleaner look.
+
+### Added
+- **Directional git-op loading in GitBadge.** Fetch spins a sync icon, Pull
+  shows a down arrow that bounces downward, Push an up arrow that bounces
+  upward — the loading animation now mirrors each operation's direction.
 
 ## [0.7.16] — 2026-07-12
 
