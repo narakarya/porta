@@ -6,6 +6,18 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.22] — 2026-07-12
+
+### Added
+- **Switch branches from an app card.** The GitBadge popover gains a "Switch
+  branch" section: a searchable list of local and remote-tracking branches,
+  in-place checkout of the primary repo, and a "Create <name>" row when the
+  search matches nothing (branches from current HEAD). The current branch and
+  any branch already checked out in a worktree are shown but disabled. Picking
+  a remote-only branch creates a local tracking branch; ambiguous names shared
+  across multiple remotes are omitted. Hidden on instance cards, which are
+  branch-pinned.
+
 ## [0.7.20] — 2026-07-12
 
 ### Changed
