@@ -389,17 +389,24 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                 .filter((w) => w.path !== app.root_dir && w.branch)
                 .map((w) => w.branch as string),
             );
-            const localSet = new Set(branches.local);
             // Merge local + remote-only, remote names stripped to short form so
-            // `git switch <short>` triggers DWIM tracking-branch creation.
+            // `git switch <short>` triggers DWIM tracking-branch creation. Only
+            // offer a remote short name when it's unambiguous: absent locally and
+            // present in exactly one remote. When two remotes share it
+            // (origin/foo + upstream/foo), a bare `git switch foo` is ambiguous,
+            // so we skip it rather than surface a row that can only error — and
+            // list keys stay unique.
             type Row = { name: string; kind: "local" | "remote" };
-            const rows: Row[] = [
-              ...branches.local.map((name) => ({ name, kind: "local" as const })),
-              ...branches.remote
-                .map((r) => r.replace(/^[^/]+\//, "")) // origin/foo → foo
-                .filter((short) => !localSet.has(short))
-                .map((name) => ({ name, kind: "remote" as const })),
-            ];
+            const localSet = new Set(branches.local);
+            const remoteShortCounts = new Map<string, number>();
+            for (const r of branches.remote) {
+              const short = r.replace(/^[^/]+\//, ""); // origin/foo → foo
+              remoteShortCounts.set(short, (remoteShortCounts.get(short) ?? 0) + 1);
+            }
+            const rows: Row[] = branches.local.map((name) => ({ name, kind: "local" as const }));
+            for (const [short, count] of remoteShortCounts) {
+              if (count === 1 && !localSet.has(short)) rows.push({ name: short, kind: "remote" });
+            }
             const q = branchQuery.trim();
             const filtered = rows.filter(
               (r) => q === "" || r.name.toLowerCase().includes(q.toLowerCase()),
