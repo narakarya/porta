@@ -237,13 +237,32 @@ fn start_instance_inner(
         find_available_port(&used, 3000, 9999).ok_or_else(|| "no free port".to_string())?
     };
 
-    // 5. Compute subdomain (disambiguate against existing app/instance labels).
+    // 5. Compute subdomain. An instance's Caddy host is
+    //    `<label>.<parent app's effective domain>`, and a primary app owns
+    //    `<its label>.<its domain>` — so the instance label must dodge not just
+    //    other instance labels but every primary app label sharing this domain,
+    //    or Caddy would emit two routes for one host.
     let app_sub = app_row.subdomain.as_deref().unwrap_or(&app_row.name);
     let subdomain = {
         let db = state.db.lock().unwrap();
-        let taken: Vec<String> = db.list_instances().map_err(|e| e.to_string())?
+        let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
+        let domain = app_row.effective_domain(&workspaces);
+        let instance_labels: Vec<String> = db.list_instances().map_err(|e| e.to_string())?
             .into_iter().map(|i| i.subdomain).collect();
-        disambiguate(instance_subdomain(app_sub, &branch), &taken)
+        let app_hosts: Vec<(String, String)> = db.list_apps().map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|a| {
+                let label = a.subdomain.clone().unwrap_or_else(|| a.name.clone());
+                let d = a.effective_domain(&workspaces);
+                (label, d)
+            })
+            .collect();
+        pick_instance_subdomain(
+            instance_subdomain(app_sub, &branch),
+            &domain,
+            &instance_labels,
+            &app_hosts,
+        )
     };
 
     // 6. Insert the row (status "starting").
@@ -308,6 +327,27 @@ fn start_instance_inner(
         .into_iter().find(|i| i.id == iid)
         .ok_or_else(|| "instance vanished".to_string())?;
     Ok(out)
+}
+
+/// Pick a unique instance subdomain label. An instance's Caddy host is
+/// `<label>.<domain>`, so the label must avoid every existing instance label
+/// *and* every primary app label that resolves to the same `domain` — otherwise
+/// Caddy would front two routes on one host. `app_hosts` is `(label, domain)`
+/// per primary app; only those in `domain` are collision candidates.
+fn pick_instance_subdomain(
+    base: String,
+    domain: &str,
+    instance_labels: &[String],
+    app_hosts: &[(String, String)],
+) -> String {
+    let mut taken: Vec<String> = instance_labels.to_vec();
+    taken.extend(
+        app_hosts
+            .iter()
+            .filter(|(_, d)| d == domain)
+            .map(|(label, _)| label.clone()),
+    );
+    disambiguate(base, &taken)
 }
 
 /// Append `-2`, `-3`, … until the label is unique against `taken`.
@@ -402,6 +442,49 @@ detached
         assert_eq!(instance_subdomain("eventorg", "codex/migration"),
                    "eventorg-codex-migration");
         assert_eq!(instance_id("app123", "feature/x"), "app123:feature-x");
+    }
+
+    #[test]
+    fn instance_subdomain_dodges_a_primary_app_host_in_the_same_domain() {
+        // A primary app already owns `eventorg-codex-migration.narakarya.test`.
+        // An instance whose label lands there must be bumped, or Caddy would
+        // front two routes on one host.
+        let app_hosts = vec![
+            ("eventorg".into(), "narakarya.test".into()),
+            ("eventorg-codex-migration".into(), "narakarya.test".into()),
+        ];
+        let got = pick_instance_subdomain(
+            "eventorg-codex-migration".into(),
+            "narakarya.test",
+            &[],
+            &app_hosts,
+        );
+        assert_eq!(got, "eventorg-codex-migration-2");
+    }
+
+    #[test]
+    fn instance_subdomain_ignores_same_label_in_a_different_domain() {
+        // Same label but another domain is a different host — no collision, so
+        // no needless `-2` suffix.
+        let app_hosts = vec![("eventorg-codex-migration".into(), "other.test".into())];
+        let got = pick_instance_subdomain(
+            "eventorg-codex-migration".into(),
+            "narakarya.test",
+            &[],
+            &app_hosts,
+        );
+        assert_eq!(got, "eventorg-codex-migration");
+    }
+
+    #[test]
+    fn instance_subdomain_still_dodges_other_instance_labels() {
+        let got = pick_instance_subdomain(
+            "eventorg-codex-migration".into(),
+            "narakarya.test",
+            &["eventorg-codex-migration".to_string()],
+            &[],
+        );
+        assert_eq!(got, "eventorg-codex-migration-2");
     }
 
     #[test]
