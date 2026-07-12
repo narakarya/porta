@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { App, HealthStatus, ImageUpdateInfo } from "../../types";
-import type { GitStatus } from "../../lib/commands";
+import type { GitStatus, AppInstance } from "../../lib/commands";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
 import { startMockProcess, stopMockProcess, killMockProcess } from "../../lib/mock-data";
@@ -39,6 +39,8 @@ export interface AppSlice {
   appGit: Record<string, GitStatus>;
   /** Last `git status` failure per app, from `app:git-error:{id}`. Empty string clears it. */
   appGitError: Record<string, string>;
+  /** Worktree instances per app_id, from `list_instances` + `instance:*` events. */
+  instances: Record<string, AppInstance[]>;
   appStartedAt: Record<string, number>;
   healthStatuses: Record<string, HealthStatus>;
   imageUpdateCache: Record<string, ImageUpdateInfo[]>;
@@ -71,6 +73,10 @@ export interface AppSlice {
   setImageUpdateCache: (appId: string, info: ImageUpdateInfo[]) => void;
   setAppGit: (id: string, status: GitStatus) => void;
   setAppGitError: (id: string, message: string) => void;
+  setInstances: (appId: string, list: AppInstance[]) => void;
+  refreshInstances: (appId: string) => Promise<void>;
+  runInstance: (appId: string, worktreePath: string) => Promise<void>;
+  stopInstanceAction: (instanceId: string, appId: string) => Promise<void>;
 }
 
 export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, get) => ({
@@ -84,6 +90,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appMetrics: {},
   appGit: {},
   appGitError: {},
+  instances: {},
   appStartedAt: {},
   healthStatuses: {},
   imageUpdateCache: {},
@@ -478,4 +485,31 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   setAppGitError: (id, message) =>
     set((s) => ({ appGitError: { ...s.appGitError, [id]: message } })),
+
+  setInstances: (appId, list) =>
+    set((s) => ({ instances: { ...s.instances, [appId]: list } })),
+
+  refreshInstances: async (appId) => {
+    const list = await cmd.listInstances(appId);
+    get().setInstances(appId, list);
+  },
+
+  runInstance: async (appId, worktreePath) => {
+    const inst = await cmd.startInstance(appId, worktreePath);
+    set((s) => {
+      const cur = s.instances[appId] ?? [];
+      const next = cur.filter((i) => i.id !== inst.id).concat(inst);
+      return { instances: { ...s.instances, [appId]: next } };
+    });
+  },
+
+  stopInstanceAction: async (instanceId, appId) => {
+    await cmd.stopInstance(instanceId);
+    set((s) => ({
+      instances: {
+        ...s.instances,
+        [appId]: (s.instances[appId] ?? []).filter((i) => i.id !== instanceId),
+      },
+    }));
+  },
 });

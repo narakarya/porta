@@ -2,9 +2,14 @@
 //! as isolated instances. Porta never creates or removes worktrees — it only
 //! reads `git worktree list` and runs from what already exists.
 
+use crate::app_state::AppState;
 use crate::commands::git::git_bin;
+use crate::commands::setup::sync_caddy;
+use crate::db::models::AppInstance;
+use crate::port_scanner::find_available_port;
 use std::path::Path;
 use std::process::Command;
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Reduce an arbitrary string to a safe DNS label: lowercase, every run of
 /// characters outside `[a-z0-9]` becomes a single `-`, and leading/trailing
@@ -26,14 +31,12 @@ fn sanitize_label(s: &str) -> String {
 }
 
 /// `<app-subdomain>-<sanitized-branch>` — the instance's DNS label.
-#[allow(dead_code)]
 fn instance_subdomain(app_sub: &str, branch: &str) -> String {
     sanitize_label(&format!("{app_sub}-{branch}"))
 }
 
 /// `<app_id>:<sanitized-branch>` — unique key used as the instance row id and
 /// the ProcessManager key (can't collide with the primary app's key = app_id).
-#[allow(dead_code)]
 fn instance_id(app_id: &str, branch: &str) -> String {
     format!("{app_id}:{}", sanitize_label(branch))
 }
@@ -139,6 +142,245 @@ pub(crate) fn worktree_list_for(root_dir: &str) -> Result<Vec<WorktreeEntry>, St
     Ok(parse_worktree_porcelain(&String::from_utf8_lossy(&out.stdout)))
 }
 
+#[tauri::command]
+pub async fn list_instances(app: AppHandle, app_id: String) -> Result<Vec<AppInstance>, String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db = state.db.lock().unwrap();
+        db.list_instances_for(&app_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn stop_instance(app: AppHandle, instance_id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // Kill the process under the instance key (no-op if already exited).
+        state.processes.stop(&instance_id).map_err(|e| e.to_string())?;
+        // Drop the row + free the port, then rebuild Caddy so the route vanishes.
+        {
+            let mut db = state.db.lock().unwrap();
+            db.delete_instance(&instance_id).map_err(|e| e.to_string())?;
+        }
+        sync_caddy(&state)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn start_instance(
+    app: AppHandle,
+    app_id: String,
+    worktree_path: String,
+) -> Result<AppInstance, String> {
+    tokio::task::spawn_blocking(move || start_instance_inner(&app, app_id, worktree_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn start_instance_inner(
+    app: &AppHandle,
+    app_id: String,
+    worktree_path: String,
+) -> Result<AppInstance, String> {
+    let state = app.state::<AppState>();
+
+    // 1. Load the parent app (no get-by-id in the repo; filter list_apps).
+    let app_row = {
+        let db = state.db.lock().unwrap();
+        db.list_apps().map_err(|e| e.to_string())?
+            .into_iter().find(|a| a.id == app_id)
+            .ok_or_else(|| "app not found".to_string())?
+    };
+
+    // 2. v1 scope: process apps only.
+    if app_row.kind != "process" {
+        return Err(format!("run-from-worktree supports process apps only (kind = {})", app_row.kind));
+    }
+    if app_row.start_command.trim().is_empty() {
+        return Err("app has no start command".to_string());
+    }
+
+    // 3. Resolve the branch for this worktree from discovery.
+    let branch = worktree_list_for(&app_row.root_dir)?
+        .into_iter()
+        .find(|w| w.path == worktree_path)
+        .and_then(|w| w.branch)
+        .ok_or_else(|| "worktree has no branch (detached or not found)".to_string())?;
+
+    let iid = instance_id(&app_id, &branch);
+
+    // Re-running an existing instance: if it's already tracked, reject; if it's
+    // a stale stopped row, remove it first so we start clean.
+    {
+        let existing = {
+            let db = state.db.lock().unwrap();
+            db.list_instances_for(&app_id).map_err(|e| e.to_string())?
+        };
+        if let Some(prev) = existing.into_iter().find(|i| i.id == iid) {
+            if state.processes.is_running(&iid) {
+                return Err("instance already running".to_string());
+            }
+            let mut db = state.db.lock().unwrap();
+            db.delete_instance(&prev.id).map_err(|e| e.to_string())?;
+        }
+    }
+
+    // 4. Allocate a distinct port.
+    let port = {
+        let db = state.db.lock().unwrap();
+        let used = db.used_ports().map_err(|e| e.to_string())?;
+        find_available_port(&used, 3000, 9999).ok_or_else(|| "no free port".to_string())?
+    };
+
+    // 5. Compute subdomain. An instance's Caddy host is
+    //    `<label>.<parent app's effective domain>`, and a primary app owns
+    //    `<its label>.<its domain>` — so the instance label must dodge not just
+    //    other instance labels but every primary app label sharing this domain,
+    //    or Caddy would emit two routes for one host.
+    let app_sub = app_row.subdomain.as_deref().unwrap_or(&app_row.name);
+    let subdomain = {
+        let db = state.db.lock().unwrap();
+        let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
+        let domain = app_row.effective_domain(&workspaces);
+        let instance_labels: Vec<String> = db.list_instances().map_err(|e| e.to_string())?
+            .into_iter().map(|i| i.subdomain).collect();
+        let app_hosts: Vec<(String, String)> = db.list_apps().map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|a| {
+                let label = a.subdomain.clone().unwrap_or_else(|| a.name.clone());
+                let d = a.effective_domain(&workspaces);
+                (label, d)
+            })
+            .collect();
+        pick_instance_subdomain(
+            instance_subdomain(app_sub, &branch),
+            &domain,
+            &instance_labels,
+            &app_hosts,
+        )
+    };
+
+    // 6. Insert the row (status "starting").
+    let instance = AppInstance {
+        id: iid.clone(), app_id: app_id.clone(), worktree_path: worktree_path.clone(),
+        branch: branch.clone(), subdomain, port, pid: None, status: "starting".into(),
+    };
+    {
+        let mut db = state.db.lock().unwrap();
+        db.insert_instance(&instance).map_err(|e| e.to_string())?;
+    }
+
+    // 7. Spawn: reuse the app's start_command, cwd = worktree, PORT = new port.
+    let log_handle = app.clone();
+    let log_id = iid.clone();
+    let on_log = move |line: String| { log_handle.emit(&format!("instance:log:{}", log_id), line).ok(); };
+
+    let exit_handle = app.clone();
+    let exit_id = iid.clone();
+    // No auto-restart for instances in v1: mark stopped, drop the Caddy route.
+    let on_exit = move |code: i32, _intentional: bool| {
+        let st = exit_handle.state::<AppState>();
+        st.db.lock().unwrap().update_instance_status_only(&exit_id, "stopped").ok();
+        sync_caddy(&st).ok();
+        exit_handle.emit(&format!("instance:exit:{}", exit_id), code).ok();
+    };
+
+    let pid = match state.processes.start(
+        &iid,
+        &app_row.start_command,
+        std::path::Path::new(&worktree_path),
+        port,
+        app_row.env_file.as_deref(),
+        &app_row.env_vars,
+        true,
+        on_log,
+        on_exit,
+    ) {
+        Ok(pid) => pid,
+        Err(e) => {
+            // Spawn failed — roll back the row we inserted so we don't leak a
+            // ghost "starting" instance and a permanently-reserved port
+            // (delete_instance removes both the row and its port_registry entry).
+            let mut db = state.db.lock().unwrap();
+            let _ = db.delete_instance(&iid);
+            return Err(e.to_string());
+        }
+    };
+
+    {
+        let db = state.db.lock().unwrap();
+        db.update_instance_status(&iid, "starting", Some(pid)).map_err(|e| e.to_string())?;
+    }
+
+    // 8. Add the Caddy route now that the row exists, then watch the port.
+    sync_caddy(&state)?;
+    spawn_instance_port_watcher(app.clone(), iid.clone(), port);
+
+    // Return the freshly-inserted instance (with pid).
+    let db = state.db.lock().unwrap();
+    let out = db.list_instances_for(&app_id).map_err(|e| e.to_string())?
+        .into_iter().find(|i| i.id == iid)
+        .ok_or_else(|| "instance vanished".to_string())?;
+    Ok(out)
+}
+
+/// Pick a unique instance subdomain label. An instance's Caddy host is
+/// `<label>.<domain>`, so the label must avoid every existing instance label
+/// *and* every primary app label that resolves to the same `domain` — otherwise
+/// Caddy would front two routes on one host. `app_hosts` is `(label, domain)`
+/// per primary app; only those in `domain` are collision candidates.
+fn pick_instance_subdomain(
+    base: String,
+    domain: &str,
+    instance_labels: &[String],
+    app_hosts: &[(String, String)],
+) -> String {
+    let mut taken: Vec<String> = instance_labels.to_vec();
+    taken.extend(
+        app_hosts
+            .iter()
+            .filter(|(_, d)| d == domain)
+            .map(|(label, _)| label.clone()),
+    );
+    disambiguate(base, &taken)
+}
+
+/// Append `-2`, `-3`, … until the label is unique against `taken`.
+fn disambiguate(base: String, taken: &[String]) -> String {
+    if !taken.contains(&base) { return base; }
+    for n in 2..1000 {
+        let cand = format!("{base}-{n}");
+        if !taken.contains(&cand) { return cand; }
+    }
+    base
+}
+
+/// Poll the instance's port; flip "starting" → "running" and emit ready.
+fn spawn_instance_port_watcher(app: AppHandle, iid: String, port: u16) {
+    std::thread::spawn(move || {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        for _ in 0..120 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let state = app.state::<AppState>();
+            let still_starting = state.db.lock().ok()
+                .and_then(|db| db.list_instances().ok())
+                .and_then(|is| is.into_iter().find(|i| i.id == iid).map(|i| i.status))
+                .map(|s| s == "starting").unwrap_or(false);
+            if !still_starting { return; }
+            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok() {
+                state.db.lock().unwrap().update_instance_status_only(&iid, "running").ok();
+                app.emit(&format!("instance:ready:{}", iid), ()).ok();
+                return;
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +442,72 @@ detached
         assert_eq!(instance_subdomain("eventorg", "codex/migration"),
                    "eventorg-codex-migration");
         assert_eq!(instance_id("app123", "feature/x"), "app123:feature-x");
+    }
+
+    #[test]
+    fn instance_subdomain_dodges_a_primary_app_host_in_the_same_domain() {
+        // A primary app already owns `eventorg-codex-migration.narakarya.test`.
+        // An instance whose label lands there must be bumped, or Caddy would
+        // front two routes on one host.
+        let app_hosts = vec![
+            ("eventorg".into(), "narakarya.test".into()),
+            ("eventorg-codex-migration".into(), "narakarya.test".into()),
+        ];
+        let got = pick_instance_subdomain(
+            "eventorg-codex-migration".into(),
+            "narakarya.test",
+            &[],
+            &app_hosts,
+        );
+        assert_eq!(got, "eventorg-codex-migration-2");
+    }
+
+    #[test]
+    fn instance_subdomain_ignores_same_label_in_a_different_domain() {
+        // Same label but another domain is a different host — no collision, so
+        // no needless `-2` suffix.
+        let app_hosts = vec![("eventorg-codex-migration".into(), "other.test".into())];
+        let got = pick_instance_subdomain(
+            "eventorg-codex-migration".into(),
+            "narakarya.test",
+            &[],
+            &app_hosts,
+        );
+        assert_eq!(got, "eventorg-codex-migration");
+    }
+
+    #[test]
+    fn instance_subdomain_still_dodges_other_instance_labels() {
+        let got = pick_instance_subdomain(
+            "eventorg-codex-migration".into(),
+            "narakarya.test",
+            &["eventorg-codex-migration".to_string()],
+            &[],
+        );
+        assert_eq!(got, "eventorg-codex-migration-2");
+    }
+
+    #[test]
+    fn process_manager_tracks_two_instances_of_one_app() {
+        use crate::process_manager::ProcessManager;
+        use std::collections::HashMap;
+        use std::path::Path;
+
+        let pm = ProcessManager::new();
+        let env: HashMap<String, String> = HashMap::new();
+        // Two long-lived shells under two distinct instance keys for one app.
+        let k1 = instance_id("appX", "feature/a");
+        let k2 = instance_id("appX", "feature/b");
+        let noop_log = |_l: String| {};
+        pm.start(&k1, "sleep 30", Path::new("/tmp"), 6101, None, &env, true, noop_log, |_c, _i| {}).unwrap();
+        pm.start(&k2, "sleep 30", Path::new("/tmp"), 6102, None, &env, true, |_l| {}, |_c, _i| {}).unwrap();
+
+        // Both keys are tracked simultaneously — the multi-instance guarantee.
+        assert!(pm.is_running(&k1));
+        assert!(pm.is_running(&k2));
+        assert_ne!(k1, k2);
+
+        pm.stop(&k1).ok();
+        pm.stop(&k2).ok();
     }
 }

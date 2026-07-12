@@ -99,6 +99,26 @@ pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
     // these let Caddy match requests coming in on `<machine>.<tailnet>.ts.net`.
     routes.extend(crate::commands::static_alias_routes(&db));
 
+    // Worktree instances: one reverse-proxy per active instance. Host is
+    // <instance.subdomain>.<parent app's effective domain>. Skip "stopped"
+    // instances so a crashed/stopped instance's route disappears on next sync.
+    for inst in db.list_instances().map_err(|e| e.to_string())? {
+        if inst.status == "stopped" {
+            continue;
+        }
+        let Some(app) = apps.iter().find(|a| a.id == inst.app_id) else {
+            continue;
+        };
+        let host = format!("{}.{}", inst.subdomain, app.effective_domain(&workspaces));
+        routes.push(Route::ReverseProxy {
+            host,
+            port: inst.port,
+            auth: None,
+            app_id: Some(inst.app_id.clone()),
+            max_body: app.max_upload_bytes,
+        });
+    }
+
     // Collect all domains that need certs (workspace + app custom_domain + binding custom_domains)
     let mut domains: Vec<String> = workspaces.iter().map(|w| w.domain.clone()).collect();
     for app in &apps {
