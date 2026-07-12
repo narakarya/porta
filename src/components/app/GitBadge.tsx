@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
 import { gitBranches, gitFetch, gitPull, gitPush, gitStatus, gitSwitchBranch, gitWorktreeList, type BranchList, type WorktreeEntry, type AppInstance } from "../../lib/commands";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
+import Tooltip from "../shared/Tooltip";
 import type { App } from "../../types";
 
 interface Props {
@@ -154,6 +155,15 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   // A root_dir edit can turn a non-repo into a repo; forget the earlier verdict.
   useEffect(() => { probedNonRepo.current = false; }, [app.root_dir]);
 
+  // Hover-intent timer for the branch-switch flyout. Opening on hover needs a
+  // grace delay on leave so the mouse can cross the gap between the "Switch
+  // branch" row and the flyout (which is portaled to the right) without it
+  // snapping shut mid-traverse.
+  const switchCloseTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (switchCloseTimer.current !== null) window.clearTimeout(switchCloseTimer.current);
+  }, []);
+
   useEffect(() => {
     if (status || probedNonRepo.current || !app.root_dir) return;
     let cancelled = false;
@@ -256,14 +266,15 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   if (pollError) {
     return (
       <>
+        <Tooltip label="Porta couldn't read this repo" side="bottom" className="inline-flex">
         <button
           ref={mainTriggerRef}
           onClick={(e) => { e.stopPropagation(); setMainOpen((v) => !v); }}
           className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-amber-400/80 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
-          title="Porta couldn't read this repo"
         >
           <span>git ⚠</span>
         </button>
+        </Tooltip>
         {mainOpen && createPortal(
           <div
             ref={mainPanelRef}
@@ -337,16 +348,38 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
     }
   }
 
+  // Hover-intent open/close for the branch flyout. Click still toggles it
+  // (keyboard + touch), hover opens it, and leaving either the trigger or the
+  // flyout schedules a delayed close that a re-enter cancels.
+  function openSwitch() {
+    if (switchCloseTimer.current !== null) {
+      window.clearTimeout(switchCloseTimer.current);
+      switchCloseTimer.current = null;
+    }
+    setError(null);
+    setSwitchOpen(true);
+  }
+  function cancelSwitchClose() {
+    if (switchCloseTimer.current !== null) {
+      window.clearTimeout(switchCloseTimer.current);
+      switchCloseTimer.current = null;
+    }
+  }
+  function scheduleSwitchClose() {
+    if (switchCloseTimer.current !== null) window.clearTimeout(switchCloseTimer.current);
+    switchCloseTimer.current = window.setTimeout(() => setSwitchOpen(false), 160);
+  }
+
   const { branch, ahead, behind, dirty, upstream, detached } = status;
 
   return (
     <>
       {/* Badge — git-branch icon + current branch name. Opens the main popover. */}
+      <Tooltip label={detached ? "Detached HEAD" : upstream ?? "No upstream"} side="bottom" className="inline-flex">
       <button
         ref={mainTriggerRef}
         onClick={(e) => { e.stopPropagation(); setMainOpen((v) => !v); }}
         className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-zinc-500 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
-        title={detached ? "Detached HEAD" : upstream ?? "No upstream"}
       >
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 text-zinc-500">
           <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
@@ -362,6 +395,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
         {busy === "pull" && <ArrowDownIcon animate className="text-zinc-400" />}
         {busy === "push" && <ArrowUpIcon animate className="text-zinc-400" />}
       </button>
+      </Tooltip>
 
       {/* ── Main popover: stats + fetch/pull/push, plus (non-instance cards) the
            branch-switch trigger and worktree launcher ── */}
@@ -421,7 +455,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           {!hideWorktreeLauncher && (
             <button
               ref={switchTriggerRef}
-              onClick={() => { setError(null); setSwitchOpen((v) => !v); }}
+              onClick={() => { cancelSwitchClose(); setError(null); setSwitchOpen((v) => !v); }}
+              onMouseEnter={openSwitch}
+              onMouseLeave={scheduleSwitchClose}
               className={`mt-2 w-full flex items-center justify-between gap-1 px-2 py-1 rounded text-[11px] transition-colors ${switchOpen ? "bg-white/[0.09] text-zinc-100" : "bg-white/[0.05] hover:bg-white/[0.09] text-zinc-300"}`}
             >
               <span>Switch branch</span>
@@ -462,6 +498,10 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                     value={wtQuery}
                     onChange={(e) => setWtQuery(e.target.value)}
                     placeholder="Search branch…"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                     className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
                   />
                 )}
@@ -472,24 +512,26 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                   const inst = runningByPath.get(w.path);
                   return (
                     <div key={w.path} className="flex items-center gap-1 py-0.5 text-[11px]">
-                      <span className="font-mono text-zinc-300 truncate flex-1" title={w.path}>
-                        {w.branch}
-                      </span>
+                      <Tooltip label={w.path} side="top" className="flex-1 min-w-0">
+                        <span className="font-mono text-zinc-300 truncate block">
+                          {w.branch}
+                        </span>
+                      </Tooltip>
                       {inst ? (
                         <>
-                          <span
-                            className="text-emerald-400/80 text-[10px] font-mono truncate max-w-[10ch]"
-                            title={`${inst.subdomain}.test → :${inst.port}`}
-                          >
-                            {inst.status === "running" ? `:${inst.port}` : inst.status}
-                          </span>
-                          <button
-                            onClick={() => stopInstanceAction(inst.id, app.id)}
-                            className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
-                            title={inst.status === "running" ? "Stop & remove instance" : "Remove instance"}
-                          >
-                            {inst.status === "running" ? "Stop" : "Remove"}
-                          </button>
+                          <Tooltip label={`${inst.subdomain}.test → :${inst.port}`} side="top" className="max-w-[10ch]">
+                            <span className="text-emerald-400/80 text-[10px] font-mono truncate block">
+                              {inst.status === "running" ? `:${inst.port}` : inst.status}
+                            </span>
+                          </Tooltip>
+                          <Tooltip label={inst.status === "running" ? "Stop & remove instance" : "Remove instance"} side="top">
+                            <button
+                              onClick={() => stopInstanceAction(inst.id, app.id)}
+                              className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                            >
+                              {inst.status === "running" ? "Stop" : "Remove"}
+                            </button>
+                          </Tooltip>
                         </>
                       ) : (
                         <button
@@ -549,6 +591,8 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           ref={switchPanelRef}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
+          onMouseEnter={cancelSwitchClose}
+          onMouseLeave={scheduleSwitchClose}
           className="fixed z-[61] w-[240px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
           style={switchCoords ? { top: switchCoords.top, left: switchCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
         >
@@ -597,6 +641,11 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                   value={branchQuery}
                   onChange={(e) => setBranchQuery(e.target.value)}
                   placeholder="Search or create branch…"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  autoFocus
                   className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
                 />
                 {capped.length === 0 && !showCreate && (
@@ -608,11 +657,15 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                   const disabled = isCurrent || held || switching !== null;
                   // The whole row is the switch action — click the name, no button.
                   return (
-                    <button
+                    <Tooltip
                       key={`${r.kind}:${r.name}`}
+                      label={held ? "Checked out in a worktree" : isCurrent ? "Current branch" : r.name}
+                      side="right"
+                      className="block"
+                    >
+                    <button
                       disabled={disabled}
                       onClick={() => switchTo(r.name, false)}
-                      title={held ? "Checked out in a worktree" : r.name}
                       className="w-full flex items-center gap-1 py-0.5 px-1 rounded text-[11px] text-left hover:bg-white/[0.07] disabled:cursor-default disabled:hover:bg-transparent"
                     >
                       <span className="font-mono text-zinc-300 truncate flex-1">
@@ -628,6 +681,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                         <span className="text-[10px] text-zinc-500">…</span>
                       ) : null}
                     </button>
+                    </Tooltip>
                   );
                 })}
                 {!isSearching && hiddenCount > 0 && (

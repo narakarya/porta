@@ -413,20 +413,23 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               </span>
             )}
             {hasPortConflict && (
-              <button
-                onClick={() => dismissPortConflict(app.id)}
-                className="text-[10px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-1.5 py-0.5 rounded-full leading-none transition-colors"
-                title={`Port ${app.port} is in use — click to dismiss`}
-              >
-                ⚠ :{app.port}
-              </button>
+              <Tooltip label={`Port ${app.port} is in use — click to dismiss`} className="inline-flex">
+                <button
+                  onClick={() => dismissPortConflict(app.id)}
+                  className="text-[10px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-1.5 py-0.5 rounded-full leading-none transition-colors"
+                >
+                  ⚠ :{app.port}
+                </button>
+              </Tooltip>
             )}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {isStatic ? (
-              <p className="text-[11px] text-zinc-600 font-mono truncate" title={app.root_dir}>
-                {app.root_dir.split("/").slice(-2).join("/")}
-              </p>
+              <Tooltip label={app.root_dir} side="top" className="min-w-0">
+                <p className="text-[11px] text-zinc-600 font-mono truncate">
+                  {app.root_dir.split("/").slice(-2).join("/")}
+                </p>
+              </Tooltip>
             ) : isProxy ? (
               <p className="text-[11px] text-zinc-600 font-mono">→ :{app.port}</p>
             ) : (
@@ -442,18 +445,19 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               const basename = fullPath.split("/").filter(Boolean).pop() || "unknown";
               return (
                 <div className="relative" ref={portCheckRef}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setPortCheckOpen((v) => !v); }}
-                    className="text-amber-400 hover:text-amber-300 transition-colors p-0.5 -m-0.5 rounded"
-                    title={`Port ${app.port} occupied — click for details`}
-                    aria-label="Port conflict details"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="inline-block">
-                      <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                      <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                      <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
-                    </svg>
-                  </button>
+                  <Tooltip label={`Port ${app.port} occupied — click for details`} className="inline-flex">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setPortCheckOpen((v) => !v); }}
+                      className="text-amber-400 hover:text-amber-300 transition-colors p-0.5 -m-0.5 rounded"
+                      aria-label="Port conflict details"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="inline-block">
+                        <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                        <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                        <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
+                      </svg>
+                    </button>
+                  </Tooltip>
                   {portCheckOpen && createPortal(
                     <div
                       ref={portCheckPanelRef}
@@ -728,13 +732,14 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   so the user has a one-click cleanup — pristine stopped
                   apps don't get a noisy Stop button next to Start. */}
               {(isDocker || isCompose) && crashed && (
-                <button
-                  onClick={doStop}
-                  className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
-                  title="Clean up any orphan containers from the failed start"
-                >
-                  Stop
-                </button>
+                <Tooltip label="Clean up any orphan containers from the failed start" className="inline-flex">
+                  <button
+                    onClick={doStop}
+                    className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
+                  >
+                    Stop
+                  </button>
+                </Tooltip>
               )}
               {/* Remove a stopped/crashed instance for good — deletes its row,
                   frees the port, drops the Caddy route. Instance-only: apps are

@@ -6,6 +6,25 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.24] — 2026-07-13
+
+### Changed
+- **Branch flyout opens on hover.** The "Switch branch" row now reveals the
+  branch list on hover — no click needed — with a short grace delay on leave so
+  the cursor can cross the gap into the flyout without it snapping shut. Click
+  still toggles it (keyboard/touch), and the search field autofocuses so you can
+  start typing immediately.
+- **Real tooltips replace native `title=`** across the app-card and GitBadge
+  surfaces (current-branch badge, each branch row, worktree paths, instance
+  status, port-conflict badges, root-dir path, cleanup buttons) — portal-based,
+  viewport-clamped, no clipping by `overflow:hidden` ancestors.
+
+### Fixed
+- **Branch list was sometimes unclickable.** The WebView's native autocomplete
+  dropdown (surfacing prior search text) floated over the branch/worktree lists
+  and swallowed clicks. The search inputs now set `autoComplete="off"` (plus
+  `autoCorrect`/`autoCapitalize`/`spellCheck` off), so the list stays reachable.
+
 ## [0.7.23] — 2026-07-12
 
 ### Changed
