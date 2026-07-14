@@ -6,6 +6,21 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.30] — 2026-07-14
+
+### Fixed
+
+- **Tunneled pages 502'd on every request after 0.7.28/0.7.29 (regression).**
+  0.7.28 switched tunnel origins from `localhost` to `127.0.0.1` to dodge the
+  IPv6-first resolution race — correct for the TCP dial, but Go sends **no SNI**
+  when connecting to an IP address, and Caddy selects its TLS certificate *by
+  SNI*. The handshake died with `tlsv1 alert internal error` and cloudflared
+  returned 502 for every request routed through Caddy's :443. Ingress rules now
+  set `originServerName` (and the CLI path `--origin-server-name`) to the local
+  Caddy host, restoring the SNI while keeping the IPv4-only dial. Verified live:
+  the same Caddy that rejected an SNI-less handshake serves 200 with the SNI
+  set.
+
 ## [0.7.29] — 2026-07-14
 
 Resources drawer now focuses on what's actually running, is searchable, and
