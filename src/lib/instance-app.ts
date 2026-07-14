@@ -16,13 +16,20 @@ export function deriveInstanceApp(parent: App, inst: AppInstance): App {
     port: inst.port,
     status: inst.status as App["status"],
     name: `${parent.name} · ${inst.branch}`,
-    // Instances get their own quick (trycloudflare) tunnel, tracked
-    // client-side via `instance:tunnel:{id}` — not the parent app's tunnel
-    // state. Clear `tunnel_name` (inherited from `...parent` above) so
-    // TunnelQuickMenu doesn't highlight the parent's named tunnel as
-    // "current" for what is actually a quick-only instance tunnel.
+    // Instance tunnel state is tracked client-side via `instance:tunnel:{id}`,
+    // not the parent app's state. The backend routes an instance through the
+    // parent's NAMED tunnel (at a derived `<sub>.<domain>` host, direct to the
+    // worktree port) when the parent has one configured, else a throwaway quick
+    // tunnel. Mirror that here so the menu labels the right mode: inherit
+    // `tunnel_name` only when a named tunnel is actually available, and clear
+    // the inherited hostname (the instance gets its own, surfaced via the
+    // connect event — not the parent's).
     tunnel_active: inst.tunnel_active ?? false,
     tunnel_url: inst.tunnel_url ?? null,
-    tunnel_name: null,
+    tunnel_name:
+      parent.tunnel_name?.trim() && parent.tunnel_custom_hostname?.trim()
+        ? parent.tunnel_name
+        : null,
+    tunnel_custom_hostname: null,
   };
 }

@@ -25,6 +25,49 @@ fn tunnel_metrics_ports() -> &'static Mutex<HashMap<String, u16>> {
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Desired-active app ids per NAMED tunnel. A named tunnel runs exactly ONE
+/// cloudflared connector serving the merged ingress of every member app —
+/// Cloudflare's own model (one connector, one full ingress table). Running one
+/// connector per app instead makes each app an HA replica of the same tunnel
+/// with only its own ingress, so the edge forwards a hostname to whichever
+/// replica answers and the wrong app (or a 404) wins. Connecting an app adds it
+/// here; disconnecting removes it; `reconcile_named_tunnel` (re)starts the
+/// single connector to match.
+fn tunnel_members() -> &'static Mutex<HashMap<String, std::collections::HashSet<String>>> {
+    static T: OnceLock<Mutex<HashMap<String, std::collections::HashSet<String>>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// OS pids we killed on purpose to restart/tear-down a named connector. The
+/// dying connector's watcher checks its own pid here and stays silent instead
+/// of emitting `active:false` (which would flicker every member's UI during a
+/// membership change). Keyed by pid — NOT by tunnel name — because several
+/// restarts can overlap and a name-keyed flag can't tell them apart. Always
+/// consumed (removed) by the watcher on exit, so no stale entry can silence a
+/// later pid-reused process.
+fn restart_pids() -> &'static Mutex<std::collections::HashSet<u32>> {
+    static T: OnceLock<Mutex<std::collections::HashSet<u32>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Serializes `reconcile_named_tunnel` across the whole process. Auto-start
+/// fires one `start_tunnel` per app the instant each becomes ready, so three
+/// apps sharing a tunnel would otherwise reconcile concurrently — each killing
+/// the other's freshly-spawned connector and racing config writes. Reconciles
+/// are infrequent and short, so a single global lock is simpler than per-name
+/// locks and can't deadlock (no other lock is held across acquiring it).
+fn reconcile_lock() -> &'static Mutex<()> {
+    static L: OnceLock<Mutex<()>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(()))
+}
+
+/// Process-map key for a named tunnel's single shared connector. Prefixed so it
+/// can't collide with app-id keys (bare UUIDs) or instance keys
+/// (`<uuid>:<branch>`), neither of which starts with `cfd-tunnel:`.
+fn tunnel_key(name: &str) -> String {
+    format!("cfd-tunnel:{}", name)
+}
+
 /// Pick a free TCP port by binding to :0 and immediately dropping the listener.
 /// Briefly racy but cloudflared retries on EADDRINUSE so this is fine in
 /// practice. Falls back to 0 (cloudflared picks one but we won't know which).
@@ -43,24 +86,46 @@ pub fn active_cloudflared_count() -> usize {
 
 /// Stop every cloudflared tunnel Porta started. Returns the count stopped.
 pub fn stop_all_cloudflared_tunnels(app_handle: &tauri::AppHandle) -> usize {
-    let ids: Vec<String> = {
+    // Snapshot tunnel membership before clearing so we can notify each member
+    // app of a named connector we're about to kill.
+    let members_by_tunnel: HashMap<String, Vec<String>> = {
+        let m = tunnel_members().lock().unwrap();
+        m.iter()
+            .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+            .collect()
+    };
+    let keys: Vec<String> = {
         let mut pids = tunnel_pids().lock().unwrap();
-        let ids: Vec<String> = pids.keys().cloned().collect();
-        for id in &ids {
-            if let Some(pid) = pids.remove(id) {
+        let keys: Vec<String> = pids.keys().cloned().collect();
+        for k in &keys {
+            if let Some(pid) = pids.remove(k) {
+                if k.starts_with("cfd-tunnel:") {
+                    // Silence the connector's watcher — we emit for its members below.
+                    restart_pids().lock().unwrap().insert(pid);
+                } else {
+                    // Quick app/instance tunnel: its own watcher emits the final
+                    // `active:false`; just suppress the error annotation.
+                    tunnel_stopping().lock().unwrap().insert(k.clone());
+                }
                 let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
             }
-            tunnel_stopping().lock().unwrap().insert(id.clone());
         }
-        ids
+        keys
     };
-    for id in &ids {
-        let _ = app_handle.emit(
-            &format!("app:tunnel:{}", id),
-            serde_json::json!({ "active": false, "url": null }),
-        );
+    tunnel_members().lock().unwrap().clear();
+    for k in &keys {
+        if let Some(name) = k.strip_prefix("cfd-tunnel:") {
+            if let Some(ids) = members_by_tunnel.get(name) {
+                for id in ids {
+                    let _ = app_handle.emit(
+                        &format!("app:tunnel:{}", id),
+                        serde_json::json!({ "active": false, "url": null }),
+                    );
+                }
+            }
+        }
     }
-    ids.len()
+    keys.len()
 }
 
 fn tunnel_stopping() -> &'static Mutex<std::collections::HashSet<String>> {
@@ -82,7 +147,44 @@ fn tunnel_switching() -> &'static Mutex<std::collections::HashSet<String>> {
 /// different provider. Like `stop_tunnel`, but suppresses the watcher's
 /// `active:false` emit so it can't race ahead of the new provider's
 /// `active:true`. Safe no-op when no cloudflared is running for the id.
-pub fn stop_cloudflare_for_switch(id: &str) {
+pub fn stop_cloudflare_for_switch(id: &str, app_handle: &tauri::AppHandle) {
+    // Named tunnel member? Drop it from the shared connector and reconcile so
+    // the remaining members keep serving (or the connector tears down if this
+    // was the last one). No `active:false` emit — the incoming provider owns
+    // this app's channel now. reconcile's teardown is silent via `restart_pids`.
+    let name = {
+        let state = app_handle.state::<AppState>();
+        let db = state.db.lock().unwrap();
+        db.list_apps()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|a| a.id == id)
+            .and_then(|a| a.tunnel_name)
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
+    };
+    if let Some(name) = name {
+        let was_member = {
+            let mut m = tunnel_members().lock().unwrap();
+            let present = m.get(&name).map(|s| s.contains(id)).unwrap_or(false);
+            if let Some(set) = m.get_mut(&name) {
+                set.remove(id);
+                if set.is_empty() {
+                    m.remove(&name);
+                }
+            }
+            present
+        };
+        if was_member {
+            let handle = app_handle.clone();
+            std::thread::spawn(move || {
+                let _ = reconcile_named_tunnel(handle, name);
+            });
+        }
+        return;
+    }
+
+    // Quick tunnel keyed by app id (legacy trycloudflare path).
     tunnel_switching().lock().unwrap().insert(id.to_string());
     tunnel_stopping().lock().unwrap().insert(id.to_string());
     if let Some(pid) = tunnel_pids().lock().unwrap().remove(id) {
@@ -90,59 +192,436 @@ pub fn stop_cloudflare_for_switch(id: &str) {
     }
 }
 
-/// Generate `~/.cloudflared/porta-<app-id>.yml` listing every (public → local)
-/// hostname pair this app should expose. Returns the config path so we can pass
-/// it to `cloudflared --config <path> tunnel run`.
-///
-/// All public hostnames forward to local Caddy (443 if certs exist, else 80)
-/// with the original Host header rewritten to the matching local Caddy host so
-/// Caddy can route to the right upstream — process port, port_binding port, or
-/// static file_server.
-fn write_tunnel_ingress_config(
-    app: &App,
-    workspaces: &[crate::db::models::Workspace],
-) -> Result<PathBuf, String> {
-    let pairs = app.tunnel_public_hostnames(workspaces);
-    if pairs.is_empty() {
-        return Err("No public hostnames to expose".into());
-    }
+/// One resolved cloudflared ingress rule in a tunnel's merged config.
+/// App members target local Caddy with a per-rule `httpHostHeader` so Caddy can
+/// multiplex by Host; instance members target their worktree port directly (no
+/// Caddy route exists for an instance) and carry no host header.
+#[derive(Debug, Clone, PartialEq)]
+struct IngressRule {
+    public: String,
+    service: String,
+    host_header: Option<String>,
+    no_tls_verify: bool,
+}
 
-    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-    let dir = PathBuf::from(home).join(".cloudflared");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("porta-{}.yml", app.id));
+/// A member of a named tunnel plus the event channel + URL to notify it on.
+/// Apps notify on `app:tunnel:{id}`, worktree instances on `instance:tunnel:{id}`.
+#[derive(Debug, Clone)]
+struct MemberInfo {
+    channel: String,
+    url: Option<String>,
+}
 
-    let has_certs = crate::setup::certs_exist();
-    let service = if has_certs {
-        "https://localhost:443"
+/// Origin cloudflared connects to for Caddy-routed rules. Uses `127.0.0.1`, not
+/// `localhost`: cloudflared resolves `localhost` to `::1` first on macOS, but
+/// local origins (Caddy, dev servers) commonly bind only IPv4 `127.0.0.1`, so
+/// `localhost` yields "connection refused" and the public URL 502s even though
+/// the tunnel itself is up. Forcing IPv4 is the robust choice for loopback.
+fn caddy_service(has_certs: bool) -> &'static str {
+    if has_certs {
+        "https://127.0.0.1:443"
     } else {
-        "http://localhost:80"
-    };
+        "http://127.0.0.1:80"
+    }
+}
 
+/// Build a cloudflared ingress config from resolved rules. A trailing
+/// `http_status:404` catch-all is required by cloudflared. Duplicate public
+/// hostnames keep their first occurrence (cloudflared matches top-down).
+fn build_ingress_yaml(rules: &[IngressRule]) -> String {
     let mut yaml = String::new();
     yaml.push_str("# Generated by Porta — do not edit manually.\n");
-    yaml.push_str("# Public hostname → local Caddy host pairs for this app's tunnel.\n");
+    yaml.push_str("# Public hostname → local origin rules for this tunnel.\n");
     yaml.push_str("ingress:\n");
-    for (public, local) in &pairs {
-        yaml.push_str(&format!("  - hostname: {}\n", public));
-        yaml.push_str(&format!("    service: {}\n", service));
-        yaml.push_str("    originRequest:\n");
-        yaml.push_str(&format!("      httpHostHeader: {}\n", local));
-        if has_certs {
-            yaml.push_str("      noTLSVerify: true\n");
+    for r in rules {
+        yaml.push_str(&format!("  - hostname: {}\n", r.public));
+        yaml.push_str(&format!("    service: {}\n", r.service));
+        if r.host_header.is_some() || r.no_tls_verify {
+            yaml.push_str("    originRequest:\n");
+            if let Some(h) = &r.host_header {
+                yaml.push_str(&format!("      httpHostHeader: {}\n", h));
+            }
+            if r.no_tls_verify {
+                yaml.push_str("      noTLSVerify: true\n");
+            }
         }
     }
     yaml.push_str("  - service: http_status:404\n");
+    yaml
+}
 
-    std::fs::write(&path, yaml).map_err(|e| e.to_string())?;
-    Ok(path)
+/// Path of the merged ingress config for a named tunnel:
+/// `~/.cloudflared/porta-tunnel-<name>.yml`. Keyed by tunnel name (sanitized
+/// for the filesystem) because one connector — not one per app — serves the
+/// whole tunnel.
+fn tunnel_config_path(name: &str) -> Result<PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+    let dir = PathBuf::from(home).join(".cloudflared");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    Ok(dir.join(format!("porta-tunnel-{}.yml", safe)))
+}
+
+/// Resolve a named tunnel's live members into (a) who to notify + on which
+/// channel and (b) the merged ingress rules, read fresh from the DB.
+///
+/// - App members (bare-UUID ids) still bound to THIS tunnel with ≥1 public
+///   hostname contribute Caddy-routed rules (per-rule host header).
+/// - Instance members (`<uuid>:<branch>` ids) contribute a single direct-to-port
+///   rule at `<instance-subdomain>.<parent-public-base>`, provided the parent
+///   app is bound to this tunnel and has a derivable public base.
+///
+/// Members that can't contribute (vanished, reconfigured, no derivable host) are
+/// dropped from BOTH lists so we never notify an app the connector can't serve.
+fn resolve_tunnel(app_handle: &tauri::AppHandle, name: &str) -> (Vec<MemberInfo>, Vec<IngressRule>) {
+    let members: std::collections::HashSet<String> = tunnel_members()
+        .lock()
+        .unwrap()
+        .get(name)
+        .cloned()
+        .unwrap_or_default();
+    if members.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let (apps, instances, workspaces) = {
+        let state = app_handle.state::<AppState>();
+        let db = state.db.lock().unwrap();
+        (
+            db.list_apps().unwrap_or_default(),
+            db.list_instances().unwrap_or_default(),
+            db.list_workspaces().unwrap_or_default(),
+        )
+    };
+    let has_certs = crate::setup::certs_exist();
+    let caddy = caddy_service(has_certs).to_string();
+    let mut infos = Vec::new();
+    let mut rules = Vec::new();
+
+    for a in &apps {
+        if !members.contains(&a.id) {
+            continue;
+        }
+        if a.tunnel_name.as_deref().map(str::trim) != Some(name) {
+            continue;
+        }
+        let pairs = a.tunnel_public_hostnames(&workspaces);
+        if pairs.is_empty() {
+            continue;
+        }
+        for (public, local) in &pairs {
+            rules.push(IngressRule {
+                public: public.clone(),
+                service: caddy.clone(),
+                host_header: Some(local.clone()),
+                no_tls_verify: has_certs,
+            });
+        }
+        let url = a
+            .tunnel_custom_hostname
+            .as_deref()
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(|h| format!("https://{}", h));
+        infos.push(MemberInfo {
+            channel: format!("app:tunnel:{}", a.id),
+            url,
+        });
+    }
+
+    for inst in &instances {
+        if !members.contains(&inst.id) {
+            continue;
+        }
+        // Instance hostname is derived from its parent app's tunnel domain, so
+        // the parent must be on THIS tunnel and expose a registrable base.
+        let parent = match apps.iter().find(|a| a.id == inst.app_id) {
+            Some(p) => p,
+            None => continue,
+        };
+        if parent.tunnel_name.as_deref().map(str::trim) != Some(name) {
+            continue;
+        }
+        let base = match parent.tunnel_public_base() {
+            Some(b) => b,
+            None => continue,
+        };
+        let host = format!("{}.{}", inst.subdomain, base);
+        rules.push(IngressRule {
+            public: host.clone(),
+            // Direct to the worktree's port — instances have no Caddy route.
+            service: format!("http://127.0.0.1:{}", inst.port),
+            host_header: None,
+            no_tls_verify: false,
+        });
+        infos.push(MemberInfo {
+            channel: format!("instance:tunnel:{}", inst.id),
+            url: Some(format!("https://{}", host)),
+        });
+    }
+
+    (infos, rules)
+}
+
+/// Emit `active:true` (with each member's own public URL) for every current
+/// member of a named tunnel. Called once the connector logs its first
+/// registered edge connection.
+fn emit_members_active(app_handle: &tauri::AppHandle, name: &str) {
+    let (infos, _) = resolve_tunnel(app_handle, name);
+    for info in &infos {
+        app_handle
+            .emit(
+                &info.channel,
+                serde_json::json!({ "active": true, "url": info.url }),
+            )
+            .ok();
+    }
+}
+
+/// (Re)start the single cloudflared connector for a named tunnel so it matches
+/// the current membership: merged ingress for every member app, DNS routed for
+/// every hostname, exactly one running process. Tears the connector down when
+/// no members remain. Serialized across the process by `reconcile_lock` so
+/// concurrent connects/disconnects can't spawn duplicate connectors.
+fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<(), String> {
+    let _guard = reconcile_lock().lock().unwrap();
+    let cf = find_cloudflared().ok_or_else(|| {
+        "cloudflared not installed. Run: brew install cloudflare/cloudflare/cloudflared".to_string()
+    })?;
+    let key = tunnel_key(&name);
+
+    let (infos, rules) = resolve_tunnel(&app_handle, &name);
+
+    // No servable members left → tear the connector down. Silent: `stop_tunnel`
+    // / `stop_cloudflare_for_switch` already emitted for the specific member.
+    if infos.is_empty() || rules.is_empty() {
+        if let Some(pid) = tunnel_pids().lock().unwrap().remove(&key) {
+            restart_pids().lock().unwrap().insert(pid);
+            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+        }
+        tunnel_metrics_ports().lock().unwrap().remove(&name);
+        return Ok(());
+    }
+
+    // Merged ingress for every member.
+    let cfg_path = tunnel_config_path(&name)?;
+    std::fs::write(&cfg_path, build_ingress_yaml(&rules)).map_err(|e| e.to_string())?;
+
+    // Route DNS for every member hostname. `--overwrite-dns` re-points existing
+    // CNAMEs (without it, a CNAME to a different tunnel silently wins → 404 /
+    // wrong origin). Pick the cert.pem authorized for each hostname's zone so
+    // routing works across zones without swapping `~/.cloudflared/cert.pem`.
+    for r in &rules {
+        let mut cmd = std::process::Command::new(&cf);
+        if let Some(cert) = crate::cloudflared_certs::cert_for_hostname(&r.public) {
+            cmd.arg("--origincert").arg(cert);
+        }
+        let out = cmd
+            .args(["tunnel", "route", "dns", "--overwrite-dns", &name, &r.public])
+            .output();
+        if let Ok(o) = out {
+            if !o.status.success() {
+                let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                let err_msg = format!("DNS route failed for {}:\n{}", r.public, stderr);
+                for info in &infos {
+                    app_handle
+                        .emit(
+                            &info.channel,
+                            serde_json::json!({
+                                "active": false,
+                                "url": null,
+                                "error": err_msg.clone(),
+                            }),
+                        )
+                        .ok();
+                }
+                return Err(err_msg);
+            }
+        }
+    }
+
+    // Replace the old connector: mark its pid as an intentional restart (so its
+    // watcher stays silent), kill it, then spawn a fresh one on the merged config.
+    if let Some(pid) = tunnel_pids().lock().unwrap().remove(&key) {
+        restart_pids().lock().unwrap().insert(pid);
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+    }
+    tunnel_stopping().lock().unwrap().remove(&key);
+
+    let metrics_port = pick_free_port();
+    if let Some(mp) = metrics_port {
+        tunnel_metrics_ports()
+            .lock()
+            .unwrap()
+            .insert(name.clone(), mp);
+    }
+
+    spawn_named_connector(app_handle, cf, name, key, cfg_path, metrics_port, infos);
+    Ok(())
+}
+
+/// Spawn the cloudflared process for a named tunnel's merged ingress config and
+/// watch its stderr: emit `active:true` for all members on first connection,
+/// and on unexpected exit report the failure to every current member. A
+/// deliberate restart/teardown (pid in `restart_pids`) exits silently.
+#[allow(clippy::too_many_arguments)]
+fn spawn_named_connector(
+    app_handle: tauri::AppHandle,
+    cf: String,
+    name: String,
+    key: String,
+    cfg_path: PathBuf,
+    metrics_port: Option<u16>,
+    infos: Vec<MemberInfo>,
+) {
+    thread::spawn(move || {
+        let mut args: Vec<String> = Vec::new();
+        if let Some(p) = metrics_port {
+            args.push("--metrics".into());
+            args.push(format!("127.0.0.1:{}", p));
+        }
+        args.extend([
+            "--config".into(),
+            cfg_path.to_string_lossy().to_string(),
+            "tunnel".into(),
+            "run".into(),
+            name.clone(),
+        ]);
+
+        let mut child = match std::process::Command::new(&cf)
+            .args(&args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                for info in &infos {
+                    app_handle
+                        .emit(
+                            &info.channel,
+                            serde_json::json!({ "active": false, "url": null, "error": e.to_string() }),
+                        )
+                        .ok();
+                }
+                return;
+            }
+        };
+        let my_pid = child.id();
+        tunnel_pids().lock().unwrap().insert(key.clone(), my_pid);
+
+        let stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stderr_handle = if let Some(stderr) = child.stderr.take() {
+            let handle2 = app_handle.clone();
+            let buf = stderr_buf.clone();
+            let name2 = name.clone();
+            Some(thread::spawn(move || {
+                let mut connected = false;
+                for line in std::io::BufReader::new(stderr)
+                    .lines()
+                    .map_while(Result::ok)
+                {
+                    {
+                        let mut b = buf.lock().unwrap();
+                        b.push(line.clone());
+                        if b.len() > 30 {
+                            let drop = b.len() - 30;
+                            b.drain(0..drop);
+                        }
+                    }
+                    if !connected && line.contains("Registered tunnel connection") {
+                        connected = true;
+                        emit_members_active(&handle2, &name2);
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
+        let status = child.wait().ok();
+        if let Some(h) = stderr_handle {
+            let _ = h.join();
+        }
+
+        // Compare-and-remove so a concurrent restart's successor pid survives.
+        {
+            let mut pids = tunnel_pids().lock().unwrap();
+            if pids.get(&key).copied() == Some(my_pid) {
+                pids.remove(&key);
+            }
+        }
+        // Deliberate restart/teardown → stay silent; the new connector (or the
+        // stop path) owns the members' channels now.
+        if restart_pids().lock().unwrap().remove(&my_pid) {
+            return;
+        }
+
+        // Unexpected exit (crash, auth failure, bad config). Report to every
+        // current member and clear membership so a reconnect rebuilds cleanly.
+        tunnel_metrics_ports().lock().unwrap().remove(&name);
+        let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
+        let err_text = if exit_code != 0 {
+            let buf = stderr_buf.lock().unwrap();
+            let lines: Vec<String> = buf
+                .iter()
+                .rev()
+                .filter(|l| !l.trim().is_empty())
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if lines.is_empty() {
+                Some(format!("cloudflared exited with code {}", exit_code))
+            } else {
+                let joined = lines.join("\n");
+                let lower = joined.to_lowercase();
+                let hint = if lower.contains("unauthorized") || lower.contains("not logged in") {
+                    Some("\n\nRun `cloudflared login` to authenticate.")
+                } else if lower.contains("failed to connect to") {
+                    Some("\n\nNetwork error. Check your internet connection.")
+                } else {
+                    None
+                };
+                Some(match hint {
+                    Some(h) => format!("{}{}", joined, h),
+                    None => joined,
+                })
+            }
+        } else {
+            None
+        };
+        // Snapshot who to notify (with correct app/instance channels) BEFORE
+        // clearing membership, so a reconnect rebuilds from an empty set.
+        let (infos, _) = resolve_tunnel(&app_handle, &name);
+        tunnel_members().lock().unwrap().remove(&name);
+        for info in &infos {
+            app_handle
+                .emit(
+                    &info.channel,
+                    serde_json::json!({ "active": false, "url": null, "error": err_text.clone() }),
+                )
+                .ok();
+        }
+    });
 }
 
 fn caddy_origin_args(host_header: &str, has_certs: bool) -> (String, Vec<String>) {
     let url = if has_certs {
-        "https://localhost:443".to_string()
+        "https://127.0.0.1:443".to_string()
     } else {
-        "http://localhost:80".to_string()
+        "http://127.0.0.1:80".to_string()
     };
     let mut extra = vec!["--http-host-header".into(), host_header.to_string()];
     if has_certs {
@@ -272,73 +751,68 @@ fn start_tunnel_blocking(
     port: u16,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let cf = find_cloudflared().ok_or_else(|| {
-        "cloudflared not installed. Run: brew install cloudflare/cloudflare/cloudflared".to_string()
-    })?;
-
-    // Look up this app's tunnel config and derive every (public → local)
-    // hostname pair. Static apps have no process port — they're served by
-    // Caddy — so we forward the tunnel to Caddy's port with the correct Host
-    // header. Multi-host apps (extras / port_bindings) always go through Caddy
-    // because Caddy is what multiplexes by Host.
-    let (tunnel_name, tunnel_hostname, single_host_host_header, public_pairs, ingress_config_path) = {
+    // Resolve the app's provider + tunnel name up front. Named vs quick take
+    // completely different paths: named tunnels are shared (one connector per
+    // tunnel name, merged ingress), quick tunnels are per-app trycloudflare.
+    let (tunnel_name, single_host_host_header) = {
         let state = app_handle.state::<AppState>();
         let db = state.db.lock().unwrap();
         let apps = db.list_apps().unwrap_or_default();
         let workspaces = db.list_workspaces().unwrap_or_default();
-        let app_info = apps.into_iter().find(|a| a.id == id);
-        match app_info {
+        match apps.into_iter().find(|a| a.id == id) {
             Some(a) => {
-                let host = single_host_caddy_host(&a, &workspaces);
-                let pairs = a.tunnel_public_hostnames(&workspaces);
-                // Only emit a config when there's more than one host — single
-                // host stays on the legacy `--url` path so we don't change
-                // wire behavior for users who never used multi-host, except
-                // features that require Caddy are routed there below.
-                let cfg_path =
-                    if pairs.len() > 1 {
-                        match write_tunnel_ingress_config(&a, &workspaces) {
-                            Ok(p) => Some(p),
-                            Err(e) => {
-                                app_handle.emit(
-                                &format!("app:tunnel:{}", id),
-                                serde_json::json!({
-                                    "active": false,
-                                    "url": null,
-                                    "error": format!("Failed to write ingress config: {}", e),
-                                }),
-                            ).ok();
-                                return Err(e);
-                            }
-                        }
-                    } else {
-                        None
-                    };
-                (
-                    a.tunnel_name.clone(),
-                    a.tunnel_custom_hostname.clone(),
-                    host,
-                    pairs,
-                    cfg_path,
-                )
+                let name = a
+                    .tunnel_name
+                    .clone()
+                    .map(|n| n.trim().to_string())
+                    .filter(|n| !n.is_empty());
+                (name, single_host_caddy_host(&a, &workspaces))
             }
-            None => (None, None, None, Vec::new(), None),
+            None => (None, None),
         }
     };
 
-    // For single-host apps that need a Caddy handler (static, basic auth, or
-    // auto-sleep wake), point cloudflared at Caddy and preserve the local Host
-    // header so Caddy matches the right route. With ingress_config_path, host
-    // header is per-rule in the yml — these CLI args are unused there.
+    // Providers are mutually exclusive per app: switching to Cloudflare must
+    // tear down any Tailscale serve / Porta Relay for this app first. Silent (no
+    // event) so it doesn't clobber the `active:true` cloudflared emits once
+    // connected.
+    crate::commands::tailscale::stop_tailscale_for_switch(&id, &app_handle);
+    crate::commands::remote::stop_remote_for_switch(&id, &app_handle);
+
+    // ── Named tunnel: join the shared connector for this tunnel name. ────────
+    // One cloudflared process serves the MERGED ingress of every member app.
+    // Running one process per app instead would register each as an HA replica
+    // of the same tunnel carrying only its own ingress, so the Cloudflare edge
+    // forwards a hostname to whichever replica answers first and the wrong app
+    // (or a 404) wins — the "two apps on nasrulgunawan.com, only one routes"
+    // bug. reconcile_named_tunnel (re)builds and restarts the single connector.
+    if let Some(name) = tunnel_name {
+        tunnel_members()
+            .lock()
+            .unwrap()
+            .entry(name.clone())
+            .or_default()
+            .insert(id.clone());
+        return reconcile_named_tunnel(app_handle, name);
+    }
+
+    // ── Quick tunnel: per-app throwaway trycloudflare tunnel. ────────────────
+    let cf = find_cloudflared().ok_or_else(|| {
+        "cloudflared not installed. Run: brew install cloudflare/cloudflare/cloudflared".to_string()
+    })?;
+
+    // Apps needing a Caddy handler (static, basic auth, auto-sleep wake) point
+    // cloudflared at Caddy and preserve the local Host header so Caddy matches
+    // the right route; otherwise forward straight to the app's port.
     let (effective_url, caddy_extra_args): (String, Vec<String>) =
         if let Some(host) = single_host_host_header {
             let has_certs = crate::setup::certs_exist();
             caddy_origin_args(&host, has_certs)
         } else {
-            (format!("http://localhost:{}", port), Vec::new())
+            (format!("http://127.0.0.1:{}", port), Vec::new())
         };
 
-    // Kill any existing tunnel for this app and clear stale stopping marker.
+    // Kill any existing quick tunnel for this app and clear stale stopping marker.
     {
         let mut pids = tunnel_pids().lock().unwrap();
         if let Some(pid) = pids.remove(&id) {
@@ -347,116 +821,12 @@ fn start_tunnel_blocking(
     }
     tunnel_stopping().lock().unwrap().remove(&id);
 
-    // Providers are mutually exclusive per app: switching to Cloudflare must
-    // tear down any Tailscale serve for this app first. Silent (no event) so it
-    // doesn't clobber the `active:true` cloudflared emits once connected.
-    crate::commands::tailscale::stop_tailscale_for_switch(&id, &app_handle);
-    crate::commands::remote::stop_remote_for_switch(&id, &app_handle);
-
     let id2 = id.clone();
     let handle = app_handle.clone();
-    let is_named = tunnel_name
-        .as_ref()
-        .map(|n| !n.trim().is_empty())
-        .unwrap_or(false);
-
-    // For named tunnels, route DNS for every public hostname before starting.
-    // Idempotent — `--overwrite-dns` re-points existing CNAMEs (without it,
-    // CNAMEs to a different tunnel silently win and CF returns 404 / wrong
-    // origin). If the zone isn't in the user's CF account we surface the
-    // error up front before spawning cloudflared.
-    if is_named {
-        if let Some(name) = tunnel_name.as_deref().filter(|s| !s.trim().is_empty()) {
-            // Multi-host: route every pair. Single-host: legacy single record.
-            // pairs is empty when tunnel_custom_hostname isn't set — we'd hit
-            // the `tunnel_hostname.is_none()` branch below.
-            let hostnames_to_route: Vec<String> = if !public_pairs.is_empty() {
-                public_pairs.iter().map(|(p, _)| p.clone()).collect()
-            } else if let Some(h) = tunnel_hostname.as_deref().filter(|s| !s.trim().is_empty()) {
-                vec![h.to_string()]
-            } else {
-                Vec::new()
-            };
-
-            for host in &hostnames_to_route {
-                // Pick the cert.pem authorized for this hostname's zone so
-                // routing works across zones without the user manually
-                // swapping `~/.cloudflared/cert.pem` between starts. Falls
-                // back to the default cert if no per-zone one is registered.
-                let mut cmd = std::process::Command::new(&cf);
-                if let Some(cert) = crate::cloudflared_certs::cert_for_hostname(host) {
-                    cmd.arg("--origincert").arg(cert);
-                }
-                let out = cmd
-                    .args(["tunnel", "route", "dns", "--overwrite-dns", name, host])
-                    .output();
-                if let Ok(o) = out {
-                    if !o.status.success() {
-                        let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                        let err_msg = format!("DNS route failed for {}:\n{}", host, stderr);
-                        app_handle
-                            .emit(
-                                &format!("app:tunnel:{}", id),
-                                serde_json::json!({
-                                    "active": false,
-                                    "url": null,
-                                    "error": err_msg.clone(),
-                                }),
-                            )
-                            .ok();
-                        return Err(err_msg);
-                    }
-                }
-            }
-        }
-    }
-
-    // Pick a metrics port up front so the UI can scrape Prometheus stats. We
-    // bind :0, capture the port, then pass it to cloudflared via the global
-    // `--metrics` flag (must come before the `tunnel` subcommand). If we can't
-    // get a port we just skip — metrics simply won't be available.
-    let metrics_port = pick_free_port();
-    if let (Some(port), Some(name)) = (
-        metrics_port,
-        tunnel_name.as_deref().filter(|s| !s.trim().is_empty()),
-    ) {
-        tunnel_metrics_ports()
-            .lock()
-            .unwrap()
-            .insert(name.to_string(), port);
-    }
 
     thread::spawn(move || {
-        // Build args depending on mode.
-        // - Multi-host named: `--config <yml> tunnel run <name>` — ingress
-        //   from yml routes each public hostname to Caddy with its own host
-        //   header. No `--url` (would override ingress).
-        // - Single-host named or quick: legacy `tunnel --url ... [run <name>]`.
-        let mut prefix: Vec<String> = Vec::new();
-        if let Some(port) = metrics_port {
-            prefix.push("--metrics".into());
-            prefix.push(format!("127.0.0.1:{}", port));
-        }
-        let args: Vec<String> = if let Some(cfg) = ingress_config_path.as_ref() {
-            let mut a = prefix.clone();
-            a.extend([
-                "--config".into(),
-                cfg.to_string_lossy().to_string(),
-                "tunnel".into(),
-                "run".into(),
-                tunnel_name.clone().unwrap_or_default(),
-            ]);
-            a
-        } else {
-            let mut a = prefix.clone();
-            a.extend(["tunnel".into(), "--url".into(), effective_url]);
-            a.extend(caddy_extra_args);
-            if is_named {
-                a.push("run".into());
-                a.push(tunnel_name.clone().unwrap_or_default());
-            }
-            a
-        };
+        let mut args: Vec<String> = vec!["tunnel".into(), "--url".into(), effective_url];
+        args.extend(caddy_extra_args);
 
         let mut child = match std::process::Command::new(&cf)
             .args(&args)
@@ -482,20 +852,15 @@ fn start_tunnel_blocking(
             .insert(id2.clone(), child.id());
 
         // Capture last N stderr lines so we can surface a real error if
-        // cloudflared exits non-zero (e.g. tunnel name wrong, no auth, DNS not routed).
+        // cloudflared exits non-zero (e.g. no auth, network failure).
         let stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
-        // cloudflared logs to stderr. We watch it to:
-        // - Detect actual connection (named: "Registered tunnel connection"; quick: trycloudflare URL line)
-        // - Buffer the tail for error reporting on non-zero exit
         let stderr_handle = if let Some(stderr) = child.stderr.take() {
             let id3 = id2.clone();
             let handle2 = handle.clone();
             let buf = stderr_buf.clone();
-            let hostname = tunnel_hostname.clone();
             Some(thread::spawn(move || {
-                let mut connected_emitted = false;
                 for line in std::io::BufReader::new(stderr)
                     .lines()
                     .map_while(Result::ok)
@@ -507,23 +872,6 @@ fn start_tunnel_blocking(
                             let drop = b.len() - 30;
                             b.drain(0..drop);
                         }
-                    }
-                    if is_named {
-                        // Emit active:true only once we actually see a tunnel connection.
-                        if !connected_emitted && line.contains("Registered tunnel connection") {
-                            connected_emitted = true;
-                            let url = hostname
-                                .clone()
-                                .filter(|h| !h.is_empty())
-                                .map(|h| format!("https://{}", h));
-                            handle2
-                                .emit(
-                                    &format!("app:tunnel:{}", id3),
-                                    serde_json::json!({ "active": true, "url": url }),
-                                )
-                                .ok();
-                        }
-                        continue;
                     }
                     // Quick tunnel — scrape trycloudflare URL.
                     if let Some(pos) = line.find("https://") {
@@ -550,16 +898,12 @@ fn start_tunnel_blocking(
         };
 
         let status = child.wait().ok();
-        // Wait for the stderr reader to drain so `stderr_buf` contains the full tail.
         if let Some(h) = stderr_handle {
             let _ = h.join();
         }
 
         // Tunnel ended — clean up and notify frontend.
         tunnel_pids().lock().unwrap().remove(&id2);
-        if let Some(name) = tunnel_name.as_deref().filter(|s| !s.trim().is_empty()) {
-            tunnel_metrics_ports().lock().unwrap().remove(name);
-        }
         let intentional = tunnel_stopping().lock().unwrap().remove(&id2);
         let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
         let err_text = if !intentional && exit_code != 0 {
@@ -577,8 +921,6 @@ fn start_tunnel_blocking(
             if lines.is_empty() {
                 Some(format!("cloudflared exited with code {}", exit_code))
             } else {
-                // Annotate specific failure modes with a one-line hint so the
-                // UI error box tells the user what to try next.
                 let joined = lines.join("\n");
                 let lower = joined.to_lowercase();
                 let hint = if lower.contains("trycloudflare")
@@ -603,8 +945,7 @@ fn start_tunnel_blocking(
             None
         };
         // Suppress the final emit when this connector is dying as part of a
-        // provider switch — the incoming provider already owns this channel and
-        // an `active:false` here would flip the UI back to disconnected.
+        // provider switch — the incoming provider already owns this channel.
         let switching = tunnel_switching().lock().unwrap().remove(&id2);
         if !switching {
             handle
@@ -620,7 +961,48 @@ fn start_tunnel_blocking(
 }
 
 #[tauri::command]
-pub fn stop_tunnel(id: String) -> Result<(), String> {
+pub fn stop_tunnel(id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Named tunnel member? Drop it and reconcile the shared connector: the other
+    // members keep serving, or the connector tears down if this was the last.
+    let name = {
+        let state = app_handle.state::<AppState>();
+        let db = state.db.lock().unwrap();
+        db.list_apps()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|a| a.id == id)
+            .and_then(|a| a.tunnel_name)
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
+    };
+
+    if let Some(name) = name {
+        {
+            let mut m = tunnel_members().lock().unwrap();
+            if let Some(set) = m.get_mut(&name) {
+                set.remove(&id);
+                if set.is_empty() {
+                    m.remove(&name);
+                }
+            }
+        }
+        // Emit disconnect for THIS app immediately (the connector may keep
+        // running for the remaining members).
+        app_handle
+            .emit(
+                &format!("app:tunnel:{}", id),
+                serde_json::json!({ "active": false, "url": null }),
+            )
+            .ok();
+        // Rebuild/tear-down off-thread: reconcile shells out to cloudflared.
+        let handle = app_handle.clone();
+        std::thread::spawn(move || {
+            let _ = reconcile_named_tunnel(handle, name);
+        });
+        return Ok(());
+    }
+
+    // Quick tunnel / instance path keyed by app id.
     tunnel_stopping().lock().unwrap().insert(id.clone());
     if let Some(pid) = tunnel_pids().lock().unwrap().remove(&id) {
         let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
@@ -677,7 +1059,11 @@ fn spawn_quick_tunnel_for_instance(
     }
     tunnel_stopping().lock().unwrap().remove(&key);
 
-    let target = format!("http://localhost:{}", port);
+    // Force IPv4 loopback: cloudflared resolves `localhost` to `::1` first on
+    // macOS, but dev servers commonly bind only IPv4 `127.0.0.1`, so a
+    // `localhost` origin yields "connection refused" and the trycloudflare URL
+    // 502s even though the tunnel connected.
+    let target = format!("http://127.0.0.1:{}", port);
     let key2 = key.clone();
     let channel2 = channel.clone();
     let handle = app_handle.clone();
@@ -790,8 +1176,13 @@ fn spawn_quick_tunnel_for_instance(
     Ok(())
 }
 
-/// Start a QUICK (trycloudflare) tunnel for a worktree instance. Instances are
-/// ephemeral, so named tunnels / DNS are intentionally unsupported here.
+/// Start a tunnel for a worktree instance. Prefers the parent app's NAMED
+/// tunnel when one is configured (and the parent has a derivable public domain):
+/// the instance joins that tunnel's shared connector as a member exposed at
+/// `<instance-subdomain>.<parent-domain>`, routed straight to the worktree port.
+/// This gives a stable URL on the user's own domain and sidesteps the frequent
+/// trycloudflare provisioning/reachability flakiness. Falls back to a throwaway
+/// QUICK (trycloudflare) tunnel when the parent has no named tunnel.
 /// Emits `instance:tunnel:{instance_id}` with { active, url, error }.
 #[tauri::command]
 pub async fn start_instance_tunnel(
@@ -799,14 +1190,46 @@ pub async fn start_instance_tunnel(
     state: tauri::State<'_, AppState>,
     instance_id: String,
 ) -> Result<(), String> {
-    let inst = {
+    let (inst, parent_named) = {
         let db = state.db.lock().unwrap();
-        db.list_instances()
+        let inst = db
+            .list_instances()
             .map_err(|e| e.to_string())?
             .into_iter()
             .find(|i| i.id == instance_id)
-            .ok_or_else(|| "instance not found".to_string())?
+            .ok_or_else(|| "instance not found".to_string())?;
+        // Named tunnel is available only if the parent app has both a tunnel
+        // name and a registrable base to derive the instance hostname from.
+        let parent_named = db.list_apps().unwrap_or_default().into_iter().find_map(|a| {
+            if a.id != inst.app_id {
+                return None;
+            }
+            let name = a.tunnel_name.as_deref().map(str::trim).filter(|s| !s.is_empty())?;
+            a.tunnel_public_base().map(|_| name.to_string())
+        });
+        (inst, parent_named)
     };
+
+    if let Some(name) = parent_named {
+        // Switching from a stale quick tunnel to named: kill any quick child
+        // tracked under the instance id first so it can't linger. Only mark it
+        // "stopping" if one actually existed, so we don't leave a stale marker
+        // that would swallow a future quick tunnel's exit error.
+        if let Some(pid) = tunnel_pids().lock().unwrap().remove(&inst.id) {
+            tunnel_stopping().lock().unwrap().insert(inst.id.clone());
+            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+        }
+        tunnel_members()
+            .lock()
+            .unwrap()
+            .entry(name.clone())
+            .or_default()
+            .insert(inst.id.clone());
+        return tauri::async_runtime::spawn_blocking(move || reconcile_named_tunnel(app, name))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
     spawn_quick_tunnel_for_instance(
         app,
         format!("instance:tunnel:{}", inst.id),
@@ -815,11 +1238,62 @@ pub async fn start_instance_tunnel(
     )
 }
 
-/// Stop the quick tunnel for a worktree instance. Kills the tracked
-/// cloudflared child (if any); the watcher thread emits the final
-/// `{ active: false }` once the process actually exits.
+/// Stop an instance's tunnel. If it joined its parent's named tunnel, drop it
+/// from that connector's membership and reconcile (the other members keep
+/// serving). Otherwise kill the tracked quick cloudflared child; its watcher
+/// emits the final `{ active: false }` on exit.
 #[tauri::command]
-pub fn stop_instance_tunnel(instance_id: String) -> Result<(), String> {
+pub fn stop_instance_tunnel(instance_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Which named tunnel (if any) is this instance a member of? Derive from the
+    // parent app's tunnel name, then confirm membership.
+    let named = {
+        let state = app_handle.state::<AppState>();
+        let db = state.db.lock().unwrap();
+        let parent_id = db
+            .list_instances()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|i| i.id == instance_id)
+            .map(|i| i.app_id);
+        parent_id.and_then(|pid| {
+            db.list_apps()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|a| a.id == pid)
+                .and_then(|a| a.tunnel_name)
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty())
+        })
+    };
+
+    if let Some(name) = named {
+        let was_member = {
+            let mut m = tunnel_members().lock().unwrap();
+            let present = m.get(&name).map(|s| s.contains(&instance_id)).unwrap_or(false);
+            if let Some(set) = m.get_mut(&name) {
+                set.remove(&instance_id);
+                if set.is_empty() {
+                    m.remove(&name);
+                }
+            }
+            present
+        };
+        if was_member {
+            app_handle
+                .emit(
+                    &format!("instance:tunnel:{}", instance_id),
+                    serde_json::json!({ "active": false, "url": null }),
+                )
+                .ok();
+            let handle = app_handle.clone();
+            std::thread::spawn(move || {
+                let _ = reconcile_named_tunnel(handle, name);
+            });
+            return Ok(());
+        }
+    }
+
+    // Quick tunnel keyed by instance id.
     tunnel_stopping().lock().unwrap().insert(instance_id.clone());
     if let Some(pid) = tunnel_pids().lock().unwrap().remove(&instance_id) {
         let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
@@ -928,7 +1402,9 @@ mod tests {
     fn caddy_origin_sets_host_header_and_tls_skip() {
         let (url, args) = caddy_origin_args("demo.narakarya.test", true);
 
-        assert_eq!(url, "https://localhost:443");
+        // 127.0.0.1, not localhost: cloudflared prefers ::1 for localhost but
+        // Caddy/dev servers bind IPv4 only.
+        assert_eq!(url, "https://127.0.0.1:443");
         assert_eq!(
             args,
             vec![
@@ -937,6 +1413,74 @@ mod tests {
                 "--no-tls-verify".to_string(),
             ]
         );
+    }
+
+    fn caddy_rule(public: &str, local: &str, has_certs: bool) -> IngressRule {
+        IngressRule {
+            public: public.into(),
+            service: caddy_service(has_certs).into(),
+            host_header: Some(local.into()),
+            no_tls_verify: has_certs,
+        }
+    }
+
+    // The core of the shared-tunnel fix: hostnames from MULTIPLE apps all land
+    // in one ingress table, each keeping its own per-rule host header, with a
+    // single trailing 404 catch-all. This is what lets one connector route
+    // `aus.nasrulgunawan.com` and `tgr-bwi-26.nasrulgunawan.com` to different
+    // apps instead of the last-started app capturing both.
+    #[test]
+    fn merged_ingress_covers_every_app_hostname_with_one_catch_all() {
+        let rules = vec![
+            caddy_rule("aus.nasrulgunawan.com", "nexus.narakarya.test", true),
+            caddy_rule("tgr-bwi-26.nasrulgunawan.com", "touring.narakarya.test", true),
+        ];
+        let yaml = build_ingress_yaml(&rules);
+
+        // Both public hostnames are present…
+        assert!(yaml.contains("hostname: aus.nasrulgunawan.com"));
+        assert!(yaml.contains("hostname: tgr-bwi-26.nasrulgunawan.com"));
+        // …each rewriting to its OWN local Caddy host (no global override)…
+        assert!(yaml.contains("httpHostHeader: nexus.narakarya.test"));
+        assert!(yaml.contains("httpHostHeader: touring.narakarya.test"));
+        // …and there is exactly one 404 catch-all, at the end.
+        assert_eq!(yaml.matches("http_status:404").count(), 1);
+        assert!(yaml.trim_end().ends_with("- service: http_status:404"));
+    }
+
+    #[test]
+    fn ingress_service_follows_cert_presence() {
+        assert!(build_ingress_yaml(&[caddy_rule("a.example.com", "a.narakarya.test", true)])
+            .contains("service: https://127.0.0.1:443"));
+        assert!(build_ingress_yaml(&[caddy_rule("a.example.com", "a.narakarya.test", false)])
+            .contains("service: http://127.0.0.1:80"));
+        // noTLSVerify only when we terminate at Caddy's mkcert TLS.
+        assert!(build_ingress_yaml(&[caddy_rule("a.example.com", "a.narakarya.test", true)])
+            .contains("noTLSVerify: true"));
+        assert!(!build_ingress_yaml(&[caddy_rule("a.example.com", "a.narakarya.test", false)])
+            .contains("noTLSVerify"));
+    }
+
+    // Instance members forward straight to the worktree port with NO host header
+    // (no Caddy route exists for an instance) — mixed freely with app rules in
+    // the same merged table.
+    #[test]
+    fn instance_rule_targets_port_directly_no_host_header() {
+        let app_rule = caddy_rule("aus.nasrulgunawan.com", "nexus.narakarya.test", true);
+        let inst_rule = IngressRule {
+            public: "feat-x.nasrulgunawan.com".into(),
+            service: "http://127.0.0.1:5311".into(),
+            host_header: None,
+            no_tls_verify: false,
+        };
+        let yaml = build_ingress_yaml(&[app_rule, inst_rule]);
+
+        assert!(yaml.contains("hostname: feat-x.nasrulgunawan.com"));
+        assert!(yaml.contains("service: http://127.0.0.1:5311"));
+        // The instance rule carries no originRequest block of its own; only the
+        // app rule's httpHostHeader appears.
+        assert_eq!(yaml.matches("httpHostHeader").count(), 1);
+        assert!(yaml.contains("httpHostHeader: nexus.narakarya.test"));
     }
 }
 

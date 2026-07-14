@@ -6,6 +6,47 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.28] — 2026-07-14
+
+Tunnel reliability release: correct routing when apps share a named tunnel,
+named tunnels for worktree instances, and the elimination of intermittent 502s
+from IPv4/IPv6 loopback mismatches.
+
+### Added
+
+- **Worktree instances can use a named Cloudflare tunnel.** When an instance's
+  parent app has a named tunnel configured, connecting the instance now joins
+  that tunnel's shared connector as a member exposed at
+  `<instance-subdomain>.<parent-domain>` (e.g. `nexus-feat-x.nasrulgunawan.com`),
+  routed straight to the worktree port. This gives a stable URL on your own
+  domain instead of a throwaway trycloudflare link. Instances whose parent has
+  no named tunnel still fall back to a quick tunnel. Stopping or removing an
+  instance drops it from the shared connector automatically.
+
+### Fixed
+
+- **Cloudflare named tunnels shared across apps now route correctly.** When two
+  or more apps pointed at the *same* named tunnel (e.g. several hostnames on
+  `nasrulgunawan.com`), Porta spawned one `cloudflared` process per app. Each
+  became an HA replica of the same tunnel carrying only its own ingress, so the
+  Cloudflare edge forwarded a hostname to whichever replica answered — and on
+  the single-host `--url` path each replica force-rewrote *all* traffic to its
+  own app's Host header, letting the last-started app capture every hostname on
+  the tunnel. Porta now runs exactly **one connector per tunnel name** with a
+  **merged ingress table** covering every member app (Cloudflare's intended
+  model). Connecting/disconnecting an app reconciles the shared connector;
+  members keep serving while others come and go. Single-app named tunnels are
+  unaffected in behavior, and quick (trycloudflare) tunnels stay per-app.
+- **Intermittent "Bad Gateway" (502) on tunneled pages that a refresh cleared.**
+  Caddy's per-app `reverse_proxy` upstream dialed `localhost:<port>`, but macOS
+  resolves `localhost` to IPv6 `::1` first while dev servers usually bind IPv4
+  `127.0.0.1` only — so Caddy attempted `::1` first and Go's dual-stack fallback
+  is racy, yielding sporadic 502s that vanished on retry. Both Caddy upstreams
+  and every cloudflared tunnel origin now dial `127.0.0.1` explicitly. This is a
+  local origin issue, not a Cloudflare request limit.
+- **Quick (trycloudflare) tunnels that provisioned a URL but 502'd on access** —
+  same IPv4/IPv6 loopback cause, fixed by the `127.0.0.1` origins above.
+
 ## [0.7.25] — 2026-07-13
 
 ### Changed

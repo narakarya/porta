@@ -372,7 +372,7 @@ pub async fn expose_remote(
     app_handle: AppHandle,
 ) -> Result<String, String> {
     // Providers are mutually exclusive per app: tear down any other tunnel.
-    crate::commands::tunnel::stop_cloudflare_for_switch(&app_id);
+    crate::commands::tunnel::stop_cloudflare_for_switch(&app_id, &app_handle);
     crate::commands::tailscale::stop_tailscale_for_switch(&app_id, &app_handle);
 
     let (host, apps, workspaces, app_port) = {

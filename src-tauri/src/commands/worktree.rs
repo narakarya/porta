@@ -164,6 +164,9 @@ pub async fn list_instances(app: AppHandle, app_id: String) -> Result<Vec<AppIns
 pub async fn stop_instance(app: AppHandle, instance_id: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // Tear down its tunnel first (drops it from a shared named connector or
+        // kills its quick child) — the worktree port is about to go away.
+        crate::commands::tunnel::stop_instance_tunnel(instance_id.clone(), app.clone()).ok();
         // Kill the process under the instance key (no-op if already exited).
         state.processes.stop(&instance_id).map_err(|e| e.to_string())?;
         // Keep the row; just flip it to "stopped". (The process's on_exit hook
@@ -188,6 +191,9 @@ pub async fn stop_instance(app: AppHandle, instance_id: String) -> Result<(), St
 pub async fn remove_instance(app: AppHandle, instance_id: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // Drop it from any shared named tunnel (or kill its quick child) while
+        // the row still exists so we can resolve its parent + channel.
+        crate::commands::tunnel::stop_instance_tunnel(instance_id.clone(), app.clone()).ok();
         state.processes.stop(&instance_id).map_err(|e| e.to_string())?;
         {
             let mut db = state.db.lock().unwrap();

@@ -366,9 +366,13 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                 )}
                 {quickOnly ? (
                   <>
-                    {/* Quick tunnel only — no saved/named tunnels for instances. */}
+                    {/* Instances route through the parent's named tunnel when it
+                        has one (derived `<sub>.<domain>` host, direct to the
+                        worktree port); otherwise a throwaway quick tunnel. */}
                     <div className="px-3 pt-2 pb-1">
-                      <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">Quick</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500">
+                        {app.tunnel_name ? "Named" : "Quick"}
+                      </p>
                     </div>
                     <button
                       onClick={() => startWithConfig(null, null)}
@@ -376,8 +380,8 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                       className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-50"
                     >
                       <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C5.5 1.5 7.5 2.5 8.5 4.5c.5 1 .5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 1.5C5.5 1.5 3.5 2.5 2.5 4.5c-.5 1-.5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M1.5 5.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                      <span className="flex-1 text-left">Quick tunnel</span>
-                      <span className="text-[9px] text-zinc-500">trycloudflare</span>
+                      <span className="flex-1 text-left">{app.tunnel_name ? "Named tunnel" : "Quick tunnel"}</span>
+                      <span className="text-[9px] text-zinc-500">{app.tunnel_name ?? "trycloudflare"}</span>
                     </button>
                     {busyError && (
                       <p className="px-3 py-1.5 text-[10px] text-red-400 font-mono whitespace-pre-wrap break-words border-t border-white/[0.06]">

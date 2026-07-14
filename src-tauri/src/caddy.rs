@@ -139,7 +139,12 @@ fn route_to_json(route: &Route, default_max: u64) -> Value {
             }
             handlers.push(json!({
                 "handler": "reverse_proxy",
-                "upstreams": [{ "dial": format!("localhost:{}", port) }]
+                // 127.0.0.1, not localhost: on macOS `localhost` resolves to
+                // `::1` first, but dev servers commonly bind IPv4 only, so a
+                // `localhost` upstream makes Caddy try `::1` first and
+                // intermittently 502 (Go's dual-stack fallback is racy). Forcing
+                // IPv4 loopback removes the flaky hop.
+                "upstreams": [{ "dial": format!("127.0.0.1:{}", port) }]
             }));
             let _ = app_id; // Routing to per-app loggers is done at server level
                             // via `logs.logger_names` (host → logger name), not per-route.
@@ -163,7 +168,8 @@ fn route_to_json(route: &Route, default_max: u64) -> Value {
 
             let mut proxy = json!({
                 "handler": "reverse_proxy",
-                "upstreams": [{ "dial": format!("localhost:{}", port) }],
+                // IPv4 loopback — see the ReverseProxy note above on why not `localhost`.
+                "upstreams": [{ "dial": format!("127.0.0.1:{}", port) }],
             });
             if let Some(local_root) = rewrite_host_to.as_deref() {
                 // Rewrite Host so the upstream sees `<sub>.<local_root>` even
@@ -722,7 +728,7 @@ mod tests {
         // request_body comes first (body capture), reverse_proxy second.
         assert_eq!(handlers[0]["handler"], "request_body");
         assert_eq!(handlers[1]["handler"], "reverse_proxy");
-        assert_eq!(handlers[1]["upstreams"][0]["dial"], "localhost:3007");
+        assert_eq!(handlers[1]["upstreams"][0]["dial"], "127.0.0.1:3007");
         assert_eq!(
             handlers[1]["headers"]["request"]["set"]["Host"][0],
             "{http.request.host.labels.2}.grandado.test"
