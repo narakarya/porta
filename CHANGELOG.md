@@ -6,6 +6,22 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.31] — 2026-07-14
+
+### Fixed
+
+- **Quick-tunnel URLs no longer surface before they resolve
+  (ERR_NAME_NOT_RESOLVED).** Porta used to emit the trycloudflare URL the moment
+  cloudflared printed it, but the hostname is brand-new and local resolvers —
+  especially VPN/Tailscale MagicDNS paths — can lag behind, so clicking the
+  fresh link died with a browser DNS error while the tunnel itself was fine.
+  The backend now polls the system resolver (the same lookup path browsers use,
+  which also warms the DNS cache) and only flips the tunnel to "connected" once
+  the hostname actually resolves; the card keeps its pulsing connecting state
+  meanwhile. If it still hasn't resolved after ~30s the URL is shown with an
+  actionable warning instead of a silent mystery. Applies to app and worktree
+  instance quick tunnels.
+
 ## [0.7.30] — 2026-07-14
 
 ### Fixed

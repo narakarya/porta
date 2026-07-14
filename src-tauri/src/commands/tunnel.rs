@@ -681,6 +681,68 @@ fn spawn_named_connector(
     });
 }
 
+/// Host portion of a tunnel URL (`https://foo.trycloudflare.com/x` → the bare
+/// hostname), for DNS probing.
+fn url_host(url: &str) -> Option<String> {
+    url.split("://")
+        .nth(1)?
+        .split('/')
+        .next()
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty())
+}
+
+/// Emit `{active:true, url}` on `channel` only once the freshly-minted quick
+/// tunnel hostname actually resolves through the SYSTEM resolver — the same
+/// getaddrinfo path browsers use. trycloudflare names are created at provision
+/// time; handing the URL to the user before the local resolver can see it
+/// (VPN/Tailscale MagicDNS paths are the usual laggards) ends in
+/// ERR_NAME_NOT_RESOLVED even though the tunnel is up. Polling here doubles as
+/// a cache warm-up, so by the time the UI shows the URL, clicking it works.
+/// The UI keeps its pulsing "connecting" state until this emit settles it.
+///
+/// If it still doesn't resolve after ~30s, emit the URL anyway (it may resolve
+/// on other devices) together with an actionable warning instead of leaving
+/// the user to hit a mystery browser error.
+fn emit_quick_url_when_resolvable(handle: tauri::AppHandle, channel: String, url: String) {
+    thread::spawn(move || {
+        let host = match url_host(&url) {
+            Some(h) => h,
+            None => {
+                handle
+                    .emit(&channel, serde_json::json!({ "active": true, "url": url }))
+                    .ok();
+                return;
+            }
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut resolved = false;
+        loop {
+            if std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), 443u16))
+                .map(|mut a| a.next().is_some())
+                .unwrap_or(false)
+            {
+                resolved = true;
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_secs(1));
+        }
+        let payload = if resolved {
+            serde_json::json!({ "active": true, "url": url })
+        } else {
+            serde_json::json!({
+                "active": true,
+                "url": url,
+                "error": "Tunnel is up, but the URL doesn't resolve in local DNS yet. A VPN or Tailscale MagicDNS can delay new trycloudflare hostnames — retry in a few seconds, or use a named tunnel for a stable URL.",
+            })
+        };
+        handle.emit(&channel, payload).ok();
+    });
+}
+
 fn caddy_origin_args(host_header: &str, has_certs: bool) -> (String, Vec<String>) {
     let url = if has_certs {
         "https://127.0.0.1:443".to_string()
@@ -929,6 +991,7 @@ fn start_tunnel_blocking(
             let handle2 = handle.clone();
             let buf = stderr_buf.clone();
             Some(thread::spawn(move || {
+                let mut url_emitted = false;
                 for line in std::io::BufReader::new(stderr)
                     .lines()
                     .map_while(Result::ok)
@@ -941,7 +1004,12 @@ fn start_tunnel_blocking(
                             b.drain(0..drop);
                         }
                     }
-                    // Quick tunnel — scrape trycloudflare URL.
+                    // Quick tunnel — scrape trycloudflare URL. Emit at most
+                    // once (the banner can repeat the URL) and only after the
+                    // hostname resolves locally, so the surfaced link works.
+                    if url_emitted {
+                        continue;
+                    }
                     if let Some(pos) = line.find("https://") {
                         let url = line[pos..]
                             .split_whitespace()
@@ -951,12 +1019,12 @@ fn start_tunnel_blocking(
                             .trim()
                             .to_string();
                         if url.contains("trycloudflare.com") || url.contains(".cloudflare.com") {
-                            handle2
-                                .emit(
-                                    &format!("app:tunnel:{}", id3),
-                                    serde_json::json!({ "active": true, "url": url }),
-                                )
-                                .ok();
+                            url_emitted = true;
+                            emit_quick_url_when_resolvable(
+                                handle2.clone(),
+                                format!("app:tunnel:{}", id3),
+                                url,
+                            );
                         }
                     }
                 }
@@ -1167,6 +1235,7 @@ fn spawn_quick_tunnel_for_instance(
             let buf = stderr_buf.clone();
             let channel3 = channel2.clone();
             Some(thread::spawn(move || {
+                let mut url_emitted = false;
                 for line in std::io::BufReader::new(stderr)
                     .lines()
                     .map_while(Result::ok)
@@ -1180,7 +1249,11 @@ fn spawn_quick_tunnel_for_instance(
                         }
                     }
                     // Quick tunnel — scrape trycloudflare URL (same detection
-                    // as the app path's quick branch).
+                    // as the app path's quick branch), emitted once and only
+                    // after the hostname resolves locally.
+                    if url_emitted {
+                        continue;
+                    }
                     if let Some(pos) = line.find("https://") {
                         let url = line[pos..]
                             .split_whitespace()
@@ -1190,12 +1263,12 @@ fn spawn_quick_tunnel_for_instance(
                             .trim()
                             .to_string();
                         if url.contains("trycloudflare.com") || url.contains(".cloudflare.com") {
-                            handle2
-                                .emit(
-                                    &channel3,
-                                    serde_json::json!({ "active": true, "url": url }),
-                                )
-                                .ok();
+                            url_emitted = true;
+                            emit_quick_url_when_resolvable(
+                                handle2.clone(),
+                                channel3.clone(),
+                                url,
+                            );
                         }
                     }
                 }
@@ -1517,6 +1590,20 @@ mod tests {
         // …and there is exactly one 404 catch-all, at the end.
         assert_eq!(yaml.matches("http_status:404").count(), 1);
         assert!(yaml.trim_end().ends_with("- service: http_status:404"));
+    }
+
+    #[test]
+    fn url_host_extracts_bare_hostname() {
+        assert_eq!(
+            url_host("https://baptist-executive.trycloudflare.com").as_deref(),
+            Some("baptist-executive.trycloudflare.com")
+        );
+        assert_eq!(
+            url_host("https://foo.trycloudflare.com/path?q=1").as_deref(),
+            Some("foo.trycloudflare.com")
+        );
+        assert_eq!(url_host("not-a-url"), None);
+        assert_eq!(url_host("https://"), None);
     }
 
     // Regression guard for the SNI-less 502: dialing 127.0.0.1 means Go sends
