@@ -129,7 +129,11 @@ function DockerRow({ app, expanded, onToggle }: {
   );
 }
 
-function ProcessRow({ app }: { app: App }) {
+function ProcessRow({ app, expanded, onToggle }: {
+  app: App;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const metrics = usePortaStore((s) => s.appMetrics[app.id]);
   const history = useRef<number[]>([]);
 
@@ -147,15 +151,36 @@ function ProcessRow({ app }: { app: App }) {
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.04]">
-      <span className="flex-1 truncate text-[11px] text-zinc-300">{app.name}</span>
-      <Sparkline points={history.current} />
-      <span className="w-12 text-right text-[11px] font-mono text-blue-300 tabular-nums">
-        {metrics.cpu.toFixed(1)}%
-      </span>
-      <span className="w-16 text-right text-[11px] font-mono text-emerald-300 tabular-nums">
-        {metrics.mem_mb} MB
-      </span>
+    <div className="border-b border-white/[0.04]">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/[0.03] transition-colors"
+      >
+        <span className="flex-1 truncate text-left text-[11px] text-zinc-300">{app.name}</span>
+        <Sparkline points={history.current} />
+        <span className="w-12 text-right text-[11px] font-mono text-blue-300 tabular-nums">
+          {metrics.cpu.toFixed(1)}%
+        </span>
+        <span className="w-16 text-right text-[11px] font-mono text-emerald-300 tabular-nums">
+          {metrics.mem_mb} MB
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 space-y-0.5 text-[10px] font-mono text-zinc-500">
+          <div className="flex justify-between">
+            <span>Memory</span>
+            <span>{metrics.mem_mb} MB</span>
+          </div>
+          <div className="flex justify-between">
+            <span>PID</span>
+            <span>{app.pid ?? "—"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Port</span>
+            <span>{app.port || "—"}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -166,6 +191,7 @@ export default function ResourceDrawer() {
   const apps = usePortaStore((s) => s.apps);
   const metrics = usePortaStore((s) => s.appMetrics);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -180,14 +206,12 @@ export default function ResourceDrawer() {
   // actually stops the `docker stats` calls — not a CSS `hidden`.
   if (!open) return null;
 
-  // Running first, then by CPU descending. Stopped apps sink to the bottom with
-  // a dash, rather than vanishing — you want to see they exist.
-  const sorted = [...apps].sort((a, b) => {
-    const ra = a.status === "running" ? 1 : 0;
-    const rb = b.status === "running" ? 1 : 0;
-    if (ra !== rb) return rb - ra;
-    return (metrics[b.id]?.cpu ?? 0) - (metrics[a.id]?.cpu ?? 0);
-  });
+  // Only running apps are shown, filtered by the search query, then sorted by
+  // CPU descending. Stopped apps are hidden entirely.
+  const q = query.trim().toLowerCase();
+  const sorted = apps
+    .filter((a) => a.status === "running" && (!q || a.name.toLowerCase().includes(q)))
+    .sort((a, b) => (metrics[b.id]?.cpu ?? 0) - (metrics[a.id]?.cpu ?? 0));
 
   return (
     <aside className="fixed top-11 right-0 bottom-0 w-[380px] z-20 bg-[#141416] border-l border-white/[0.06] flex flex-col no-drag">
@@ -203,9 +227,20 @@ export default function ResourceDrawer() {
           </svg>
         </button>
       </div>
+      <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search running apps…"
+          className="w-full px-2 py-1 text-[11px] bg-white/[0.04] border border-white/[0.06] rounded text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-white/[0.12]"
+        />
+      </div>
       <div className="flex-1 overflow-y-auto">
         {sorted.length === 0 && (
-          <p className="px-3 py-4 text-[11px] text-zinc-600">No apps in this workspace.</p>
+          <p className="px-3 py-4 text-[11px] text-zinc-600">
+            {q ? "No running apps match your search." : "No running apps."}
+          </p>
         )}
         {sorted.map((app) =>
           app.kind === "docker" || app.kind === "compose" ? (
@@ -216,7 +251,12 @@ export default function ResourceDrawer() {
               onToggle={() => setExpanded((e) => (e === app.id ? null : app.id))}
             />
           ) : (
-            <ProcessRow key={app.id} app={app} />
+            <ProcessRow
+              key={app.id}
+              app={app}
+              expanded={expanded === app.id}
+              onToggle={() => setExpanded((e) => (e === app.id ? null : app.id))}
+            />
           )
         )}
       </div>

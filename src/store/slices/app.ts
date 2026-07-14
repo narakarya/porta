@@ -34,6 +34,11 @@ export interface AppSlice {
   portConflicts: Record<string, boolean>;
   appRestarting: Record<string, boolean>;
   appTunnelErrors: Record<string, string | null>;
+  /** Apps/instances with a tunnel connect in flight (spawned, not yet
+   * confirmed active or failed). Drives the card's pulsing "connecting" icon.
+   * Set on `startTunnel`, cleared when the `app:tunnel:{id}` /
+   * `instance:tunnel:{id}` event settles (active or error). */
+  tunnelConnecting: Record<string, boolean>;
   appMetrics: Record<string, { cpu: number; mem_mb: number }>;
   /** Git state per app, fed by the `app:git:{id}` event. Absent for non-repos. */
   appGit: Record<string, GitStatus>;
@@ -69,6 +74,9 @@ export interface AppSlice {
     remoteOpts?: { hostId: string; subdomain: string; domain?: string | null },
   ) => Promise<void>;
   stopTunnel: (id: string) => Promise<void>;
+  /** Manually flag a connect in flight — used by the instance-tunnel path,
+   * which calls the raw IPC command instead of `startTunnel`. */
+  setTunnelConnecting: (id: string, connecting: boolean) => void;
   visibleApps: () => App[];
   setImageUpdateCache: (appId: string, info: ImageUpdateInfo[]) => void;
   setAppGit: (id: string, status: GitStatus) => void;
@@ -88,6 +96,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   portConflicts: {},
   appRestarting: {},
   appTunnelErrors: {},
+  tunnelConnecting: {},
   appMetrics: {},
   appGit: {},
   appGitError: {},
@@ -410,7 +419,17 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         a.id === id ? { ...a, tunnel_provider: provider } : a
       ),
       appTunnelErrors: { ...s.appTunnelErrors, [id]: null },
+      tunnelConnecting: { ...s.tunnelConnecting, [id]: true },
     }));
+    // Safety net: named-tunnel connects can take several seconds (DNS route +
+    // cloudflared spawn + edge registration). The `app:tunnel:{id}` event
+    // normally clears `connecting`, but if it's ever dropped we don't want the
+    // icon pulsing forever — clear it after a generous timeout.
+    setTimeout(() => {
+      set((s) => (s.tunnelConnecting[id]
+        ? { tunnelConnecting: { ...s.tunnelConnecting, [id]: false } }
+        : {}));
+    }, 90_000);
     try {
       if (provider === "tailscale") {
         await cmd.startTailscaleServe(id, app.port, funnel ?? false);
@@ -431,6 +450,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
           a.id === id ? { ...a, tunnel_active: false } : a
         ),
         appTunnelErrors: { ...s.appTunnelErrors, [id]: msg },
+        tunnelConnecting: { ...s.tunnelConnecting, [id]: false },
       }));
       throw e;
     }
@@ -443,6 +463,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       apps: s.apps.map((a) =>
         a.id === id ? { ...a, tunnel_active: false, tunnel_url: null } : a
       ),
+      tunnelConnecting: { ...s.tunnelConnecting, [id]: false },
     }));
     try {
       if (provider === "tailscale") {
@@ -456,6 +477,9 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       // Best-effort: state already cleared optimistically.
     }
   },
+
+  setTunnelConnecting: (id, connecting) =>
+    set((s) => ({ tunnelConnecting: { ...s.tunnelConnecting, [id]: connecting } })),
 
   visibleApps: () => {
     const { apps, selectedWorkspaceId } = get();

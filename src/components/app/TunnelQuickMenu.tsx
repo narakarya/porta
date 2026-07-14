@@ -44,7 +44,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
   // Porta Relay (self-hosted VPS) expose form state.
   const {
     remoteHosts, loadRemoteHosts, startTunnel, openSettingsSection,
-    remoteRoutes, loadRemoteRoutes, wgStatuses, loadWgStatus,
+    remoteRoutes, loadRemoteRoutes, wgStatuses, loadWgStatus, connecting,
   } = usePortaStore(
     useShallow((s) => ({
       remoteHosts: s.remoteHosts,
@@ -55,6 +55,9 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
       loadRemoteRoutes: s.loadRemoteRoutes,
       wgStatuses: s.wgStatuses,
       loadWgStatus: s.loadWgStatus,
+      // Connect in flight for this app/instance — drives the pulsing icon and
+      // blocks re-clicks that would restart the tunnel mid-connect.
+      connecting: s.tunnelConnecting[app.id] ?? false,
     })),
   );
   const [relayHostId, setRelayHostId] = useState("");
@@ -187,6 +190,9 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     : "Tunnel connected";
 
   async function startWithConfig(tunnelName: string | null, hostname: string | null) {
+    // Ignore re-clicks while a connect is already in flight — starting again
+    // mid-connect restarts the shared connector and can drop the attempt.
+    if (busy || connecting) return;
     setBusy(true);
     setBusyError(null);
     try {
@@ -217,7 +223,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
   return (
     <div className="relative" ref={containerRef}>
       <Tooltip
-        label={tunnelError ? "Tunnel failed" : app.tunnel_active && app.tunnel_url ? connectedTooltip : app.tunnel_active ? "Connecting…" : "Tunnel options"}
+        label={tunnelError ? "Tunnel failed" : connecting ? "Connecting…" : app.tunnel_active && app.tunnel_url ? connectedTooltip : app.tunnel_active ? "Connecting…" : "Tunnel options"}
       >
         <button
           ref={triggerRef}
@@ -225,6 +231,8 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
           className={`p-1 rounded-md transition-colors ${
             tunnelError
               ? "text-red-400 hover:bg-red-500/10"
+              : connecting
+              ? "text-amber-400 hover:bg-amber-500/10"
               : relayDegraded
               ? "text-amber-400 hover:bg-amber-500/10"
               : app.tunnel_active && app.tunnel_url
@@ -234,9 +242,14 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
               : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
           }`}
         >
-          {app.tunnel_active && !app.tunnel_url ? (
-            <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M6.5 1.5A5 5 0 1 1 1.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          {connecting || (app.tunnel_active && !app.tunnel_url) ? (
+            // Pulsing wifi glyph while the connect is settling — a clear
+            // "working on it" state the card previously lacked.
+            <svg className="animate-pulse" width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <path d="M4 5.5a3.5 3.5 0 0 1 5 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <path d="M2.5 4a5.5 5.5 0 0 1 8 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <circle cx="6.5" cy="8" r="1" fill="currentColor"/>
+              <path d="M6.5 9v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
           ) : app.tunnel_active && isTailscale ? (
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -376,7 +389,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                     </div>
                     <button
                       onClick={() => startWithConfig(null, null)}
-                      disabled={busy}
+                      disabled={busy || connecting}
                       className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-50"
                     >
                       <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C5.5 1.5 7.5 2.5 8.5 4.5c.5 1 .5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 1.5C5.5 1.5 3.5 2.5 2.5 4.5c-.5 1-.5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M1.5 5.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
@@ -391,7 +404,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                   </>
                 ) : pickerProvider === "tailscale" ? (
                   <button
-                    onClick={() => { void startTunnel(app.id, "tailscale"); setTunnelMenuOpen(false); }}
+                    onClick={() => { if (connecting) return; void startTunnel(app.id, "tailscale"); setTunnelMenuOpen(false); }}
                     className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-emerald-400 hover:bg-emerald-500/10 transition-colors"
                   >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -479,7 +492,7 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                 </div>
                 <button
                   onClick={() => startWithConfig(null, null)}
-                  disabled={busy}
+                  disabled={busy || connecting}
                   className="flex items-center gap-2 w-full px-3 py-2 text-[12px] text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-50"
                 >
                   <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C5.5 1.5 7.5 2.5 8.5 4.5c.5 1 .5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M5.5 1.5C5.5 1.5 3.5 2.5 2.5 4.5c-.5 1-.5 2 0 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M1.5 5.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
@@ -578,10 +591,10 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                               <div className="flex gap-1.5">
                                 <button
                                   onClick={() => void startWithConfig(t.name, hostnameDraft.trim())}
-                                  disabled={!hostnameDraft.trim() || busy}
+                                  disabled={!hostnameDraft.trim() || busy || connecting}
                                   className="flex-1 px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md disabled:opacity-40 transition-colors"
                                 >
-                                  {busy ? "Starting…" : "Start tunnel"}
+                                  {busy || connecting ? "Starting…" : "Start tunnel"}
                                 </button>
                                 <button
                                   onClick={() => setExpandedTunnel(null)}

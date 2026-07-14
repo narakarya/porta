@@ -68,6 +68,48 @@ fn tunnel_key(name: &str) -> String {
     format!("cfd-tunnel:{}", name)
 }
 
+/// SIGTERM a connector and BLOCK until the process is actually gone (SIGKILL at
+/// the deadline). Spawning a replacement while the old one is still alive is
+/// what strands ghost registrations: the edge keeps routing to the dying
+/// replica's connections, and if it exits without completing its unregister
+/// handshake those registrations linger for hours serving 502s.
+fn terminate_and_wait(pid: u32, timeout: std::time::Duration) {
+    let p = Pid::from_raw(pid as i32);
+    let _ = kill(p, Signal::SIGTERM);
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        // Signal 0 = existence probe. ESRCH once the watcher thread reaps it.
+        if kill(p, None).is_err() {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = kill(p, Signal::SIGKILL);
+            // Give the watcher a beat to reap so the pid can't be ours anymore.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// Drop every registered connection for a named tunnel at the Cloudflare edge
+/// (`cloudflared tunnel cleanup`). Run AFTER our connector is confirmed dead
+/// and BEFORE spawning a fresh one: crashed/killed connectors (reconcile churn,
+/// force-quit, laptop sleep) leave ghost registrations behind, and the edge
+/// load-balances requests across ALL of them — dead ones included — which is
+/// exactly the intermittent 502 that clears on refresh. Best-effort: a live
+/// connector elsewhere that gets kicked simply re-registers on its own.
+///
+/// `hostname_hint` picks the per-zone origincert (same mechanism as `tunnel
+/// route dns`) so cleanup works when the tunnel lives in a non-default account.
+fn cleanup_stale_connections(cf: &str, name: &str, hostname_hint: Option<&str>) {
+    let mut cmd = std::process::Command::new(cf);
+    if let Some(cert) = hostname_hint.and_then(crate::cloudflared_certs::cert_for_hostname) {
+        cmd.arg("--origincert").arg(cert);
+    }
+    let _ = cmd.args(["tunnel", "cleanup", name]).output();
+}
+
 /// Pick a free TCP port by binding to :0 and immediately dropping the listener.
 /// Briefly racy but cloudflared retries on EADDRINUSE so this is fine in
 /// practice. Falls back to 0 (cloudflared picks one but we won't know which).
@@ -402,10 +444,13 @@ fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<
 
     // No servable members left → tear the connector down. Silent: `stop_tunnel`
     // / `stop_cloudflare_for_switch` already emitted for the specific member.
+    // Wait for the exit and sweep the edge so a full disconnect can't leave
+    // ghost registrations behind for the next connect to trip over.
     if infos.is_empty() || rules.is_empty() {
         if let Some(pid) = tunnel_pids().lock().unwrap().remove(&key) {
             restart_pids().lock().unwrap().insert(pid);
-            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+            terminate_and_wait(pid, std::time::Duration::from_secs(8));
+            cleanup_stale_connections(&cf, &name, None);
         }
         tunnel_metrics_ports().lock().unwrap().remove(&name);
         return Ok(());
@@ -449,11 +494,19 @@ fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<
     }
 
     // Replace the old connector: mark its pid as an intentional restart (so its
-    // watcher stays silent), kill it, then spawn a fresh one on the merged config.
+    // watcher stays silent), kill it and WAIT for it to fully exit, then sweep
+    // stale edge registrations before spawning the fresh connector. Order
+    // matters — cleanup while the new connector is up would kick its live
+    // connections too, and spawning before the old one exits races both the
+    // unregister handshake and the config file.
     if let Some(pid) = tunnel_pids().lock().unwrap().remove(&key) {
         restart_pids().lock().unwrap().insert(pid);
-        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+        terminate_and_wait(pid, std::time::Duration::from_secs(8));
     }
+    // Even with no tracked pid, ghosts may exist from a crashed/force-quit
+    // previous session (this machine had 8 dead registrations on one tunnel) —
+    // sweep unconditionally so every connect starts from a clean edge.
+    cleanup_stale_connections(&cf, &name, rules.first().map(|r| r.public.as_str()));
     tunnel_stopping().lock().unwrap().remove(&key);
 
     let metrics_port = pick_free_port();

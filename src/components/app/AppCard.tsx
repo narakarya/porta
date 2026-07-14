@@ -60,7 +60,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, removeInstanceAction } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, removeInstanceAction } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -69,6 +69,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       cloneApp: s.cloneApp,
       startTunnel: s.startTunnel,
       stopTunnel: s.stopTunnel,
+      setTunnelConnecting: s.setTunnelConnecting,
       clearAppLogs: s.clearAppLogs,
       dismissPortConflict: s.dismissPortConflict,
       registerToast: s.registerToast,
@@ -541,7 +542,18 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           isActive={isActive}
           tunnelError={tunnelError}
           quickOnly={isInstance}
-          onStartTunnel={isInstance && instance ? () => startInstanceTunnel(instance.id) : () => startTunnel(app.id)}
+          onStartTunnel={isInstance && instance
+            ? () => {
+                // Instance path uses the raw IPC command, so flag the connect
+                // ourselves; the `instance:tunnel:{id}` event clears it.
+                setTunnelConnecting(instance.id, true);
+                startInstanceTunnel(instance.id).catch(() => setTunnelConnecting(instance.id, false));
+              }
+            // Pass the provider explicitly: the card's connect must not depend
+            // on the store's (possibly stale) `tunnel_provider` — that's how a
+            // just-configured Cloudflare tunnel could get started as the app's
+            // previous provider.
+            : () => startTunnel(app.id, "cloudflare")}
           onStopTunnel={isInstance && instance ? () => stopInstanceTunnel(instance.id) : () => stopTunnel(app.id)}
         />
 

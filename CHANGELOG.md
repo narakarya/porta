@@ -6,6 +6,47 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.29] — 2026-07-14
+
+Resources drawer now focuses on what's actually running, is searchable, and
+lets you drill into process rows.
+
+### Changed
+
+- **Resources drawer only shows running apps.** Stopped apps are hidden
+  entirely instead of sinking to the bottom with a dash, so the list reflects
+  live resource usage only. Rows are sorted by CPU descending.
+
+### Added
+
+- **Search box in the Resources drawer** filters running apps by name.
+- **Process rows are now expandable** (click to toggle), matching Docker rows.
+  Expanded detail shows memory, PID, and port.
+- **Tunnel connect shows a "connecting" state on app & instance cards.** The
+  tunnel icon pulses amber and re-clicks are ignored while a connect is in
+  flight, so a named-tunnel connect (which takes a few seconds to route DNS,
+  spawn cloudflared, and register at the edge) no longer looks frozen.
+
+### Fixed
+
+- **Intermittent 502s from ghost tunnel connections at the Cloudflare edge.**
+  Killed/crashed connectors (reconcile churn, force-quit, laptop sleep) leave
+  their connection registrations behind at the edge, and Cloudflare load-balances
+  requests across **all** registered connections — dead ones included — so pages
+  502'd or succeeded depending on which connection the edge picked (this machine
+  had 8 dead registrations on a single tunnel). Named-tunnel (re)starts now
+  SIGTERM the old connector and **wait for it to actually exit**, then run
+  `cloudflared tunnel cleanup` to sweep stale edge registrations before spawning
+  the fresh connector — every connect self-heals the edge state. Full
+  disconnects sweep too.
+- **Connecting a Cloudflare tunnel from an app card is now as reliable as from
+  Settings.** The card started the tunnel without passing the provider, so it
+  fell back to the store's in-memory `tunnel_provider` — which could be stale
+  and launch the app's *previous* provider instead of Cloudflare. It also had no
+  connecting feedback or re-click guard, so an impatient second click during the
+  multi-second connect restarted the shared connector mid-attempt. The card now
+  passes `cloudflare` explicitly and blocks re-clicks until the connect settles.
+
 ## [0.7.28] — 2026-07-14
 
 Tunnel reliability release: correct routing when apps share a named tunnel,

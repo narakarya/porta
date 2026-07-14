@@ -268,6 +268,8 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
             ...s.appTunnelErrors,
             [app.id]: e.payload.error ?? null,
           },
+          // Any definitive tunnel event settles a pending connect.
+          tunnelConnecting: { ...s.tunnelConnecting, [app.id]: false },
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
     });
@@ -337,6 +339,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
             ),
           },
           appTunnelErrors: { ...s.appTunnelErrors, [inst.id]: e.payload.error ?? null },
+          tunnelConnecting: { ...s.tunnelConnecting, [inst.id]: false },
         }));
       }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
     });
