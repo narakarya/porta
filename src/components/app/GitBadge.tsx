@@ -237,14 +237,22 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
     };
   }, [mainOpen, switchOpen]);
 
+  // Branch workflow (switch + run-from-worktree) only makes sense where the
+  // backend can actually honor it: start_instance rejects anything that isn't
+  // a process app with a start command (docker/compose/static/proxy). Mirror
+  // that here so the popover never offers rows that can only error.
+  const branchOpsEligible =
+    !hideWorktreeLauncher && app.kind === "process" && app.start_command.trim() !== "";
+
   // Load worktrees + branches + current instances when the main popover opens —
-  // both "Switch branch" and "Run from worktree" read them.
+  // both "Switch branch" and "Run from worktree" read them. Skipped entirely
+  // for apps that don't show those sections.
   useEffect(() => {
-    if (!mainOpen || !app.root_dir) return;
+    if (!mainOpen || !app.root_dir || !branchOpsEligible) return;
     gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
     gitBranches(app.root_dir).then(setBranches).catch(() => setBranches(null));
     refreshInstances(app.id);
-  }, [mainOpen, app.root_dir, app.id, refreshInstances]);
+  }, [mainOpen, app.root_dir, app.id, refreshInstances, branchOpsEligible]);
 
   // Keep instance state fresh on ready/exit events for this app's instances.
   useEffect(() => {
@@ -455,8 +463,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
 
           {/* Switch branch — opens the branch-list flyout to the right, so the
               git-ops above stay put. Hidden on instance cards (branch-pinned,
-              synthetic app id). */}
-          {!hideWorktreeLauncher && (
+              synthetic app id) and on apps that can't run the branch workflow
+              (docker/compose/static/proxy). */}
+          {branchOpsEligible && (
             <button
               ref={switchTriggerRef}
               onClick={() => { cancelSwitchClose(); setError(null); setSwitchOpen((v) => !v); }}
@@ -473,8 +482,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
 
           {/* Run from worktree — existing worktrees only; exclude the primary
               checkout. Hidden on instance cards (app.id there is an instance id,
-              so runInstance/stopInstanceAction would target the wrong thing). */}
-          {!hideWorktreeLauncher && (() => {
+              so runInstance/stopInstanceAction would target the wrong thing)
+              and on non-process apps (start_instance would reject them). */}
+          {branchOpsEligible && (() => {
             const branchWts = worktrees.filter((w) => w.path !== app.root_dir && w.branch);
             const others = branchWts.filter(
               (w) =>

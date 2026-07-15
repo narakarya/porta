@@ -6,6 +6,17 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.33] — 2026-07-15
+
+### Fixed
+
+- **Branch workflow hidden on apps that can't use it.** "Switch branch" and
+  "Run from worktree" in the git badge popover now only show for process apps
+  with a start command — the backend's `start_instance` rejects docker,
+  compose, static, and proxy apps anyway, so the popover offered rows that
+  could only error. Those apps keep the badge itself (branch, ahead/behind,
+  fetch/pull/push).
+
 ## [0.7.32] — 2026-07-15
 
 ### Changed
