@@ -60,6 +60,10 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
       connecting: s.tunnelConnecting[app.id] ?? false,
     })),
   );
+  // Post-connect toast: set on the connecting→connected edge, auto-clears
+  // after a short linger so the icon stays visible long enough to notice
+  // before dropping back to hover-only.
+  const [justConnected, setJustConnected] = useState(false);
   const [relayHostId, setRelayHostId] = useState("");
   const [relaySub, setRelaySub] = useState("");
   const [relayDomain, setRelayDomain] = useState("");
@@ -76,6 +80,21 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     align: "end",
     gap: 4,
   });
+
+  const connected = app.tunnel_active && !!app.tunnel_url;
+  const connectingNow = connecting || (app.tunnel_active && !app.tunnel_url);
+
+  const prevConnected = useRef(connected);
+  useEffect(() => {
+    if (connected && !prevConnected.current) {
+      prevConnected.current = true;
+      setJustConnected(true);
+      const t = setTimeout(() => setJustConnected(false), 4000);
+      return () => clearTimeout(t);
+    }
+    prevConnected.current = connected;
+    if (!connected) setJustConnected(false);
+  }, [connected]);
 
   function loadSaved() {
     setSavedLoading(true);
@@ -220,10 +239,19 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
     setBusyError(null);
   }
 
+  // The card hides its icon row until hover; the tunnel icon opts out of that
+  // whenever it has something to say — connect in flight, failure, the
+  // post-connect linger, or an open menu (the panel is portaled, so the row's
+  // focus-within can't keep it visible).
+  const forceVisible = connectingNow || justConnected || !!tunnelError || tunnelMenuOpen;
+
   return (
-    <div className="relative" ref={containerRef}>
+    <div
+      className={`relative transition-opacity ${forceVisible ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}
+      ref={containerRef}
+    >
       <Tooltip
-        label={tunnelError ? "Tunnel failed" : connecting ? "Connecting…" : app.tunnel_active && app.tunnel_url ? connectedTooltip : app.tunnel_active ? "Connecting…" : "Tunnel options"}
+        label={tunnelError ? "Tunnel failed" : connectingNow ? "Connecting…" : connected ? connectedTooltip : app.tunnel_active ? "Connecting…" : "Tunnel options"}
       >
         <button
           ref={triggerRef}
@@ -231,18 +259,16 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
           className={`p-1 rounded-md transition-colors ${
             tunnelError
               ? "text-red-400 hover:bg-red-500/10"
-              : connecting
+              : connectingNow
               ? "text-amber-400 hover:bg-amber-500/10"
               : relayDegraded
               ? "text-amber-400 hover:bg-amber-500/10"
-              : app.tunnel_active && app.tunnel_url
+              : connected
               ? connectedColor
-              : app.tunnel_active
-              ? "text-amber-400 hover:bg-amber-500/10"
               : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
           }`}
         >
-          {connecting || (app.tunnel_active && !app.tunnel_url) ? (
+          {connectingNow ? (
             // Pulsing wifi glyph while the connect is settling — a clear
             // "working on it" state the card previously lacked.
             <svg className="animate-pulse" width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -273,6 +299,20 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
           )}
         </button>
       </Tooltip>
+
+      {/* Connected toast — brief pill under the icon confirming the tunnel
+          came up, with the bare hostname for a quick sanity check. */}
+      {justConnected && !tunnelMenuOpen && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#1c1c1e] border border-emerald-500/25 shadow-lg whitespace-nowrap">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot shrink-0" />
+          <span className="text-[11px] font-medium text-emerald-300">Tunnel connected</span>
+          {app.tunnel_url && (
+            <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[180px]">
+              {app.tunnel_url.replace(/^https?:\/\//, "")}
+            </span>
+          )}
+        </div>
+      )}
 
       {tunnelMenuOpen && createPortal(
         <>

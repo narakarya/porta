@@ -532,8 +532,10 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
 
         {/* ── Icon actions: hidden at rest, fade in on card hover. Keeps the
              card calm when scanning a long list; reveals controls when the
-             user is interacting with a specific row. */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+             user is interacting with a specific row. The tunnel icon manages
+             its own visibility (stays shown while connecting / just after
+             connect), so it sits outside the hover-gated wrapper. */}
+        <div className="flex items-center gap-1">
 
         {/* Tunnel quick menu — works for process/docker/compose and static
             (static routes via Caddy). */}
@@ -556,6 +558,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             : () => startTunnel(app.id, "cloudflare")}
           onStopTunnel={isInstance && instance ? () => stopInstanceTunnel(instance.id) : () => stopTunnel(app.id)}
         />
+
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
 
         {/* Terminal button — needs a folder to cd into */}
         {app.root_dir && (
@@ -666,6 +670,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           </div>
         )}
 
+        </div>
         </div>
         {/* end hover-revealed icon actions */}
 

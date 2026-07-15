@@ -6,6 +6,20 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.32] — 2026-07-15
+
+### Changed
+
+- **Tunnel icon on app cards stays visible while it has something to say.**
+  Previously the icon was hover-only like the rest of the card's action row,
+  so a connect-in-flight (pulsing amber) or a failure was invisible unless you
+  happened to be hovering. The icon now opts out of hover-gating while
+  connecting, on tunnel error, while its menu is open, and for a few seconds
+  after connecting — then returns to hover-only.
+- **"Tunnel connected" toast.** When a tunnel flips from connecting to
+  connected, a small pill appears under the icon with the tunnel hostname and
+  auto-dismisses after 4 seconds.
+
 ## [0.7.31] — 2026-07-14
 
 ### Fixed
