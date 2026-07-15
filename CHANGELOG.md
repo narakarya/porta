@@ -6,6 +6,15 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.34] — 2026-07-15
+
+### Fixed
+
+- **Git badge fully hidden on non-process apps.** 0.7.33 removed the branch
+  workflow from docker/compose/static/proxy cards but left the badge itself
+  (branch name, ahead/behind, fetch/pull/push). The badge now only renders on
+  process apps — including worktree instance cards.
+
 ## [0.7.33] — 2026-07-15
 
 ### Fixed

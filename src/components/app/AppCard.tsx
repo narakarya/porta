@@ -439,7 +439,10 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             ) : (
               <p className="text-[11px] text-zinc-600">port {app.port}</p>
             )}
-            {!isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} hideWorktreeLauncher={isInstance} />}
+            {/* Git badge — process apps only. Docker/compose/static/proxy don't
+                run the branch workflow, and showing just branch stats there
+                read as a feature that then couldn't deliver. */}
+            {app.kind === "process" && <GitBadge app={app} onOpenTerminal={onOpenTerminal} hideWorktreeLauncher={isInstance} />}
             {isManaged && portCheck && !portCheck.available && (() => {
               // `ps -o comm=` returns the full command path for binaries
               // launched by version managers (mise/asdf/nvm) — strip to the
