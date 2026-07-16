@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { usePortaStore } from "../../store";
 import HostVault from "./HostVault";
 import SshSessionTabs from "./SshSessionTabs";
+import TrustHostModal from "./TrustHostModal";
+import SecretPromptModal from "./SecretPromptModal";
 
 export default function HostsView() {
   const loadSshHosts = usePortaStore((s) => s.loadSshHosts);
@@ -17,6 +19,8 @@ export default function HostsView() {
       <div className="flex-1 min-w-0">
         <SshSessionTabs />
       </div>
+      <TrustHostModal />
+      <SecretPromptModal />
     </div>
   );
 }
