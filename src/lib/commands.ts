@@ -1679,8 +1679,8 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
 
-export const sshConnect = (hostId: string): Promise<string> =>
-  isTauri ? invoke("ssh_connect", { hostId }) : Promise.resolve("mock-session");
+export const sshConnect = (hostId: string, sessionId: string): Promise<string> =>
+  isTauri ? invoke("ssh_connect", { hostId, sessionId }) : Promise.resolve(sessionId);
 
 export const sshWrite = (sessionId: string, data: number[]): Promise<void> =>
   isTauri ? invoke("ssh_write", { sessionId, data }) : Promise.resolve();

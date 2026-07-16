@@ -57,6 +57,7 @@ pub fn ssh_delete_host(id: String, state: State<AppState>) -> Result<(), String>
 pub async fn ssh_connect(
     app: tauri::AppHandle,
     host_id: String,
+    session_id: String,
     manager: State<'_, SshManager>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -67,7 +68,6 @@ pub async fn ssh_connect(
         .get_ssh_host(&host_id)
         .map_err(|e| e.to_string())?
         .ok_or("host not found")?;
-    let session_id = Uuid::new_v4().to_string();
     manager
         .connect(app, session_id.clone(), host, state.db.clone())
         .await?;

@@ -1,8 +1,15 @@
 import type { StateCreator } from "zustand";
 import { listen } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
 import type { SshHost } from "../../lib/commands";
+
+// Non-serializable listener handles keyed by sessionId — kept out of Zustand
+// state on purpose. Registered before `ssh_connect` is invoked so backend
+// events (trust-request, need-secret, status, ...) are never emitted before
+// the frontend is subscribed; torn down in `disconnectSsh`.
+const sessionUnlisteners = new Map<string, UnlistenFn[]>();
 
 export interface SshSession {
   id: string;
@@ -67,41 +74,60 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   connectSsh: async (hostId) => {
     const host = get().sshHosts.find((h) => h.id === hostId);
     if (!host) return;
-    const sessionId = await cmd.sshConnect(hostId);
+    const sessionId = crypto.randomUUID();
+
+    // Register + await all listeners BEFORE invoking ssh_connect. Tauri events
+    // are not buffered for late subscribers — the backend command blocks on
+    // trust/secret oneshots and can emit trust-request/need-secret/connected
+    // before we'd otherwise be listening, which would deadlock the UI.
+    const unlisteners = await Promise.all([
+      listen(`ssh:status:${sessionId}`, (e) => {
+        const p = e.payload as { phase: string; keyType?: string };
+        const map: Record<string, SshSession["status"]> = {
+          connecting: "connecting",
+          authenticating: "connecting",
+          connected: "connected",
+          error: "error",
+        };
+        get().setSessionStatus(sessionId, map[p.phase] ?? "connecting", p.keyType);
+      }),
+      listen(`ssh:trust-request:${sessionId}`, (e) => {
+        const p = e.payload as { fingerprint: string; hostname: string; key_type: string };
+        set({ sshPrompt: { sessionId, type: "trust", fingerprint: p.fingerprint, hostname: p.hostname, keyType: p.key_type } });
+      }),
+      listen(`ssh:need-secret:${sessionId}`, (e) => {
+        const p = e.payload as { kind: "password" | "passphrase" };
+        set({ sshPrompt: { sessionId, type: "secret", kind: p.kind } });
+      }),
+      listen(`ssh:host-key-changed:${sessionId}`, (e) => {
+        const p = e.payload as { fingerprint: string };
+        set({ sshPrompt: { sessionId, type: "host-key-changed", fingerprint: p.fingerprint } });
+        get().setSessionStatus(sessionId, "error");
+      }),
+      listen(`ssh:auth-failed:${sessionId}`, () => get().setSessionStatus(sessionId, "error")),
+    ]);
+    sessionUnlisteners.set(sessionId, unlisteners);
+
     get().upsertSession({ id: sessionId, hostId, label: host.label, status: "connecting" });
     set({ activeSessionId: sessionId });
 
-    // Per-session prompt + status listeners. Data/exit are handled inside SshTerminal (Task 10).
-    listen(`ssh:status:${sessionId}`, (e) => {
-      const p = e.payload as { phase: string; keyType?: string };
-      const map: Record<string, SshSession["status"]> = {
-        connecting: "connecting",
-        authenticating: "connecting",
-        connected: "connected",
-        error: "error",
-      };
-      get().setSessionStatus(sessionId, map[p.phase] ?? "connecting", p.keyType);
-    });
-    listen(`ssh:trust-request:${sessionId}`, (e) => {
-      const p = e.payload as { fingerprint: string; hostname: string; key_type: string };
-      set({ sshPrompt: { sessionId, type: "trust", fingerprint: p.fingerprint, hostname: p.hostname, keyType: p.key_type } });
-    });
-    listen(`ssh:need-secret:${sessionId}`, (e) => {
-      const p = e.payload as { kind: "password" | "passphrase" };
-      set({ sshPrompt: { sessionId, type: "secret", kind: p.kind } });
-    });
-    listen(`ssh:host-key-changed:${sessionId}`, (e) => {
-      const p = e.payload as { fingerprint: string };
-      set({ sshPrompt: { sessionId, type: "host-key-changed", fingerprint: p.fingerprint } });
+    try {
+      await cmd.sshConnect(hostId, sessionId);
+    } catch {
+      // auth-failed / status events already drive UI state; this just
+      // prevents an unhandled promise rejection when the backend command
+      // itself errors out (e.g. host not found).
       get().setSessionStatus(sessionId, "error");
-    });
-    listen(`ssh:auth-failed:${sessionId}`, () => get().setSessionStatus(sessionId, "error"));
+    }
   },
 
   disconnectSsh: async (sessionId) => {
     await cmd.sshClose(sessionId);
+    sessionUnlisteners.get(sessionId)?.forEach((unlisten) => unlisten());
+    sessionUnlisteners.delete(sessionId);
     set({ sshSessions: get().sshSessions.filter((s) => s.id !== sessionId) });
     if (get().activeSessionId === sessionId) set({ activeSessionId: get().sshSessions[0]?.id ?? null });
+    if (get().sshPrompt?.sessionId === sessionId) set({ sshPrompt: null });
   },
 
   answerTrust: async () => {
