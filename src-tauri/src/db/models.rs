@@ -631,6 +631,19 @@ pub enum SshAuth {
     Password,
 }
 
+/// A trusted server host key fingerprint, keyed by (host, port). Mirrors
+/// OpenSSH's `known_hosts` semantics so Porta can flag a mismatched key
+/// (potential MITM) instead of silently accepting whatever key the server
+/// presents.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshKnownHost {
+    pub host: String,
+    pub port: u16,
+    pub fingerprint: String,
+    pub key_type: String,
+    pub added_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

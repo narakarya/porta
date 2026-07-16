@@ -6,6 +6,7 @@ mod service_repo;
 mod remote_repo;
 mod instance_repo;
 mod ssh_repo;
+pub use ssh_repo::{fingerprint_sha256, HostKeyVerdict};
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -260,6 +261,20 @@ impl Database {
                 jump_host_id TEXT,
                 created_at   INTEGER NOT NULL DEFAULT 0,
                 last_used_at INTEGER
+            );
+        ")?;
+
+        // Trusted SSH server host keys (SHA256 fingerprints), keyed by
+        // (host, port) — mirrors OpenSSH's known_hosts so we can detect a
+        // changed/mismatched key on reconnect.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_known_hosts (
+                host        TEXT NOT NULL,
+                port        INTEGER NOT NULL DEFAULT 22,
+                fingerprint TEXT NOT NULL,
+                key_type    TEXT NOT NULL,
+                added_at    INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (host, port)
             );
         ")?;
 
