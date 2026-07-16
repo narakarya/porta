@@ -41,6 +41,7 @@ urlencoding = "2"
 tempfile = "3"
 tiny_http = "0.12"
 keyring = "3"
+russh = "0.54"
 
 [dev-dependencies]
 

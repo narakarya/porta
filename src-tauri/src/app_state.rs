@@ -9,7 +9,7 @@ use crate::extensions::loader::ExtensionsState;
 use crate::process_manager::ProcessManager;
 
 pub struct AppState {
-    pub db: Mutex<Database>,
+    pub db: Arc<Mutex<Database>>,
     pub processes: ProcessManager,
     pub docker: DockerManager,
     pub caddy: CaddyManager,

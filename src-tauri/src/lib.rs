@@ -26,7 +26,7 @@ pub mod tray;
 pub mod wake_server;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
@@ -170,7 +170,7 @@ pub fn run() {
     commands::reconcile_on_startup(&db);
 
     let state = AppState {
-        db: Mutex::new(db),
+        db: Arc::new(Mutex::new(db)),
         processes: ProcessManager::new(),
         docker: docker_mgr,
         caddy: CaddyManager::new(),
