@@ -6,7 +6,7 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
-## [0.7.36] — 2026-07-16
+## [0.8.0] — 2026-07-16
 
 ### Added
 
