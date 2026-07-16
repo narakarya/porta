@@ -21,6 +21,7 @@ pub mod porta_config;
 pub mod menu;
 pub mod metrics;
 pub mod setup;
+pub mod ssh;
 pub mod tray;
 pub mod wake_server;
 
