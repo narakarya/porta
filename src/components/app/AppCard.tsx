@@ -60,7 +60,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, removeInstanceAction } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -81,6 +81,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       cacheAppExtensions: s.cacheAppExtensions,
       runInstance: s.runInstance,
       stopInstanceAction: s.stopInstanceAction,
+      killInstanceAction: s.killInstanceAction,
       removeInstanceAction: s.removeInstanceAction,
     }))
   );
@@ -97,6 +98,12 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   const doRestart = isInstance && instance
     ? async () => { await stopInstanceAction(instance.id, instance.app_id); await runInstance(instance.app_id, instance.worktree_path); }
     : () => restartApp(app.id);
+  // Force-kill (SIGKILL). Instances route to their own kill so the row status,
+  // Caddy route, and tunnel are handled — plain killApp(id) would only hit the
+  // process registry and leave the instance row stale.
+  const doForceKill = isInstance && instance
+    ? () => killInstanceAction(instance.id, instance.app_id)
+    : () => killApp(app.id);
   // Per-app state slices — component only re-renders when ITS slice changes.
   const setupStatus = usePortaStore((s) => s.setupStatus);
   const health = usePortaStore((s) => s.healthStatuses[app.id]);
@@ -764,21 +771,6 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   </button>
                 </Tooltip>
               )}
-              {/* Kill whatever still holds this instance's OWN port (inst.port,
-                  via the derived app) — an orphan child that outlived the stop.
-                  Instance-only; primary apps have their own port-kill affordance
-                  in the conflict popover. */}
-              {isInstance && instance && (
-                <Tooltip label={`Free port :${app.port}`} className="inline-flex">
-                  <button
-                    onClick={handleKillPortHolder}
-                    disabled={killingPort}
-                    className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-amber-300 hover:bg-amber-500/10 rounded-md transition-colors disabled:opacity-40"
-                  >
-                    {killingPort ? "Killing…" : "Kill port"}
-                  </button>
-                </Tooltip>
-              )}
               {/* Remove a stopped/crashed instance for good — deletes its row,
                   frees the port, drops the Caddy route. Two-step via the confirm
                   bar below. Instance-only: apps are removed via Settings. */}
@@ -829,7 +821,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           </svg>
           <p className="text-[11px] text-orange-300 flex-1">Force kill? Process won't get to clean up.</p>
           <button
-            onClick={() => { killApp(app.id); setKillConfirm(false); }}
+            onClick={() => { doForceKill(); setKillConfirm(false); }}
             className="text-[11px] font-medium text-orange-400 hover:text-orange-200 transition-colors"
           >
             Kill

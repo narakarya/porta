@@ -1641,5 +1641,8 @@ export const startInstance = (appId: string, worktreePath: string): Promise<AppI
 export const stopInstance = (instanceId: string): Promise<void> =>
   isTauri ? invoke("stop_instance", { instanceId }) : Promise.resolve();
 
+export const killInstance = (instanceId: string): Promise<void> =>
+  isTauri ? invoke("kill_instance", { instanceId }) : Promise.resolve();
+
 export const removeInstance = (instanceId: string): Promise<void> =>
   isTauri ? invoke("remove_instance", { instanceId }) : Promise.resolve();

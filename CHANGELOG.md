@@ -6,6 +6,21 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.7.35] — 2026-07-16
+
+### Changed
+
+- **Instance cards get the full right-click menu, scoped to the instance.** The
+  context menu on a worktree instance card now acts on that instance instead of
+  the parent app — Copy URL/host use the instance host, Open in Editor/Terminal
+  open the worktree, and Force Kill / Kill port holder target the instance's own
+  process and port. Force Kill on an instance routes through a new
+  `kill_instance` command (SIGKILL + status flip + Caddy resync), so the row,
+  route, and tunnel stay consistent.
+- **Removed the redundant "Kill port" button from instance cards.** The
+  right-click menu now covers it (Force Kill while running, Kill port holder
+  while stopped).
+
 ## [0.7.34] — 2026-07-15
 
 ### Fixed

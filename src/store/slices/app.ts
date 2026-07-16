@@ -85,6 +85,7 @@ export interface AppSlice {
   refreshInstances: (appId: string) => Promise<void>;
   runInstance: (appId: string, worktreePath: string) => Promise<void>;
   stopInstanceAction: (instanceId: string, appId: string) => Promise<void>;
+  killInstanceAction: (instanceId: string, appId: string) => Promise<void>;
   removeInstanceAction: (instanceId: string, appId: string) => Promise<void>;
 }
 
@@ -533,6 +534,20 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     // Backend `stop_instance` keeps the row and flips it to "stopped" (process
     // killed, port + route retained). Mirror that here so the card stays put —
     // the user can re-run, kill a stuck port, or Remove it deliberately.
+    set((s) => ({
+      instances: {
+        ...s.instances,
+        [appId]: (s.instances[appId] ?? []).map((i) =>
+          i.id === instanceId ? { ...i, status: "stopped", pid: null } : i,
+        ),
+      },
+    }));
+  },
+
+  killInstanceAction: async (instanceId, appId) => {
+    await cmd.killInstance(instanceId);
+    // Backend `kill_instance` SIGKILLs the process but keeps the row (port +
+    // route retained), flipping it to "stopped" — mirror stopInstanceAction.
     set((s) => ({
       instances: {
         ...s.instances,

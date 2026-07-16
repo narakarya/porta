@@ -184,6 +184,29 @@ pub async fn stop_instance(app: AppHandle, instance_id: String) -> Result<(), St
     .map_err(|e| e.to_string())?
 }
 
+/// Force-kill an instance's process (SIGKILL, no graceful shutdown), then flip
+/// its row to "stopped" — the SIGKILL counterpart to `stop_instance`. Keeps the
+/// row + port reservation, same as Stop; removal is still a separate action.
+#[tauri::command]
+pub async fn kill_instance(app: AppHandle, instance_id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // Tear down its tunnel first — the worktree port is about to go away.
+        crate::commands::tunnel::stop_instance_tunnel(instance_id.clone(), app.clone()).ok();
+        // SIGKILL the process tree under the instance key (no-op if already dead).
+        state.processes.kill(&instance_id).map_err(|e| e.to_string())?;
+        {
+            let db = state.db.lock().unwrap();
+            db.update_instance_status_only(&instance_id, "stopped")
+                .map_err(|e| e.to_string())?;
+        }
+        sync_caddy(&state)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Remove an instance for good: stop its process (no-op if already dead), drop
 /// the row + free the port, then rebuild Caddy so the route vanishes. This is
 /// the destructive counterpart to `stop_instance`.
