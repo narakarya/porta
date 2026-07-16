@@ -1665,6 +1665,8 @@ export interface SshHost {
   jump_host_id: string | null;
   created_at: number;
   last_used_at: number | null;
+  /** Workspaces this host is attached to (many-to-many); empty = global. */
+  workspace_ids: string[];
 }
 
 export const sshListHosts = (): Promise<SshHost[]> =>

@@ -619,6 +619,12 @@ pub struct SshHost {
     pub created_at: i64,
     #[serde(default)]
     pub last_used_at: Option<i64>,
+    /// Workspaces this host is attached to (many-to-many). A host with no
+    /// attachments is "global" (shown regardless of the active workspace).
+    /// Populated on read from the `ssh_host_workspaces` join table; on write,
+    /// `insert`/`update` replaces the host's join rows with this list.
+    #[serde(default)]
+    pub workspace_ids: Vec<String>,
 }
 
 /// How to authenticate. Password/passphrase values are prompted at connect

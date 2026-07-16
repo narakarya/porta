@@ -12,6 +12,7 @@ impl Database {
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             params![h.id, h.label, h.group, h.hostname, h.port, h.username, auth, h.jump_host_id, h.created_at, h.last_used_at],
         )?;
+        self.set_host_workspaces(&h.id, &h.workspace_ids)?;
         Ok(())
     }
 
@@ -21,10 +22,33 @@ impl Database {
             "UPDATE ssh_hosts SET label=?1, grp=?2, hostname=?3, port=?4, username=?5, auth_json=?6, jump_host_id=?7 WHERE id=?8",
             params![h.label, h.group, h.hostname, h.port, h.username, auth, h.jump_host_id, h.id],
         )?;
+        self.set_host_workspaces(&h.id, &h.workspace_ids)?;
         Ok(())
     }
 
+    /// Replace a host's workspace attachments with `workspace_ids` (many-to-many).
+    pub fn set_host_workspaces(&self, host_id: &str, workspace_ids: &[String]) -> Result<()> {
+        self.conn.execute("DELETE FROM ssh_host_workspaces WHERE host_id=?1", params![host_id])?;
+        for wid in workspace_ids {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ssh_host_workspaces (host_id, workspace_id) VALUES (?1, ?2)",
+                params![host_id, wid],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Workspace ids a host is attached to (empty = global).
+    pub fn list_workspaces_for_host(&self, host_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT workspace_id FROM ssh_host_workspaces WHERE host_id=?1 ORDER BY workspace_id")?;
+        let rows = stmt.query_map(params![host_id], |r| r.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
+    }
+
     pub fn delete_ssh_host(&self, id: &str) -> Result<()> {
+        // Explicit (not relying on FK cascade being enabled) so join rows never orphan.
+        self.conn.execute("DELETE FROM ssh_host_workspaces WHERE host_id=?1", params![id])?;
         self.conn.execute("DELETE FROM ssh_hosts WHERE id=?1", params![id])?;
         Ok(())
     }
@@ -33,8 +57,12 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, label, grp, hostname, port, username, auth_json, jump_host_id, created_at, last_used_at
              FROM ssh_hosts ORDER BY grp, label, rowid")?;
-        let rows = stmt.query_map([], row_to_ssh_host)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(anyhow::Error::from)
+        let mut hosts = stmt.query_map([], row_to_ssh_host)?
+            .collect::<Result<Vec<_>, _>>()?;
+        for h in &mut hosts {
+            h.workspace_ids = self.list_workspaces_for_host(&h.id)?;
+        }
+        Ok(hosts)
     }
 
     pub fn get_ssh_host(&self, id: &str) -> Result<Option<SshHost>> {
@@ -42,7 +70,11 @@ impl Database {
             "SELECT id, label, grp, hostname, port, username, auth_json, jump_host_id, created_at, last_used_at
              FROM ssh_hosts WHERE id=?1")?;
         let mut rows = stmt.query_map(params![id], row_to_ssh_host)?;
-        match rows.next() { Some(r) => Ok(Some(r?)), None => Ok(None) }
+        let mut host = match rows.next() { Some(r) => r?, None => return Ok(None) };
+        drop(rows);
+        drop(stmt);
+        host.workspace_ids = self.list_workspaces_for_host(id)?;
+        Ok(Some(host))
     }
 
     pub fn touch_ssh_host(&self, id: &str, at: i64) -> Result<()> {
@@ -107,6 +139,7 @@ fn row_to_ssh_host(row: &rusqlite::Row) -> rusqlite::Result<SshHost> {
         jump_host_id: row.get(7)?,
         created_at: row.get(8)?,
         last_used_at: row.get(9)?,
+        workspace_ids: Vec::new(), // populated by the caller (list/get) from the join table
     })
 }
 
@@ -121,7 +154,34 @@ mod tests {
             hostname: "1.2.3.4".into(), port: 22, username: "deploy".into(),
             auth: SshAuth::KeyFile { path: "~/.ssh/id_ed25519".into() },
             jump_host_id: None, created_at: 100, last_used_at: None,
+            workspace_ids: Vec::new(),
         }
+    }
+
+    #[test]
+    fn ssh_host_workspace_attachments_round_trip() {
+        let db = Database::open(":memory:".into()).unwrap();
+        // Parent workspace rows (ssh_host_workspaces.workspace_id FKs workspaces.id).
+        db.conn.execute("INSERT INTO workspaces (id, name, domain) VALUES ('w1','A','a.test')", []).unwrap();
+        db.conn.execute("INSERT INTO workspaces (id, name, domain) VALUES ('w2','B','b.test')", []).unwrap();
+
+        let mut h = sample();
+        h.workspace_ids = vec!["w1".into(), "w2".into()];
+        db.insert_ssh_host(&h).unwrap();
+
+        let got = db.get_ssh_host("s1").unwrap().unwrap();
+        assert_eq!(got.workspace_ids, vec!["w1".to_string(), "w2".to_string()]);
+        assert_eq!(db.list_ssh_hosts().unwrap()[0].workspace_ids, vec!["w1".to_string(), "w2".to_string()]);
+
+        // Update replaces the set.
+        let mut edited = got.clone();
+        edited.workspace_ids = vec!["w2".into()];
+        db.update_ssh_host(&edited).unwrap();
+        assert_eq!(db.get_ssh_host("s1").unwrap().unwrap().workspace_ids, vec!["w2".to_string()]);
+
+        // Deleting the host clears its join rows (explicit + cascade-safe).
+        db.delete_ssh_host("s1").unwrap();
+        assert!(db.list_workspaces_for_host("s1").unwrap().is_empty());
     }
 
     #[test]

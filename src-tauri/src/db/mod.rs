@@ -278,6 +278,17 @@ impl Database {
             );
         ")?;
 
+        // Many-to-many: which workspaces an SSH host is attached to. A host with
+        // no rows here is "global". Cascades so deleting a host or workspace
+        // clears its links.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_host_workspaces (
+                host_id      TEXT NOT NULL REFERENCES ssh_hosts(id) ON DELETE CASCADE,
+                workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                PRIMARY KEY (host_id, workspace_id)
+            );
+        ")?;
+
         Ok(())
     }
 }

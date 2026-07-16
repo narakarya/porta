@@ -7,7 +7,9 @@ type Props = { host?: SshHost; onClose: () => void };
 export default function HostFormModal({ host, onClose }: Props) {
   const addSshHost = usePortaStore((s) => s.addSshHost);
   const updateSshHost = usePortaStore((s) => s.updateSshHost);
+  const workspaces = usePortaStore((s) => s.workspaces);
 
+  const DEFAULT_KEY = "~/.ssh/id_ed25519";
   const [label, setLabel] = useState(host?.label ?? "");
   const [group, setGroup] = useState(host?.group ?? "");
   const [hostname, setHostname] = useState(host?.hostname ?? "");
@@ -15,6 +17,33 @@ export default function HostFormModal({ host, onClose }: Props) {
   const [username, setUsername] = useState(host?.username ?? "");
   const [authKind, setAuthKind] = useState<SshAuth["kind"]>(host?.auth.kind ?? "agent");
   const [keyPath, setKeyPath] = useState(host?.auth.kind === "key_file" ? host.auth.path : "");
+  const [workspaceIds, setWorkspaceIds] = useState<string[]>(host?.workspace_ids ?? []);
+
+  function toggleWorkspace(id: string) {
+    setWorkspaceIds((prev) => (prev.includes(id) ? prev.filter((w) => w !== id) : [...prev, id]));
+  }
+
+  function onAuthChange(kind: SshAuth["kind"]) {
+    setAuthKind(kind);
+    // Prefill a sensible default so the user doesn't have to type the common path.
+    if (kind === "key_file" && !keyPath) setKeyPath(DEFAULT_KEY);
+  }
+
+  async function browseKey() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const { homeDir } = await import("@tauri-apps/api/path");
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        defaultPath: `${await homeDir()}.ssh`,
+        title: "Select SSH private key",
+      });
+      if (typeof picked === "string") setKeyPath(picked);
+    } catch {
+      // dialog unavailable (browser dev) — user can still type the path
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -42,6 +71,7 @@ export default function HostFormModal({ host, onClose }: Props) {
       jump_host_id: host?.jump_host_id ?? null,
       created_at: host?.created_at ?? 0,
       last_used_at: host?.last_used_at ?? null,
+      workspace_ids: workspaceIds,
     };
     if (host) await updateSshHost(payload);
     else await addSshHost(payload);
@@ -81,20 +111,55 @@ export default function HostFormModal({ host, onClose }: Props) {
         <select
           className={field}
           value={authKind}
-          onChange={(e) => setAuthKind(e.target.value as SshAuth["kind"])}
+          onChange={(e) => onAuthChange(e.target.value as SshAuth["kind"])}
         >
           <option value="agent">SSH agent</option>
           <option value="key_file">Key file</option>
           <option value="password">Password</option>
         </select>
         {authKind === "key_file" && (
-          <input
-            className={field}
-            placeholder="~/.ssh/id_ed25519"
-            value={keyPath}
-            onChange={(e) => setKeyPath(e.target.value)}
-          />
+          <div className="flex gap-2">
+            <input
+              className={field}
+              placeholder={DEFAULT_KEY}
+              value={keyPath}
+              onChange={(e) => setKeyPath(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={browseKey}
+              className="shrink-0 px-3 text-[12px] text-zinc-300 bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.08] rounded-lg transition-colors"
+            >
+              Browse…
+            </button>
+          </div>
         )}
+
+        {workspaces.length > 0 && (
+          <div>
+            <div className="text-[11px] text-zinc-500 mb-1 mt-1">Workspaces (optional)</div>
+            <div className="flex flex-wrap gap-1.5">
+              {workspaces.map((w) => {
+                const on = workspaceIds.includes(w.id);
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => toggleWorkspace(w.id)}
+                    className={`px-2 py-0.5 text-[11px] rounded-md border transition-colors ${
+                      on
+                        ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                        : "text-zinc-400 border-white/[0.08] hover:border-white/[0.15] hover:text-zinc-200"
+                    }`}
+                  >
+                    {w.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-1">
           <button className="px-3 py-1 text-[12px] text-zinc-400 hover:text-zinc-200 transition-colors" onClick={onClose}>
             Cancel
