@@ -162,6 +162,34 @@ mod tests {
     }
 
     #[test]
+    fn trust_known_host_upsert_overwrites_existing_fingerprint() {
+        use crate::db::models::SshKnownHost;
+        let db = Database::open(":memory:".into()).unwrap();
+
+        db.trust_known_host(&SshKnownHost {
+            host: "h".into(), port: 22, fingerprint: "SHA256:aaa".into(),
+            key_type: "ssh-ed25519".into(), added_at: 1,
+        }).unwrap();
+        assert!(matches!(db.verify_host_key("h", 22, "SHA256:aaa").unwrap(), super::HostKeyVerdict::Trusted));
+
+        // Re-trusting the same (host, port) with a new fingerprint must hit
+        // the ON CONFLICT(host, port) DO UPDATE branch and overwrite in
+        // place, not insert a second row.
+        db.trust_known_host(&SshKnownHost {
+            host: "h".into(), port: 22, fingerprint: "SHA256:bbb".into(),
+            key_type: "ssh-rsa".into(), added_at: 2,
+        }).unwrap();
+
+        let got = db.known_host_lookup("h", 22).unwrap().unwrap();
+        assert_eq!(got.fingerprint, "SHA256:bbb");
+        assert_eq!(got.key_type, "ssh-rsa");
+        assert_eq!(got.added_at, 2);
+
+        assert!(matches!(db.verify_host_key("h", 22, "SHA256:bbb").unwrap(), super::HostKeyVerdict::Trusted));
+        assert!(matches!(db.verify_host_key("h", 22, "SHA256:aaa").unwrap(), super::HostKeyVerdict::Mismatch));
+    }
+
+    #[test]
     fn fingerprint_is_stable() {
         let fp = super::fingerprint_sha256(b"hello");
         assert!(fp.starts_with("SHA256:"));

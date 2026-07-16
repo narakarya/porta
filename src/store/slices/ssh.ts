@@ -42,6 +42,7 @@ export interface SshSlice {
   answerTrust: () => Promise<void>;
   answerSecret: (value: string, remember: boolean) => Promise<void>;
   dismissPrompt: () => void;
+  cancelPrompt: () => Promise<void>;
 }
 
 export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, get) => ({
@@ -145,4 +146,22 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     }
   },
   dismissPrompt: () => set({ sshPrompt: null }),
+
+  // Cancelling a trust/secret prompt must abort the parked `connect()` call
+  // on the backend, not just clear frontend state — connect() blocks on a
+  // oneshot awaiting this answer, and dismissing the prompt without closing
+  // the session would leak the SSH transport (tab stuck "connecting"
+  // forever). disconnectSsh -> ssh_close drops the backend Session, which
+  // drops the oneshot sender, which makes the parked `rx.await` error and
+  // unwinds connect(). host-key-changed has nothing parked (connect()
+  // already returned Err), so just clear the prompt there.
+  cancelPrompt: async () => {
+    const p = get().sshPrompt;
+    if (!p) return;
+    if (p.type === "trust" || p.type === "secret") {
+      await get().disconnectSsh(p.sessionId);
+    } else {
+      set({ sshPrompt: null });
+    }
+  },
 });

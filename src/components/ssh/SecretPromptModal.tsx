@@ -5,6 +5,7 @@ export default function SecretPromptModal() {
   const prompt = usePortaStore((s) => s.sshPrompt);
   const answerSecret = usePortaStore((s) => s.answerSecret);
   const dismiss = usePortaStore((s) => s.dismissPrompt);
+  const cancelPrompt = usePortaStore((s) => s.cancelPrompt);
   const [value, setValue] = useState("");
   const [remember, setRemember] = useState(false);
 
@@ -43,7 +44,7 @@ export default function SecretPromptModal() {
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50"
-      onClick={dismiss}
+      onClick={cancelPrompt}
     >
       <div
         className="w-80 p-4 bg-[#1a1a1c] border border-white/[0.08] rounded-lg space-y-3"
@@ -67,7 +68,7 @@ export default function SecretPromptModal() {
           Remember in macOS Keychain
         </label>
         <div className="flex justify-end gap-2">
-          <button className="px-3 py-1 text-[12px] text-zinc-400 hover:text-zinc-200 transition-colors" onClick={dismiss}>
+          <button className="px-3 py-1 text-[12px] text-zinc-400 hover:text-zinc-200 transition-colors" onClick={cancelPrompt}>
             Cancel
           </button>
           <button

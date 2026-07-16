@@ -166,29 +166,38 @@ export default function App() {
         <CommandPalette onOpenSettings={() => setPage("settings")} onShowShortcuts={() => setHelpOpen(true)} />
 
         <Layout onOpenSettings={() => setPage("settings")}>
-          {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
-          {showCaddyBanner && (
-            <div className="flex items-center gap-2.5 px-3 py-2 mb-4 bg-amber-500/10 border border-amber-500/25 rounded-lg">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-amber-400 shrink-0">
-                <path d="M6 1.5l4.5 8H1.5L6 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                <path d="M6 5v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                <circle cx="6" cy="8.5" r="0.4" fill="currentColor"/>
-              </svg>
-              <p className="text-[11px] text-amber-300 flex-1">
-                Caddy couldn't start automatically. Go to Settings → Setup to start it manually.
-              </p>
-              <button
-                onClick={() => setCaddyBannerDismissed(true)}
-                className="p-0.5 text-amber-600 hover:text-amber-300 transition-colors shrink-0"
-                title="Dismiss"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          {/* Keep Hosts and Workspace both mounted once visited so switching
+              between them doesn't unmount SshTerminal (disposing xterm +
+              dropping ssh:data/ssh:exit listeners) or the workspace's own
+              subscriptions. Toggle visibility with `hidden` instead. */}
+          <div hidden={mainView === "hosts"}>
+            {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
+            {showCaddyBanner && (
+              <div className="flex items-center gap-2.5 px-3 py-2 mb-4 bg-amber-500/10 border border-amber-500/25 rounded-lg">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-amber-400 shrink-0">
+                  <path d="M6 1.5l4.5 8H1.5L6 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <path d="M6 5v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <circle cx="6" cy="8.5" r="0.4" fill="currentColor"/>
                 </svg>
-              </button>
-            </div>
-          )}
-          {mainView === "hosts" ? <HostsView /> : <WorkspaceView />}
+                <p className="text-[11px] text-amber-300 flex-1">
+                  Caddy couldn't start automatically. Go to Settings → Setup to start it manually.
+                </p>
+                <button
+                  onClick={() => setCaddyBannerDismissed(true)}
+                  className="p-0.5 text-amber-600 hover:text-amber-300 transition-colors shrink-0"
+                  title="Dismiss"
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            )}
+            <WorkspaceView />
+          </div>
+          <div hidden={mainView !== "hosts"}>
+            <HostsView />
+          </div>
         </Layout>
       </div>
       {settingsVisited && (
