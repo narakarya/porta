@@ -8,6 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "./lib/commands";
 import Layout from "./components/layout/Layout";
 import WorkspaceView from "./components/workspace/WorkspaceView";
+import HostsView from "./components/ssh/HostsView";
 import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
 import CommandPalette from "./components/layout/CommandPalette";
@@ -29,6 +30,7 @@ export default function App() {
     }))
   );
   const setupStatus = usePortaStore((s) => s.setupStatus);
+  const mainView = usePortaStore((s) => s.mainView);
   const [page, setPage] = useState<Page>("main");
   // A sidebar/deep-link request to open a specific Settings section also opens
   // the Settings page. SettingsPage consumes the section and clears it.
@@ -186,7 +188,7 @@ export default function App() {
               </button>
             </div>
           )}
-          <WorkspaceView />
+          {mainView === "hosts" ? <HostsView /> : <WorkspaceView />}
         </Layout>
       </div>
       {settingsVisited && (

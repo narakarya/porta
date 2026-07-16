@@ -26,7 +26,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { workspaces, apps, services, selectedWorkspaceId, imageUpdateCache, selectWorkspace, reorderWorkspaces, reorderServices } = usePortaStore(
+  const { workspaces, apps, services, selectedWorkspaceId, imageUpdateCache, selectWorkspace, reorderWorkspaces, reorderServices, mainView, setMainView } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
@@ -36,6 +36,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       selectWorkspace: s.selectWorkspace,
       reorderWorkspaces: s.reorderWorkspaces,
       reorderServices: s.reorderServices,
+      mainView: s.mainView,
+      setMainView: s.setMainView,
     }))
   );
   const [showAddWs, setShowAddWs] = useState(false);
@@ -209,8 +211,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                     role="button"
                     tabIndex={0}
                     onMouseDown={() => handleMouseDown("ws", i)}
-                    onClick={() => selectWorkspace(w.id)}
-                    onKeyDown={(e) => { if (e.key === "Enter") selectWorkspace(w.id); }}
+                    onClick={() => { selectWorkspace(w.id); setMainView("workspace"); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); setMainView("workspace"); } }}
                     onContextMenu={(e) => handleRightClick(e, w)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
                     className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
@@ -263,7 +265,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               const isSelected = selectedWorkspaceId === null;
               return (
                 <button
-                  onClick={() => selectWorkspace(null)}
+                  onClick={() => { selectWorkspace(null); setMainView("workspace"); }}
                   className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
                     isSelected
                       ? "bg-white/10 text-zinc-100"
@@ -287,6 +289,22 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             })()}
           </>
         )}
+
+        {/* Hosts (SSH) */}
+        <button
+          onClick={() => setMainView("hosts")}
+          className={`flex items-center gap-2.5 px-2 py-1.5 mt-3 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
+            mainView === "hosts"
+              ? "bg-white/10 text-zinc-100"
+              : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+          }`}
+        >
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0">
+            <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M3 4.5l1.5 1L3 6.5M6 6.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span className="flex-1">Hosts</span>
+        </button>
 
         {/* Services section */}
         <div className="flex items-center gap-1 px-2 mb-1 mt-3">
