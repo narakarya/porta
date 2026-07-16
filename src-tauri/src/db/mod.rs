@@ -5,6 +5,7 @@ mod app_repo;
 mod service_repo;
 mod remote_repo;
 mod instance_repo;
+mod ssh_repo;
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -246,6 +247,21 @@ impl Database {
         // (NULL = the host's base_domain, for rows created before this column).
         let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN extra_domains TEXT NOT NULL DEFAULT '[]'", []);
         let _ = self.conn.execute("ALTER TABLE remote_routes ADD COLUMN domain TEXT", []);
+
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_hosts (
+                id           TEXT PRIMARY KEY,
+                label        TEXT NOT NULL,
+                grp          TEXT,
+                hostname     TEXT NOT NULL,
+                port         INTEGER NOT NULL DEFAULT 22,
+                username     TEXT NOT NULL,
+                auth_json    TEXT NOT NULL,
+                jump_host_id TEXT,
+                created_at   INTEGER NOT NULL DEFAULT 0,
+                last_used_at INTEGER
+            );
+        ")?;
 
         Ok(())
     }

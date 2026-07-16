@@ -601,6 +601,36 @@ pub struct AppInstance {
     pub status: String,
 }
 
+/// A saved SSH connection target for the Hosts vault. Distinct from
+/// `RemoteHost` (which is a Porta Relay VPS). Secrets are never stored here.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshHost {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    pub hostname: String,
+    pub port: u16,
+    pub username: String,
+    pub auth: SshAuth,
+    /// Reserved for ProxyJump chaining; not wired in the first cut.
+    #[serde(default)]
+    pub jump_host_id: Option<String>,
+    pub created_at: i64,
+    #[serde(default)]
+    pub last_used_at: Option<i64>,
+}
+
+/// How to authenticate. Password/passphrase values are prompted at connect
+/// time and never persisted in the DB.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SshAuth {
+    Agent,
+    KeyFile { path: String },
+    Password,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
