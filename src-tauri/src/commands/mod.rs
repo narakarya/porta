@@ -104,3 +104,6 @@ pub use git::*;
 
 pub mod worktree;
 pub use worktree::*;
+
+mod ssh;
+pub use ssh::*;
