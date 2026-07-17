@@ -5,6 +5,7 @@ import { usePortaStore } from "../../store";
 import { Button, Tabs, StatusDot, Badge, Card, type Status, type TabItem } from "../ui";
 import TerminalTab from "../terminal/TerminalTab";
 import GitTab from "./GitTab";
+import PublishTab from "./PublishTab";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
 const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
@@ -26,6 +27,7 @@ const TABS: TabItem[] = [
   { id: "logs", label: "Logs" },
   { id: "terminal", label: "Terminal" },
   { id: "git", label: "Git" },
+  { id: "publish", label: "Publish" },
 ];
 
 interface Props {
@@ -156,6 +158,10 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
 
         <div hidden={tab !== "git"} className="h-full">
           <GitTab app={app} />
+        </div>
+
+        <div hidden={tab !== "publish"} className="h-full">
+          <PublishTab app={app} />
         </div>
       </div>
 
