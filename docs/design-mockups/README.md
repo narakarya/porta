@@ -1,6 +1,13 @@
 # Porta redesign — design mockups (source of truth)
 
-These 32 HTML mockups were rendered during the design session and are the **agreed visual target** for the app redesign. Open `index.html` to browse them (iframed gallery), or open any `NN_*.html` directly.
+These HTML mockups are the **agreed visual target** for the app redesign. Open `index.html` to browse the gallery, or any `NN_*.html` directly.
+
+> **START HERE → [`_FINAL_shell_c_complete.html`](./_FINAL_shell_c_complete.html)** — the
+> consolidated north-star mockup: the full Shell C app with all feedback folded in
+> (rail → grouped app list with collapse/add → content-forward workbench: rich header,
+> full tab bar, live Logs with severity/search/follow, split terminal dock) plus the
+> Git-manager and Publish-v2 states. The 32 `NN_*` files are the per-surface detail
+> behind it.
 
 ## Agreed direction: **Shell C** (`00_porta_shell_redesign_directions`)
 

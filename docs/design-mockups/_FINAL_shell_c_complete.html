@@ -1,0 +1,265 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Porta — Shell C complete (all feedback)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.18);
+  --s0:#0d0d0f; --s1:#151517; --s2:#1b1c1f; --s3:#232428;
+  --accent:#60a5fa; --accent-bg:rgba(96,165,250,.16); --accent-ink:#bfdbfe;
+  --t1:#e7e7ea; --t2:#b6b6bb; --t3:#78787d;
+  --ok:#4ade80; --ok-bg:rgba(74,222,128,.15);
+  --warn:#fbbf24; --warn-bg:rgba(251,191,36,.15);
+  --bad:#f87171; --bad-bg:rgba(248,113,113,.15);
+  --violet:#c084fc; --violet-bg:rgba(192,132,252,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a0a0c;color:var(--t1);font-family:var(--font-sans);padding:24px}
+.cap{font-size:12px;color:var(--t3);margin:22px 4px 8px;font-family:var(--font-mono)}
+.win{width:1340px;max-width:100%;border:0.5px solid var(--border);border-radius:14px;overflow:hidden;background:var(--s0);box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.chrome{display:flex;align-items:center;gap:7px;padding:9px 13px;background:var(--s1);border-bottom:0.5px solid var(--border)}
+.dot{width:11px;height:11px;border-radius:50%}
+.app{display:flex;height:760px}
+/* rail */
+.rail{width:54px;flex-shrink:0;background:var(--s1);border-right:0.5px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px}
+.rail .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#fbbf24,#f59e0b);display:flex;align-items:center;justify-content:center;color:#000;font-weight:800;font-size:13px;margin-bottom:10px}
+.ri{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:20px;position:relative;cursor:pointer}
+.ri.on{background:var(--accent-bg);color:var(--accent-ink)}
+.ri .bdg{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--violet)}
+.rail .sp{margin-top:auto}
+.av{width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--t2);margin-top:8px;position:relative}
+.av .updot{position:absolute;top:-1px;right:-1px;width:9px;height:9px;border-radius:50%;background:var(--ok);border:2px solid var(--s1)}
+/* list */
+.list{width:216px;flex-shrink:0;border-right:0.5px solid var(--border);display:flex;flex-direction:column;background:var(--s0)}
+.list .lh{padding:12px 13px 8px}
+.list .lh .t{font-size:15px;font-weight:600}
+.list .lh .s{font-size:11px;color:var(--t3);margin-top:1px}
+.filter{margin:0 11px 8px;display:flex;align-items:center;gap:6px;border:0.5px solid var(--border);border-radius:7px;padding:5px 8px;color:var(--t3);font-size:12px}
+.grp{padding:0 8px}
+.gh{display:flex;align-items:center;gap:5px;padding:7px 6px 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--t3);cursor:pointer}
+.gh .cnt{margin-left:auto;color:var(--ok);font-weight:600}
+.gh .add{color:var(--t3);font-size:13px}
+.row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;font-size:13px;color:var(--t2);cursor:pointer;margin-bottom:1px}
+.row.on{background:var(--accent-bg);color:var(--t1)}
+.row:hover:not(.on){background:rgba(255,255,255,.04)}
+.sd{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sd.g{background:var(--ok);box-shadow:0 0 0 3px rgba(74,222,128,.12)} .sd.o{background:var(--t3)} .sd.r{background:var(--bad)}
+.row .port{margin-left:auto;font-size:10px;color:var(--t3);font-family:var(--font-mono)}
+.row .up{margin-left:auto;font-size:10px;color:var(--warn);font-weight:600}
+.list .foot{margin-top:auto;padding:9px 11px;border-top:0.5px solid var(--border);display:flex;flex-direction:column;gap:5px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12px;border-radius:7px;padding:6px 11px;border:0.5px solid var(--border);color:var(--t2);cursor:pointer;background:transparent}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#06121f;font-weight:600}
+.btn.gho{border-color:transparent}
+.btn.dng{color:var(--bad);border-color:rgba(248,113,113,.3)}
+/* main */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--s0)}
+.hdr{padding:11px 16px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:10px}
+.hdr .ic{width:26px;height:26px;border-radius:7px;background:var(--s2);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px}
+.hdr .nm{font-size:16px;font-weight:600}
+.pill{font-size:11px;padding:2px 9px;border-radius:20px}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)}
+.meta{font-size:11.5px;color:var(--t3);font-family:var(--font-mono);display:inline-flex;align-items:center;gap:5px}
+.hdr .acts{margin-left:auto;display:flex;gap:7px}
+.tabs{display:flex;align-items:center;gap:1px;padding:0 10px;border-bottom:0.5px solid var(--border);height:40px}
+.tab{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--t2);padding:0 12px;height:100%;border-bottom:2px solid transparent;cursor:pointer}
+.tab.on{color:var(--t1);border-bottom-color:var(--accent)}
+.tab .ex{width:5px;height:5px;border-radius:50%;background:var(--violet)}
+.tab .i{font-size:14px}
+.tabs .rt{margin-left:auto;color:var(--t3);font-size:15px;display:flex;gap:10px}
+/* logs */
+.logbar{display:flex;align-items:center;gap:6px;padding:9px 14px;border-bottom:0.5px solid var(--border);flex-wrap:wrap}
+.sev{font-size:11px;padding:3px 9px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;border:0.5px solid transparent}
+.sev .b{width:6px;height:6px;border-radius:2px}
+.sev.err{background:var(--bad-bg);color:var(--bad)} .sev.err .b{background:var(--bad)}
+.sev.warn{background:var(--warn-bg);color:var(--warn)} .sev.warn .b{background:var(--warn)}
+.sev.info{background:var(--accent-bg);color:var(--accent-ink)} .sev.info .b{background:var(--accent)}
+.sev.dbg{background:var(--s2);color:var(--t2)} .sev.dbg .b{background:var(--t3)}
+.sev.trc{background:var(--violet-bg);color:var(--violet)} .sev.trc .b{background:var(--violet)}
+.sev.suc{background:var(--ok-bg);color:var(--ok)} .sev.suc .b{background:var(--ok)}
+.search{margin-left:6px;flex:1;min-width:140px;display:flex;align-items:center;gap:6px;border:0.5px solid var(--border);border-radius:7px;padding:4px 9px;color:var(--t3);font-size:12px}
+.search .kbd{margin-left:auto;font-size:10px;border:0.5px solid var(--border);border-radius:4px;padding:0 4px}
+.mini{font-size:11px;color:var(--t2);display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:0.5px solid var(--border);border-radius:6px;cursor:pointer}
+.mini.on{background:var(--accent-bg);color:var(--accent-ink);border-color:transparent}
+.logs{flex:1;overflow:hidden;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;padding:8px 0}
+.ln{display:flex;padding:0 14px}
+.ln:hover{background:rgba(255,255,255,.025)}
+.ln .n{width:44px;color:#4a4a4f;text-align:right;padding-right:12px;user-select:none;flex-shrink:0}
+.ln .ts{color:#55565b;margin-right:8px}
+.ln.e{background:rgba(248,113,113,.07)}
+.c-info{color:var(--accent)} .c-warn{color:var(--warn)} .c-err{color:var(--bad)} .c-suc{color:var(--ok)} .c-dbg{color:var(--t3)} .c-txt{color:var(--t2)}
+/* dock */
+.dock{border-top:0.5px solid var(--border);background:var(--s1);height:196px;display:flex;flex-direction:column}
+.dockbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:0.5px solid var(--border)}
+.dtab{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--t2);background:var(--s2);border:0.5px solid var(--border);border-radius:6px;padding:4px 9px}
+.dtab.on{color:var(--t1);border-color:var(--border-strong)}
+.dtab .x{color:var(--t3);font-size:12px}
+.dtab .dg{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.dockbar .rt{margin-left:auto;color:var(--t3);display:flex;gap:11px;font-size:15px}
+.panes{flex:1;display:flex}
+.pane{flex:1;padding:9px 12px;font-family:var(--font-mono);font-size:11px;line-height:1.7;color:var(--t2);overflow:hidden}
+.pane+.pane{border-left:0.5px solid var(--border)}
+.pane .pp{color:var(--ok)} .pane .cm{color:var(--t1)}
+/* generic panels for alt states */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{border:0.5px solid var(--border);border-radius:12px;background:var(--s1);overflow:hidden}
+.subnav{display:flex;gap:2px;padding:8px 12px;border-bottom:0.5px solid var(--border);font-size:12px}
+.subnav .x{padding:3px 10px;border-radius:6px;color:var(--t2)}
+.subnav .x.on{background:var(--accent-bg);color:var(--accent-ink);border:0.5px solid rgba(96,165,250,.3)}
+.gfile{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:12px;font-family:var(--font-mono);color:var(--t2)}
+.gfile .m{color:var(--warn);width:12px} .gfile .a{color:var(--ok);width:12px}
+.gfile .st{margin-left:auto;font-size:10px}
+.plus{color:var(--ok)} .minus{color:var(--bad)}
+.hero{margin:12px;padding:12px 14px;border:0.5px solid var(--border);border-radius:10px;display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:13px}
+.seg{display:flex;border:0.5px solid var(--border);border-radius:8px;overflow:hidden;font-size:12px}
+.seg .o{padding:5px 12px;color:var(--t2)} .seg .o.on{background:var(--s3);color:var(--t1)}
+</style></head>
+<body>
+
+<div class="cap">// FINAL · Shell C consolidated — all feedback (rail → grouped app list → content-forward workbench · Logs live · terminal dock split)</div>
+<div class="win">
+  <div class="chrome"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+    <span style="margin-left:8px;font-size:12px;color:var(--t3)">Porta — Mediapress · frontend</span></div>
+  <div class="app">
+    <!-- rail -->
+    <div class="rail">
+      <div class="logo">P</div>
+      <div class="ri on" title="Workspaces"><i class="ti ti-layout-grid"></i></div>
+      <div class="ri" title="Hosts"><i class="ti ti-server-2"></i></div>
+      <div class="ri" title="Activity"><i class="ti ti-activity-heartbeat"></i></div>
+      <div class="ri" title="Extensions"><i class="ti ti-puzzle"></i><span class="bdg"></span></div>
+      <div class="ri sp" title="Settings"><i class="ti ti-settings"></i></div>
+      <div class="av">NG<span class="updot"></span></div>
+    </div>
+    <!-- app list -->
+    <div class="list">
+      <div class="lh"><div class="t">Workspaces</div><div class="s">4 running · 2 updates</div></div>
+      <div class="filter"><i class="ti ti-search" style="font-size:13px"></i>Filter apps…<span style="margin-left:auto;font-size:10px;border:0.5px solid var(--border);border-radius:4px;padding:0 4px">⌘K</span></div>
+      <div class="grp">
+        <div class="gh"><i class="ti ti-chevron-down" style="font-size:12px"></i>Mediapress<span class="cnt">2</span><i class="ti ti-plus add"></i></div>
+        <div class="row on"><span class="sd g"></span>frontend<span class="port">:3000</span></div>
+        <div class="row"><span class="sd o"></span>api<span class="port">:4000</span></div>
+        <div class="gh"><i class="ti ti-chevron-down" style="font-size:12px"></i>SpreadGrid<span class="cnt">1</span><i class="ti ti-plus add"></i></div>
+        <div class="row"><span class="sd g"></span>web<span class="up">2↑</span></div>
+        <div class="row"><span class="sd o"></span>worker</div>
+        <div class="gh"><i class="ti ti-chevron-right" style="font-size:12px"></i>Narakarya<span class="cnt" style="color:var(--t3)">0</span><i class="ti ti-plus add"></i></div>
+        <div class="gh" style="margin-top:6px"><i class="ti ti-chevron-down" style="font-size:12px"></i>Services</div>
+        <div class="row"><span class="sd g"></span><i class="ti ti-database" style="font-size:13px"></i>postgres<span class="port">:5432</span></div>
+        <div class="row"><span class="sd g"></span><i class="ti ti-brand-redis" style="font-size:13px"></i>redis<span class="port">:6379</span></div>
+      </div>
+      <div class="foot">
+        <div class="btn"><i class="ti ti-plus"></i>Add App</div>
+        <div class="btn gho"><i class="ti ti-file-import"></i>Import compose</div>
+      </div>
+    </div>
+    <!-- workbench -->
+    <div class="main">
+      <div class="hdr">
+        <div class="ic"><i class="ti ti-brand-react"></i></div>
+        <span class="nm">frontend</span>
+        <span class="pill ok">running</span>
+        <span class="pill ok"><i class="ti ti-heart" style="font-size:10px"></i> healthy</span>
+        <span class="meta"><i class="ti ti-external-link" style="font-size:12px"></i>mediapress.test</span>
+        <span class="meta">port 3000</span>
+        <span class="meta"><i class="ti ti-git-branch" style="font-size:12px"></i>main</span>
+        <div class="acts">
+          <div class="btn"><i class="ti ti-refresh"></i>Restart</div>
+          <div class="btn dng"><i class="ti ti-player-stop"></i>Stop</div>
+          <div class="btn pri"><i class="ti ti-external-link"></i>Open</div>
+          <div class="btn gho"><i class="ti ti-dots"></i></div>
+        </div>
+      </div>
+      <div class="tabs">
+        <span class="tab"><i class="ti ti-layout-dashboard i"></i>Overview</span>
+        <span class="tab on"><i class="ti ti-file-text i"></i>Logs</span>
+        <span class="tab"><i class="ti ti-terminal-2 i"></i>Terminal</span>
+        <span class="tab"><i class="ti ti-world i"></i>Traffic</span>
+        <span class="tab"><i class="ti ti-folder i"></i>Files</span>
+        <span class="tab"><i class="ti ti-git-branch i"></i>Git<span class="ex"></span></span>
+        <span class="tab"><i class="ti ti-rocket i"></i>Deploy<span class="ex"></span></span>
+        <span class="tab"><i class="ti ti-package i"></i>Packages<span class="ex"></span></span>
+        <span class="tab"><i class="ti ti-dots i"></i>More</span>
+        <span class="rt"><i class="ti ti-adjustments-horizontal"></i></span>
+      </div>
+      <div class="logbar">
+        <span class="sev err"><span class="b"></span>Error</span>
+        <span class="sev warn"><span class="b"></span>Warn</span>
+        <span class="sev info"><span class="b"></span>Info</span>
+        <span class="sev dbg"><span class="b"></span>Debug</span>
+        <span class="sev trc"><span class="b"></span>Trace</span>
+        <span class="sev suc"><span class="b"></span>Success</span>
+        <span class="search"><i class="ti ti-search" style="font-size:12px"></i>Search logs…<span class="kbd">⌘F</span></span>
+        <span class="mini">3 / 18 <i class="ti ti-chevron-up"></i><i class="ti ti-chevron-down"></i></span>
+        <span class="mini on"><i class="ti ti-arrow-down"></i>Follow</span>
+        <span class="mini"><i class="ti ti-text-wrap"></i>Wrap</span>
+        <span class="mini"><i class="ti ti-trash"></i>Clear</span>
+      </div>
+      <div class="logs">
+        <div class="ln"><span class="n">2468</span><span class="ts">10:42:08.117</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">GET /api/teachers/profile → 200 in 24ms</span></div>
+        <div class="ln"><span class="n">2469</span><span class="ts">10:42:08.231</span><span class="c-dbg">[debug]</span>&nbsp;<span class="c-txt">QUERY OK source="teachers" db=1.3ms idle=512ms</span></div>
+        <div class="ln"><span class="n">2470</span><span class="ts">10:42:09.004</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">User context set user_id=88</span></div>
+        <div class="ln"><span class="n">2471</span><span class="ts">10:42:09.118</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">POST /api/teachers/profile → 204 in 18ms</span></div>
+        <div class="ln"><span class="n">2472</span><span class="ts">10:42:10.552</span><span class="c-warn">[warn]</span>&nbsp;<span class="c-txt">Slow query detected: 812ms SELECT count(*) FROM assignments</span></div>
+        <div class="ln"><span class="n">2473</span><span class="ts">10:42:11.003</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">Cache populated key=teacher-profile:88 ttl=300s</span></div>
+        <div class="ln e"><span class="n">2474</span><span class="ts">10:42:11.561</span><span class="c-err">[error]</span>&nbsp;<span class="c-txt">** (Ecto.InvalidChangesetError) invalid changeset — role: {"is invalid"}</span></div>
+        <div class="ln"><span class="n">2475</span><span class="ts">10:42:11.563</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">POST /api/teachers/profile → 422 in 14ms</span></div>
+        <div class="ln"><span class="n">2476</span><span class="ts">10:42:12.221</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">GET /health → 200 in 3ms</span></div>
+        <div class="ln"><span class="n">2477</span><span class="ts">10:42:13.221</span><span class="c-info">[info]</span>&nbsp;<span class="c-txt">Phoenix live reload recompiled 2 files in 112ms</span></div>
+        <div class="ln"><span class="n">2478</span><span class="ts">10:42:14.051</span><span class="c-suc">[success]</span>&nbsp;<span class="c-txt">Backup completed: 14.3MB uploaded in 2.1s</span></div>
+      </div>
+      <!-- summonable terminal dock, split -->
+      <div class="dock">
+        <div class="dockbar">
+          <span class="dtab"><i class="ti ti-file-text"></i>Logs · frontend<span class="dg"></span><i class="ti ti-x x"></i></span>
+          <span class="dtab on"><i class="ti ti-terminal-2"></i>Terminal · frontend<span class="dg"></span><i class="ti ti-x x"></i></span>
+          <span style="color:var(--t3);font-size:14px"><i class="ti ti-plus"></i></span>
+          <span class="rt"><i class="ti ti-layout-columns" title="Split"></i><i class="ti ti-arrows-diagonal" title="Fullscreen"></i><i class="ti ti-chevron-down"></i></span>
+        </div>
+        <div class="panes">
+          <div class="pane"><span class="pp">frontend ~/mediapress</span><br>❯ <span class="cm">MIX_ENV=dev iex -S mix phx.server</span><br>[info] Running MediapressWeb.Endpoint with Bandit 1.5.9<br>[info] Access at http://localhost:4000<br><span class="pp">frontend ~/mediapress</span><br>❯ <span style="background:var(--t1);color:var(--s0)">&nbsp;</span></div>
+          <div class="pane"><span class="pp">frontend git:(main)</span> ✗<br>❯ <span class="cm">git status</span><br>On branch main<br>Changes not staged: 3 files<br><span class="c-warn">M src/app.tsx</span><br><span class="pp">frontend git:(main)</span> ✗<br>❯ <span style="background:var(--t1);color:var(--s0)">&nbsp;</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ALT STATE: Git manager + Tunnel v2 -->
+<div class="cap">// same workbench, Git tab → full manager (Status/Branches/Sync/History/Rebase/Stash/Tags · per-hunk stage · Unified/Split)  ·  and Publish tab v2</div>
+<div class="two" style="width:1340px;max-width:100%">
+  <div class="card">
+    <div class="subnav"><span class="x on">Status <span style="opacity:.6">7</span></span><span class="x">Branches</span><span class="x">Sync</span><span class="x">History</span><span class="x">Rebase</span><span class="x">Stash</span><span class="x">Tags</span><span style="margin-left:auto;color:var(--t3);font-family:var(--font-mono);font-size:11px"><i class="ti ti-git-branch"></i> main ↓2 ↑1</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr">
+      <div style="border-right:0.5px solid var(--border);padding:8px 0">
+        <div style="font-size:10px;color:var(--t3);padding:2px 12px 4px;text-transform:uppercase">Staged · 1</div>
+        <div class="gfile"><i class="ti ti-check a"></i>hooks/useFeed.ts<span class="st plus">+61</span></div>
+        <div style="font-size:10px;color:var(--t3);padding:8px 12px 4px;text-transform:uppercase">Changes · 2</div>
+        <div class="gfile" style="background:var(--accent-bg)"><span class="m">M</span>api/posts.ts<span class="st plus">+40</span></div>
+        <div class="gfile"><span class="m">M</span>app.tsx<span class="st"><span class="plus">+12</span> <span class="minus">−3</span></span></div>
+      </div>
+      <div style="padding:8px 0">
+        <div style="display:flex;align-items:center;padding:2px 12px 6px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--t2)">api/posts.ts</span><span class="seg" style="margin-left:auto"><span class="o on">Unified</span><span class="o">Split</span></span></div>
+        <div style="font-family:var(--font-mono);font-size:10.5px;line-height:1.7;color:var(--t2)">
+          <div style="padding:0 12px;color:var(--t3)">@@ −12,6 +12,9 @@ list()</div>
+          <div style="padding:0 12px;background:rgba(74,222,128,.1)" class="plus">+ const cached = await cache.get(key)</div>
+          <div style="padding:0 12px;background:rgba(74,222,128,.1)" class="plus">+ if (cached) return cached</div>
+          <div style="padding:0 12px;background:rgba(248,113,113,.1)" class="minus">− return db.query(sql)</div>
+        </div>
+        <div style="display:flex;gap:6px;padding:8px 12px"><span class="mini on">Stage hunk</span><span class="mini">Discard</span></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;padding:9px 12px;border-top:0.5px solid var(--border)"><span style="flex:1;border:0.5px solid var(--border);border-radius:7px;padding:5px 9px;color:var(--t3);font-size:12px">Commit message…</span><span class="btn pri">Commit</span><span class="btn">Push</span></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:0.5px solid var(--border)"><i class="ti ti-world" style="color:var(--accent)"></i><span style="font-weight:600">Publish</span><span class="pill ok"><span style="width:5px;height:5px;border-radius:50%;background:var(--ok);display:inline-block"></span> live · Cloudflare</span><span style="margin-left:auto;font-size:11px;color:var(--t2)">Tunnel</span><span style="width:34px;height:19px;border-radius:20px;background:var(--ok);position:relative"><span style="position:absolute;right:2px;top:2px;width:15px;height:15px;border-radius:50%;background:#fff"></span></span></div>
+    <div class="hero"><span style="color:var(--t3);font-size:10px">LOCAL</span> localhost:3000 <i class="ti ti-arrow-right" style="color:var(--ok)"></i> <span style="color:var(--accent-ink)">app.klien-a.id</span><span style="margin-left:auto;color:var(--t3);display:flex;gap:10px"><i class="ti ti-copy"></i><i class="ti ti-external-link"></i><i class="ti ti-qrcode"></i></span></div>
+    <div style="display:flex;gap:10px;padding:0 14px 8px"><div style="flex:1;border:0.5px solid var(--border-strong);border-radius:8px;padding:8px 10px"><div style="font-size:12px">Quick tunnel</div><div style="font-size:10.5px;color:var(--t3)">Ephemeral *.trycloudflare.com · zero setup</div></div><div style="flex:1;border:0.5px solid var(--border);border-radius:8px;padding:8px 10px"><div style="font-size:12px;color:var(--accent-ink)">Named tunnel ✓</div><div style="font-size:10.5px;color:var(--t3)">Persistent · your domain + DNS</div></div></div>
+    <div style="padding:4px 14px"><div style="display:flex;font-size:10px;color:var(--t3);text-transform:uppercase;padding:6px 0"><span>Public hostnames</span><span style="margin-left:auto;color:var(--accent)"><i class="ti ti-plus"></i> Add</span></div>
+      <div class="gfile" style="padding:5px 0"><i class="ti ti-star-filled" style="color:var(--warn);font-size:12px"></i>app.klien-a.id<span class="st" style="color:var(--ok)">primary · active</span></div>
+      <div class="gfile" style="padding:5px 0;color:var(--t3)"><span style="width:12px"></span>staging.klien-a.id<span class="st">alias</span></div>
+    </div>
+    <div style="padding:8px 14px 12px;border-top:0.5px solid var(--border);margin-top:4px"><div style="font-size:10px;color:var(--t3);text-transform:uppercase;padding-bottom:6px">Who can reach it</div><span class="seg"><span class="o">🌐 Public</span><span class="o on">🔒 Password</span><span class="o">🛡 CF Access</span></span><div style="font-size:11px;color:var(--t3);margin-top:7px">Basic auth — visitors need the password. <span style="color:var(--accent)">Set credentials</span></div></div>
+  </div>
+</div>
+
+</body></html>
