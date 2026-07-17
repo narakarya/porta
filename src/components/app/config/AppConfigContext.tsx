@@ -932,6 +932,7 @@ export function useAppConfigDraft(
 
   return {
     app,
+    workspace,
     tunnelError, tunnelErrorCopied, setTunnelErrorCopied,
     section, setSection,
     tunnelUrlCopied, setTunnelUrlCopied,
