@@ -176,6 +176,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
     return counts;
   }, [apps, imageUpdateCache]);
   const updateCount = (wsId: string | null) => updatesByWs.get(wsId) ?? 0;
+  const runningTotal = useMemo(() => apps.filter((a) => a.status === "running").length, [apps]);
+  const updatesTotal = useMemo(() => [...updatesByWs.values()].reduce((sum, n) => sum + n, 0), [updatesByWs]);
   const hasStandaloneApps = useMemo(() => apps.some((a) => a.workspace_id === null), [apps]);
   const showOtherSection = hasStandaloneApps || selectedWorkspaceId === null;
 
@@ -220,10 +222,12 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   }
 
   return (
-    <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pb-3 shrink-0">
-      <div className="h-11 flex items-center gap-2 px-4 shrink-0">
-        <img src="/porta-logo.svg" alt="" width={18} height={18} className="rounded-[4px]" />
-        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Porta</span>
+    <aside className="w-[216px] bg-[#0d0d0f] border-r border-white/[0.07] flex flex-col pb-2 shrink-0">
+      <div className="drag-region px-3.5 pt-3 pb-2 shrink-0">
+        <div className="no-drag text-[15px] font-semibold text-zinc-100 leading-tight">Workspaces</div>
+        <div className="no-drag text-[11px] text-zinc-500 mt-0.5">
+          {runningTotal} running{updatesTotal > 0 ? ` · ${updatesTotal} update${updatesTotal > 1 ? "s" : ""}` : ""}
+        </div>
       </div>
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
         <div className="flex items-center gap-1 px-2 mb-1 mt-1">

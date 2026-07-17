@@ -49,8 +49,9 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
   const updateReady = updaterPhase === "available" || updaterPhase === "ready";
 
   return (
-    <nav className="drag-region w-[52px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-11 pb-3 z-20">
-      <div className="no-drag flex flex-col items-center gap-1.5 mt-1">
+    <nav className="drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-11 pb-3 z-20">
+      <img src="/porta-logo.svg" alt="Porta" width={24} height={24} className="no-drag rounded-[6px] mt-1 mb-2.5" />
+      <div className="no-drag flex flex-col items-center gap-1.5">
         {DOMAINS.map((d) => {
           const active = !settingsActive && activeDomain === d.id;
           return (
@@ -61,7 +62,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
               aria-label={d.label}
               aria-current={active}
               className={`w-9 h-9 flex items-center justify-center rounded-[9px] transition-colors ${
-                active ? "bg-white/[0.10] text-zinc-100" : "text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.05]"
+                active ? "bg-accent-bg text-accent-ink" : "text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.05]"
               }`}
             >
               {ICONS[d.id]}

@@ -39,7 +39,7 @@ export default function Layout({ children, onOpenSettings }: Props) {
   return (
     <div className="flex flex-1 min-w-0 bg-[#111113] text-zinc-100 font-sans overflow-hidden">
       {/* Title bar — spans the content area to the right of the rail (+ sidebar in workspaces) */}
-      <div className={`drag-region fixed top-0 ${showSidebar ? "left-[252px]" : "left-[52px]"} right-0 h-11 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]`}>
+      <div className={`drag-region fixed top-0 ${showSidebar ? "left-[270px]" : "left-[54px]"} right-0 h-11 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]`}>
         {/* Search trigger — wider */}
         <button
           onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
@@ -74,7 +74,7 @@ export default function Layout({ children, onOpenSettings }: Props) {
       </div>
 
       {/* Sidebar-top drag region (only when the workspaces sidebar shows) */}
-      {showSidebar && <div className="drag-region fixed top-0 left-[52px] w-[200px] h-11 z-10" />}
+      {showSidebar && <div className="drag-region fixed top-0 left-[54px] w-[216px] h-11 z-10" />}
 
       {showSidebar && <Sidebar onOpenSettings={onOpenSettings} />}
       <main className={`flex-1 overflow-y-auto overflow-x-hidden pt-14 px-6 pb-6 no-drag transition-[padding-right] duration-200 ${extSidebarOpen ? "pr-[272px]" : ""}`}>

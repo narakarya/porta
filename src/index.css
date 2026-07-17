@@ -13,16 +13,16 @@
   --surface-input: #111113;
   --surface-code: #0d0d0f;
 
-  --ink-1: #f4f4f5;       /* primary text */
-  --ink-2: #a1a1aa;       /* secondary */
-  --ink-3: #71717a;       /* muted / placeholder */
+  --ink-1: #e7e7ea;       /* primary text */
+  --ink-2: #b6b6bb;       /* secondary */
+  --ink-3: #78787d;       /* muted / placeholder */
 
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.15);
+  --border-subtle: rgba(255, 255, 255, 0.085);
+  --border-strong: rgba(255, 255, 255, 0.18);
 
-  --accent: #3b82f6;
-  --accent-ink: #93c5fd;
-  --accent-bg: rgba(59, 130, 246, 0.15);
+  --accent: #60a5fa;
+  --accent-ink: #bfdbfe;
+  --accent-bg: rgba(96, 165, 250, 0.16);
   --success: #34d399;
   --success-bg: rgba(52, 211, 153, 0.15);
   --warning: #fbbf24;
