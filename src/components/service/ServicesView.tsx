@@ -212,7 +212,7 @@ export default function ServicesView() {
                 <StatusDot status={STATUS_MAP[svc.status]} className="ml-auto" />
               </div>
               <div className="mt-1.5 text-[11px] text-ink-3 font-mono truncate">
-                {svc.image}:{svc.tag} · :{svc.port} · {scopeLabel(svc.scope)}
+                {svc.tag} · :{svc.port} · {scopeLabel(svc.scope)}
               </div>
               <div className="mt-3 flex items-center gap-1.5">
                 {actionButton(svc)}

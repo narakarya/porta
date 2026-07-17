@@ -121,15 +121,6 @@ const LEVEL_RAIL: Record<NonNullable<LogLevel>, string> = {
   success: "border-emerald-500/30",
 };
 
-const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
-  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
-  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
-  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
-  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
-  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-};
-
 // ── Ingest pipeline ───────────────────────────────────────────────────────────
 interface ProcessedLine {
   text: string;
@@ -219,6 +210,27 @@ function serviceDotClass(state: string): string {
   return "bg-zinc-600";
 }
 
+// ── Leading timestamp / level extraction (display only) ───────────────────────
+// The redesigned row renders the timestamp and the level as their own columns,
+// so we peel a leading `HH:MM:SS(.mmm)` stamp and — for leveled headers — a
+// redundant leading `[LEVEL]` marker off the visible body. Level detection,
+// filtering, and search still run on the full untouched line text; this only
+// shapes what each column shows.
+const LEAD_TS_RE = /^(\d{1,2}:\d{2}:\d{2}(?:\.\d{1,6})?)\s+/;
+const LEAD_LEVEL_RE = /^\[(?:ERROR|ERRO|FATAL|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE|SUCCESS)\]\s*/i;
+
+function splitLeadingMeta(text: string, stripLevel: boolean): { ts: string; body: string } {
+  let body = text;
+  let ts = "";
+  const m = body.match(LEAD_TS_RE);
+  if (m) {
+    ts = m[1];
+    body = body.slice(m[0].length);
+  }
+  if (stripLevel) body = body.replace(LEAD_LEVEL_RE, "");
+  return { ts, body };
+}
+
 // ── Per-line memoized renderer ────────────────────────────────────────────────
 interface LogLineProps {
   text: string;
@@ -241,78 +253,88 @@ interface LogLineProps {
 
 const LogLine = memo(function LogLine({
   text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
-  isActiveMatch, isAlternateBlock, copied, blockCopied, wrap, onCopy, onCopyBlock,
+  isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
-  // A continuation line (SQL body, `↳` caller, etc.) belongs to the leveled
-  // entry above it — keep the whole block on the same alternating text tone,
-  // then tint the left rail with the owner's level so the block reads as one
-  // unit tied to its severity.
-  const blockTextCls = isAlternateBlock ? "text-cyan-200/70" : "text-zinc-400";
-  const continuationLevel = crashed ? "error" : ownerLevel;
-  const continuationUsesSeverity = continuationLevel === "error" || continuationLevel === "warn" || continuationLevel === "info" || continuationLevel === "success";
-  const headerUsesSeverity = effectiveLevel === "error" || effectiveLevel === "warn" || effectiveLevel === "info" || effectiveLevel === "success";
-  const textCls = crashed
-    ? LEVEL_CLASS.error
-    : isContinuation
-      ? continuationUsesSeverity && continuationLevel ? LEVEL_CLASS[continuationLevel] : blockTextCls
-      : headerUsesSeverity && effectiveLevel ? LEVEL_CLASS[effectiveLevel] : blockTextCls;
-  const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
+  const showLevel = !isContinuation && !!effectiveLevel;
+  const isErrorRow = !isContinuation && effectiveLevel === "error";
+  // Peel the leading timestamp (and, on a leveled header, the redundant
+  // `[LEVEL]` marker) into their own columns. The message body renders neutral —
+  // severity lives in the inline level token and the error-row tint, never in
+  // the body text.
+  const { ts, body } = splitLeadingMeta(text, showLevel);
+  // Continuation lines (SQL body, `↳` caller, stacktrace) tie back to their
+  // header's severity via a tinted left rail; the body text itself stays neutral.
   const railLevel = crashed ? "error" : ownerLevel;
   const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
   const rowBg = isActiveMatch
     ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20"
-    : "bg-transparent";
+    : isErrorRow
+      ? "bg-red-500/[0.08] border-l-2 border-red-400"
+      : "bg-transparent hover:bg-white/[0.025]";
 
   return (
-    <div
-      className={`flex gap-2 py-[2.5px] rounded px-1 group items-start ${rowBg} hover:bg-white/[0.025]`}
-    >
-      <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
+    <div className={`flex py-[2.5px] rounded px-1 group items-start ${rowBg}`}>
+      <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] pr-2 group-hover:text-zinc-400 select-none">
         {seq + 1}
       </span>
-      <span className="w-8 shrink-0 pt-[1px] select-none">
-        {badge && (
-          <button
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onCopyBlock(originalIndex)}
-            title="Copy this entry (with its body/stacktrace)"
-            className={`text-[9px] font-medium px-1 py-px rounded border transition-all cursor-pointer ${
-              blockCopied
-                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                : `${badge.cls} hover:brightness-125`
-            }`}
-          >
-            {blockCopied ? "✓" : badge.label}
-          </button>
-        )}
-      </span>
+      {ts && (
+        <span className="text-[11px] text-[#55565b] tabular-nums mr-2 shrink-0 pt-[2px] select-none">
+          {ts}
+        </span>
+      )}
+      {showLevel && effectiveLevel && (
+        <span className={`text-[13.5px] shrink-0 mr-2 select-none ${LEVEL_CLASS[effectiveLevel]}`}>
+          [{effectiveLevel}]
+        </span>
+      )}
       <span
-        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[13.5px] ${textCls} ${
+        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[13.5px] text-zinc-400 ${
           isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
       >
-        {highlightLine(text, query)}
+        {highlightLine(body, query)}
       </span>
-      <button
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => onCopy(text, originalIndex)}
-        className={`shrink-0 pt-[2px] transition-opacity select-none ${
-          copied ? "opacity-100" : "opacity-0 group-hover:opacity-60"
-        }`}
-        title="Copy line"
-      >
-        {copied ? (
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400">
-            <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        ) : (
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-zinc-600">
-            <rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-            <path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-          </svg>
-        )}
-      </button>
+      <span className="shrink-0 ml-2 flex items-center gap-1 pt-[2px] select-none">
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onCopyBlock(originalIndex)}
+          title="Copy this entry (with its body/stacktrace)"
+          className={`transition-opacity ${
+            blockCopied ? "opacity-100 text-emerald-400" : "opacity-0 group-hover:opacity-60 text-zinc-600"
+          }`}
+        >
+          {blockCopied ? (
+            <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
+              <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="3.4" y="3.4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M2.2 7.4V2.6a.6.6 0 01.6-.6h4.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+            </svg>
+          )}
+        </button>
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onCopy(text, originalIndex)}
+          title="Copy line"
+          className={`transition-opacity ${
+            copied ? "opacity-100 text-emerald-400" : "opacity-0 group-hover:opacity-60 text-zinc-600"
+          }`}
+        >
+          {copied ? (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+            </svg>
+          )}
+        </button>
+      </span>
     </div>
   );
 });
@@ -1031,7 +1053,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         ref={containerRef}
         onScroll={handleScroll}
         onMouseUp={handleMouseUp}
-        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-[#1c1c1e]"
+        className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-surface-0"
       >
         {localLogs === null && (
           <p className="text-[12px] text-zinc-600 mb-3 text-center select-none">Loading logs…</p>

@@ -16,7 +16,7 @@ interface Command {
   label: string;
   hint?: string;
   section: CommandSection;
-  icon: string;
+  icon: React.ReactNode;
   run: () => void;
   /** Searchable tokens beyond the label */
   searchTokens?: string;
@@ -173,6 +173,66 @@ function StatusDot({ color }: { color: string }) {
   );
 }
 
+// ── Icons ─────────────────────────────────────────────────────────────────
+// Inline line-icons, one coherent stroke family (16px, stroke-width ~1.3,
+// currentColor so they inherit the row's token-based text color). Matches the
+// app's existing icon style (see GlobalRail / AppWorkbench / PublishTab).
+
+const ICON = {
+  search: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10.4 10.4l3.1 3.1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+  start: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M5.5 3.5l6 4.5-6 4.5v-9z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  ),
+  stop: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="4" y="4" width="8" height="8" rx="1.4" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
+  editor: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M11 2.5l2.5 2.5M2.5 13.5l.7-2.8 8-8a1.2 1.2 0 0 1 1.6 0l.7.7a1.2 1.2 0 0 1 0 1.6l-8 8-2.8.7z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  external: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M12 8.7v3.3a1.3 1.3 0 0 1-1.3 1.3H3.8A1.3 1.3 0 0 1 2.5 12V5.3A1.3 1.3 0 0 1 3.8 4h3.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 2.5h3.5V6M13.5 2.5L7.5 8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  extension: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M6 2.5a1.3 1.3 0 112.6 0V4h2.4a.6.6 0 01.6.6V7h1.4a1.3 1.3 0 110 2.6H11.6V13a.6.6 0 01-.6.6H8.6V12a1.3 1.3 0 10-2.6 0v1.6H3.4a.6.6 0 01-.6-.6V9.6H4a1.3 1.3 0 100-2.6H2.8V4.6A.6.6 0 013.4 4H6V2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  ),
+  workspace: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
+  settings: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M8 1.5v1.7M8 12.8v1.7M14.5 8h-1.7M3.2 8H1.5M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2M12.6 12.6l-1.2-1.2M4.6 4.6L3.4 3.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  ),
+  shortcuts: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="4" width="12" height="8" rx="1.4" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4.5 6.5h.01M7 6.5h.01M9.5 6.5h.01M11.5 6.5h.01M5 9.5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+} as const;
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export default function CommandPalette({ onOpenSettings, onShowShortcuts }: CommandPaletteProps) {
@@ -242,7 +302,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
           label: `Start ${app.name}`,
           hint: `port ${app.port}`,
           section: "Apps",
-          icon: "▶",
+          icon: ICON.start,
           statusColor,
           searchTokens: searchBase,
           run: tracked(`start-${app.id}`, () => startApp(app.id)),
@@ -254,7 +314,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
           hint:
             app.status === "starting" ? "starting..." : `port ${app.port}`,
           section: "Apps",
-          icon: "■",
+          icon: ICON.stop,
           statusColor,
           searchTokens: searchBase,
           run: tracked(`stop-${app.id}`, () => stopApp(app.id)),
@@ -266,7 +326,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
         label: `Open ${app.name} in Editor`,
         hint: app.root_dir.split("/").slice(-2).join("/"),
         section: "Apps",
-        icon: "✎",
+        icon: ICON.editor,
         statusColor,
         searchTokens: searchBase,
         run: tracked(`editor-${app.id}`, () => {
@@ -282,7 +342,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
           label: `Open ${app.name} URL`,
           hint: `${app.subdomain}.${ws.domain}`,
           section: "Apps",
-          icon: "↗",
+          icon: ICON.external,
           statusColor,
           searchTokens: searchBase,
           run: tracked(`url-${app.id}`, () => {
@@ -306,7 +366,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
             label: `${action.label} · ${app.name}`,
             hint: ext.name,
             section: "Extensions",
-            icon: "◇",
+            icon: ICON.extension,
             searchTokens: `${action.label} ${action.id} ${ext.name} ${ext.id} ${app.name}`,
             run: tracked(id, () => {
               invokeAction(app, ext, action.id).catch((e) => {
@@ -327,7 +387,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
         label: `Switch to ${ws.name}`,
         hint: ws.domain,
         section: "Workspaces",
-        icon: "⊞",
+        icon: ICON.workspace,
         searchTokens: `${ws.name} ${ws.domain}`,
         run: tracked(`workspace-${ws.id}`, () => { selectWorkspace(ws.id); setActiveDomain("workspaces"); }),
       });
@@ -338,7 +398,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
       id: "open-settings",
       label: "Open Settings",
       section: "Actions",
-      icon: "⚙",
+      icon: ICON.settings,
       hint: "⌘,",
       run: tracked("open-settings", () => onOpenSettings()),
     });
@@ -348,7 +408,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
         id: "show-shortcuts",
         label: "Show keyboard shortcuts",
         section: "Actions",
-        icon: "⌘",
+        icon: ICON.shortcuts,
         hint: "⌘?",
         searchTokens: "help cheatsheet keys",
         run: tracked("show-shortcuts", () => onShowShortcuts()),
@@ -490,7 +550,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
       >
         {/* Search input */}
         <div className="flex items-center gap-2.5 px-[15px] py-3 border-b-[0.5px] border-white/[0.08]">
-          <span className="text-[15px] leading-none text-zinc-500 flex-shrink-0">⌕</span>
+          <span className="text-zinc-500 flex-shrink-0 flex items-center">{ICON.search}</span>
           <input
             spellCheck={false}
             ref={inputRef}
@@ -544,7 +604,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                         onClick={() => cmd.run()}
                       >
                         <span
-                          className={`text-[15px] leading-none w-4 text-center flex-shrink-0 ${
+                          className={`flex items-center justify-center w-4 flex-shrink-0 ${
                             isActive ? "text-blue-300" : "text-zinc-400"
                           }`}
                         >
@@ -576,19 +636,6 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
               );
             })
           )}
-        </div>
-
-        {/* Footer hint */}
-        <div className="flex items-center gap-3 px-[15px] py-2 border-t-[0.5px] border-white/[0.06] text-[10px] text-zinc-600">
-          <span className="flex items-center gap-1">
-            <kbd className="font-mono text-zinc-500">↑↓</kbd> navigate
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="font-mono text-zinc-500">↵</kbd> select
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="font-mono text-zinc-500">esc</kbd> close
-          </span>
         </div>
       </div>
     </div>

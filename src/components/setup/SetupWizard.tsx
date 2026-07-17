@@ -6,6 +6,11 @@ import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";
 
 type StepState = "idle" | "loading" | "done" | "error";
 
+// Presentation state for a consolidated group row.
+type RowDisplay = "done" | "loading" | "error" | "attention" | "pending";
+
+// Underlying setup steps, in the order the backend runs them. This ordering
+// still drives which single row spins during a run (see stepState).
 const STEP_ORDER = [
   "caddy_installed",
   "dnsmasq_installed",
@@ -15,18 +20,65 @@ const STEP_ORDER = [
   "caddy_running",
 ];
 
-const STEP_ESTIMATE: Record<string, string> = {
-  caddy_installed:      "~2-5 min",
-  dnsmasq_installed:    "~1-3 min",
-  test_resolver_exists: "instant",
-  mkcert_installed:     "~1-2 min",
-  certs_generated:      "instant",
-  caddy_running:        "~5 sec",
+// Human labels for the *active* step, surfaced above the live log.
+const STEP_LABELS: Record<string, string> = {
+  caddy_installed:      "Installing Caddy",
+  dnsmasq_installed:    "Installing dnsmasq",
+  test_resolver_exists: "Configuring .test resolver",
+  mkcert_installed:     "Installing mkcert",
+  certs_generated:      "Generating SSL certificates",
+  caddy_running:        "Starting Caddy",
 };
 
-function StepIcon({ state }: { state: StepState }) {
-  if (state === "loading") return <span className="spinner text-accent shrink-0" />;
-  if (state === "done") {
+interface Concern {
+  key: string;    // underlying setup step key
+  active: string; // subtitle while this concern is running (accent)
+  unmet: string;  // subtitle when this is the first unsatisfied concern (amber)
+  action: string; // inline fix-button label
+}
+
+interface Group {
+  key: string;
+  label: string;
+  readyText: string;    // subtitle when every concern is satisfied
+  concerns: Concern[];  // ordered sub-concerns
+}
+
+// Three grouped rows. Each consolidates the granular steps that share a
+// user-facing concern. Order of `concerns` = the order we surface unmet status.
+const GROUPS: Group[] = [
+  {
+    key: "caddy",
+    label: "Caddy proxy",
+    readyText: "installed · running",
+    concerns: [
+      { key: "caddy_installed", active: "Installing Caddy…", unmet: "not installed yet",       action: "Install" },
+      { key: "caddy_running",   active: "Starting Caddy…",   unmet: "installed · not running", action: "Start" },
+    ],
+  },
+  {
+    key: "dnsmasq",
+    label: "dnsmasq (*.test)",
+    readyText: "resolving to 127.0.0.1",
+    concerns: [
+      { key: "dnsmasq_installed",    active: "Installing dnsmasq…",         unmet: "not installed yet",       action: "Install" },
+      { key: "test_resolver_exists", active: "Configuring .test resolver…", unmet: "resolver not configured", action: "Configure" },
+    ],
+  },
+  {
+    key: "cert",
+    label: "Certificate trust",
+    readyText: "root cert trusted",
+    concerns: [
+      { key: "mkcert_installed", active: "Installing mkcert…",       unmet: "root cert not trusted yet",  action: "Trust cert" },
+      { key: "certs_generated",  active: "Generating certificates…", unmet: "certificates not generated", action: "Generate" },
+    ],
+  },
+];
+
+function RowIcon({ display }: { display: RowDisplay }) {
+  if (display === "loading") return <span className="spinner text-accent shrink-0" />;
+  if (display === "done") {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ok shrink-0">
         <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.4" />
@@ -34,7 +86,7 @@ function StepIcon({ state }: { state: StepState }) {
       </svg>
     );
   }
-  if (state === "error") {
+  if (display === "error") {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-bad shrink-0">
         <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.4" />
@@ -42,6 +94,16 @@ function StepIcon({ state }: { state: StepState }) {
       </svg>
     );
   }
+  if (display === "attention") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-warn shrink-0">
+        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.5" />
+        <path d="M8 4.75v3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="8" cy="11" r="0.85" fill="currentColor" />
+      </svg>
+    );
+  }
+  // pending — waiting its turn during a run
   return <span className="w-4 h-4 rounded-full border border-strong shrink-0" />;
 }
 
@@ -173,14 +235,40 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
     return keyIdx === activeIdx ? "loading" : "idle";
   }
 
-  const steps = [
-    { key: "caddy_installed",      label: "Install Caddy",               ok: okByKey.caddy_installed },
-    { key: "dnsmasq_installed",    label: "Install dnsmasq",             ok: okByKey.dnsmasq_installed },
-    { key: "test_resolver_exists", label: "Configure .test resolver",    ok: okByKey.test_resolver_exists },
-    { key: "mkcert_installed",     label: "Install mkcert",              ok: okByKey.mkcert_installed },
-    { key: "certs_generated",      label: "Generate SSL certificates",   ok: okByKey.certs_generated },
-    { key: "caddy_running",        label: "Start Caddy (HTTPS)",         ok: okByKey.caddy_running },
-  ];
+  // Consolidate the granular steps into the three grouped rows. Each row's
+  // display is derived purely from its underlying step states — the run
+  // handlers and per-step logic below are untouched.
+  const rows = GROUPS.map((group) => {
+    const subs = group.concerns.map((c) => ({
+      ...c,
+      ok: okByKey[c.key],
+      state: stepState(okByKey[c.key], c.key),
+    }));
+    const allOk = subs.every((s) => s.ok);
+    const anyError = subs.some((s) => s.state === "error");
+    const anyLoading = subs.some((s) => s.state === "loading");
+    // Ready only when every sub-concern is satisfied; otherwise surface the
+    // first unmet one.
+    const display: RowDisplay =
+      allOk      ? "done" :
+      anyError   ? "error" :
+      anyLoading ? "loading" :
+      running    ? "pending" :
+      "attention";
+    const firstUnmet = subs.find((s) => !s.ok);
+    const activeConcern = subs.find((s) => s.state === "loading");
+    const subtitle =
+      display === "done"    ? group.readyText :
+      display === "loading" ? (activeConcern?.active ?? "working…") :
+      (firstUnmet?.unmet ?? "");
+    const subtitleCls =
+      display === "done"      ? "text-ink-3" :
+      display === "loading"   ? "text-accent" :
+      display === "error"     ? "text-bad" :
+      display === "attention" ? "text-warn" :
+      "text-ink-3"; // pending
+    return { group, display, subtitle, subtitleCls, allOk, firstUnmet };
+  });
 
   async function handleRunSetup() {
     setSetupStarted(true);
@@ -206,20 +294,15 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
     }
   }
 
-  const activeStepLabel = steps.find((s) => s.key === activeStep)?.label;
-  const doneCount = steps.filter((s) => s.ok).length;
+  const activeStepLabel = activeStep ? STEP_LABELS[activeStep] : undefined;
+  const readyRowCount = rows.filter((r) => r.allOk).length;
 
   return (
     <div className="fixed inset-0 bg-surface-0/95 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-surface-2 border border-subtle rounded-card w-[420px] shadow-2xl relative flex flex-col overflow-hidden">
 
-        {/* Header */}
-        <div className="flex items-start gap-3.5 px-5 pt-5 pb-3">
-          <div className="w-10 h-10 rounded-card bg-accent-bg border border-accent/20 flex items-center justify-center shrink-0">
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" className="text-accent">
-              <path d="M10 2L3 6v4c0 3.5 3 6.7 7 8 4-1.3 7-4.5 7-8V6l-7-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-            </svg>
-          </div>
+        {/* Header — text only, no icon */}
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-[15px] font-semibold text-ink">
               {forceShow ? "Setup & Certificates" : "Welcome to Porta"}
@@ -240,32 +323,33 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
           )}
         </div>
 
-        {/* Steps */}
+        {/* Consolidated status rows */}
         <ul className="flex flex-col px-5 pb-1">
-          {steps.map((step, i) => {
-            const state = stepState(step.ok, step.key);
-            const isActive = state === "loading";
-            const isLast = i === steps.length - 1;
+          {rows.map((row, i) => {
+            const isLast = i === rows.length - 1;
             return (
               <li
-                key={step.key}
-                className={`flex items-center gap-2.5 py-2 transition-colors ${isLast ? "" : "border-b border-subtle"}`}
+                key={row.group.key}
+                className={`flex items-center gap-2.5 py-2.5 transition-colors ${isLast ? "" : "border-b border-subtle"}`}
               >
-                <StepIcon state={state} />
+                <RowIcon display={row.display} />
                 <div className="flex-1 min-w-0">
-                  <div className={`text-[13px] transition-colors ${
-                    state === "done"    ? "text-ink-2" :
-                    state === "loading" ? "text-ink font-medium" :
-                    state === "error"   ? "text-bad"   :
-                    "text-ink-3"
-                  }`}>
-                    {step.label}
+                  <div className={`text-[13px] ${row.display === "error" ? "text-bad" : "text-ink"}`}>
+                    {row.group.label}
                   </div>
-                  <div className={`text-[11px] mt-0.5 ${isActive ? "text-accent" : "text-ink-3"}`}>
-                    {state === "done" ? "ready" : STEP_ESTIMATE[step.key]}
+                  <div className={`text-[11px] mt-0.5 ${row.subtitleCls}`}>
+                    {row.subtitle}
                   </div>
                 </div>
-                {isActive && <span className="spinner text-accent shrink-0" />}
+                {row.display === "attention" && (
+                  <button
+                    onClick={handleRunSetup}
+                    className="text-[11px] font-medium text-white bg-warn hover:brightness-110 transition-all rounded-control px-3 py-1 shrink-0"
+                  >
+                    {row.firstUnmet?.action ?? "Fix"}
+                  </button>
+                )}
+                {row.display === "loading" && <span className="spinner text-accent shrink-0" />}
               </li>
             );
           })}
@@ -316,7 +400,7 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
         {/* Footer bar */}
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-subtle bg-surface-1">
           <span className="text-[11px] text-ink-3">
-            {doneCount} of {steps.length} ready
+            {readyRowCount} of {GROUPS.length} ready
           </span>
           {allGood && !running && !error && setupStarted ? (
             <button

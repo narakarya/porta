@@ -55,6 +55,9 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
   const [editingLabel, setEditingLabel] = useState<string>("");
   const [terminalQuery, setTerminalQuery] = useState("");
   const [filterOutput, setFilterOutput] = useState(false);
+  // Orientation of a split tab: "cols" = side-by-side (border-l between panes),
+  // "rows" = stacked vertically (border-t between panes).
+  const [splitOrientation, setSplitOrientation] = useState<"cols" | "rows">("cols");
   const [transcriptStats, setTranscriptStats] = useState<Record<string, { lineCount: number; matchCount: number | null }>>({});
   const handledRequestIds = useRef<Set<string>>(new Set());
 
@@ -160,6 +163,17 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
       )
     );
   }, [activeTab]);
+
+  // Split (reuses the existing split wiring) and set the pane orientation. When
+  // the tab is already split, splitActiveTab is a no-op so this just flips the
+  // orientation of the two existing panes.
+  const splitInto = useCallback(
+    (orientation: "cols" | "rows") => {
+      setSplitOrientation(orientation);
+      splitActiveTab();
+    },
+    [splitActiveTab],
+  );
 
   const closePane = useCallback(
     (tabId: string, paneId: string) => {
@@ -272,7 +286,7 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [isOpen, onClose, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery]);
 
-  const canSplit = !!activeTab && activeTab.panes.length < 2;
+  const isSplit = !!activeTab && activeTab.panes.length >= 2;
 
   // Drag-to-resize for panel mode. Records the last height seen during
   // the drag so it can be committed on mouseup (closure over React state
@@ -365,25 +379,6 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
           Filter
         </button>
         <button
-          onClick={() => setPlacement(placement === "modal" ? "panel" : "modal")}
-          className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
-          title={placement === "modal" ? "Dock to bottom" : "Expand to full screen"}
-        >
-          {placement === "modal" ? (
-            // Icon: bottom panel — outline rectangle with bottom band
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <rect x="1.5" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M1.5 8h10" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          ) : (
-            // Icon: full-screen — outline rectangle filled
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <rect x="1.5" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M1.5 4h10" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          )}
-        </button>
-        <button
           onClick={onClose}
           className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
           title="Close"
@@ -394,140 +389,178 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
         </button>
       </div>
 
-      {/* ── Body: tab sidebar + terminal area ───────────────────────────────── */}
-      <div className="flex flex-1 min-h-0">
-        {/* Tab sidebar */}
-        <div className="w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col">
-          <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-0.5">
-            <div className="flex items-center gap-1 px-2 mb-1 mt-2">
-              <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest">
-                Sessions
-              </span>
-            </div>
-            {tabs.map((tab) => {
-              const isActive = activeId === tab.id;
-              const isEditing = editingTabId === tab.id;
-              const busy = !isActive && tab.panes.some((p) => p.hasUnseenOutput);
-              return (
-                <div
-                  key={tab.id}
-                  onClick={() => !isEditing && setActiveId(tab.id)}
-                  onDoubleClick={() => startRename(tab)}
-                  className={`group flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] font-medium cursor-pointer transition-colors ${
-                    isActive
-                      ? "bg-white/10 text-zinc-100"
-                      : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]"
-                  }`}
-                >
-                  {busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Activity" />}
-                  {isEditing ? (
-                    <input
-                      autoFocus
-                      value={editingLabel}
-                      onChange={(e) => setEditingLabel(e.target.value)}
-                      onBlur={commitRename}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commitRename();
-                        }
-                        if (e.key === "Escape") {
-                          e.preventDefault();
-                          cancelRename();
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="font-mono flex-1 bg-transparent outline-none border border-white/[0.2] rounded px-1 -mx-1 -my-px text-zinc-100 min-w-0"
-                    />
-                  ) : (
-                    <span className="font-mono truncate flex-1">{tab.label}</span>
-                  )}
-                  <button
-                    onClick={(e) => {
+      {/* ── Body: horizontal tab strip + terminal area ──────────────────────── */}
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* Tab strip */}
+        <div className="flex items-center gap-1 px-2.5 py-[7px] border-b border-subtle shrink-0">
+          {tabs.map((tab) => {
+            const isActive = activeId === tab.id;
+            const isEditing = editingTabId === tab.id;
+            const busy = !isActive && tab.panes.some((p) => p.hasUnseenOutput);
+            return (
+              <div
+                key={tab.id}
+                onClick={() => !isEditing && setActiveId(tab.id)}
+                onDoubleClick={() => startRename(tab)}
+                className={`group flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[11px] cursor-pointer transition-colors ${
+                  isActive
+                    ? "bg-white/[0.08] text-ink"
+                    : "text-ink-2 hover:text-ink hover:bg-white/[0.05]"
+                }`}
+              >
+                {busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Activity" />}
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    value={editingLabel}
+                    onChange={(e) => setEditingLabel(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
                       e.stopPropagation();
-                      closeTab(tab.id);
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitRename();
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        cancelRename();
+                      }
                     }}
-                    className="shrink-0 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Close tab (⌘W)"
-                  >
-                    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                      <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-mono bg-transparent outline-none border border-strong rounded px-1 -my-px text-ink min-w-0 w-[120px]"
+                  />
+                ) : (
+                  <span className="font-mono truncate max-w-[160px]">{tab.label}</span>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                  className="shrink-0 text-ink-3 hover:text-ink opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Close tab (⌘W)"
+                >
+                  <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                    <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
 
-          <div className="shrink-0 mx-2 mb-2 flex gap-1">
+          {/* New tab (⌘T) */}
+          <button
+            onClick={addNewTab}
+            className="shrink-0 flex items-center justify-center w-6 h-6 rounded-[5px] text-ink-3 hover:text-ink hover:bg-white/[0.05] transition-colors"
+            title="New tab (⌘T)"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <path d="M6.5 2v9M2 6.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </button>
+
+          {/* Split + fullscreen controls */}
+          <div className="ml-auto flex items-center gap-3 text-ink-2">
             <button
-              onClick={addNewTab}
-              className="flex-1 flex items-center justify-center gap-1.5 h-7 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors text-[12px] font-medium border border-white/[0.06] hover:border-white/[0.12]"
-              title="New tab (⌘T)"
+              onClick={() => splitInto("cols")}
+              className={`transition-colors hover:text-ink ${isSplit && splitOrientation === "cols" ? "text-ink" : ""}`}
+              title="Split vertically (⌘D)"
             >
-              <span className="text-[14px] leading-none">+</span>
-              <span>New</span>
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                <line x1="7.5" y1="2.5" x2="7.5" y2="12.5" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
             </button>
             <button
-              onClick={splitActiveTab}
-              disabled={!canSplit}
-              className="flex-1 flex items-center justify-center gap-1.5 h-7 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors text-[12px] font-medium border border-white/[0.06] hover:border-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-500 disabled:hover:bg-transparent disabled:hover:border-white/[0.06]"
-              title="Split pane (⌘D)"
+              onClick={() => splitInto("rows")}
+              className={`transition-colors hover:text-ink ${isSplit && splitOrientation === "rows" ? "text-ink" : ""}`}
+              title="Split horizontally"
             >
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <rect x="0.5" y="0.5" width="10" height="10" rx="1" stroke="currentColor" />
-                <line x1="5.5" y1="0.5" x2="5.5" y2="10.5" stroke="currentColor" />
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                <line x1="1.5" y1="7.5" x2="13.5" y2="7.5" stroke="currentColor" strokeWidth="1.2" />
               </svg>
-              <span>Split</span>
+            </button>
+            <button
+              onClick={() => setPlacement(placement === "modal" ? "panel" : "modal")}
+              className="transition-colors hover:text-ink"
+              title={placement === "modal" ? "Dock to bottom" : "Expand to full screen"}
+            >
+              {placement === "modal" ? (
+                // Icon: bottom panel — outline rectangle with bottom band
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                  <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M1.5 9.5h12" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+              ) : (
+                // Icon: fullscreen — four corner arrows
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                  <path d="M2 5.5V2.5h3M13 5.5V2.5h-3M2 9.5v3h3M13 9.5v3h-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
             </button>
           </div>
         </div>
 
-        {/* Main terminal area — all tabs stay mounted; each tab renders 1 or 2 panes side-by-side */}
+        {/* Terminal area — all tabs stay mounted; each tab renders 1 or 2 panes */}
         <div className="flex-1 overflow-hidden relative min-w-0">
           {tabs.map((tab) => {
             const isTabActive = tab.id === activeId && isOpen;
+            const isRows = splitOrientation === "rows";
             return (
               <div
                 key={tab.id}
-                className="absolute inset-0 flex"
+                className={`absolute inset-0 flex ${isRows ? "flex-col" : "flex-row"}`}
                 style={{ display: tab.id === activeId ? "flex" : "none" }}
               >
-                {tab.panes.map((pane, idx) => (
-                  <div
-                    key={pane.id}
-                    className={`group/pane relative flex-1 min-w-0 ${idx > 0 ? "border-l border-white/[0.06]" : ""}`}
-                  >
-                    {tab.panes.length > 1 && (
-                      <button
-                        onClick={() => closePane(tab.id, pane.id)}
-                        className="absolute top-1.5 right-1.5 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
-                        title="Close pane"
-                      >
-                        <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                          <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    )}
-                    <TerminalTab
-                      appId={pane.id}
-                      rootDir={pane.rootDir}
-                      visible={isTabActive}
-                      startupCommand={pane.startupCommand}
-                      searchQuery={terminalQuery}
-                      filterOutput={filterOutput}
-                      onOutput={() => markPaneBusy(tab.id, pane.id)}
-                      onTranscriptStats={(lineCount, matchCount) =>
-                        setTranscriptStats((prev) => {
-                          const current = prev[pane.id];
-                          if (current?.lineCount === lineCount && current?.matchCount === matchCount) return prev;
-                          return { ...prev, [pane.id]: { lineCount, matchCount } };
-                        })
-                      }
-                    />
-                  </div>
-                ))}
+                {tab.panes.map((pane, idx) => {
+                  // Prefer the pane's shell/session label (derived from its
+                  // startup command); fall back to the tab's app name.
+                  const paneShell = pane.startupCommand?.trim().split(/\s+/)[0] || "zsh";
+                  const paneLabel = `${tab.appName} · ${paneShell}`;
+                  const sep = idx > 0 ? (isRows ? "border-t border-subtle" : "border-l border-subtle") : "";
+                  return (
+                    <div
+                      key={pane.id}
+                      className={`group/pane relative flex flex-col flex-1 min-w-0 min-h-0 ${sep}`}
+                    >
+                      {/* Per-pane header: activity dot + shell/session label */}
+                      <div className="flex items-center gap-1.5 px-3 pt-2 mb-[5px] text-[10px] text-zinc-500 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                        <span className="truncate">{paneLabel}</span>
+                      </div>
+                      {tab.panes.length > 1 && (
+                        <button
+                          onClick={() => closePane(tab.id, pane.id)}
+                          className="absolute top-1.5 right-1.5 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
+                          title="Close pane"
+                        >
+                          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                            <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      )}
+                      <div className="relative flex-1 min-h-0">
+                        <TerminalTab
+                          appId={pane.id}
+                          rootDir={pane.rootDir}
+                          visible={isTabActive}
+                          startupCommand={pane.startupCommand}
+                          searchQuery={terminalQuery}
+                          filterOutput={filterOutput}
+                          onOutput={() => markPaneBusy(tab.id, pane.id)}
+                          onTranscriptStats={(lineCount, matchCount) =>
+                            setTranscriptStats((prev) => {
+                              const current = prev[pane.id];
+                              if (current?.lineCount === lineCount && current?.matchCount === matchCount) return prev;
+                              return { ...prev, [pane.id]: { lineCount, matchCount } };
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
