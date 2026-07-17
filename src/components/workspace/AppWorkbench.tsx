@@ -2,20 +2,21 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
-import { isTauri, openExternalUrl, getExtensionsForApp, detectAppTags } from "../../lib/commands";
+import { isTauri, openExternalUrl, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Popover, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalTab from "../terminal/TerminalTab";
 import GitTab from "./GitTab";
 import PublishTab from "./PublishTab";
 import GitBadge from "../app/GitBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
+import RunOnBranchPicker from "./RunOnBranchPicker";
+import { deriveInstanceApp } from "../../lib/instance-app";
 import type { ExtensionInfo } from "../../types/extension";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
 const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
 const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
 const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
-const InstancesModal = lazy(() => import("../app/InstancesModal"));
 type ConfigSection = import("../app/AppSettingsModal").Section;
 type AppInstance = import("../../lib/commands").AppInstance;
 const EMPTY_INSTANCES: AppInstance[] = [];
@@ -161,9 +162,18 @@ function LiveMetrics({ appId, running }: { appId: string; running: boolean }) {
 
 interface Props {
   app: App;
+  // Instance mode: when set, this workbench renders a running worktree instance
+  // (a synthetic app built via deriveInstanceApp). Lifecycle / tunnel / remove
+  // route to the instance actions, the Config + Publish tabs and the Instances
+  // section are hidden (an instance inherits parent config and can't nest), and
+  // the header shows a breadcrumb back to the parent.
+  instance?: AppInstance;
+  parentApp?: App;
+  onExitInstance?: () => void;
 }
 
-export default function AppWorkbench({ app }: Props) {
+export default function AppWorkbench({ app, instance, parentApp, onExitInstance }: Props) {
+  const isInstance = !!instance;
   const [tab, setTab] = useState("overview");
   const [logsSeen, setLogsSeen] = useState(false);
   const [termSeen, setTermSeen] = useState(false);
@@ -182,9 +192,13 @@ export default function AppWorkbench({ app }: Props) {
   // while the start/stop/restart round-trip is pending.
   const [busy, setBusy] = useState<null | "start" | "stop" | "restart">(null);
   // Worktree instances (mockup 26) — the Overview "Instances" section lists the
-  // primary checkout + each branch instance; the "＋ New from branch" affordance
-  // opens this modal, which carries the run-on-branch picker.
-  const [instancesOpen, setInstancesOpen] = useState(false);
+  // primary checkout + each branch instance. "＋ New from branch" reveals the
+  // inline RunOnBranchPicker; clicking an instance opens it as its own workbench
+  // (openInstanceId), giving it the full parent tab/action set.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [openInstanceId, setOpenInstanceId] = useState<string | null>(null);
+  // Instance-mode tunnel toggle (start/stop the worktree instance's tunnel).
+  const [tunnelBusy, setTunnelBusy] = useState(false);
 
   const {
     startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting,
@@ -211,7 +225,15 @@ export default function AppWorkbench({ app }: Props) {
       extSidebarActive: s.extensionSidebar?.appId === app.id,
     }))
   );
-  useEffect(() => { void refreshInstances(app.id); }, [app.id, refreshInstances]);
+  // Only the parent workbench tracks instances — an instance can't nest.
+  useEffect(() => { if (!isInstance) void refreshInstances(app.id); }, [app.id, refreshInstances, isInstance]);
+
+  // The instance currently opened as its own workbench (looked up live from the
+  // store list so its status/tunnel stay fresh). Reset if it's removed.
+  const openInst = openInstanceId ? instances.find((i) => i.id === openInstanceId) ?? null : null;
+  useEffect(() => {
+    if (openInstanceId && !instances.some((i) => i.id === openInstanceId)) setOpenInstanceId(null);
+  }, [openInstanceId, instances]);
 
   // Extensions matching this app (mockup: the workbench is the app's home, so
   // the card's extension affordances must live here too — otherwise opening an
@@ -277,6 +299,35 @@ export default function AppWorkbench({ app }: Props) {
     }
   }
 
+  // Lifecycle wiring — in instance mode these route to the instance actions
+  // (start = run the worktree, restart = stop then run) instead of the app ones,
+  // so the shared header buttons drive the right backend for either surface.
+  const startFn = isInstance
+    ? () => runInstance(parentApp!.id, instance!.worktree_path)
+    : () => startApp(app.id);
+  const stopFn = isInstance
+    ? () => stopInstanceAction(instance!.id, parentApp!.id)
+    : () => stopApp(app.id);
+  const restartFn = isInstance
+    ? async () => {
+        await stopInstanceAction(instance!.id, parentApp!.id);
+        await runInstance(parentApp!.id, instance!.worktree_path);
+      }
+    : () => restartApp(app.id);
+  // Instance restart has no store `appRestarting` flag; the local `busy` covers it.
+  const restartLoading = busy === "restart" || (!isInstance && restarting);
+
+  async function toggleInstanceTunnel() {
+    if (!instance) return;
+    setTunnelBusy(true);
+    try {
+      if (app.tunnel_active) await stopInstanceTunnel(instance.id);
+      else await startInstanceTunnel(instance.id);
+    } finally {
+      setTunnelBusy(false);
+    }
+  }
+
   function select(id: string) {
     setTab(id);
     if (id === "logs") setLogsSeen(true);
@@ -302,13 +353,47 @@ export default function AppWorkbench({ app }: Props) {
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v5.5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg> },
   ];
 
+  // Instance mode hides the parent-only tabs: Config (an instance inherits the
+  // parent's config) and Publish (the instance tunnel toggle lives in the header).
+  const visibleTabs = isInstance ? TABS.filter((t) => t.id !== "config" && t.id !== "publish") : TABS;
+
+  // An instance opened from the Instances section renders as its own workbench —
+  // the same component, so it inherits every tab/action, with lifecycle/tunnel
+  // routed to the instance backend and a breadcrumb back to the parent.
+  if (openInst) {
+    return (
+      <AppWorkbench
+        app={deriveInstanceApp(app, openInst)}
+        instance={openInst}
+        parentApp={app}
+        onExitInstance={() => setOpenInstanceId(null)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-subtle">
+        {isInstance && (
+          // Breadcrumb back to the parent app's workbench.
+          <button
+            onClick={onExitInstance}
+            title={`Back to ${parentApp?.name ?? "app"}`}
+            className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink shrink-0 -ml-1 pr-1 transition-colors"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <span className="truncate max-w-[10rem]">{parentApp?.name}</span>
+            <span className="text-ink-3">/</span>
+          </button>
+        )}
         <span className="w-[26px] h-[26px] rounded-[7px] bg-surface-2 text-accent flex items-center justify-center shrink-0">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 8l1.6 1.6L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          {isInstance ? (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 8l1.6 1.6L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          )}
         </span>
-        <span className="text-[16px] font-semibold text-ink">{app.name}</span>
+        <span className="text-[16px] font-semibold text-ink">{isInstance ? instance!.branch : app.name}</span>
         <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
         {running && health === "healthy" && (
           <Badge tone="ok"><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="inline-block -mt-px mr-0.5"><path d="M8 14s-5.5-3.5-5.5-7.2A3 3 0 018 5.2 3 3 0 0113.5 6.8C13.5 10.5 8 14 8 14z"/></svg>healthy</Badge>
@@ -336,11 +421,11 @@ export default function AppWorkbench({ app }: Props) {
                   Restart the lighter subtle border — per mockup 05, neither is red.
                   Restart keeps spinning off the store `restarting` flag (cleared on
                   app:ready), not the local `busy` flag which clears too early. */}
-              <Button variant="secondary" loading={busy === "stop"} disabled={busy === "stop"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", () => stopApp(app.id))}>Stop</Button>
-              <Button variant="ghost" className="border border-subtle" loading={busy === "restart" || restarting} disabled={busy === "restart" || restarting} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", () => restartApp(app.id))}>{restarting || busy === "restart" ? "Restarting" : "Restart"}</Button>
+              <Button variant="secondary" loading={busy === "stop"} disabled={busy === "stop"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", stopFn)}>Stop</Button>
+              <Button variant="ghost" className="border border-subtle" loading={restartLoading} disabled={restartLoading} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", restartFn)}>{restartLoading ? "Restarting" : "Restart"}</Button>
             </>
           ) : (
-            <Button variant="accent" loading={busy === "start"} disabled={busy === "start"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", () => startApp(app.id))}>Start</Button>
+            <Button variant="accent" loading={busy === "start"} disabled={busy === "start"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", startFn)}>Start</Button>
           )}
           {/* Thin divider separates lifecycle actions from the Open action (mockup 05). */}
           <span className="w-px h-5 self-center bg-[var(--border-subtle)] mx-0.5" aria-hidden />
@@ -436,14 +521,19 @@ export default function AppWorkbench({ app }: Props) {
               </div>
             )}
 
-            <div className="h-px bg-[var(--border-subtle)] mx-1.5 my-1" aria-hidden />
-            <button
-              onClick={() => { setOpenMenu(false); openConfig("domain"); }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] text-ink-2 rounded-control hover:bg-white/[0.03] hover:text-ink transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-              Manage domains &amp; tunnel
-            </button>
+            {/* Config-based manage link — parent only (an instance inherits it). */}
+            {!isInstance && (
+              <>
+                <div className="h-px bg-[var(--border-subtle)] mx-1.5 my-1" aria-hidden />
+                <button
+                  onClick={() => { setOpenMenu(false); openConfig("domain"); }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] text-ink-2 rounded-control hover:bg-white/[0.03] hover:text-ink transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                  Manage domains &amp; tunnel
+                </button>
+              </>
+            )}
           </Popover>
           {/* Extensions toggle (restored from the card): opens the global
               extension sidebar for this app. One match → focus it directly. */}
@@ -463,13 +553,41 @@ export default function AppWorkbench({ app }: Props) {
               {appExtensions.length > 1 && <span className="text-[10px] font-medium ml-0.5">{appExtensions.length}</span>}
             </Button>
           )}
-          <Button variant="ghost" onClick={() => openConfig()} title="App settings" aria-label="More">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/></svg>
-          </Button>
+          {isInstance ? (
+            <>
+              {/* Instance tunnel toggle — the per-instance equivalent of the
+                  parent's Publish tab. */}
+              <Button
+                variant="ghost"
+                className={`border border-subtle ${app.tunnel_active ? "text-ok" : ""}`}
+                loading={tunnelBusy}
+                disabled={tunnelBusy}
+                onClick={() => void toggleInstanceTunnel()}
+                title={app.tunnel_active ? "Stop tunnel" : "Start tunnel"}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="mr-1"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg>
+                {app.tunnel_active ? "Tunnel on" : "Tunnel"}
+              </Button>
+              {/* Remove this instance (deletes its worktree). */}
+              <Button
+                variant="ghost"
+                onClick={() => { void removeInstanceAction(instance!.id, parentApp!.id); onExitInstance?.(); }}
+                title="Remove instance"
+                aria-label="Remove instance"
+                className="hover:text-bad"
+              >
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6.5 4.5V3.2A.7.7 0 0 1 7.2 2.5h1.6a.7.7 0 0 1 .7.7v1.3M5 4.5l.5 8a1 1 0 0 0 1 .9h3a1 1 0 0 0 1-.9l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" onClick={() => openConfig()} title="App settings" aria-label="More">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/></svg>
+            </Button>
+          )}
         </div>
       </div>
 
-      <Tabs tabs={TABS} active={tab} onSelect={select} />
+      <Tabs tabs={visibleTabs} active={tab} onSelect={select} />
 
       <div className="flex-1 min-h-0">
         <div hidden={tab !== "overview"} className="h-full overflow-y-auto px-6 py-5">
@@ -568,9 +686,10 @@ export default function AppWorkbench({ app }: Props) {
             )}
 
             {/* Instances (mockup 26) — the primary checkout plus each git-worktree
-                branch instance, each with its own port/URL. The "＋ New from branch"
-                affordance opens the InstancesModal (run-on-branch picker) and stays
-                visible even at zero instances so it's discoverable. */}
+                branch instance. "＋ New from branch" reveals the inline picker;
+                clicking an instance row opens it as its own workbench (full parent
+                tab/action set). Parent workbench only — an instance can't nest. */}
+            {!isInstance && (
             <section>
               <div className="flex items-center gap-2 mb-2 px-0.5">
                 <span className="text-accent inline-flex items-center" aria-hidden>
@@ -579,7 +698,8 @@ export default function AppWorkbench({ app }: Props) {
                 <span className="text-[13px] font-medium text-ink">Instances</span>
                 <span className="text-[11px] text-ink-3">· {runningCount} running</span>
                 <button
-                  onClick={() => setInstancesOpen(true)}
+                  onClick={() => setPickerOpen((v) => !v)}
+                  aria-expanded={pickerOpen}
                   className="ml-auto text-[11px] text-accent-ink inline-flex items-center gap-1 hover:brightness-110 transition-[filter]"
                 >
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
@@ -587,8 +707,15 @@ export default function AppWorkbench({ app }: Props) {
                 </button>
               </div>
 
+              {/* Inline run-on-branch picker (replaces the old modal). */}
+              {pickerOpen && (
+                <div className="mb-2">
+                  <RunOnBranchPicker app={app} instances={instances} onClose={() => setPickerOpen(false)} />
+                </div>
+              )}
+
               <div className="space-y-1.5">
-                {/* Primary/main checkout row. */}
+                {/* Primary/main checkout row — the app itself; not navigable. */}
                 <div className="flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2">
                   <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${running ? "bg-ok" : "bg-ink-3"}`} aria-hidden />
                   <span className="text-[13px] text-ink">{branch || "main"}</span>
@@ -598,26 +725,32 @@ export default function AppWorkbench({ app }: Props) {
                   <span className="ml-auto text-[11px] text-ink-2 shrink-0">primary</span>
                 </div>
 
-                {/* One row per worktree instance. */}
+                {/* One row per worktree instance — click to open its workbench. */}
                 {instances.map((inst) => {
                   const isRunning = inst.status === "running";
                   const instUrl = inst.tunnel_active && inst.tunnel_url
                     ? inst.tunnel_url
                     : `https://${inst.subdomain}.test`;
                   return (
-                    <div key={inst.id} className="flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2">
+                    <div key={inst.id} className="group flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2 hover:border-strong hover:bg-white/[0.02] transition-colors">
                       <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${isRunning ? "bg-ok" : "bg-ink-3"}`} aria-hidden />
-                      <span className="text-[13px] text-ink inline-flex items-center gap-1.5 min-w-0">
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="text-ink-3 shrink-0"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                        <span className="truncate">{inst.branch}</span>
-                      </span>
-                      <span className="text-[11px] text-ink-3 font-mono truncate">
-                        :{inst.port} · {isRunning ? `${inst.subdomain}.test` : "stopped"}
-                      </span>
+                      <button
+                        onClick={() => setOpenInstanceId(inst.id)}
+                        title="Open instance workbench"
+                        className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+                      >
+                        <span className="text-[13px] text-ink inline-flex items-center gap-1.5 min-w-0">
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="text-ink-3 shrink-0"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                          <span className="truncate">{inst.branch}</span>
+                        </span>
+                        <span className="text-[11px] text-ink-3 font-mono truncate">
+                          :{inst.port} · {isRunning ? `${inst.subdomain}.test` : "stopped"}
+                        </span>
+                      </button>
                       <span className="ml-auto flex items-center gap-1.5 text-ink-3 shrink-0">
                         {isRunning ? (
                           <>
-                            <button onClick={() => openExternalUrl(instUrl)} title="Open instance" aria-label="Open instance" className="hover:text-accent transition-colors">
+                            <button onClick={() => openExternalUrl(instUrl)} title="Open in browser" aria-label="Open in browser" className="hover:text-accent transition-colors">
                               <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                             </button>
                             <button onClick={() => void stopInstanceAction(inst.id, app.id)} title="Stop instance" aria-label="Stop instance" className="hover:text-ink transition-colors">
@@ -634,6 +767,11 @@ export default function AppWorkbench({ app }: Props) {
                             </button>
                           </>
                         )}
+                        {/* Open-workbench chevron — the row's primary navigation. */}
+                        <span className="w-px h-4 bg-[var(--border-subtle)]" aria-hidden />
+                        <button onClick={() => setOpenInstanceId(inst.id)} title="Open instance workbench" aria-label="Open instance workbench" className="text-ink-3 group-hover:text-ink transition-colors">
+                          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        </button>
                       </span>
                     </div>
                   );
@@ -646,6 +784,7 @@ export default function AppWorkbench({ app }: Props) {
                 )}
               </div>
             </section>
+            )}
           </div>
         </div>
 
@@ -716,16 +855,6 @@ export default function AppWorkbench({ app }: Props) {
         </Suspense>
       )}
 
-      {instancesOpen && (
-        <Suspense fallback={null}>
-          <InstancesModal
-            app={app}
-            workspace={workspaces.find((w) => w.id === app.workspace_id) ?? null}
-            instances={instances}
-            onClose={() => setInstancesOpen(false)}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

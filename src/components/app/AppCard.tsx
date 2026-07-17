@@ -26,7 +26,6 @@ import AppDiskBadge from "./AppDiskBadge";
 import GitBadge from "./GitBadge";
 import { yieldToFrame } from "../../lib/ui";
 import { deriveInstanceApp } from "../../lib/instance-app";
-import InstancesModal from "./InstancesModal";
 
 // Stable empty reference — mirrors GitBadge's own module-level const (not
 // exported from there). Returning `?? []` straight from a Zustand selector
@@ -151,9 +150,11 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
     if (isRestarting || isRunning || app.status === "stopped") setPendingRestart(false);
   }, [isRestarting, isRunning, app.status]);
 
-  const [instancesModalOpen, setInstancesModalOpen] = useState(false);
   const [instancesExpanded, setInstancesExpanded] = useState(true);
   const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
+  // Instances now live in the app workbench (Overview → Instances). Opening the
+  // app selects it so the workbench takes over — replaces the old modal.
+  const selectApp = usePortaStore((s) => s.selectApp);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
@@ -925,7 +926,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 ))}
                 {appInstances.length > 3 && (
                   <button
-                    onClick={() => setInstancesModalOpen(true)}
+                    onClick={() => selectApp(app.id)}
                     className="self-start text-[10px] text-zinc-400 hover:text-zinc-200"
                   >
                     View all ({appInstances.length})
@@ -936,16 +937,6 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           </div>
         </div>
       )}
-      {instancesModalOpen && (
-        <InstancesModal
-          app={app}
-          workspace={workspace}
-          instances={appInstances}
-          onOpenTerminal={onOpenTerminal}
-          onClose={() => setInstancesModalOpen(false)}
-        />
-      )}
-
       {/* ── Overlays ── */}
       {contextMenu && (
         <AppContextMenu
