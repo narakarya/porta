@@ -174,7 +174,7 @@ export default function SettingsPage({ onBack }: Props) {
   }, [activeSection]);
 
   return (
-    <div className="flex h-screen bg-[#111113] text-zinc-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-[#0d0d0f] text-zinc-100 font-sans overflow-hidden">
       {/* Drag region */}
       <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
 

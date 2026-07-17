@@ -37,9 +37,9 @@ export default function Layout({ children, onOpenSettings }: Props) {
   }, [toggleDrawer]);
 
   return (
-    <div className="flex flex-1 min-w-0 bg-[#111113] text-zinc-100 font-sans overflow-hidden">
+    <div className="flex flex-1 min-w-0 bg-[#0d0d0f] text-zinc-100 font-sans overflow-hidden">
       {/* Title bar — spans the content area to the right of the rail (+ sidebar in workspaces) */}
-      <div className={`drag-region fixed top-0 ${showSidebar ? "left-[270px]" : "left-[54px]"} right-0 h-11 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]`}>
+      <div className={`drag-region fixed top-0 ${showSidebar ? "left-[270px]" : "left-[54px]"} right-0 h-11 z-10 flex items-center bg-[#0d0d0f]/70 backdrop-blur-md border-b border-white/[0.03]`}>
         {/* Search trigger — wider */}
         <button
           onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}

@@ -7,7 +7,7 @@
    these vars (and the primitives in src/components/ui/), not every file.
    Values mirror the current look so adopting them is non-breaking. */
 :root {
-  --surface-0: #111113;   /* page */
+  --surface-0: #0d0d0f;   /* page */
   --surface-1: #151517;   /* raised / rail */
   --surface-2: #1a1a1c;   /* panel / popover / modal */
   --surface-input: #111113;
@@ -45,7 +45,7 @@
   }
 
   body {
-    @apply bg-[#111113] text-zinc-100 select-none overflow-hidden;
+    @apply bg-[#0d0d0f] text-zinc-100 select-none overflow-hidden;
     font-size: 13px;
   }
 

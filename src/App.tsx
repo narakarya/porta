@@ -190,7 +190,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ExtensionHostProvider>
-      <div className="flex h-screen bg-[#111113] text-zinc-100 font-sans overflow-hidden">
+      <div className="flex h-screen bg-[#0d0d0f] text-zinc-100 font-sans overflow-hidden">
         {/* Persistent domain rail — visible across main and settings */}
         <GlobalRail
           onOpenSettings={() => setPage("settings")}
