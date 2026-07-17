@@ -109,6 +109,12 @@ export interface UiSlice {
   resourceDrawerOpen: boolean;
   /** Which top-level surface the main content area renders. */
   activeDomain: "workspaces" | "hosts" | "activity" | "extensions";
+  /** App opened in the Workspaces workbench (null = app list). */
+  selectedAppId: string | null;
+  selectApp: (id: string | null) => void;
+  /** App whose settings modal is open (null = closed). */
+  settingsAppId: string | null;
+  openAppSettings: (id: string | null) => void;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -167,6 +173,8 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   extensionListVersion: 0,
   resourceDrawerOpen: false,
   activeDomain: "workspaces",
+  selectedAppId: null,
+  settingsAppId: null,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -228,4 +236,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   bumpExtensionList: () => set((s) => ({ extensionListVersion: s.extensionListVersion + 1 })),
 
   setActiveDomain: (v) => set({ activeDomain: v }),
+  selectApp: (id) => set({ selectedAppId: id }),
+  openAppSettings: (id) => set({ settingsAppId: id }),
 });

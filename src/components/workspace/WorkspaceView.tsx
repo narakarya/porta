@@ -36,6 +36,9 @@ export default function WorkspaceView() {
   const sshHosts = usePortaStore((s) => s.sshHosts);
   const connectOrFocusSsh = usePortaStore((s) => s.connectOrFocusSsh);
   const setActiveDomain = usePortaStore((s) => s.setActiveDomain);
+  const selectApp = usePortaStore((s) => s.selectApp);
+  const settingsAppId = usePortaStore((s) => s.settingsAppId);
+  const openAppSettings = usePortaStore((s) => s.openAppSettings);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
@@ -104,7 +107,6 @@ export default function WorkspaceView() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  const [settingsApp, setSettingsApp] = useState<App | null>(null);
   const [savedToast, setSavedToast] = useState(false);
   const [activeTerminalAppId, setActiveTerminalAppId] = useState<string | null>(null);
   // Track which apps have ever opened a terminal so their modal stays mounted (preserves PTY sessions)
@@ -126,7 +128,8 @@ export default function WorkspaceView() {
 
   // Stable refs for AppCard callbacks so React.memo can skip re-renders
   // when a card's props haven't actually changed.
-  const handleOpenSettings = useCallback((app: App) => setSettingsApp(app), []);
+  // Clicking an app opens it in the workbench (settings is reachable from there).
+  const handleOpenSettings = useCallback((app: App) => selectApp(app.id), [selectApp]);
 
   // Handle a dropped folder path: detect start command and open AddAppModal pre-filled
   const handleFolderDrop = useCallback(async (folderPath: string) => {
@@ -237,8 +240,8 @@ export default function WorkspaceView() {
 
   // Keep settingsApp in sync with latest store data so the modal sees fresh
   // values (tunnel URL arrives async, status flips, metrics update, etc.).
-  const liveSettingsApp = settingsApp
-    ? (apps.find((a) => a.id === settingsApp.id) ?? settingsApp)
+  const liveSettingsApp = settingsAppId
+    ? (apps.find((a) => a.id === settingsAppId) ?? null)
     : null;
 
   // Terminal modals are keyed by app.id, but a sub-instance's terminal is
@@ -581,7 +584,7 @@ export default function WorkspaceView() {
               <AppSettingsModal
                 app={liveSettingsApp}
                 workspace={workspace}
-                onClose={() => setSettingsApp(null)}
+                onClose={() => openAppSettings(null)}
                 onSaved={() => {
                   // Keep the modal open after save — the user often tweaks
                   // multiple settings in one session, and auto-closing forces

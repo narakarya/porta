@@ -9,6 +9,7 @@ import { isTauri } from "./lib/commands";
 import Layout from "./components/layout/Layout";
 import GlobalRail from "./components/layout/GlobalRail";
 import WorkspaceView from "./components/workspace/WorkspaceView";
+import AppWorkbench from "./components/workspace/AppWorkbench";
 import HostsView from "./components/ssh/HostsView";
 import ActivityView from "./components/activity/ActivityView";
 import ExtensionsView from "./components/extension/ExtensionsView";
@@ -35,6 +36,11 @@ export default function App() {
   );
   const setupStatus = usePortaStore((s) => s.setupStatus);
   const activeDomain = usePortaStore((s) => s.activeDomain);
+  const selectedAppId = usePortaStore((s) => s.selectedAppId);
+  const apps = usePortaStore((s) => s.apps);
+  const selectApp = usePortaStore((s) => s.selectApp);
+  const openAppSettings = usePortaStore((s) => s.openAppSettings);
+  const selectedApp = selectedAppId ? (apps.find((a) => a.id === selectedAppId) ?? null) : null;
   const [page, setPage] = useState<Page>("main");
   // A sidebar/deep-link request to open a specific Settings section also opens
   // the Settings page. SettingsPage consumes the section and clears it.
@@ -188,6 +194,9 @@ export default function App() {
                   doesn't unmount SshTerminal (disposing xterm / dropping listeners)
                   or re-hydrate the workspace subscriptions. */}
               <div hidden={activeDomain !== "workspaces"}>
+                {/* WorkspaceView stays mounted (its modals + subscriptions) even when
+                    an app is open in the workbench — toggle with `hidden`. */}
+                <div hidden={!!selectedApp}>
                 {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
                 {showCaddyBanner && (
               <div className="flex items-center gap-2.5 px-3 py-2 mb-4 bg-amber-500/10 border border-amber-500/25 rounded-lg">
@@ -211,6 +220,14 @@ export default function App() {
               </div>
             )}
                 <WorkspaceView />
+                </div>
+                {selectedApp && (
+                  <AppWorkbench
+                    app={selectedApp}
+                    onBack={() => selectApp(null)}
+                    onOpenSettings={(a) => openAppSettings(a.id)}
+                  />
+                )}
               </div>
               <div hidden={activeDomain !== "hosts"}>
                 <HostsView />
