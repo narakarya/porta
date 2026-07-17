@@ -51,7 +51,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [wsExpanded, setWsExpanded] = useState(true);
+  const [wsExpanded] = useState(true);
   const [otherExpanded, setOtherExpanded] = useState(true);
   // Per-workspace collapse of the app sub-list (Shell C: apps live under each
   // workspace header in this column). Holds the ids that are collapsed.
@@ -207,8 +207,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               key={a.id}
               onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
               title={`${a.name} · :${a.port}`}
-              className={`group flex items-center gap-2 pl-6 pr-2 py-1 rounded-[6px] text-[12.5px] w-full text-left transition-colors ${
-                on ? "bg-white/10 text-zinc-100" : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+              className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-colors ${
+                on ? "bg-accent-bg text-zinc-100" : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
@@ -223,40 +223,25 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
   return (
     <aside className="w-[216px] bg-[#0d0d0f] border-r border-white/[0.07] flex flex-col pb-2 shrink-0">
-      <div className="drag-region px-3.5 pt-3 pb-2 shrink-0">
-        <div className="no-drag text-[15px] font-semibold text-zinc-100 leading-tight">Workspaces</div>
-        <div className="no-drag text-[11px] text-zinc-500 mt-0.5">
-          {runningTotal} running{updatesTotal > 0 ? ` · ${updatesTotal} update${updatesTotal > 1 ? "s" : ""}` : ""}
+      <div className="drag-region px-3.5 pt-3 pb-2 shrink-0 flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="no-drag text-[15px] font-semibold text-zinc-100 leading-tight">Workspaces</div>
+          <div className="no-drag text-[11px] text-zinc-500 mt-0.5">
+            {runningTotal} running{updatesTotal > 0 ? ` · ${updatesTotal} update${updatesTotal > 1 ? "s" : ""}` : ""}
+          </div>
         </div>
-      </div>
-      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
-        <div className="flex items-center gap-1 px-2 mb-1 mt-1">
+        <Tooltip label="New Workspace" side="left">
           <button
-            onClick={() => setWsExpanded(!wsExpanded)}
-            className="flex items-center gap-1 group/hdr flex-1"
+            onClick={() => setShowAddWs(true)}
+            className="no-drag text-zinc-600 hover:text-zinc-300 transition-colors p-1 -mr-1 mt-0.5 rounded"
           >
-            <svg
-              width="8" height="8" viewBox="0 0 8 8" fill="none"
-              className={`text-zinc-600 transition-transform duration-150 ${wsExpanded ? "rotate-90" : ""}`}
-            >
-              <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg width="12" height="12" viewBox="0 0 10 10" fill="none">
+              <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest group-hover/hdr:text-zinc-400 transition-colors">
-              Workspaces
-            </span>
           </button>
-          <Tooltip label="New Workspace" side="left">
-            <button
-              onClick={() => setShowAddWs(true)}
-              className="text-zinc-600 hover:text-zinc-300 transition-colors p-0.5 rounded"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </button>
-          </Tooltip>
-        </div>
-
+        </Tooltip>
+      </div>
+      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag pt-1">
         {wsExpanded && (
           <div
             ref={wsListRef}
@@ -288,25 +273,20 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                     onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); } }}
                     onContextMenu={(e) => handleRightClick(e, w)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
-                      isSelected
-                        ? "bg-white/10 text-zinc-100"
-                        : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+                    className={`flex items-center gap-1 px-1.5 py-1 mt-1.5 rounded-[6px] text-[10.5px] font-semibold uppercase tracking-wide w-full text-left select-none cursor-grab transition-colors ${
+                      isSelected ? "text-zinc-300" : "text-zinc-500 hover:text-zinc-300"
                     }`}
                   >
                     <button
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => { e.stopPropagation(); toggleWsCollapse(w.id); }}
-                      className="shrink-0 -ml-1 p-0.5 text-zinc-600 hover:text-zinc-300"
+                      className="shrink-0 p-0.5 text-zinc-600 hover:text-zinc-300"
                       title={collapsedWs.has(w.id) ? "Expand" : "Collapse"}
                     >
                       <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className={`transition-transform duration-150 ${collapsedWs.has(w.id) ? "" : "rotate-90"}`}>
                         <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </button>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
-                      count > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
-                    }`} />
                     <span className="flex-1 truncate">{w.name}</span>
                     {updCount > 0 && (
                       <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
