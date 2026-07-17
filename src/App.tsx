@@ -19,6 +19,7 @@ import UpdateToast from "./components/layout/UpdateToast";
 import ErrorBoundary from "./components/layout/ErrorBoundary";
 import HelpModal from "./components/layout/HelpModal";
 import { ExtensionHostProvider } from "./components/extension/ExtensionHostManager";
+import UiGallery from "./components/ui/UiGallery";
 
 type Page = "main" | "settings";
 
@@ -160,6 +161,11 @@ export default function App() {
   useEffect(() => {
     if (page === "settings") setSettingsVisited(true);
   }, [page]);
+
+  // Dev-only: `#gallery` renders the UI primitive gallery in isolation.
+  if (typeof window !== "undefined" && window.location.hash === "#gallery") {
+    return <UiGallery />;
+  }
 
   return (
     <ErrorBoundary>

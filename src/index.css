@@ -2,6 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design tokens (Porta dark) ──────────────────────────────────────────
+   Single source of truth for surfaces/text/status/radius. A redesign changes
+   these vars (and the primitives in src/components/ui/), not every file.
+   Values mirror the current look so adopting them is non-breaking. */
+:root {
+  --surface-0: #111113;   /* page */
+  --surface-1: #151517;   /* raised / rail */
+  --surface-2: #1a1a1c;   /* panel / popover / modal */
+  --surface-input: #111113;
+  --surface-code: #0d0d0f;
+
+  --ink-1: #f4f4f5;       /* primary text */
+  --ink-2: #a1a1aa;       /* secondary */
+  --ink-3: #71717a;       /* muted / placeholder */
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  --accent: #3b82f6;
+  --accent-ink: #93c5fd;
+  --accent-bg: rgba(59, 130, 246, 0.15);
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.15);
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.15);
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.15);
+
+  --radius-control: 6px;
+  --radius: 8px;
+  --radius-card: 12px;
+
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+}
+
 @layer base {
   * {
     -webkit-font-smoothing: antialiased;

@@ -6,6 +6,38 @@ export default {
       fontFamily: {
         sans: ["-apple-system", "BlinkMacSystemFont", "SF Pro Text", "SF Pro Display", "system-ui", "sans-serif"],
       },
+      // Semantic design tokens → utilities. Values resolve to CSS vars in
+      // src/index.css (:root), so a re-theme = edit the vars, not components.
+      colors: {
+        surface: {
+          0: "var(--surface-0)",
+          1: "var(--surface-1)",
+          2: "var(--surface-2)",
+          input: "var(--surface-input)",
+          code: "var(--surface-code)",
+        },
+        ink: {
+          DEFAULT: "var(--ink-1)",
+          2: "var(--ink-2)",
+          3: "var(--ink-3)",
+        },
+        accent: { DEFAULT: "var(--accent)", ink: "var(--accent-ink)", bg: "var(--accent-bg)" },
+        ok: { DEFAULT: "var(--success)", bg: "var(--success-bg)" },
+        warn: { DEFAULT: "var(--warning)", bg: "var(--warning-bg)" },
+        bad: { DEFAULT: "var(--danger)", bg: "var(--danger-bg)" },
+      },
+      borderColor: {
+        subtle: "var(--border-subtle)",
+        strong: "var(--border-strong)",
+      },
+      borderRadius: {
+        control: "var(--radius-control)",
+        card: "var(--radius-card)",
+      },
+      transitionDuration: {
+        fast: "var(--dur-fast)",
+        base: "var(--dur-base)",
+      },
       keyframes: {
         // Directional git-op loading cues: the icon "pulls" downward / "pushes"
         // upward on a loop while the op runs.
