@@ -20,7 +20,7 @@ export default function EnvironmentSection() {
           <button
             type="button"
             onClick={() => c.selectProfile(null)}
-            className={`px-3 py-1 rounded-control text-[12px] font-medium transition-colors ${c.activeProfileId === null ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"}`}
+            className={`px-3 py-1 rounded-control text-[12px] font-medium transition-colors border ${c.activeProfileId === null ? "bg-accent-bg text-accent-ink border-transparent" : "text-ink-2 border-subtle hover:bg-surface-1 hover:text-ink"}`}
           >
             Default
           </button>
@@ -46,7 +46,7 @@ export default function EnvironmentSection() {
             return (
               <span
                 key={p.id}
-                className={`inline-flex items-center rounded-control text-[12px] font-medium transition-colors ${active ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"}`}
+                className={`inline-flex items-center rounded-control text-[12px] font-medium transition-colors border ${active ? "bg-accent-bg text-accent-ink border-transparent" : "text-ink-2 border-subtle hover:bg-surface-1 hover:text-ink"}`}
               >
                 <button
                   type="button"

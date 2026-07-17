@@ -162,8 +162,7 @@ export default function TunnelingSection() {
                     setTimeout(() => c.setTunnelUrlCopied(false), 1500);
                   });
                 }}
-                className="text-[10px] font-medium shrink-0 transition-colors"
-                style={{ color: c.tunnelUrlCopied ? "#a3e635" : undefined }}
+                className={`text-[10px] font-medium shrink-0 transition-colors ${c.tunnelUrlCopied ? "text-ok" : ""}`}
               >
                 {c.tunnelUrlCopied ? "Copied!" : "Copy"}
               </button>
@@ -585,8 +584,9 @@ export default function TunnelingSection() {
                   setTimeout(() => c.setTunnelErrorCopied(false), 1500);
                 });
               }}
-              className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded bg-[rgba(248,113,113,0.22)] hover:bg-[rgba(248,113,113,0.32)] text-bad transition-colors"
-              style={{ color: c.tunnelErrorCopied ? "#a3e635" : undefined }}
+              className={`absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded transition-colors ${
+                c.tunnelErrorCopied ? "bg-ok-bg text-ok" : "bg-[rgba(248,113,113,0.22)] hover:bg-[rgba(248,113,113,0.32)] text-bad"
+              }`}
             >
               {c.tunnelErrorCopied ? "Copied!" : "Copy"}
             </button>

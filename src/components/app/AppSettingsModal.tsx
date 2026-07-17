@@ -125,10 +125,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 onClick={() => setSection(id)}
                 className={`flex items-center px-2 py-[5px] rounded-control text-[13px] w-full text-left transition-all duration-100 ${
                   active
-                    ? id === "danger" ? "bg-bad-bg text-bad" : "bg-accent-bg text-accent-ink"
+                    ? id === "danger" ? "bg-bad-bg text-bad" : "bg-accent-bg text-ink"
                     : id === "danger"
                     ? "text-bad hover:bg-bad-bg"
-                    : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"
+                    : "text-ink-2 hover:bg-surface-1 hover:text-ink"
                 }`}
               >
                 {label}
