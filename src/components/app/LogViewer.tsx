@@ -33,6 +33,9 @@ interface Props {
   exitCode?: number | null;
   onClose: () => void;
   onClear: () => void;
+  /** Render inline (fill parent) instead of as a full-screen overlay — used
+   *  when the viewer is a workbench tab rather than a modal takeover. */
+  embedded?: boolean;
 }
 
 // ── ANSI stripping ─────────────────────────────────────────────────────────────
@@ -312,7 +315,7 @@ const LogLine = memo(function LogLine({
 });
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function LogViewer({ appId, appName, appKind, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear }: Props) {
+export default function LogViewer({ appId, appName, appKind, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear, embedded = false }: Props) {
   const isContainerSource = appKind === "docker" || appKind === "compose";
 
   const [query, setQuery] = useState("");
@@ -766,7 +769,9 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   }
 
   return (
-    <div className="fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden">
+    <div className={embedded
+      ? "h-full w-full flex flex-col overflow-hidden bg-surface-0"
+      : "fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden"}>
       <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-[11px] text-emerald-400 shadow-lg transition-all duration-200 pointer-events-none ${copiedToast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}>
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -947,7 +952,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           Clear
         </button>
 
-        <button
+        {!embedded && <button
           onClick={onClose}
           className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
           title="Close (Esc)"
@@ -955,7 +960,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
             <path d="M2 2l9 9M11 2L2 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
-        </button>
+        </button>}
       </div>
 
       <div className="flex-1 flex min-h-0">

@@ -191,6 +191,7 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
           <div hidden={tab !== "logs"} className="h-full">
             <Suspense fallback={null}>
               <LogViewer
+                embedded
                 appId={app.id}
                 appName={app.name}
                 appKind={app.kind}
