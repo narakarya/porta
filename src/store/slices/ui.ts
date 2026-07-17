@@ -107,6 +107,8 @@ export interface UiSlice {
   extensionListVersion: number;
   /** Resource monitoring drawer. Docker stats polling is gated on this. */
   resourceDrawerOpen: boolean;
+  /** Which top-level surface the main content area renders. */
+  mainView: "workspace" | "hosts";
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -125,6 +127,7 @@ export interface UiSlice {
   setTerminalPanelHeight: (frac: number) => void;
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
   bumpExtensionList: () => void;
+  setMainView: (v: "workspace" | "hosts") => void;
 }
 
 // Monotonic counter feeding ExtensionSidebarState.focusNonce (see its docs).
@@ -163,6 +166,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   terminalPanelHeight: loadPanelHeight(),
   extensionListVersion: 0,
   resourceDrawerOpen: false,
+  mainView: "workspace",
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -222,4 +226,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   },
 
   bumpExtensionList: () => set((s) => ({ extensionListVersion: s.extensionListVersion + 1 })),
+
+  setMainView: (v) => set({ mainView: v }),
 });

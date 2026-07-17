@@ -6,6 +6,31 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-07-16
+
+### Added
+
+- **Attach SSH hosts to workspaces (many-to-many).** A host can belong to
+  several workspaces; the vault gains an "All workspaces" filter and shows
+  workspace badges on host cards, and each workspace view gets a "Hosts"
+  section with one-click connect that drops you straight into a terminal.
+- **Key file browse + default.** The host form's key field pre-fills
+  `~/.ssh/id_ed25519` and adds a "Browse…" native file picker.
+
+## [0.8.0] — 2026-07-16
+
+### Added
+
+- **SSH Host Manager.** A new "Hosts" sidebar entry adds a saved-host vault
+  (add/edit/delete, groups, search) backed by a local store, and interactive
+  SSH terminals over a pure-Rust `russh` transport — multiple concurrent
+  sessions in tabs, kept warm when you switch away to a workspace and back.
+  Authentication tries agent, then key, then password, with an optional
+  "remember" that stores the secret in the macOS Keychain (secrets are never
+  written to the database). Unknown host keys prompt for trust before
+  connecting; a changed host key hard-blocks the connection instead of
+  silently proceeding.
+
 ## [0.7.35] — 2026-07-16
 
 ### Changed

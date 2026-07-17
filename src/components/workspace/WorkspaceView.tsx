@@ -33,6 +33,9 @@ export default function WorkspaceView() {
       stopAllInWorkspace: s.stopAllInWorkspace,
     }))
   );
+  const sshHosts = usePortaStore((s) => s.sshHosts);
+  const connectSsh = usePortaStore((s) => s.connectSsh);
+  const setMainView = usePortaStore((s) => s.setMainView);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
@@ -504,6 +507,49 @@ export default function WorkspaceView() {
               )}
             </div>
           )}
+
+          {/* SSH hosts attached to this workspace — quick-connect lands the
+              user straight in a terminal session on the Hosts surface. */}
+          {workspace &&
+            (() => {
+              const wsHosts = sshHosts.filter((h) => h.workspace_ids.includes(workspace.id));
+              if (wsHosts.length === 0) return null;
+              return (
+                <div className="mt-8">
+                  <div className="flex items-baseline gap-2.5 mb-3">
+                    <h2 className="text-[14px] font-semibold text-zinc-300">Hosts</h2>
+                    <span className="text-[11px] text-zinc-500">{wsHosts.length} attached</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {wsHosts.map((h) => (
+                      <button
+                        key={h.id}
+                        onClick={() => {
+                          connectSsh(h.id);
+                          setMainView("hosts");
+                        }}
+                        title={`Connect ${h.username}@${h.hostname}:${h.port}`}
+                        className="group flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.12] hover:bg-white/[0.04] text-left transition-colors"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-500 group-hover:text-blue-400 transition-colors">
+                          <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.1" />
+                          <path d="M3 4.5l1.5 1L3 6.5M6 6.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] text-zinc-200 truncate">{h.label}</div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            {h.username}@{h.hostname}
+                          </div>
+                        </div>
+                        <span className="opacity-0 group-hover:opacity-100 text-[11px] text-blue-400 transition-opacity">
+                          Connect →
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
           {/* Modals are lazy-loaded; a single Suspense wraps the lot since
               fallback=null lets the existing scrim/content stay put while

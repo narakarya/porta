@@ -1646,3 +1646,55 @@ export const killInstance = (instanceId: string): Promise<void> =>
 
 export const removeInstance = (instanceId: string): Promise<void> =>
   isTauri ? invoke("remove_instance", { instanceId }) : Promise.resolve();
+
+// ── SSH host manager ──────────────────────────────────────────────────────────
+
+export type SshAuth =
+  | { kind: "agent" }
+  | { kind: "key_file"; path: string }
+  | { kind: "password" };
+
+export interface SshHost {
+  id: string;
+  label: string;
+  group: string | null;
+  hostname: string;
+  port: number;
+  username: string;
+  auth: SshAuth;
+  jump_host_id: string | null;
+  created_at: number;
+  last_used_at: number | null;
+  /** Workspaces this host is attached to (many-to-many); empty = global. */
+  workspace_ids: string[];
+}
+
+export const sshListHosts = (): Promise<SshHost[]> =>
+  isTauri ? invoke("ssh_list_hosts") : Promise.resolve([]);
+
+export const sshAddHost = (host: SshHost): Promise<SshHost> =>
+  isTauri ? invoke("ssh_add_host", { host }) : Promise.resolve(host);
+
+export const sshUpdateHost = (host: SshHost): Promise<void> =>
+  isTauri ? invoke("ssh_update_host", { host }) : Promise.resolve();
+
+export const sshDeleteHost = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+export const sshConnect = (hostId: string, sessionId: string): Promise<string> =>
+  isTauri ? invoke("ssh_connect", { hostId, sessionId }) : Promise.resolve(sessionId);
+
+export const sshWrite = (sessionId: string, data: number[]): Promise<void> =>
+  isTauri ? invoke("ssh_write", { sessionId, data }) : Promise.resolve();
+
+export const sshResize = (sessionId: string, rows: number, cols: number): Promise<void> =>
+  isTauri ? invoke("ssh_resize", { sessionId, rows, cols }) : Promise.resolve();
+
+export const sshClose = (sessionId: string): Promise<void> =>
+  isTauri ? invoke("ssh_close", { sessionId }) : Promise.resolve();
+
+export const sshTrustHost = (sessionId: string): Promise<void> =>
+  isTauri ? invoke("ssh_trust_host", { sessionId }) : Promise.resolve();
+
+export const sshProvideSecret = (sessionId: string, value: string, remember: boolean): Promise<void> =>
+  isTauri ? invoke("ssh_provide_secret", { sessionId, value, remember }) : Promise.resolve();

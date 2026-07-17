@@ -601,6 +601,55 @@ pub struct AppInstance {
     pub status: String,
 }
 
+/// A saved SSH connection target for the Hosts vault. Distinct from
+/// `RemoteHost` (which is a Porta Relay VPS). Secrets are never stored here.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshHost {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    pub hostname: String,
+    pub port: u16,
+    pub username: String,
+    pub auth: SshAuth,
+    /// Reserved for ProxyJump chaining; not wired in the first cut.
+    #[serde(default)]
+    pub jump_host_id: Option<String>,
+    pub created_at: i64,
+    #[serde(default)]
+    pub last_used_at: Option<i64>,
+    /// Workspaces this host is attached to (many-to-many). A host with no
+    /// attachments is "global" (shown regardless of the active workspace).
+    /// Populated on read from the `ssh_host_workspaces` join table; on write,
+    /// `insert`/`update` replaces the host's join rows with this list.
+    #[serde(default)]
+    pub workspace_ids: Vec<String>,
+}
+
+/// How to authenticate. Password/passphrase values are prompted at connect
+/// time and never persisted in the DB.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SshAuth {
+    Agent,
+    KeyFile { path: String },
+    Password,
+}
+
+/// A trusted server host key fingerprint, keyed by (host, port). Mirrors
+/// OpenSSH's `known_hosts` semantics so Porta can flag a mismatched key
+/// (potential MITM) instead of silently accepting whatever key the server
+/// presents.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshKnownHost {
+    pub host: String,
+    pub port: u16,
+    pub fingerprint: String,
+    pub key_type: String,
+    pub added_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

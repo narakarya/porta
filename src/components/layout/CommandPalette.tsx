@@ -180,13 +180,14 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const { apps, workspaces, startApp, stopApp, selectWorkspace, appExtensions, openExtensionSidebar } = usePortaStore(
+  const { apps, workspaces, startApp, stopApp, selectWorkspace, setMainView, appExtensions, openExtensionSidebar } = usePortaStore(
     useShallow((s) => ({
       apps: s.apps,
       workspaces: s.workspaces,
       startApp: s.startApp,
       stopApp: s.stopApp,
       selectWorkspace: s.selectWorkspace,
+      setMainView: s.setMainView,
       appExtensions: s.appExtensions,
       openExtensionSidebar: s.openExtensionSidebar,
     }))
@@ -328,7 +329,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
         section: "Workspaces",
         icon: "⊞",
         searchTokens: `${ws.name} ${ws.domain}`,
-        run: tracked(`workspace-${ws.id}`, () => selectWorkspace(ws.id)),
+        run: tracked(`workspace-${ws.id}`, () => { selectWorkspace(ws.id); setMainView("workspace"); }),
       });
     }
 
@@ -355,7 +356,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
     }
 
     return cmds;
-  }, [apps, workspaces, startApp, stopApp, selectWorkspace, appExtensions, invokeAction, openExtensionSidebar, onOpenSettings, onShowShortcuts, tracked]);
+  }, [apps, workspaces, startApp, stopApp, selectWorkspace, setMainView, appExtensions, invokeAction, openExtensionSidebar, onOpenSettings, onShowShortcuts, tracked]);
 
   // Build filtered + scored results
   const { sections, flatItems } = useMemo(() => {

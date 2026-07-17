@@ -5,6 +5,8 @@ mod app_repo;
 mod service_repo;
 mod remote_repo;
 mod instance_repo;
+mod ssh_repo;
+pub use ssh_repo::{fingerprint_sha256, HostKeyVerdict};
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -246,6 +248,46 @@ impl Database {
         // (NULL = the host's base_domain, for rows created before this column).
         let _ = self.conn.execute("ALTER TABLE remote_hosts ADD COLUMN extra_domains TEXT NOT NULL DEFAULT '[]'", []);
         let _ = self.conn.execute("ALTER TABLE remote_routes ADD COLUMN domain TEXT", []);
+
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_hosts (
+                id           TEXT PRIMARY KEY,
+                label        TEXT NOT NULL,
+                grp          TEXT,
+                hostname     TEXT NOT NULL,
+                port         INTEGER NOT NULL DEFAULT 22,
+                username     TEXT NOT NULL,
+                auth_json    TEXT NOT NULL,
+                jump_host_id TEXT,
+                created_at   INTEGER NOT NULL DEFAULT 0,
+                last_used_at INTEGER
+            );
+        ")?;
+
+        // Trusted SSH server host keys (SHA256 fingerprints), keyed by
+        // (host, port) — mirrors OpenSSH's known_hosts so we can detect a
+        // changed/mismatched key on reconnect.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_known_hosts (
+                host        TEXT NOT NULL,
+                port        INTEGER NOT NULL DEFAULT 22,
+                fingerprint TEXT NOT NULL,
+                key_type    TEXT NOT NULL,
+                added_at    INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (host, port)
+            );
+        ")?;
+
+        // Many-to-many: which workspaces an SSH host is attached to. A host with
+        // no rows here is "global". Cascades so deleting a host or workspace
+        // clears its links.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_host_workspaces (
+                host_id      TEXT NOT NULL REFERENCES ssh_hosts(id) ON DELETE CASCADE,
+                workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                PRIMARY KEY (host_id, workspace_id)
+            );
+        ")?;
 
         Ok(())
     }

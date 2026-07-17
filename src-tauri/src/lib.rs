@@ -21,11 +21,12 @@ pub mod porta_config;
 pub mod menu;
 pub mod metrics;
 pub mod setup;
+pub mod ssh;
 pub mod tray;
 pub mod wake_server;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
@@ -169,7 +170,7 @@ pub fn run() {
     commands::reconcile_on_startup(&db);
 
     let state = AppState {
-        db: Mutex::new(db),
+        db: Arc::new(Mutex::new(db)),
         processes: ProcessManager::new(),
         docker: docker_mgr,
         caddy: CaddyManager::new(),
@@ -190,6 +191,9 @@ pub fn run() {
         .manage(commands::container_observe::LogStreams::default())
         .manage(commands::access_log::AccessLogStreams::default())
         .manage(commands::remote::RemoteLogStreams::default())
+        .manage(commands::SshManager::new(std::sync::Arc::new(
+            crate::ssh::keychain::KeychainStore,
+        )))
         .setup(|app| {
             if let Some(w) = app.get_webview_window("main") {
                 restore_window_state(&w);
@@ -292,6 +296,16 @@ pub fn run() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_close,
+            commands::ssh_list_hosts,
+            commands::ssh_add_host,
+            commands::ssh_update_host,
+            commands::ssh_delete_host,
+            commands::ssh_connect,
+            commands::ssh_write,
+            commands::ssh_resize,
+            commands::ssh_close,
+            commands::ssh_trust_host,
+            commands::ssh_provide_secret,
             commands::list_services,
             commands::add_service,
             commands::update_service,
