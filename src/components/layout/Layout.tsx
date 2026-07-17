@@ -13,14 +13,16 @@ interface Props {
 export default function Layout({ children, onOpenSettings }: Props) {
   // Derive counts via selector so Layout only re-renders when running/total count
   // flips, not on every apps array mutation (metrics tick etc).
-  const { running, total, extSidebarOpen, drawerOpen } = usePortaStore(
+  const { running, total, extSidebarOpen, drawerOpen, activeDomain } = usePortaStore(
     useShallow((s) => ({
       running: s.apps.filter((a) => a.status === "running").length,
       total: s.apps.length,
       extSidebarOpen: s.extensionSidebar !== null,
       drawerOpen: s.resourceDrawerOpen,
+      activeDomain: s.activeDomain,
     }))
   );
+  const showSidebar = activeDomain === "workspaces";
   const toggleDrawer = usePortaStore((s) => s.toggleResourceDrawer);
 
   useEffect(() => {
@@ -35,9 +37,9 @@ export default function Layout({ children, onOpenSettings }: Props) {
   }, [toggleDrawer]);
 
   return (
-    <div className="flex h-screen bg-[#111113] text-zinc-100 font-sans overflow-hidden">
-      {/* Title bar */}
-      <div className="drag-region fixed top-0 left-[200px] right-0 h-11 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]">
+    <div className="flex flex-1 min-w-0 bg-[#111113] text-zinc-100 font-sans overflow-hidden">
+      {/* Title bar — spans the content area to the right of the rail (+ sidebar in workspaces) */}
+      <div className={`drag-region fixed top-0 ${showSidebar ? "left-[252px]" : "left-[52px]"} right-0 h-11 z-10 flex items-center bg-[#111113]/70 backdrop-blur-md border-b border-white/[0.03]`}>
         {/* Search trigger — wider */}
         <button
           onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
@@ -71,10 +73,10 @@ export default function Layout({ children, onOpenSettings }: Props) {
         </div>
       </div>
 
-      {/* Sidebar drag region (traffic lights area) */}
-      <div className="drag-region fixed top-0 left-0 w-[200px] h-11 z-10" />
+      {/* Sidebar-top drag region (only when the workspaces sidebar shows) */}
+      {showSidebar && <div className="drag-region fixed top-0 left-[52px] w-[200px] h-11 z-10" />}
 
-      <Sidebar onOpenSettings={onOpenSettings} />
+      {showSidebar && <Sidebar onOpenSettings={onOpenSettings} />}
       <main className={`flex-1 overflow-y-auto overflow-x-hidden pt-14 px-6 pb-6 no-drag transition-[padding-right] duration-200 ${extSidebarOpen ? "pr-[272px]" : ""}`}>
         {children}
       </main>

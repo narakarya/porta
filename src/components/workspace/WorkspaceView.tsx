@@ -35,7 +35,7 @@ export default function WorkspaceView() {
   );
   const sshHosts = usePortaStore((s) => s.sshHosts);
   const connectOrFocusSsh = usePortaStore((s) => s.connectOrFocusSsh);
-  const setMainView = usePortaStore((s) => s.setMainView);
+  const setActiveDomain = usePortaStore((s) => s.setActiveDomain);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
@@ -526,7 +526,7 @@ export default function WorkspaceView() {
                         key={h.id}
                         onClick={() => {
                           connectOrFocusSsh(h.id);
-                          setMainView("hosts");
+                          setActiveDomain("hosts");
                         }}
                         title={`Connect ${h.username}@${h.hostname}:${h.port}`}
                         className="group flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.12] hover:bg-white/[0.04] text-left transition-colors"

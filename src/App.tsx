@@ -7,8 +7,11 @@ import { autoCheckForUpdate, checkForUpdate } from "./lib/updater";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "./lib/commands";
 import Layout from "./components/layout/Layout";
+import GlobalRail from "./components/layout/GlobalRail";
 import WorkspaceView from "./components/workspace/WorkspaceView";
 import HostsView from "./components/ssh/HostsView";
+import ActivityView from "./components/activity/ActivityView";
+import ExtensionsView from "./components/extension/ExtensionsView";
 import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
 import CommandPalette from "./components/layout/CommandPalette";
@@ -30,7 +33,7 @@ export default function App() {
     }))
   );
   const setupStatus = usePortaStore((s) => s.setupStatus);
-  const mainView = usePortaStore((s) => s.mainView);
+  const activeDomain = usePortaStore((s) => s.activeDomain);
   const [page, setPage] = useState<Page>("main");
   // A sidebar/deep-link request to open a specific Settings section also opens
   // the Settings page. SettingsPage consumes the section and clears it.
@@ -161,18 +164,26 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ExtensionHostProvider>
-      <div hidden={page !== "main"}>
-        <SetupWizard />
-        <CommandPalette onOpenSettings={() => setPage("settings")} onShowShortcuts={() => setHelpOpen(true)} />
+      <div className="flex h-screen bg-[#111113] text-zinc-100 font-sans overflow-hidden">
+        {/* Persistent domain rail — visible across main and settings */}
+        <GlobalRail
+          onOpenSettings={() => setPage("settings")}
+          onSelectDomain={() => setPage("main")}
+          settingsActive={page === "settings"}
+        />
 
-        <Layout onOpenSettings={() => setPage("settings")}>
-          {/* Keep Hosts and Workspace both mounted once visited so switching
-              between them doesn't unmount SshTerminal (disposing xterm +
-              dropping ssh:data/ssh:exit listeners) or the workspace's own
-              subscriptions. Toggle visibility with `hidden` instead. */}
-          <div hidden={mainView === "hosts"}>
-            {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
-            {showCaddyBanner && (
+        <div className="flex-1 flex min-w-0 relative">
+          <div className={page === "main" ? "flex-1 flex min-w-0" : "hidden"}>
+            <SetupWizard />
+            <CommandPalette onOpenSettings={() => setPage("settings")} onShowShortcuts={() => setHelpOpen(true)} />
+
+            <Layout onOpenSettings={() => setPage("settings")}>
+              {/* Domains kept warm (mounted, toggled with `hidden`) so switching
+                  doesn't unmount SshTerminal (disposing xterm / dropping listeners)
+                  or re-hydrate the workspace subscriptions. */}
+              <div hidden={activeDomain !== "workspaces"}>
+                {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
+                {showCaddyBanner && (
               <div className="flex items-center gap-2.5 px-3 py-2 mb-4 bg-amber-500/10 border border-amber-500/25 rounded-lg">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-amber-400 shrink-0">
                   <path d="M6 1.5l4.5 8H1.5L6 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -193,18 +204,26 @@ export default function App() {
                 </button>
               </div>
             )}
-            <WorkspaceView />
+                <WorkspaceView />
+              </div>
+              <div hidden={activeDomain !== "hosts"}>
+                <HostsView />
+              </div>
+              <div hidden={activeDomain !== "activity"}>
+                <ActivityView />
+              </div>
+              <div hidden={activeDomain !== "extensions"}>
+                <ExtensionsView />
+              </div>
+            </Layout>
           </div>
-          <div hidden={mainView !== "hosts"}>
-            <HostsView />
-          </div>
-        </Layout>
-      </div>
-      {settingsVisited && (
-        <div hidden={page !== "settings"}>
-          <SettingsPage onBack={() => setPage("main")} />
+          {settingsVisited && (
+            <div className={page === "settings" ? "flex-1 min-w-0" : "hidden"}>
+              <SettingsPage onBack={() => setPage("main")} />
+            </div>
+          )}
         </div>
-      )}
+      </div>
       {/* Global toast for the updater — always mounted regardless of page so
           a download started from Settings stays visible after the user
           switches back to Main. */}
