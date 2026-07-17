@@ -5,7 +5,7 @@ import { usePortaStore } from "../../store";
 import type { App, Workspace } from "../../types";
 import AppContextMenu from "./AppContextMenu";
 import HostsDropdown from "./HostsDropdown";
-import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, type PortCheckResult } from "../../lib/commands";
+import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, openExternalUrl, isTauri, type PortCheckResult } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
@@ -953,6 +953,32 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           items={[
+            // Instance rows get the same lifecycle actions as their parent app,
+            // mapped to the per-instance store actions (via doStart/doStop/
+            // doRestart, which already route to run/stop/killInstanceAction).
+            ...(isInstance && instance && isManaged ? [
+              isActive
+                ? {
+                    label: "Stop",
+                    icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect x="2.5" y="2.5" width="6" height="6" rx="1"/></svg>,
+                    onClick: () => { void doStop(); },
+                  }
+                : {
+                    label: "Start",
+                    icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><path d="M3 2l6 3.5L3 9V2z"/></svg>,
+                    onClick: () => { openToast(); void handleStart(); },
+                  },
+              ...(isActive ? [{
+                label: "Restart",
+                icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8.8 3.4A3.6 3.6 0 1 0 9.3 6.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M9.3 1.8v1.9H7.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+                onClick: () => { openToast(); setBannerDismissed(false); doRestart(); },
+              }] : []),
+            ] : []),
+            ...(isInstance && instance && isRunning && !isWildcard ? [{
+              label: "Open in browser",
+              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M4.5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.5 1.5h3v3M9.5 1.5l-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+              onClick: () => { if (isTauri) void openExternalUrl(`${scheme}://${host}`); },
+            }] : []),
             {
               label: "Copy URL",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3.5" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 3.5V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
@@ -981,6 +1007,12 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 killPortHolder(app.port)
                   .then((pid) => showPortFeedback(true, `Killed pid ${pid} — port :${app.port} is free`))
                   .catch((e) => showPortFeedback(false, String(e).replace("Error: ", ""))),
+              danger: true,
+            }] : []),
+            ...(isInstance && instance ? [{
+              label: "Remove instance",
+              icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 3h7M4 3V2h3v1M3 3l.5 6h4L8 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+              onClick: () => setRemoveConfirm(true),
               danger: true,
             }] : []),
             "separator",

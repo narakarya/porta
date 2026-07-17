@@ -1,7 +1,8 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useShallow } from "zustand/react/shallow";
+import QRCode from "qrcode";
 import { usePortaStore } from "../../store";
-import { Badge } from "../ui";
+import { Badge, Popover, Spinner } from "../ui";
 import type { App } from "../../types";
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -54,7 +55,15 @@ const Shield = () => (
  * public hostname list, and access control. Reuses the real tunnel state +
  * start/stopTunnel actions; provider config still lives in app settings.
  */
-export default function PublishTab({ app }: { app: App }) {
+export default function PublishTab({
+  app,
+  onOpenConfig,
+}: {
+  app: App;
+  // Deep-link into the workbench Config tab (mockup 20). Falls back to the
+  // standalone settings modal when rendered outside the workbench.
+  onOpenConfig?: (section?: import("../app/AppSettingsModal").Section) => void;
+}) {
   const { startTunnel, stopTunnel, openAppSettings, connecting, error } = usePortaStore(
     useShallow((s) => ({
       startTunnel: s.startTunnel,
@@ -64,6 +73,9 @@ export default function PublishTab({ app }: { app: App }) {
       error: s.appTunnelErrors[app.id] ?? null,
     }))
   );
+  // Prefer the inline Config tab; fall back to the modal.
+  const openConfig = (section?: import("../app/AppSettingsModal").Section) =>
+    onOpenConfig ? onOpenConfig(section) : openAppSettings(app.id);
   const [busy, setBusy] = useState(false);
 
   const active = app.tunnel_active && !!app.tunnel_url;
@@ -75,10 +87,32 @@ export default function PublishTab({ app }: { app: App }) {
   const isNamed = !!app.tunnel_name || !!app.custom_domain;
   const [mode, setMode] = useState<"quick" | "named">(isNamed ? "named" : "quick");
 
-  // Access control — reflects basic_auth; CF Access is presentational here.
+  // Access control — reflects basic_auth. CF Access is not a local state; the
+  // segment deep-links into tunneling config instead of faking an access mode.
   const [access, setAccess] = useState<Access>(app.basic_auth_enabled ? "password" : "public");
 
   const busyToggle = busy || connecting;
+
+  // Shareable URL for the QR code: live tunnel URL → primary public host →
+  // local URL. There is always something to encode (localhost fallback).
+  const shareUrl = active
+    ? app.tunnel_url!
+    : primaryHost
+      ? `https://${primaryHost}`
+      : `http://localhost:${app.port}`;
+
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrSrc, setQrSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!qrOpen || !shareUrl) return;
+    let cancelled = false;
+    QRCode.toDataURL(shareUrl, { margin: 1, width: 180 })
+      .then((url) => !cancelled && setQrSrc(url))
+      .catch(() => !cancelled && setQrSrc(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [qrOpen, shareUrl]);
 
   async function toggle() {
     if (busyToggle) return;
@@ -158,13 +192,43 @@ export default function PublishTab({ app }: { app: App }) {
                 <span className="text-[10px] text-accent">PUBLIC</span>
                 <span className="font-mono text-[13px] text-ink truncate">{publicHost ?? "—"}</span>
               </div>
-              {active && (
-                <div className="flex gap-3 text-ink-3 shrink-0">
-                  <button title="Copy URL" onClick={() => navigator.clipboard.writeText(app.tunnel_url!)} className="hover:text-ink transition-colors"><CopyIcon /></button>
-                  <button title="Open" onClick={() => window.open(app.tunnel_url!, "_blank")} className="hover:text-ink transition-colors"><ExternalIcon /></button>
-                  <button title="QR code" className="hover:text-ink transition-colors"><QrIcon /></button>
-                </div>
-              )}
+              <div className="flex items-center gap-3 text-ink-3 shrink-0">
+                {active && (
+                  <>
+                    <button title="Copy URL" onClick={() => navigator.clipboard.writeText(app.tunnel_url!)} className="hover:text-ink transition-colors"><CopyIcon /></button>
+                    <button title="Open" onClick={() => window.open(app.tunnel_url!, "_blank")} className="hover:text-ink transition-colors"><ExternalIcon /></button>
+                  </>
+                )}
+                <Popover
+                  open={qrOpen}
+                  onClose={() => setQrOpen(false)}
+                  align="right"
+                  width="w-auto"
+                  anchor={
+                    <button
+                      title="QR code"
+                      aria-label="Show QR code"
+                      aria-expanded={qrOpen}
+                      onClick={() => setQrOpen((o) => !o)}
+                      className={`transition-colors ${qrOpen ? "text-ink" : "hover:text-ink"}`}
+                    >
+                      <QrIcon />
+                    </button>
+                  }
+                >
+                  <div className="flex flex-col items-center gap-2 p-2 w-[196px]">
+                    {qrSrc ? (
+                      <img src={qrSrc} width={180} height={180} alt={`QR code for ${shareUrl}`} className="rounded-[6px] bg-white p-1" />
+                    ) : (
+                      <div className="flex h-[188px] w-[188px] items-center justify-center"><Spinner /></div>
+                    )}
+                    <div className="flex w-full items-center gap-1.5">
+                      <span className="flex-1 truncate font-mono text-[11px] text-ink-2" title={shareUrl}>{shareUrl}</span>
+                      <button title="Copy URL" onClick={() => navigator.clipboard.writeText(shareUrl)} className="shrink-0 text-ink-3 hover:text-ink transition-colors"><CopyIcon /></button>
+                    </div>
+                  </div>
+                </Popover>
+              </div>
             </div>
 
             {/* mode switch — quick vs named tunnel */}
@@ -193,7 +257,7 @@ export default function PublishTab({ app }: { app: App }) {
             <div>
               <div className="flex items-center mb-1.5">
                 <span className="text-[11px] uppercase tracking-[0.04em] text-ink-3">Public hostnames</span>
-                <button onClick={() => openAppSettings(app.id)} className="ml-auto text-[11px] text-accent inline-flex items-center gap-1 hover:brightness-110 transition">
+                <button onClick={() => openConfig("domain")} className="ml-auto text-[11px] text-accent inline-flex items-center gap-1 hover:brightness-110 transition">
                   <Plus />Add
                 </button>
               </div>
@@ -218,7 +282,9 @@ export default function PublishTab({ app }: { app: App }) {
                 {segments.map((seg, i) => (
                   <button
                     key={seg.id}
-                    onClick={() => setAccess(seg.id)}
+                    // CF Access isn't a local toggle — route to where it's
+                    // actually configured instead of faking an access state.
+                    onClick={() => (seg.id === "cfaccess" ? openConfig("tunneling") : setAccess(seg.id))}
                     className={`inline-flex items-center gap-1.5 px-3 py-[5px] transition-colors ${i > 0 ? "border-l border-subtle" : ""} ${
                       access === seg.id ? "bg-surface-1 text-ink" : "text-ink-2 hover:text-ink"
                     }`}
@@ -230,7 +296,7 @@ export default function PublishTab({ app }: { app: App }) {
               </div>
               <div className="text-[11px] text-ink-3 mt-[7px]">
                 {accessHelp[access]}{" "}
-                <button onClick={() => openAppSettings(app.id)} className="text-accent hover:brightness-110 transition">{accessLink}</button>
+                <button onClick={() => openConfig("tunneling")} className="text-accent hover:brightness-110 transition">{accessLink}</button>
               </div>
             </div>
 

@@ -9,7 +9,14 @@ interface CommandPaletteProps {
   onShowShortcuts?: () => void;
 }
 
-type CommandSection = "Recent" | "Apps" | "Extensions" | "Workspaces" | "Actions";
+type CommandSection =
+  | "Recent"
+  | "Apps"
+  | "Extensions"
+  | "Workspaces"
+  | "Hosts"
+  | "Services"
+  | "Actions";
 
 interface Command {
   id: string;
@@ -107,35 +114,49 @@ function HighlightedLabel({
   text: string;
   indices: number[];
 }) {
-  if (indices.length === 0) return <>{text}</>;
-
   const indexSet = new Set(indices);
-  const parts: { text: string; highlighted: boolean }[] = [];
+  // Two-tone label: verb (first word) reads in text-ink, the target name
+  // (everything after the first space) dims to text-ink-2. Fuzzy-matched
+  // characters still take precedence with the accent tint.
+  const splitIdx = text.indexOf(" ");
+
+  const styleKey = (i: number): "match" | "dim" | "base" => {
+    if (indexSet.has(i)) return "match";
+    if (splitIdx >= 0 && i > splitIdx) return "dim";
+    return "base";
+  };
+
+  const parts: { text: string; kind: "match" | "dim" | "base" }[] = [];
   let current = "";
-  let isHighlighted = indexSet.has(0);
+  let kind = styleKey(0);
 
   for (let i = 0; i < text.length; i++) {
-    const match = indexSet.has(i);
-    if (match !== isHighlighted) {
-      if (current) parts.push({ text: current, highlighted: isHighlighted });
+    const k = styleKey(i);
+    if (k !== kind) {
+      if (current) parts.push({ text: current, kind });
       current = "";
-      isHighlighted = match;
+      kind = k;
     }
     current += text[i];
   }
-  if (current) parts.push({ text: current, highlighted: isHighlighted });
+  if (current) parts.push({ text: current, kind });
 
   return (
     <>
-      {parts.map((p, i) =>
-        p.highlighted ? (
-          <span key={i} className="text-blue-300">
-            {p.text}
-          </span>
-        ) : (
-          <span key={i}>{p.text}</span>
-        ),
-      )}
+      {parts.map((p, i) => (
+        <span
+          key={i}
+          className={
+            p.kind === "match"
+              ? "text-accent-ink"
+              : p.kind === "dim"
+                ? "text-ink-2"
+                : undefined
+          }
+        >
+          {p.text}
+        </span>
+      ))}
     </>
   );
 }
@@ -219,6 +240,20 @@ const ICON = {
       <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
     </svg>
   ),
+  server: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="2.5" y="9" width="11" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4.7 4.75h.01M4.7 11.25h.01" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+  database: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <ellipse cx="8" cy="3.8" rx="4.5" ry="1.8" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M3.5 3.8v8.4c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8V3.8" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M3.5 8c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  ),
   settings: (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
@@ -240,14 +275,18 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const { apps, workspaces, startApp, stopApp, selectWorkspace, setActiveDomain, appExtensions, openExtensionSidebar } = usePortaStore(
+  const { apps, workspaces, services, sshHosts, startApp, stopApp, selectWorkspace, setActiveDomain, connectOrFocusSsh, loadSshHosts, appExtensions, openExtensionSidebar } = usePortaStore(
     useShallow((s) => ({
       apps: s.apps,
       workspaces: s.workspaces,
+      services: s.services,
+      sshHosts: s.sshHosts,
       startApp: s.startApp,
       stopApp: s.stopApp,
       selectWorkspace: s.selectWorkspace,
       setActiveDomain: s.setActiveDomain,
+      connectOrFocusSsh: s.connectOrFocusSsh,
+      loadSshHosts: s.loadSshHosts,
       appExtensions: s.appExtensions,
       openExtensionSidebar: s.openExtensionSidebar,
     }))
@@ -393,6 +432,36 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
       });
     }
 
+    // Go to — navigation to hosts and services domains.
+    for (const host of sshHosts) {
+      cmds.push({
+        id: `goto-host-${host.id}`,
+        label: `Go to ${host.label}`,
+        hint: host.hostname,
+        section: "Hosts",
+        icon: ICON.server,
+        searchTokens: `${host.label} ${host.hostname} ${host.username ?? ""} host ssh`,
+        run: tracked(`goto-host-${host.id}`, () => {
+          setActiveDomain("hosts");
+          connectOrFocusSsh(host.id).catch(() => {});
+        }),
+      });
+    }
+
+    for (const svc of services) {
+      cmds.push({
+        id: `goto-service-${svc.id}`,
+        label: `Go to ${svc.name}`,
+        hint: svc.image,
+        section: "Services",
+        icon: ICON.database,
+        searchTokens: `${svc.name} ${svc.image} service`,
+        run: tracked(`goto-service-${svc.id}`, () => {
+          setActiveDomain("services");
+        }),
+      });
+    }
+
     // Static actions
     cmds.push({
       id: "open-settings",
@@ -416,7 +485,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
     }
 
     return cmds;
-  }, [apps, workspaces, startApp, stopApp, selectWorkspace, setActiveDomain, appExtensions, invokeAction, openExtensionSidebar, onOpenSettings, onShowShortcuts, tracked]);
+  }, [apps, workspaces, services, sshHosts, startApp, stopApp, selectWorkspace, setActiveDomain, connectOrFocusSsh, appExtensions, invokeAction, openExtensionSidebar, onOpenSettings, onShowShortcuts, tracked]);
 
   // Build filtered + scored results
   const { sections, flatItems } = useMemo(() => {
@@ -470,6 +539,8 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
       "Apps",
       "Extensions",
       "Workspaces",
+      "Hosts",
+      "Services",
       "Actions",
     ];
     const grouped: Array<{
@@ -513,12 +584,14 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Auto-focus input when opened
+  // Auto-focus input when opened + refresh SSH hosts so the "Go to" group is
+  // populated even if the hosts domain hasn't been visited yet.
   useEffect(() => {
     if (open) {
       requestAnimationFrame(() => inputRef.current?.focus());
+      loadSshHosts().catch(() => {});
     }
-  }, [open]);
+  }, [open, loadSshHosts]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -540,11 +613,11 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[32px] bg-[rgba(0,0,0,0.35)]"
       onClick={close}
     >
       <div
-        className="w-full max-w-[400px] bg-[#1a1a1c] border-[0.5px] border-white/[0.18] rounded-xl shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)] overflow-hidden"
+        className="w-full max-w-[400px] bg-surface-2 border-[0.5px] border-strong rounded-xl shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -605,7 +678,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                       >
                         <span
                           className={`flex items-center justify-center w-4 flex-shrink-0 ${
-                            isActive ? "text-blue-300" : "text-zinc-400"
+                            isActive ? "text-blue-300" : "text-ink-2"
                           }`}
                         >
                           {cmd.icon}
@@ -619,7 +692,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                             indices={cmd._labelIndices}
                           />
                         </span>
-                        {cmd.hint && (
+                        {cmd.hint && !isActive && (
                           <span className="text-zinc-500 text-[11px] truncate max-w-[120px]">
                             {cmd.hint}
                           </span>

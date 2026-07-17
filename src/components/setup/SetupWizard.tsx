@@ -80,7 +80,7 @@ function RowIcon({ display }: { display: RowDisplay }) {
   if (display === "loading") return <span className="spinner text-accent shrink-0" />;
   if (display === "done") {
     return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ok shrink-0">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="text-ok shrink-0">
         <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.4" />
         <path d="M5 8l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -88,7 +88,7 @@ function RowIcon({ display }: { display: RowDisplay }) {
   }
   if (display === "error") {
     return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-bad shrink-0">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="text-bad shrink-0">
         <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.4" />
         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
@@ -96,7 +96,7 @@ function RowIcon({ display }: { display: RowDisplay }) {
   }
   if (display === "attention") {
     return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-warn shrink-0">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="text-warn shrink-0">
         <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.5" />
         <path d="M8 4.75v3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         <circle cx="8" cy="11" r="0.85" fill="currentColor" />
@@ -104,7 +104,7 @@ function RowIcon({ display }: { display: RowDisplay }) {
     );
   }
   // pending — waiting its turn during a run
-  return <span className="w-4 h-4 rounded-full border border-strong shrink-0" />;
+  return <span className="w-[18px] h-[18px] rounded-full border border-strong shrink-0" />;
 }
 
 function CopyButton({ text, className = "" }: { text: string; className?: string }) {
@@ -298,19 +298,19 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
   const readyRowCount = rows.filter((r) => r.allOk).length;
 
   return (
-    <div className="fixed inset-0 bg-surface-0/95 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-surface-2 border border-subtle rounded-card w-[420px] shadow-2xl relative flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-[rgba(13,13,15,0.95)] backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-surface-2 border border-subtle rounded-card w-[380px] shadow-2xl relative flex flex-col overflow-hidden">
 
         {/* Header — text only, no icon */}
-        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+        <div className="flex items-start justify-between gap-3 px-[18px] pt-5 pb-3">
           <div className="flex-1 min-w-0">
-            <h1 className="text-[15px] font-semibold text-ink">
+            <h1 className="text-[16px] font-medium text-ink">
               {forceShow ? "Setup & Certificates" : "Welcome to Porta"}
             </h1>
             <p className="text-[12px] text-ink-2 mt-0.5 leading-relaxed">
               {forceShow
                 ? "Re-run setup to regenerate SSL certs or fix broken services."
-                : "One-time setup. Installs Caddy, dnsmasq, and mkcert via Homebrew."
+                : "Let's get your local environment ready."
               }
             </p>
           </div>
@@ -324,7 +324,7 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
         </div>
 
         {/* Consolidated status rows */}
-        <ul className="flex flex-col px-5 pb-1">
+        <ul className="flex flex-col px-[18px] pb-1">
           {rows.map((row, i) => {
             const isLast = i === rows.length - 1;
             return (
@@ -386,12 +386,12 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
 
         {/* Error */}
         {error && (
-          <div className="mx-5 mb-3 px-3 py-2.5 bg-bad-bg border border-bad/20 rounded-control">
+          <div className="mx-5 mb-3 px-3 py-2.5 bg-bad-bg border border-[rgba(248,113,113,0.20)] rounded-control">
             <div className="flex items-start justify-between gap-2">
               <p className="text-[12px] text-bad leading-relaxed font-mono select-text whitespace-pre-wrap break-words">{error}</p>
               <CopyButton
                 text={error}
-                className="shrink-0 text-bad/80 hover:text-bad hover:bg-bad-bg"
+                className="shrink-0 text-[rgba(248,113,113,0.80)] hover:text-bad hover:bg-bad-bg"
               />
             </div>
           </div>

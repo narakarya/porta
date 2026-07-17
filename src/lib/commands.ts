@@ -402,6 +402,17 @@ export const listAppVolumeSnapshots = (
 ): Promise<AppSnapshotSummary[]> =>
   isTauri ? invoke("list_app_volume_snapshots", { appId }) : Promise.resolve([]);
 
+/** Take a fresh snapshot of `volumes` for an app now; resolves the new entry. */
+export const createAppVolumeSnapshot = (
+  appId: string,
+  volumes: string[],
+): Promise<AppSnapshotSummary> =>
+  isTauri
+    ? invoke("create_app_volume_snapshot", { appId, volumes })
+    : Promise.reject(
+        new Error("create_app_volume_snapshot not available in browser mode"),
+      );
+
 export const deleteAppVolumeSnapshot = (
   appId: string,
   timestamp: string,
@@ -1612,6 +1623,75 @@ export const getGitAutofetchIntervalSecs = (): Promise<number> =>
 export const setGitAutofetchIntervalSecs = (secs: number): Promise<void> =>
   isTauri ? invoke("set_git_autofetch_interval_secs", { secs }) : Promise.resolve();
 
+// ── Git changes panel ──────────────────────────────────────────────────────────
+
+export interface ChangedFile {
+  path: string;
+  /** Pre-rename path — set only on rename/copy entries. */
+  orig_path: string | null;
+  /** git's index (staged) status char, or `.` when unchanged there. */
+  staged_status: string;
+  /** git's working-tree (unstaged) status char, or `.` when unchanged there. */
+  unstaged_status: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+}
+
+/** Changed / staged / untracked files for the changes panel. `[]` when not a repo. */
+export const gitChangedFiles = (rootDir: string): Promise<ChangedFile[]> =>
+  isTauri ? invoke("git_changed_files", { rootDir }) : Promise.resolve([]);
+
+/**
+ * Unified diff for one path. `staged` selects `git diff --cached` (the index vs
+ * HEAD) over the working-tree diff. Empty string when there's nothing to show.
+ */
+export const gitDiffFile = (
+  rootDir: string,
+  path: string,
+  staged: boolean,
+): Promise<string> =>
+  isTauri ? invoke("git_diff_file", { rootDir, path, staged }) : Promise.resolve("");
+
+export const gitStage = (rootDir: string, path: string): Promise<void> =>
+  isTauri ? invoke("git_stage", { rootDir, path }) : Promise.resolve();
+
+export const gitUnstage = (rootDir: string, path: string): Promise<void> =>
+  isTauri ? invoke("git_unstage", { rootDir, path }) : Promise.resolve();
+
+export const gitDiscard = (rootDir: string, path: string): Promise<void> =>
+  isTauri ? invoke("git_discard", { rootDir, path }) : Promise.resolve();
+
+/** Commit the staged changes; resolves git's summary line. REJECTS on failure. */
+export const gitCommit = (rootDir: string, message: string): Promise<string> =>
+  isTauri ? invoke("git_commit", { rootDir, message }) : Promise.resolve("");
+
+/** Amend the tip commit. Empty `message` keeps the existing one (`--no-edit`). */
+export const gitCommitAmend = (rootDir: string, message: string): Promise<string> =>
+  isTauri ? invoke("git_commit_amend", { rootDir, message }) : Promise.resolve("");
+
+// ── System metrics (Activity domain) ────────────────────────────────────────────
+
+export interface SystemMetrics {
+  cpu_pct: number;
+  mem_used_bytes: number;
+  mem_total_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+}
+
+/** Host CPU% / memory / disk snapshot. All-zeros in browser mode. */
+export const systemMetrics = (): Promise<SystemMetrics> =>
+  isTauri
+    ? invoke("system_metrics")
+    : Promise.resolve({
+        cpu_pct: 0,
+        mem_used_bytes: 0,
+        mem_total_bytes: 0,
+        disk_free_bytes: 0,
+        disk_total_bytes: 0,
+      });
+
 // ── Worktree instances ────────────────────────────────────────────────────────
 
 export interface WorktreeEntry {
@@ -1639,6 +1719,21 @@ export interface AppInstance {
 
 export const gitWorktreeList = (rootDir: string): Promise<WorktreeEntry[]> =>
   isTauri ? invoke("git_worktree_list", { rootDir }) : Promise.resolve([]);
+
+/**
+ * Create a git worktree for `branch` (checking out an existing branch, or with
+ * `createNew` making a new branch off HEAD) in a sibling `<repo>-worktrees/`
+ * dir. Resolves the new worktree entry so the caller can immediately run an
+ * instance from its path.
+ */
+export const gitWorktreeAdd = (
+  rootDir: string,
+  branch: string,
+  createNew: boolean,
+): Promise<WorktreeEntry> =>
+  isTauri
+    ? invoke("git_worktree_add", { rootDir, branch, createNew })
+    : Promise.reject(new Error("[mock] git_worktree_add"));
 
 export const listInstances = (appId: string): Promise<AppInstance[]> =>
   isTauri ? invoke("list_instances", { appId }) : Promise.resolve([]);

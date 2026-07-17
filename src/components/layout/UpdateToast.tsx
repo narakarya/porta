@@ -53,16 +53,18 @@ export default function UpdateToast() {
 
   // Celebratory sparkle for the downloaded-and-ready state.
   const sparkle = (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent">
       <path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" />
     </svg>
   );
 
   // Up-arrow-in-circle marks an available (announced, not-yet-downloaded) update.
+  // Accent-toned to match the neutral self-update popover in the mockups — the
+  // warning tint belonged to the (separate) Docker image-update card.
   const upArrow = (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-warn">
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 15.5v-7m0 0l-3 3m3-3l3 3" />
     </svg>
@@ -75,10 +77,10 @@ export default function UpdateToast() {
 
   // Shared button styles keyed off the design tokens.
   const primaryBtn =
-    "inline-flex items-center gap-1.5 px-3 py-[5px] text-[12px] font-medium text-white bg-accent " +
+    "inline-flex items-center gap-[5px] px-[13px] py-[5px] text-[12px] font-normal text-white bg-accent " +
     "rounded-control hover:opacity-90 transition-opacity";
   const secondaryBtn =
-    "px-3 py-[5px] text-[12px] font-medium text-ink-2 border border-subtle rounded-control " +
+    "px-3 py-[5px] text-[12px] font-normal text-ink-2 border border-subtle rounded-control " +
     "hover:border-strong hover:text-ink transition-colors";
 
   // Release notes: `updaterInfo.body` is a newline-separated changelog. Render
@@ -91,12 +93,12 @@ export default function UpdateToast() {
       .filter((l) => l.length > 0)
       .map((l) => (l.startsWith("- ") ? l.slice(2) : l));
     return (
-      <div className="text-[12px] text-ink-2 leading-relaxed">
+      <div className="text-[12px] text-ink-2 leading-[1.65]">
         {lines.length > 0 && (
-          <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+          <div className="max-h-28 overflow-y-auto pr-1">
             {lines.map((line, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-emerald-400 shrink-0">+</span>
+              <div key={i} className="flex gap-[7px]">
+                <span className="text-[#4ade80] shrink-0">+</span>
                 <span>{line}</span>
               </div>
             ))}
@@ -106,7 +108,7 @@ export default function UpdateToast() {
           href={`${RELEASES_BASE}/tag/v${version}`}
           target="_blank"
           rel="noreferrer"
-          className="inline-block mt-1.5 text-[11px] text-accent hover:underline"
+          className="inline-block mt-1 text-[11px] text-accent hover:underline"
         >
           Full release notes
         </a>
@@ -115,9 +117,14 @@ export default function UpdateToast() {
   };
 
   // Simple title + optional subtitle used by the transient work states.
+  // The leading glyph sits inline with the title only; the subline drops to
+  // the card's left padding (mockup 15) rather than indenting under the icon.
   const titleBlock = (t: string, s?: React.ReactNode) => (
     <>
-      <p className="text-[13px] font-medium text-ink truncate">{t}</p>
+      <div className="flex items-center gap-2">
+        <span className="flex items-center">{leadIcon}</span>
+        <p className="text-[13px] font-medium text-ink">{t}</p>
+      </div>
       {s && <p className="text-[11px] text-ink-3 mt-0.5">{s}</p>}
     </>
   );
@@ -137,11 +144,14 @@ export default function UpdateToast() {
   } else if (phase === "uptodate") {
     headerNode = titleBlock("You're on the latest version", "Porta is up to date.");
   } else if (phase === "available" && info) {
-    // Warning-toned "Update available" header + version + current-version subline.
+    // Neutral popover header (matches the ready state) — "Porta X available"
+    // + current-version subline. No warning tint.
     headerNode = (
       <>
-        <p className="text-[13px] font-medium text-warn">Update available</p>
-        <p className="text-[12px] text-ink mt-0.5">Porta {info.version}</p>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center">{leadIcon}</span>
+          <p className="text-[13px] font-medium text-ink">Porta {info.version} available</p>
+        </div>
         <p className="text-[11px] text-ink-3 mt-0.5">You're on {info.currentVersion}</p>
       </>
     );
@@ -204,7 +214,7 @@ export default function UpdateToast() {
   } else if (phase === "error") {
     headerNode = titleBlock("Update failed");
     body = (
-      <p className="text-[12px] text-bad/90 break-all leading-relaxed">
+      <p className="text-[12px] text-[rgba(248,113,113,0.9)] break-all leading-relaxed">
         {error || "Unknown error"}
       </p>
     );
@@ -220,55 +230,48 @@ export default function UpdateToast() {
     );
   }
 
-  // For `ready` we still surface a close only via "Later" in the footer — no
-  // header X — so the "Restart to update" affordance stays front and center.
-  const showClose = phase === "checking" || phase === "uptodate" || phase === "available" || phase === "error";
-
-  // The `available` state is a warning-tinted card; every other phase keeps the
-  // neutral surface. Both share the fixed positioning + raised shadow.
-  const neutralBorder =
-    phase === "ready"      ? "border-accent/30" :
-    phase === "uptodate"   ? "border-ok/30" :
-    phase === "error"      ? "border-bad/30" :
-    phase === "restarting" ? "border-accent/30" :
-                             "border-strong";
+  // No header X — dismissal always lives in the footer (Cancel / Later /
+  // Dismiss), matching the clean self-update popover (mockup 15). Transient
+  // states without a footer (uptodate) self-dismiss.
+  // One neutral popover skin for every phase — surface-popover (#202024),
+  // hairline strong border, 12px radius, deep drop shadow. Matches the
+  // self-update popover in the mockups; state is conveyed by the leading glyph
+  // and copy, not by tinting the whole card.
   const skin =
-    phase === "available"
-      ? "border border-warn/40 bg-warn-bg rounded-[10px]"
-      : `bg-surface-2 border rounded-card ${neutralBorder}`;
+    "bg-[#202024] border border-strong rounded-[12px] shadow-[0_12px_40px_rgba(0,0,0,0.55)]";
 
+  // Anchored to the rail's account avatar (bottom-left), reading as a popover
+  // emanating from the rail rather than a detached bottom-right toast (mockup
+  // 15). The rail is 54px wide, so we sit just past it and let a small caret
+  // point back toward the avatar.
   return (
     <div
-      className={`fixed right-4 bottom-4 z-[60] w-[300px] shadow-2xl overflow-hidden ${skin}`}
+      className="fixed left-[60px] bottom-[14px] z-[60]"
       role="status"
       aria-live="polite"
     >
-      {/* Header: leading glyph + title block + close */}
-      <div className="flex items-start gap-2 px-3.5 pt-3 pb-1">
-        <span className="mt-px flex items-center">{leadIcon}</span>
-        <div className="flex-1 min-w-0">{headerNode}</div>
-        {showClose && (
-          <button
-            onClick={dismissUpdater}
-            className="text-ink-3 hover:text-ink-2 transition-colors shrink-0 mt-0.5"
-            title="Dismiss"
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
+      {/* Connecting caret — a rotated square whose left/bottom edges face the
+          rail, so the card reads as anchored to the account button. */}
+      <span
+        aria-hidden="true"
+        className="absolute left-[-5px] bottom-[16px] w-[10px] h-[10px] rotate-45 bg-[#202024] border-l border-b border-strong"
+      />
+
+      <div className={`relative w-[280px] overflow-hidden ${skin}`}>
+        {/* Header: leading glyph inline with title, subline at the card's left
+            edge (px 14, pt 12, pb 10 per mockup 15) */}
+        <div className="px-3.5 pt-3 pb-2.5">{headerNode}</div>
+
+        {/* Body: release notes / progress / detail */}
+        {body && <div className="px-3.5 pb-2.5 pt-0">{body}</div>}
+
+        {/* Footer: actions on a raised bar (surface-1), matching the popover mockup */}
+        {actions && (
+          <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-subtle bg-surface-1">
+            {actions}
+          </div>
         )}
       </div>
-
-      {/* Body: release notes / progress / detail */}
-      {body && <div className="px-3.5 pb-3 pt-1.5">{body}</div>}
-
-      {/* Footer: actions on a raised bar, matching the popover mockup */}
-      {actions && (
-        <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-subtle bg-surface-1">
-          {actions}
-        </div>
-      )}
     </div>
   );
 }

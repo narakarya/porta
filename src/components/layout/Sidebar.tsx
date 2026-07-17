@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
-import { isTauri } from "../../lib/commands";
-import type { Workspace } from "../../types";
+import { isTauri, openExternalUrl, openInTerminal } from "../../lib/commands";
+import type { App, Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
+import AppContextMenu from "../app/AppContextMenu";
 import Tooltip from "../shared/Tooltip";
+import { Spinner } from "../ui";
 import { checkForUpdate, dismissUpdater } from "../../lib/updater";
 
 // Sidebar modals — kept out of the initial bundle since they only show on
@@ -12,6 +14,7 @@ import { checkForUpdate, dismissUpdater } from "../../lib/updater";
 const AddWorkspaceModal = lazy(() => import("../workspace/AddWorkspaceModal"));
 const WorkspaceSettingsModal = lazy(() => import("../workspace/WorkspaceSettingsModal"));
 const AddAppModal = lazy(() => import("../app/AddAppModal"));
+const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
 const ImportComposeModal = lazy(() => import("../workspace/ImportComposeModal"));
 
 interface ContextMenuState {
@@ -20,17 +23,32 @@ interface ContextMenuState {
   y: number;
 }
 
+// Mirrors AppContextMenu's (unexported) MenuItem shape so the app-row menu can
+// carry leading icons + a separator.
+type AppMenuItem = {
+  label: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+};
+
 export default function Sidebar() {
-  const { workspaces, apps, selectedWorkspaceId, selectedAppId, imageUpdateCache, selectWorkspace, selectApp, reorderWorkspaces, activeDomain, setActiveDomain } = usePortaStore(
+  const { workspaces, apps, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, startApp, stopApp, restartApp, deleteApp, activeDomain, setActiveDomain } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
       selectedWorkspaceId: s.selectedWorkspaceId,
       selectedAppId: s.selectedAppId,
       imageUpdateCache: s.imageUpdateCache,
+      setupStatus: s.setupStatus,
       selectWorkspace: s.selectWorkspace,
       selectApp: s.selectApp,
       reorderWorkspaces: s.reorderWorkspaces,
+      startApp: s.startApp,
+      stopApp: s.stopApp,
+      restartApp: s.restartApp,
+      deleteApp: s.deleteApp,
       activeDomain: s.activeDomain,
       setActiveDomain: s.setActiveDomain,
     }))
@@ -40,7 +58,12 @@ export default function Sidebar() {
   const [showImportCompose, setShowImportCompose] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
+  const [settingsApp, setSettingsApp] = useState<App | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [appMenu, setAppMenu] = useState<{ app: App; x: number; y: number } | null>(null);
+  // App ids with a start/stop round-trip in flight — drives the row toggle's
+  // inline spinner so a click gives feedback before the status event lands.
+  const [busyApps, setBusyApps] = useState<Set<string>>(new Set());
   const [wsExpanded] = useState(true);
   // Per-workspace collapse of the app sub-list (Shell C: apps live under each
   // workspace header in this column). Holds the ids that are collapsed.
@@ -173,6 +196,56 @@ export default function Sidebar() {
     setContextMenu({ ws, x: e.clientX, y: e.clientY });
   }
 
+  // Public URL for an app row — mirrors AppCard's host resolution so "Open in
+  // browser" lands on the same address Caddy serves.
+  function appUrl(a: App): string {
+    const ws = workspaces.find((w) => w.id === a.workspace_id) ?? null;
+    const domain = a.custom_domain || ws?.domain || "narakarya.test";
+    const sub = a.subdomain ?? a.name;
+    const host = sub === "*" ? `*.${domain}` : `${sub}.${domain}`;
+    const scheme = setupStatus?.certs_generated ? "https" : "http";
+    return `${scheme}://${host}`;
+  }
+
+  // Toggle a row's process, tracking the in-flight round-trip so the button
+  // can show a spinner. Store actions flip status optimistically, but the IPC
+  // still awaits — the spinner covers that gap and any slow compose down.
+  async function toggleApp(a: App) {
+    if (busyApps.has(a.id)) return;
+    const running = a.status === "running" || a.status === "starting";
+    setBusyApps((prev) => new Set(prev).add(a.id));
+    try {
+      if (running) await stopApp(a.id);
+      else await startApp(a.id);
+    } catch {
+      // Store already reconciles status on failure; nothing to surface here.
+    } finally {
+      setBusyApps((prev) => {
+        const next = new Set(prev);
+        next.delete(a.id);
+        return next;
+      });
+    }
+  }
+
+  // Context-menu items for an app row (overflow button + right-click). Wired to
+  // the same store/lib actions the workbench uses — no new actions invented.
+  // Icons match the app's inline line-icon style (mockup 03's iconed menu).
+  function appMenuItems(a: App): (AppMenuItem | "separator")[] {
+    const running = a.status === "running" || a.status === "starting";
+    return [
+      running
+        ? { label: "Stop", icon: <StopMenuIcon />, onClick: () => { void toggleApp(a); } }
+        : { label: "Start", icon: <PlayMenuIcon />, onClick: () => { void toggleApp(a); } },
+      { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void restartApp(a.id); } },
+      { label: "Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInTerminal(a.root_dir); } },
+      { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(a)); } },
+      { label: "Settings", icon: <GearMenuIcon />, onClick: () => setSettingsApp(a) },
+      "separator",
+      { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void deleteApp(a.id); } },
+    ];
+  }
+
   // App rows shown under a workspace header. Clicking one opens the app in the
   // workbench (content-forward main). Status/port are baked into the row.
   function renderApps(wsId: string | null) {
@@ -183,23 +256,54 @@ export default function Sidebar() {
       <div className="flex flex-col gap-px mb-0.5">
         {list.map((a) => {
           const on = selectedAppId === a.id;
+          const running = a.status === "running" || a.status === "starting";
+          const busy = busyApps.has(a.id);
+          const menuOpen = appMenu?.app.id === a.id;
           const dot =
             a.status === "running" ? "bg-emerald-400 pulse-dot"
             : a.status === "starting" ? "bg-amber-400"
             : "bg-zinc-600";
           return (
-            <button
+            <div
               key={a.id}
+              role="button"
+              tabIndex={0}
               onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectApp(a.id); setActiveDomain("workspaces"); } }}
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setAppMenu({ app: a, x: e.clientX, y: e.clientY }); }}
               title={`${a.name} · :${a.port}`}
-              className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-colors ${
-                on ? "bg-accent-bg text-zinc-100" : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+              className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left cursor-pointer select-none transition-colors ${
+                on ? "bg-accent-bg text-ink" : "text-ink hover:bg-white/[0.05]"
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
               <span className="flex-1 truncate">{a.name}</span>
-              <span className="text-[10px] text-zinc-600 font-mono tabular-nums group-hover:text-zinc-500">:{a.port}</span>
-            </button>
+              {/* Port at rest; start/stop toggle + overflow reveal on hover. */}
+              <span className={`text-[10px] text-zinc-600 font-mono tabular-nums group-hover:hidden ${menuOpen ? "hidden" : ""}`}>:{a.port}</span>
+              <span className={`items-center gap-1 shrink-0 ${menuOpen ? "flex" : "hidden group-hover:flex"}`}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); void toggleApp(a); }}
+                  disabled={busy}
+                  title={busy ? (running ? "Stopping…" : "Starting…") : running ? "Stop" : "Start"}
+                  className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${running ? "text-zinc-400 hover:text-zinc-100" : "text-emerald-400 hover:text-emerald-300"}`}
+                >
+                  {busy ? (
+                    <Spinner size={13} />
+                  ) : running ? (
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg>
+                  ) : (
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5-7-4.5Z" /></svg>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setAppMenu({ app: a, x: r.right, y: r.bottom + 4 }); }}
+                  title="More"
+                  className="p-0.5 rounded text-zinc-500 hover:text-zinc-200 transition-colors"
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
+                </button>
+              </span>
+            </div>
           );
         })}
       </div>
@@ -255,6 +359,8 @@ export default function Sidebar() {
             {workspaces.map((w, i) => {
               const count = activeCount(w.id);
               const updCount = updateCount(w.id);
+              const collapsed = collapsedWs.has(w.id);
+              const totalCount = (appsByWs.get(w.id) ?? []).length;
               const isSelected = activeDomain === "workspaces" && selectedWorkspaceId === w.id;
               const isGhost = draggingItem?.type === "ws" && draggingItem.index === i;
               const srcIdx = draggingItem?.type === "ws" ? draggingItem.index : null;
@@ -283,30 +389,52 @@ export default function Sidebar() {
                     <button
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => { e.stopPropagation(); toggleWsCollapse(w.id); }}
-                      className="shrink-0 p-0.5 text-zinc-600 hover:text-zinc-300"
-                      title={collapsedWs.has(w.id) ? "Expand" : "Collapse"}
+                      className="shrink-0 p-0.5 text-ink-3 hover:text-zinc-300"
+                      title={collapsed ? "Expand" : "Collapse"}
                     >
-                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className={`transition-transform duration-150 ${collapsedWs.has(w.id) ? "" : "rotate-90"}`}>
-                        <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}>
+                        <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </button>
                     <span className="flex-1 truncate">{w.name}</span>
-                    {updCount > 0 && (
-                      <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
-                        <span className="text-[11px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
-                      </Tooltip>
+                    {collapsed ? (
+                      // Collapsed rollup: running count (green dot) or an "idle"
+                      // label, plus any pending image updates.
+                      <span className="flex items-center gap-2 normal-case tracking-normal">
+                        {count > 0 ? (
+                          <span className="flex items-center gap-1 text-[10px] text-ink-2 tabular-nums">
+                            <span className="w-[5px] h-[5px] rounded-full bg-emerald-400 shrink-0" />
+                            {count}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-ink-3">idle</span>
+                        )}
+                        {updCount > 0 && (
+                          <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
+                            <span className="text-[10px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
+                          </Tooltip>
+                        )}
+                      </span>
+                    ) : (
+                      <>
+                        {updCount > 0 && (
+                          <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
+                            <span className="text-[11px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
+                          </Tooltip>
+                        )}
+                        {totalCount > 0 && (
+                          <span className="text-[10px] text-ink-3 tabular-nums normal-case tracking-normal">{totalCount}</span>
+                        )}
+                        <button
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); selectWorkspace(w.id); setShowAddApp(true); }}
+                          title={`New app in ${w.name}`}
+                          className="shrink-0 -mr-0.5 p-0.5 rounded text-accent hover:text-accent-ink transition-colors"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                        </button>
+                      </>
                     )}
-                    {count > 0 && (
-                      <span className="text-[11px] text-emerald-400 font-semibold tabular-nums">{count}</span>
-                    )}
-                    <button
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); selectWorkspace(w.id); setShowAddApp(true); }}
-                      title={`New app in ${w.name}`}
-                      className="shrink-0 -mr-0.5 p-0.5 rounded text-zinc-600 opacity-0 group-hover/wsh:opacity-100 hover:text-zinc-300 transition-opacity"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                    </button>
                   </div>
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
@@ -377,13 +505,76 @@ export default function Sidebar() {
         />
       )}
 
+      {appMenu && (
+        <AppContextMenu
+          x={appMenu.x}
+          y={appMenu.y}
+          onClose={() => setAppMenu(null)}
+          items={appMenuItems(appMenu.app)}
+        />
+      )}
+
       <Suspense fallback={null}>
         {showAddWs && <AddWorkspaceModal onClose={() => setShowAddWs(false)} />}
         {showAddApp && <AddAppModal workspaceId={selectedWorkspaceId} onClose={() => setShowAddApp(false)} />}
         {showImportCompose && <ImportComposeModal workspaceId={selectedWorkspaceId} onClose={() => setShowImportCompose(false)} />}
         {settingsWs && <WorkspaceSettingsModal workspace={settingsWs} onClose={() => setSettingsWs(null)} />}
+        {settingsApp && (
+          <AppSettingsModal
+            app={settingsApp}
+            workspace={workspaces.find((w) => w.id === settingsApp.workspace_id) ?? null}
+            onClose={() => setSettingsApp(null)}
+          />
+        )}
       </Suspense>
     </aside>
+  );
+}
+
+// ── App-row context-menu icons (11×11 line-icon set, tinted by the menu) ──────
+function PlayMenuIcon() {
+  return <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><path d="M3 2l6 3.5L3 9V2z" /></svg>;
+}
+function StopMenuIcon() {
+  return <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><rect x="2.5" y="2.5" width="6" height="6" rx="1" /></svg>;
+}
+function RefreshMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <path d="M8.8 3.4A3.6 3.6 0 1 0 9.3 6.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M9.3 1.8v1.9H7.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function TerminalMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <rect x="1" y="1.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2.5 4.5l2 1.5-2 1.5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function ExternalMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <path d="M4.5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.5 1.5h3v3M9.5 1.5l-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function GearMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <circle cx="5.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5.5 1v1M5.5 9v1M1 5.5h1M9 5.5h1M2.3 2.3l.7.7M8.2 8.2l.7.7M8.2 2.3l-.7.7M2.3 8.2l.7-.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function TrashMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <path d="M2 3h7M4 3V2h3v1M3 3l.5 6h4L8 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

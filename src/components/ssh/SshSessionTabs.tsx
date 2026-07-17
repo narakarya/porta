@@ -14,6 +14,9 @@ export default function SshSessionTabs() {
   const active = usePortaStore((s) => s.activeSessionId);
   const setActive = usePortaStore((s) => s.setActiveSession);
   const disconnect = usePortaStore((s) => s.disconnectSsh);
+  const connectSsh = usePortaStore((s) => s.connectSsh);
+
+  const activeHostId = sessions.find((s) => s.id === active)?.hostId;
 
   if (sessions.length === 0) {
     return (
@@ -25,7 +28,7 @@ export default function SshSessionTabs() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-1 px-2 h-9 border-b border-white/[0.06] overflow-x-auto shrink-0">
+      <div className="flex items-center gap-1 px-2 h-9 border-b border-subtle overflow-x-auto shrink-0">
         {sessions.map((s) => (
           <div
             key={s.id}
@@ -47,6 +50,15 @@ export default function SshSessionTabs() {
             </button>
           </div>
         ))}
+        {activeHostId && (
+          <button
+            className="shrink-0 flex items-center justify-center w-6 h-6 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04] text-[14px] leading-none transition-colors"
+            onClick={() => connectSsh(activeHostId)}
+            title="New session"
+          >
+            ＋
+          </button>
+        )}
       </div>
       <div className="flex-1 min-h-0 p-1">
         {sessions.map((s) => (

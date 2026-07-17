@@ -37,16 +37,17 @@ const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] =
   {
     label: "General",
     items: [
-      { id: "setup", label: "Setup & Certificates" },
-      { id: "about", label: "About" },
+      { id: "notifications", label: "Notifications" },
+      { id: "git", label: "Git & defaults" },
+      { id: "about", label: "About & updates" },
     ],
   },
   {
     label: "System",
     items: [
-      { id: "notifications", label: "Notifications" },
+      { id: "setup", label: "Setup & dependencies" },
       { id: "disk", label: "Disk Usage" },
-      { id: "backup", label: "Backup" },
+      { id: "extensions", label: "Extensions" },
     ],
   },
   {
@@ -54,14 +55,13 @@ const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] =
     items: [
       { id: "cloudflare", label: "Cloudflare" },
       { id: "tailscale", label: "Tailscale" },
-      { id: "remote", label: "Remote Servers" },
+      { id: "remote", label: "Remote / VPS" },
     ],
   },
   {
     label: "Data",
     items: [
-      { id: "git", label: "Git" },
-      { id: "extensions", label: "Extensions" },
+      { id: "backup", label: "Backup" },
     ],
   },
 ];
@@ -100,7 +100,7 @@ export default function SettingsPage({ onBack }: Props) {
       <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
 
       {/* Settings sidebar */}
-      <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-8 pb-3 shrink-0">
+      <aside className="w-[172px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-8 pb-3 shrink-0">
         {/* Back button */}
         <div className="px-4 mb-4">
           <button
@@ -129,7 +129,7 @@ export default function SettingsPage({ onBack }: Props) {
                     className={`block w-full text-left truncate px-2 py-[5px] rounded-[6px] text-[13px] transition-colors duration-100 ${
                       active
                         ? "bg-accent-bg text-zinc-100"
-                        : "text-zinc-300 hover:bg-white/[0.04]"
+                        : "text-ink-2 hover:bg-white/[0.04]"
                     }`}
                   >
                     {item.label}

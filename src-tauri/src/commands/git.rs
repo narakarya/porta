@@ -98,6 +98,138 @@ fn parse_porcelain_v2(out: &str) -> GitStatus {
     GitStatus { branch, detached, upstream, ahead, behind, dirty }
 }
 
+/// One entry from `git status --porcelain=v2 --untracked-files=all`, shaped for
+/// the changes panel: which side (index / working tree) the change is on, and
+/// the raw status chars so the UI can label it (`M`, `A`, `D`, `R`, …).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChangedFile {
+    pub path: String,
+    /// The pre-rename path — present only on rename/copy (`2 `) entries.
+    pub orig_path: Option<String>,
+    /// git's index (staged) status char, or `.` when unchanged there.
+    pub staged_status: String,
+    /// git's working-tree (unstaged) status char, or `.` when unchanged there.
+    pub unstaged_status: String,
+    pub staged: bool,
+    pub unstaged: bool,
+    pub untracked: bool,
+}
+
+/// Split a two-char porcelain-v2 `XY` field into its (index, worktree) chars.
+fn status_chars(xy: &str) -> (char, char) {
+    let mut it = xy.chars();
+    (it.next().unwrap_or('.'), it.next().unwrap_or('.'))
+}
+
+/// A porcelain-v2 status char signals a real change unless it's `.` (git's
+/// "unchanged on this side" marker) or a space (defensive; v2 uses `.`).
+fn is_changed(c: char) -> bool {
+    c != '.' && c != ' '
+}
+
+/// Split a porcelain-v2 entry body (everything after the `1 `/`2 `/`u ` kind
+/// prefix) into its leading `XY` field and the path tail that begins after
+/// `header_fields` whitespace-separated fixed columns. Returns `None` when the
+/// line is too short to hold a path.
+///
+/// The path is taken as the untouched remainder, not `split_whitespace().last()`
+/// — porcelain-v2 paths are unquoted and may contain spaces, so tokenizing would
+/// truncate `my file.rs` to `file.rs`.
+fn split_header(rest: &str, header_fields: usize) -> Option<(&str, &str)> {
+    let xy = rest.split_whitespace().next()?;
+    let bytes = rest.as_bytes();
+    let mut idx = 0;
+    for _ in 0..header_fields {
+        while idx < bytes.len() && bytes[idx] == b' ' {
+            idx += 1;
+        }
+        while idx < bytes.len() && bytes[idx] != b' ' {
+            idx += 1;
+        }
+    }
+    while idx < bytes.len() && bytes[idx] == b' ' {
+        idx += 1;
+    }
+    if idx >= bytes.len() {
+        return None;
+    }
+    Some((xy, &rest[idx..]))
+}
+
+/// Parse `git status --porcelain=v2 --untracked-files=all` into per-file entries.
+///
+/// The v2 grammar is contractually stable across git versions. Line kinds:
+///
+/// * `1 XY … <path>`                  — ordinary change (7 header fields then path).
+/// * `2 XY … <score> <path>\t<orig>`  — rename/copy (8 header fields; path and
+///                                       orig are TAB-separated).
+/// * `u XY … <path>`                  — unmerged/conflict (9 header fields then
+///                                       path); always an unstaged change until
+///                                       resolved.
+/// * `? <path>`                       — untracked.
+///
+/// Anything else (e.g. the `# branch.*` header lines, if `--branch` was passed)
+/// matches no prefix and is skipped.
+fn parse_changed_files(out: &str) -> Vec<ChangedFile> {
+    let mut files = Vec::new();
+    for line in out.lines() {
+        if let Some(path) = line.strip_prefix("? ") {
+            files.push(ChangedFile {
+                path: path.to_string(),
+                orig_path: None,
+                staged_status: ".".to_string(),
+                unstaged_status: "?".to_string(),
+                staged: false,
+                unstaged: true,
+                untracked: true,
+            });
+        } else if let Some(rest) = line.strip_prefix("1 ") {
+            if let Some((xy, path)) = split_header(rest, 7) {
+                let (x, y) = status_chars(xy);
+                files.push(ChangedFile {
+                    path: path.to_string(),
+                    orig_path: None,
+                    staged_status: x.to_string(),
+                    unstaged_status: y.to_string(),
+                    staged: is_changed(x),
+                    unstaged: is_changed(y),
+                    untracked: false,
+                });
+            }
+        } else if let Some(rest) = line.strip_prefix("2 ") {
+            if let Some((xy, tail)) = split_header(rest, 8) {
+                let (x, y) = status_chars(xy);
+                let (path, orig) = match tail.split_once('\t') {
+                    Some((p, o)) => (p.to_string(), Some(o.to_string())),
+                    None => (tail.to_string(), None),
+                };
+                files.push(ChangedFile {
+                    path,
+                    orig_path: orig,
+                    staged_status: x.to_string(),
+                    unstaged_status: y.to_string(),
+                    staged: is_changed(x),
+                    unstaged: is_changed(y),
+                    untracked: false,
+                });
+            }
+        } else if let Some(rest) = line.strip_prefix("u ") {
+            if let Some((_xy, path)) = split_header(rest, 9) {
+                files.push(ChangedFile {
+                    path: path.to_string(),
+                    orig_path: None,
+                    staged_status: "U".to_string(),
+                    unstaged_status: "U".to_string(),
+                    staged: false,
+                    unstaged: true,
+                    untracked: false,
+                });
+            }
+        }
+    }
+    files
+}
+
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -183,6 +315,25 @@ fn status_command(bin: &str, root: &Path) -> Command {
     cmd
 }
 
+/// The `git status` invocation for the changes panel — same locale pin and lock
+/// hygiene as [`status_command`], but `--untracked-files=all` so every file in a
+/// new directory is listed individually, and no `--branch` (the caller wants the
+/// file entries, not the ahead/behind header).
+fn changed_files_command(bin: &str, root: &Path) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.current_dir(root)
+        .env("LC_ALL", "C")
+        .args([
+            "--no-optional-locks",
+            "-c",
+            "core.fsmonitor=false",
+            "status",
+            "--porcelain=v2",
+            "--untracked-files=all",
+        ]);
+    cmd
+}
+
 /// Read git status for a working directory.
 ///
 /// * `Ok(Some(_))` — a repo we could read.
@@ -223,6 +374,39 @@ pub(crate) fn status_for(root_dir: &str) -> Result<Option<GitStatus>, String> {
     }
 }
 
+/// Read the changed-files list for a working directory. `Ok(vec![])` when it
+/// isn't a repo (or `root_dir` is empty / git is missing) — the same "not a repo
+/// is normal" contract as [`status_for`]; genuine git failures still surface.
+///
+/// stdout is parsed verbatim: [`parse_changed_files`] skips blank lines, and a
+/// porcelain path must never be trimmed.
+fn changed_files_for(root_dir: &str) -> Result<Vec<ChangedFile>, String> {
+    if root_dir.is_empty() {
+        return Ok(vec![]);
+    }
+    let root = Path::new(root_dir);
+    if !root.is_dir() {
+        return Ok(vec![]);
+    }
+    let Some(bin) = git_bin() else {
+        return Ok(vec![]);
+    };
+
+    let out = changed_files_command(bin, root).output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(parse_changed_files(&String::from_utf8_lossy(&out.stdout)));
+    }
+
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if is_not_a_repo(&stderr) {
+        Ok(vec![])
+    } else if stderr.is_empty() {
+        Err(format!("git status failed ({})", out.status))
+    } else {
+        Err(stderr)
+    }
+}
+
 #[tauri::command]
 pub async fn git_status(root_dir: String) -> Result<Option<GitStatus>, String> {
     // Off the main thread too: this runs in GitBadge's mount seed and in the
@@ -238,7 +422,19 @@ pub async fn git_status(root_dir: String) -> Result<Option<GitStatus>, String> {
 /// slow stand-in command (e.g. `/bin/sleep`) in tests.
 fn run_git(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
     let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
-    run_bin(bin, root_dir, args, timeout_secs)
+    run_bin(bin, root_dir, args, timeout_secs, true)
+}
+
+/// Like [`run_git`] but returns stdout verbatim — no trailing-whitespace trim.
+///
+/// A unified diff's context lines start with a single leading space, and a blank
+/// context line is *only* that space; a trailing-newline/space trim would corrupt
+/// the patch. Only diff output needs this, so [`run_git`] keeps trimming for
+/// every other caller (branch names, commit summaries), where a stray newline is
+/// noise.
+fn run_git_raw(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
+    let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
+    run_bin(bin, root_dir, args, timeout_secs, false)
 }
 
 /// Spawn `bin` with a wall-clock budget, returning stdout on success and the
@@ -253,7 +449,13 @@ fn run_git(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, S
 /// deadlock. On expiry we kill and reap — a network op that outlives its budget
 /// is almost always a credential prompt we can never answer, and leaving it
 /// parked would leak a process per poll.
-fn run_bin(bin: &str, root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
+fn run_bin(
+    bin: &str,
+    root_dir: &str,
+    args: &[&str],
+    timeout_secs: u64,
+    trim: bool,
+) -> Result<String, String> {
     let mut child = Command::new(bin)
         .current_dir(root_dir)
         .args(args)
@@ -302,7 +504,8 @@ fn run_bin(bin: &str, root_dir: &str, args: &[&str], timeout_secs: u64) -> Resul
                 let stdout = out_reader.join().unwrap_or_default();
                 let stderr = err_reader.join().unwrap_or_default();
                 if status.success() {
-                    return Ok(String::from_utf8_lossy(&stdout).trim().to_string());
+                    let s = String::from_utf8_lossy(&stdout);
+                    return Ok(if trim { s.trim().to_string() } else { s.into_owned() });
                 }
                 let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
                 return Err(if stderr.is_empty() {
@@ -411,6 +614,98 @@ pub async fn git_switch_branch(
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         run_git(&root_dir, &switch_args(&branch, create), NET_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Wall-clock budget for the changes-panel ops below. They only touch the
+/// working tree and index — no network — so they get a short local budget, not
+/// `NET_TIMEOUT_SECS`. A local git op that runs longer than this is wedged, not
+/// slow.
+const LOCAL_TIMEOUT_SECS: u64 = 15;
+
+#[tauri::command]
+pub async fn git_changed_files(root_dir: String) -> Result<Vec<ChangedFile>, String> {
+    tokio::task::spawn_blocking(move || changed_files_for(&root_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_diff_file(
+    root_dir: String,
+    path: String,
+    staged: bool,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // `--` so a path that looks like a flag or a revision can't be
+        // reinterpreted by git as anything but a pathspec.
+        let args: Vec<&str> = if staged {
+            vec!["diff", "--cached", "--", &path]
+        } else {
+            vec!["diff", "--", &path]
+        };
+        run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stage(root_dir: String, path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["add", "--", &path], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_unstage(root_dir: String, path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        // `restore --staged` is the modern unstage, but it needs a HEAD to
+        // restore the index from. In a fresh repo with no commits yet there is
+        // none, and it errors — `reset` is what unstages there. Fall back rather
+        // than surface a confusing "invalid object" to the user.
+        match run_git(&root_dir, &["restore", "--staged", "--", &path], LOCAL_TIMEOUT_SECS) {
+            Ok(_) => Ok(()),
+            Err(_) => run_git(&root_dir, &["reset", "--", &path], LOCAL_TIMEOUT_SECS).map(|_| ()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_discard(root_dir: String, path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["restore", "--", &path], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_commit(root_dir: String, message: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["commit", "-m", &message], LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_commit_amend(root_dir: String, message: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // Empty message = keep the existing one (`--no-edit`); otherwise replace
+        // it. `--amend` rewrites the tip commit with whatever is currently staged.
+        let args: Vec<&str> = if message.is_empty() {
+            vec!["commit", "--amend", "--no-edit"]
+        } else {
+            vec!["commit", "--amend", "-m", &message]
+        };
+        run_git(&root_dir, &args, LOCAL_TIMEOUT_SECS)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -890,6 +1185,92 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
     }
 
     #[test]
+    fn changed_files_parses_a_modified_unstaged_file() {
+        let f =
+            &parse_changed_files("1 .M N... 100644 100644 100644 3f2a1b9 3f2a1b9 src/lib.rs\n")[0];
+        assert_eq!(f.path, "src/lib.rs");
+        assert_eq!(f.orig_path, None);
+        assert_eq!(f.staged_status, ".");
+        assert_eq!(f.unstaged_status, "M");
+        assert!(!f.staged);
+        assert!(f.unstaged);
+        assert!(!f.untracked);
+    }
+
+    #[test]
+    fn changed_files_parses_a_staged_file() {
+        let f =
+            &parse_changed_files("1 M. N... 100644 100644 100644 3f2a1b9 aaaaaaa src/main.rs\n")[0];
+        assert_eq!(f.path, "src/main.rs");
+        assert_eq!(f.staged_status, "M");
+        assert_eq!(f.unstaged_status, ".");
+        assert!(f.staged);
+        assert!(!f.unstaged);
+    }
+
+    #[test]
+    fn changed_files_parses_a_partially_staged_file() {
+        // `MM`: modified, staged, then modified again in the working tree.
+        let f =
+            &parse_changed_files("1 MM N... 100644 100644 100644 3f2a1b9 aaaaaaa src/both.rs\n")[0];
+        assert_eq!(f.path, "src/both.rs");
+        assert!(f.staged);
+        assert!(f.unstaged);
+    }
+
+    #[test]
+    fn changed_files_parses_a_rename_with_orig_path() {
+        // `2 ` entry: the score (`R100`) is an extra header field, and the new
+        // and old paths are TAB-separated.
+        let f = &parse_changed_files(
+            "2 R. N... 100644 100644 100644 3f2a1b9 3f2a1b9 R100 new.rs\told.rs\n",
+        )[0];
+        assert_eq!(f.path, "new.rs");
+        assert_eq!(f.orig_path.as_deref(), Some("old.rs"));
+        assert_eq!(f.staged_status, "R");
+        assert!(f.staged);
+        assert!(!f.unstaged);
+    }
+
+    #[test]
+    fn changed_files_parses_an_untracked_file() {
+        let f = &parse_changed_files("? untracked.txt\n")[0];
+        assert_eq!(f.path, "untracked.txt");
+        assert!(f.untracked);
+        assert!(f.unstaged);
+        assert!(!f.staged);
+    }
+
+    #[test]
+    fn changed_files_parses_all_kinds_together() {
+        // Every line kind in one status dump, including an unmerged (`u`) entry.
+        let files = parse_changed_files(
+            "1 .M N... 100644 100644 100644 3f2a1b9 3f2a1b9 src/lib.rs\n\
+             1 M. N... 100644 100644 100644 3f2a1b9 aaaaaaa src/main.rs\n\
+             1 MM N... 100644 100644 100644 3f2a1b9 aaaaaaa src/both.rs\n\
+             2 R. N... 100644 100644 100644 3f2a1b9 3f2a1b9 R100 new.rs\told.rs\n\
+             u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs\n\
+             ? untracked.txt\n",
+        );
+        assert_eq!(files.len(), 6);
+        let conflict = files.iter().find(|f| f.path == "conflict.rs").unwrap();
+        assert_eq!(conflict.staged_status, "U");
+        assert!(!conflict.staged);
+        assert!(conflict.unstaged);
+        assert!(!conflict.untracked);
+    }
+
+    #[test]
+    fn changed_files_keeps_paths_with_spaces_intact() {
+        // Porcelain v2 leaves spaces unquoted; the path is the remainder, not the
+        // last whitespace token.
+        let f = &parse_changed_files(
+            "1 .M N... 100644 100644 100644 3f2a1b9 3f2a1b9 my dir/a file.rs\n",
+        )[0];
+        assert_eq!(f.path, "my dir/a file.rs");
+    }
+
+    #[test]
     fn run_bin_times_out_promptly_and_kills_the_process() {
         // Exercise the timeout path against `/bin/sleep` rather than git so we
         // can (a) prove `run_bin` returns long before the sleep would, and (b)
@@ -907,7 +1288,7 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let script = format!("echo $$ > {pidfile_str}; exec sleep 30");
 
         let start = Instant::now();
-        let err = run_bin("/bin/sh", dir.path().to_str().unwrap(), &["-c", &script], 1)
+        let err = run_bin("/bin/sh", dir.path().to_str().unwrap(), &["-c", &script], 1, true)
             .expect_err("a 1s budget against a 30s sleep must time out");
         let elapsed = start.elapsed();
 

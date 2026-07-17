@@ -46,7 +46,7 @@ function slugify(s: string): string {
     .slice(0, 63);
 }
 
-const inputCls = "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-accent/60 transition-colors";
+const inputCls = "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.6)] transition-colors";
 const labelCls = "text-[11px] font-medium text-ink-3";
 
 // Valid subdomain: letters/digits/hyphens, or "*" for wildcard
@@ -74,8 +74,7 @@ interface Props {
 }
 
 export default function AddAppModal({ workspaceId, onClose, defaultValues }: Props) {
-  const { workspaces, addApp, setupStatus } = usePortaStore();
-  const scheme = setupStatus?.certs_generated ? "https" : "http";
+  const { workspaces, addApp } = usePortaStore();
   const [name, setName] = useState(defaultValues?.name ?? "");
   const [rootDir, setRootDir] = useState(defaultValues?.root_dir ?? "");
   const [command, setCommand] = useState(defaultValues?.start_command ?? "");
@@ -275,7 +274,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
 
   const workspace = workspaces.find((w) => w.id === wsId) ?? null;
   const domain = workspace?.domain || "narakarya.test";
-  const preview = `${subdomain || name || "..."}.${domain}`;
+  const hostLabel = subdomain || name || "...";
 
   function handleSubdomainChange(val: string) {
     // Allow * but otherwise force lowercase
@@ -358,8 +357,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
 
         {/* Header band */}
         <div className="px-5 py-3.5 border-b border-subtle shrink-0">
-          <h2 className="text-[14px] font-medium text-ink">Add App</h2>
-          <p className="text-[12px] text-ink-3 mt-0.5">Register a local project with Porta</p>
+          <h2 className="text-[14px] font-medium text-ink">Add app</h2>
         </div>
 
         {/* Scrollable body */}
@@ -381,11 +379,25 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
               }
                 className={`${inputCls} flex-1 cursor-default`} />
               <button type="button" onClick={pickFolder}
-                className="px-3 py-2 bg-white/[0.07] hover:bg-white/[0.11] border border-subtle rounded-lg text-[13px] text-ink-2 transition-colors shrink-0">
-                Browse
+                className="px-3 py-2 border border-strong hover:bg-white/[0.06] rounded-lg text-[13px] text-ink-2 transition-colors shrink-0">
+                Browse…
               </button>
             </div>
           </label>
+        )}
+
+        {/* Stack-detection success banner */}
+        {kind === "process" && command && commandSource === "auto" && (
+          <div className="flex items-center gap-2 bg-ok-bg rounded-lg px-3 py-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              className="text-ok shrink-0">
+              <path d="M12 12c2-2.96 0-7-1-8 0 3.038-1.773 4.741-3 6-1.226 1.26-2 3.24-2 5a6 6 0 1 0 12 0c0-1.532-1.056-3.94-2-5-1.786 3-2.791 3-4 2z" />
+            </svg>
+            <span className="text-[12px] text-ok">
+              Detected start command · <code className="font-mono font-medium">{command}</code>
+            </span>
+          </div>
         )}
 
         {/* Kind toggle */}
@@ -429,12 +441,42 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
           )}
         </div>
 
-        {/* Name */}
-        <label className="flex flex-col gap-1.5">
-          <span className={labelCls}>Name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} required
-            placeholder="my-app" className={inputCls} autoComplete="off" spellCheck={false} />
-        </label>
+        {/* Name + Port */}
+        <div className="flex gap-3">
+          <label className="flex flex-col gap-1.5 flex-1">
+            <span className={labelCls}>Name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} required
+              placeholder="my-app" className={inputCls} autoComplete="off" spellCheck={false} />
+          </label>
+          {kind !== "static" && (
+            <label className="flex flex-col gap-1.5 w-[76px]">
+              <span className={`${labelCls} flex items-center gap-1.5`}>
+                {kind === "docker" ? "Host Port" :
+                 kind === "compose" ? "Proxy Port" :
+                 kind === "proxy" ? "Upstream Port" :
+                 "Port"}
+                {kind === "compose" && detectedServices.length > 0 && !portTouched && (
+                  <span className="text-[9px] normal-case tracking-normal text-emerald-400/80" title="Auto-filled from compose ports:">
+                    auto
+                  </span>
+                )}
+              </span>
+              <input type="number" value={port}
+                onChange={(e) => { setPort(Number(e.target.value)); setPortTouched(true); }}
+                className={inputCls} />
+              {kind === "compose" && portTouched && detectedServices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setPort(detectedServices[0].port); setPortTouched(false); }}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 self-start transition-colors"
+                  title="Reset to first detected port"
+                >
+                  ↻ use {detectedServices[0].port}
+                </button>
+              )}
+            </label>
+          )}
+        </div>
 
         {/* Compose fields */}
         {kind === "compose" && (
@@ -625,14 +667,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
         {/* Start command — process apps only */}
         {kind === "process" && (
           <div className="flex flex-col gap-1.5">
-            <span className={`${labelCls} flex items-center gap-2`}>
-              Start Command
-              {commandSource === "auto" && (
-                <span className="text-[10px] font-medium text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-md normal-case tracking-normal">
-                  auto-detected
-                </span>
-              )}
-            </span>
+            <span className={labelCls}>Start Command</span>
             <div className="relative">
               <input
                 ref={cmdInputRef}
@@ -668,57 +703,27 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
           </div>
         )}
 
-        {/* Port + subdomain — port hidden for static apps */}
-        <div className="flex gap-3">
-          {kind !== "static" && (
-            <label className="flex flex-col gap-1.5 w-28">
-              <span className={`${labelCls} flex items-center gap-1.5`}>
-                {kind === "docker" ? "Host Port" :
-                 kind === "compose" ? "Proxy Port" :
-                 kind === "proxy" ? "Upstream Port" :
-                 "Port"}
-                {kind === "compose" && detectedServices.length > 0 && !portTouched && (
-                  <span className="text-[9px] normal-case tracking-normal text-emerald-400/80" title="Auto-filled from compose ports:">
-                    auto
-                  </span>
-                )}
-              </span>
-              <input type="number" value={port}
-                onChange={(e) => { setPort(Number(e.target.value)); setPortTouched(true); }}
-                className={inputCls} />
-              {kind === "compose" && portTouched && detectedServices.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setPort(detectedServices[0].port); setPortTouched(false); }}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 self-start transition-colors"
-                  title="Reset to first detected port"
-                >
-                  ↻ use {detectedServices[0].port}
-                </button>
-              )}
-            </label>
+        {/* Subdomain */}
+        <label className="flex flex-col gap-1.5">
+          <span className={`${labelCls} flex items-center gap-1.5`}>
+            Subdomain
+            <span className="text-[10px] normal-case text-zinc-600 tracking-normal">* for wildcard</span>
+          </span>
+          <input value={subdomain} onChange={(e) => handleSubdomainChange(e.target.value)}
+            placeholder="optional"
+            className={`${inputCls} ${subdomainError ? "border-red-500/60" : ""}`}
+            autoComplete="off" spellCheck={false} />
+          {subdomainError && (
+            <span className="text-[11px] text-red-400">{subdomainError}</span>
           )}
-          <label className="flex flex-col gap-1.5 flex-1">
-            <span className={`${labelCls} flex items-center gap-1.5`}>
-              Subdomain
-              <span className="text-[10px] normal-case text-zinc-600 tracking-normal">* for wildcard</span>
-            </span>
-            <input value={subdomain} onChange={(e) => handleSubdomainChange(e.target.value)}
-              placeholder="optional"
-              className={`${inputCls} ${subdomainError ? "border-red-500/60" : ""}`}
-              autoComplete="off" spellCheck={false} />
-            {subdomainError && (
-              <span className="text-[11px] text-red-400">{subdomainError}</span>
-            )}
-          </label>
-        </div>
+        </label>
 
         {/* Preview URL */}
         <div className="flex flex-col gap-1.5">
           <span className={labelCls}>URL</span>
-          <div className="flex items-center gap-1.5 bg-surface-input border border-subtle rounded-lg px-3 py-2 font-mono text-[12px] truncate">
-            <span className="text-ink-3 shrink-0">{scheme}://</span>
-            <span className="text-ink truncate">{preview}</span>
+          <div className="flex items-center bg-surface-input border border-subtle rounded-lg px-3 py-2 font-mono text-[12px] truncate">
+            <span className="text-ink-2 truncate">{hostLabel}</span>
+            <span className="text-ink shrink-0">.{domain}</span>
           </div>
         </div>
 
@@ -744,14 +749,14 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
             Cancel
           </button>
           <button type="submit" disabled={submitting || !!subdomainError}
-            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:brightness-110 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:brightness-110 text-white rounded-control disabled:opacity-50 transition-colors flex items-center gap-2">
             {submitting && (
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
                 <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             )}
-            {submitting ? "Adding..." : "Add App"}
+            {submitting ? "Adding…" : "Add app"}
           </button>
         </div>
       </form>

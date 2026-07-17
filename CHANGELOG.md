@@ -6,6 +6,40 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-17
+
+### Changed
+
+- **"Shell C" app redesign.** Content-forward workbench shell: an icon rail of
+  domains (Workspaces / Hosts / Services / Activity / Extensions), a thin
+  workspace-grouped app list, and a rich app workbench (header + Overview /
+  Logs / Git / Terminal / Publish / Config tabs). App settings now render
+  inline as a **Config tab** instead of a full-screen modal. Every surface
+  restyled to the design tokens (`--surface-*`, `--ink-*`, `--accent`).
+- App workbench header gains an **Open split-button** with an "Open in browser"
+  dropdown (Local / Tunnel / Custom URLs, copy + open per row).
+- Logs tab: segmented All/Info/Warn/Error filter, timestamps toggle, export,
+  following/paused footer. Publish tab: unified routing panel + shareable **QR
+  code**. Update notification moved to a rail-anchored popover.
+- Sidebar: hover start/stop, per-app context menu with icons, always-visible
+  "＋" per workspace. Services domain: "Add from template" now prefills the
+  new-service form (Postgres/MySQL/Redis/Mongo/RabbitMQ/MariaDB/MinIO).
+- Loading/spinner + skeleton states across async controls.
+
+### Added
+
+- **Git tab working surface** — per-file staged/unstaged list, unified diff,
+  stage/unstage/discard, commit / commit&push / amend (`git_changed_files`,
+  `git_diff_file`, `git_stage`, `git_unstage`, `git_discard`, `git_commit`,
+  `git_commit_amend`), plus a Branches sub-nav (switch/create).
+- **Activity domain metrics** — host CPU/memory/disk via `system_metrics`, a
+  live per-app CPU/memory panel on the workbench Overview, and a
+  session-lived recent-events feed.
+- **Run instance by branch** — `git_worktree_add` creates a worktree for a
+  branch (existing or new) and launches an instance from it, via the
+  Instances modal's "Run on branch" picker.
+- On-demand app volume snapshot (`create_app_volume_snapshot`).
+
 ## [0.10.0] — 2026-07-17
 
 ### Added

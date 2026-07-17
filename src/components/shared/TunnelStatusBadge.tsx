@@ -22,13 +22,13 @@ export default function TunnelStatusBadge({ tunnelActive, tunnelUrl, provider, c
     ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
     : connecting
     ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-    : "bg-zinc-800 text-zinc-500 border border-white/[0.06]";
+    : "bg-surface-2 text-ink-3 border border-subtle";
 
   const dotClass = connected
     ? "bg-emerald-400 pulse-dot"
     : connecting
     ? "bg-amber-400 pulse-dot"
-    : "bg-zinc-600";
+    : "bg-ink-3";
 
   const providerLabel = provider === "tailscale" ? " · Tailnet" : provider === "cloudflare" ? " · Cloudflare" : "";
   const label = connected ? `Connected${providerLabel}` : connecting ? "Connecting..." : "Disconnected";

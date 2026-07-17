@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCfApiToken } from "../../lib/commands";
+import { getCfApiToken, cfDnsListZones } from "../../lib/commands";
 import CloudflareTokenBar from "./CloudflareTokenBar";
 import TunnelsSection from "./TunnelsSection";
 import DnsSection from "./DnsSection";
@@ -34,10 +34,37 @@ export default function CloudflareSection() {
   // (via getCfApiToken) can re-fetch and pick up the change without a
   // manual refresh.
   const [tokenVersion, setTokenVersion] = useState(0);
+  // Zone count derived purely from cfDnsListZones — a successful, non-empty
+  // response proves the token is valid, and the array length is the zone
+  // count. null = not yet resolved (avoids flashing "not connected" on load).
+  const [zoneCount, setZoneCount] = useState<number | null>(null);
 
   useEffect(() => {
     getCfApiToken().then((t) => setToken(t || "")).catch(() => setToken(""));
   }, []);
+
+  // Refetch zones whenever the token changes (edit/save updates `token`, which
+  // also bumps tokenVersion). A throw or empty array both read as "not
+  // connected"; in a plain browser the wrapper resolves to [] → not connected.
+  useEffect(() => {
+    if (!token) {
+      setZoneCount(null);
+      return;
+    }
+    let cancelled = false;
+    cfDnsListZones(token)
+      .then((zones) => {
+        if (!cancelled) setZoneCount(zones.length);
+      })
+      .catch(() => {
+        if (!cancelled) setZoneCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const connected = Boolean(token) && (zoneCount ?? 0) > 0;
 
   useEffect(() => {
     setVisited((prev) => prev.has(tab) ? prev : new Set([...prev, tab]));
@@ -50,16 +77,43 @@ export default function CloudflareSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-[16px] font-semibold text-zinc-100">Cloudflare</h1>
-        <p className="text-[12px] text-zinc-500 mt-0.5">
-          Tunnels, DNS records, Access protection, and origin certs — everything tied to your Cloudflare account.
-        </p>
+      <div className="flex items-center gap-2">
+        <svg
+          className="w-[17px] h-[17px] text-accent"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+        </svg>
+        <span className="text-[15px] font-medium text-ink">Cloudflare</span>
+        {token ? (
+          <span className="text-[11px] text-ok bg-ok-bg px-2 py-[1px] rounded-full">
+            connected
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-1.5 text-[12px] text-ink-2 -mt-2">
+        {connected ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-ok" aria-hidden="true" />
+            <span>
+              Connected · {zoneCount} {zoneCount === 1 ? "zone" : "zones"}
+            </span>
+          </>
+        ) : (
+          <span>Not connected — add an API token</span>
+        )}
       </div>
 
       <CloudflareTokenBar token={token} onChange={handleTokenChange} />
 
-      <div className="flex border-b border-white/[0.06] gap-1">
+      <div className="flex border-b border-subtle gap-1">
         {TABS.map((t) => {
           const active = tab === t.id;
           return (
@@ -67,13 +121,13 @@ export default function CloudflareSection() {
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`relative px-4 py-2 text-[12.5px] font-medium transition-colors ${
-                active ? "text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+              className={`relative px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                active ? "text-ink" : "text-ink-2 hover:text-ink"
               }`}
             >
               {t.label}
               {active && (
-                <span className="absolute left-0 right-0 bottom-[-1px] h-[2px] bg-blue-400 rounded-t" />
+                <span className="absolute left-0 right-0 bottom-[-1px] h-[1.5px] bg-accent-ink rounded-t" />
               )}
             </button>
           );

@@ -86,6 +86,25 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Browser-only (Vite design review): the native updater no-ops without a
+  // Tauri runtime, so seed a mock "available" phase once so the redesigned
+  // UpdateToast is reviewable. Never runs in the packaged app (isTauri true).
+  useEffect(() => {
+    if (isTauri) return;
+    usePortaStore.setState({
+      updaterPhase: "available",
+      updaterCheckSource: "menu",
+      updaterError: null,
+      updaterInfo: {
+        version: "0.11.0",
+        currentVersion: "0.10.0",
+        body: "- App workbench & multi-domain shell\n- Redesigned Publish & Logs",
+        total: 0,
+        downloaded: 0,
+      },
+    });
+  }, []);
+
   useEffect(() => {
     checkSetup();
     load().then(async () => {
@@ -254,12 +273,7 @@ export default function App() {
             )}
                 <WorkspaceView />
                 </div>
-                {selectedApp && (
-                  <AppWorkbench
-                    app={selectedApp}
-                    onOpenSettings={(a) => openAppSettings(a.id)}
-                  />
-                )}
+                {selectedApp && <AppWorkbench app={selectedApp} />}
               </div>
               <div hidden={activeDomain !== "hosts"}>
                 <HostsView />

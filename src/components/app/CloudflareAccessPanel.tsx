@@ -104,14 +104,14 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
   }
 
   const wrap = (children: React.ReactNode) => (
-    <div className="mt-2 pt-4 border-t border-white/[0.06]">{children}</div>
+    <div className="mt-2 pt-4 border-t border-subtle">{children}</div>
   );
 
   // 1. No token → setup hint.
   if (!cfToken) {
     return wrap(
-      <p className="text-[10.5px] text-zinc-600 px-1">
-        Add a Cloudflare API token in <span className="text-zinc-400">Settings → Cloudflare → Tunnels</span> to enable Cloudflare Access (login wall).
+      <p className="text-[10.5px] text-ink-3 px-1">
+        Add a Cloudflare API token in <span className="text-ink-2">Settings → Cloudflare → Tunnels</span> to enable Cloudflare Access (login wall).
       </p>
     );
   }
@@ -119,7 +119,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
   // 2. No saved hostname yet → static hint, no fetch.
   if (!saved) {
     return wrap(
-      <p className="text-[10.5px] text-zinc-600 px-1">
+      <p className="text-[10.5px] text-ink-3 px-1">
         Save a named-tunnel hostname first to protect it with Cloudflare Access (login wall).
       </p>
     );
@@ -139,34 +139,34 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
   const showViewMode = !!accessApp && !editMode;
 
   return (
-    <div className="mt-2 pt-4 border-t border-white/[0.06]">
+    <div className="mt-2 pt-4 border-t border-subtle">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-start gap-3 text-left group"
       >
-        <span className="mt-0.5 inline-block h-2 w-2 rounded-full bg-violet-400/70 shrink-0" />
+        <span className="mt-0.5 inline-block h-2 w-2 rounded-full bg-[rgba(96,165,250,0.70)] shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[12px] font-medium text-zinc-200 group-hover:text-zinc-100">Cloudflare Access</span>
+            <span className="text-[12px] font-medium text-ink group-hover:text-ink">Cloudflare Access</span>
             {accessApp ? (
               <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 leading-none">
                 Protected
               </span>
             ) : loadedFor.current === saved ? (
-              <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/[0.05] text-zinc-500 border border-white/[0.08] leading-none">
+              <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface-2 text-ink-3 border border-subtle leading-none">
                 Unprotected
               </span>
             ) : null}
             {loading && (
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-violet-400/30 border-t-violet-300 animate-spin" />
+              <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.30)] border-t-accent animate-spin" />
             )}
           </div>
-          <p className="text-[10.5px] text-zinc-500 mt-0.5 break-words">
-            Require login before users can reach <span className="font-mono text-zinc-400">{saved}</span>. Identity: one-time PIN via email.
+          <p className="text-[10.5px] text-ink-3 mt-0.5 break-words">
+            Require login before users can reach <span className="font-mono text-ink-2">{saved}</span>. Identity: one-time PIN via email.
           </p>
         </div>
-        <span className={`mt-0.5 text-zinc-600 transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+        <span className={`mt-0.5 text-ink-3 transition-transform ${open ? "rotate-90" : ""}`}>›</span>
       </button>
 
       {open && (
@@ -179,10 +179,10 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
             <div className="space-y-2">
               {accessApp.allowed_emails.length > 0 && (
                 <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">Allowed emails</p>
+                  <p className="text-[10px] text-ink-3 mb-1">Allowed emails</p>
                   <div className="flex flex-wrap gap-1">
                     {accessApp.allowed_emails.map((e) => (
-                      <span key={e} className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-zinc-300 border border-white/[0.06]">
+                      <span key={e} className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-2 border border-subtle">
                         {e}
                       </span>
                     ))}
@@ -191,23 +191,23 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
               )}
               {accessApp.allowed_domains.length > 0 && (
                 <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">Allowed email-domains</p>
+                  <p className="text-[10px] text-ink-3 mb-1">Allowed email-domains</p>
                   <div className="flex flex-wrap gap-1">
                     {accessApp.allowed_domains.map((d) => (
-                      <span key={d} className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-zinc-300 border border-white/[0.06]">
+                      <span key={d} className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-2 border border-subtle">
                         @{d.replace(/^@/, "")}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
-              <p className="text-[10px] text-zinc-600 leading-snug">
+              <p className="text-[10px] text-ink-3 leading-snug">
                 Session: {accessApp.session_duration}. Need IP rules, OAuth, or country gating? Manage advanced policies in the{" "}
                 <a
                   href={`https://one.dash.cloudflare.com/?to=/:account/access/apps`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-violet-300 hover:text-violet-200 underline-offset-2 hover:underline"
+                  className="text-accent-ink hover:text-accent-ink underline-offset-2 hover:underline"
                 >
                   Cloudflare Zero Trust dashboard
                 </a>
@@ -218,7 +218,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
                   type="button"
                   onClick={() => setEditMode(true)}
                   disabled={saving}
-                  className="px-3 py-1.5 text-[11.5px] rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200 transition-colors disabled:opacity-40"
+                  className="px-3 py-1.5 text-[11.5px] rounded-md bg-surface-2 hover:bg-white/[0.12] text-ink transition-colors disabled:opacity-40"
                 >
                   Edit
                 </button>

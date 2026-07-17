@@ -84,7 +84,7 @@ function TunnelPublicHostsPanel({ hosts, title = "This app will expose" }: { hos
   return (
     <div className="mt-3 rounded-lg bg-orange-500/[0.04] border border-orange-500/[0.15] overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-orange-500/[0.10]">
-        <p className="text-[10px] text-zinc-400 font-medium">{title}</p>
+        <p className="text-[10px] text-ink-2 font-medium">{title}</p>
         <span className="text-[9px] uppercase tracking-wider text-orange-300/80 leading-none">
           {hosts.length} {hosts.length === 1 ? "host" : "hosts"}
         </span>
@@ -109,7 +109,7 @@ function TunnelPublicHostsPanel({ hosts, title = "This app will expose" }: { hos
   );
 }
 
-type Section = "general" | "domain" | "environment" | "tunneling" | "health" | "danger";
+export type Section = "general" | "domain" | "environment" | "tunneling" | "health" | "danger";
 
 interface Props {
   app: App;
@@ -119,13 +119,20 @@ interface Props {
   // Lets the parent show a confirmation toast without us threading a result
   // back through onClose's signature. Optional — falls back to onClose.
   onSaved?: () => void;
+  // Rendered inline as the workbench "Config" tab (mockup 20) instead of a
+  // full-screen modal: no fixed/backdrop/drag-region, fills the tab area. The
+  // sidebar sub-nav (General/Domain/Environment/…) is kept — it already
+  // matches the mockup. `onClose` then just switches back to another tab.
+  embedded?: boolean;
+  // Deep-link the sub-nav to a section on open (e.g. Publish tab → Tunneling).
+  initialSection?: Section;
 }
 
-export default function AppSettingsModal({ app, workspace, onClose, onSaved }: Props) {
+export default function AppSettingsModal({ app, workspace, onClose, onSaved, embedded = false, initialSection }: Props) {
   const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors, setAppAutoSleep, setAppMaxUploadBytes } = usePortaStore();
   const tunnelError = appTunnelErrors[app.id] ?? null;
   const [tunnelErrorCopied, setTunnelErrorCopied] = useState(false);
-  const [section, setSection] = useState<Section>("general");
+  const [section, setSection] = useState<Section>(initialSection ?? "general");
   const [tunnelUrlCopied, setTunnelUrlCopied] = useState(false);
 
   const [name, setName] = useState(app.name);
@@ -929,36 +936,47 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
     ...((isStatic || isProxy) ? [] : [{ id: "environment" as Section, label: "Environment" }]),
     { id: "tunneling"   as Section, label: "Tunneling" },
     ...((isStatic || isProxy) ? [] : [{ id: "health" as Section, label: "Health" }]),
-    { id: "danger",      label: "Danger Zone" },
+    { id: "danger",      label: "Danger" },
   ];
 
   return (
-    <div className="fixed inset-0 bg-[#111113] text-zinc-100 font-sans flex h-screen overflow-hidden z-50">
+    <div
+      className={
+        embedded
+          ? "h-full w-full bg-surface-0 text-ink font-sans flex overflow-hidden"
+          : "fixed inset-0 bg-surface-input text-ink font-sans flex h-screen overflow-hidden z-50"
+      }
+    >
       {/* Drag region — Back button in the sidebar handles dismissal; Esc still
-          works via the global key handler. No top-right ✕ to avoid duplicating. */}
-      <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
+          works via the global key handler. No top-right ✕ to avoid duplicating.
+          Omitted when embedded — the workbench chrome owns the title bar. */}
+      {!embedded && (
+        <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
+      )}
 
       {/* Sidebar */}
-      <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-8 pb-3 shrink-0">
-        <div className="px-4 mb-4">
-          <button
-            onClick={requestClose}
-            className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M7.5 2L3.5 6l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Back
-          </button>
-        </div>
+      <aside className={`w-[120px] bg-surface-2 border-r border-subtle flex flex-col pb-3 shrink-0 ${embedded ? "pt-3" : "pt-8"}`}>
+        {!embedded && (
+          <div className="px-4 mb-4">
+            <button
+              onClick={requestClose}
+              className="flex items-center gap-1.5 text-[12px] text-ink-3 hover:text-ink transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M7.5 2L3.5 6l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Back
+            </button>
+          </div>
+        )}
 
         <div className="px-4 mb-1">
-          <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest truncate">
+          <p className="text-[11px] font-semibold text-ink-3 uppercase tracking-widest truncate">
             {app.name}
           </p>
         </div>
         <div className="px-4 mb-3">
-          <p className="text-[11px] text-zinc-600 truncate">
+          <p className="text-[11px] text-ink-3 truncate">
             {workspace?.domain ?? "standalone"} · {app.kind === "static" ? "static" : `:${app.port}`}
           </p>
         </div>
@@ -970,12 +988,12 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
               <button
                 key={id}
                 onClick={() => setSection(id)}
-                className={`flex items-center px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
+                className={`flex items-center px-2 py-[5px] rounded-control text-[13px] w-full text-left transition-all duration-100 ${
                   active
-                    ? id === "danger" ? "bg-red-500/10 text-red-400" : "bg-white/10 text-zinc-100"
+                    ? id === "danger" ? "bg-bad-bg text-bad" : "bg-accent-bg text-accent-ink"
                     : id === "danger"
-                    ? "text-red-500/60 hover:bg-red-500/[0.07] hover:text-red-400"
-                    : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+                    ? "text-bad hover:bg-bad-bg"
+                    : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"
                 }`}
               >
                 {label}
@@ -987,30 +1005,30 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
 
       {/* Content */}
       <main className="flex-1 flex flex-col no-drag overflow-hidden">
-      <div className="flex-1 overflow-auto pt-10 px-8 pb-4">
-        <div className="w-full flex flex-col gap-6">
+      <div className={`flex-1 overflow-auto px-8 pb-4 ${embedded ? "pt-5" : "pt-10"}`}>
+        <div className="w-full flex flex-col gap-5">
 
           {section === "general" && (
             <>
               <div>
-                <h1 className="text-[16px] font-semibold text-zinc-100">General</h1>
-                <p className="text-[12px] text-zinc-500 mt-1">App identity and connection settings.</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">General</p>
+                <p className="text-[12px] text-ink-3 mt-1">App identity and connection settings.</p>
               </div>
 
-              <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+              <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
                 {isStatic && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                    <span className="text-[10px] font-semibold tracking-wider text-blue-300 mt-0.5">STATIC</span>
-                    <p className="text-[11px] text-blue-200/80">
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+                    <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">STATIC</span>
+                    <p className="text-[11px] text-accent-ink">
                       Caddy serves files directly from the root directory — no process,
                       no port, no start command.
                     </p>
                   </div>
                 )}
                 {isDocker && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-sky-500/10 border border-sky-500/20">
-                    <span className="text-[10px] font-semibold tracking-wider text-sky-300 mt-0.5">DOCKER</span>
-                    <p className="text-[11px] text-sky-200/80">
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+                    <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">DOCKER</span>
+                    <p className="text-[11px] text-accent-ink">
                       Porta runs container <code className="font-mono">porta-{app.id.slice(0, 8)}…</code>.
                       Host port maps to the container port below.
                     </p>
@@ -1025,9 +1043,9 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </div>
                 )}
                 {isProxy && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
-                    <span className="text-[10px] font-semibold tracking-wider text-violet-300 mt-0.5">PROXY</span>
-                    <p className="text-[11px] text-violet-200/80">
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+                    <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">PROXY</span>
+                    <p className="text-[11px] text-accent-ink">
                       Caddy reverse-proxies the domain to an existing local port. You run the upstream yourself — no folder, no command.
                     </p>
                   </div>
@@ -1054,14 +1072,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
 
                 {isCompose && (
                   <Field label="Compose Source">
-                    <div className="flex gap-1 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1 mb-2">
+                    <div className="flex gap-1 bg-surface-1 border border-subtle rounded-lg p-1 mb-2">
                       {(["paste", "file"] as const).map((m) => (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setComposeMode(m)}
                           className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
-                            composeMode === m ? "bg-white/[0.08] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                            composeMode === m ? "bg-surface-2 text-ink" : "text-ink-3 hover:text-ink-2"
                           }`}
                         >
                           {m === "paste" ? "Paste YAML" : "File on disk"}
@@ -1072,7 +1090,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       <>
                         <input spellCheck={false} value={composeFile} onChange={(e) => setComposeFile(e.target.value)}
                           className="input-base font-mono text-[12px]" placeholder="docker-compose.yml" />
-                        <p className="text-[10px] text-zinc-600 mt-1">Relative to Root Directory, or absolute.</p>
+                        <p className="text-[10px] text-ink-3 mt-1">Relative to Root Directory, or absolute.</p>
                       </>
                     ) : (
                       <>
@@ -1089,7 +1107,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                             {composeError}
                           </div>
                         )}
-                        <p className="text-[10px] text-zinc-600 mt-1">
+                        <p className="text-[10px] text-ink-3 mt-1">
                           Porta manages <code className="font-mono">~/.porta/compose/&lt;id&gt;/docker-compose.yml</code>. Restart app after edits.
                         </p>
                       </>
@@ -1106,7 +1124,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     <Field label="Container Port">
                       <input spellCheck={false} value={dockerContainerPort} onChange={(e) => setDockerContainerPort(e.target.value)}
                         className="input-base" placeholder="80" type="number" min={1} max={65535} />
-                      <p className="text-[10px] text-zinc-600 mt-1">Internal port the container listens on.</p>
+                      <p className="text-[10px] text-ink-3 mt-1">Internal port the container listens on.</p>
                     </Field>
                     <Field label="Volumes">
                       <div className="flex flex-col gap-1.5">
@@ -1122,7 +1140,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                             <button
                               type="button"
                               onClick={() => setDockerVolumes((prev) => prev.map((x, j) => (j === i ? volumeTemplate(name) : x)))}
-                              className="px-2.5 text-zinc-500 hover:text-zinc-200 border border-white/[0.08] rounded-lg text-[11px] shrink-0"
+                              className="px-2.5 text-ink-3 hover:text-ink border border-subtle rounded-lg text-[11px] shrink-0"
                               title={`Fill with ${volumeTemplate(name)}`}
                             >
                               base
@@ -1130,7 +1148,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                             <button
                               type="button"
                               onClick={() => setDockerVolumes((prev) => prev.filter((_, j) => j !== i))}
-                              className="px-2.5 text-zinc-500 hover:text-red-400 border border-white/[0.08] rounded-lg text-[14px] shrink-0"
+                              className="px-2.5 text-ink-3 hover:text-red-400 border border-subtle rounded-lg text-[14px] shrink-0"
                               title="Remove"
                             >
                               ×
@@ -1140,12 +1158,12 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         <button
                           type="button"
                           onClick={() => setDockerVolumes((prev) => [...prev, ""])}
-                          className="self-start px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 border border-dashed border-white/[0.12] rounded-md"
+                          className="self-start px-2.5 py-1 text-[11px] text-ink-2 hover:text-ink border border-dashed border-strong rounded-md"
                         >
                           + Add volume
                         </button>
                       </div>
-                      <p className="text-[10px] text-zinc-600 mt-1">
+                      <p className="text-[10px] text-ink-3 mt-1">
                         <code className="font-mono">source:target</code> — relative sources resolve against Root Directory.
                       </p>
                     </Field>
@@ -1176,7 +1194,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     <button
                       type="button"
                       onClick={browseRootDir}
-                      className="px-3 py-2 text-[12px] text-zinc-400 bg-white/[0.05] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] hover:text-zinc-200 transition-colors shrink-0"
+                      className="px-3 py-2 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
                     >
                       Browse
                     </button>
@@ -1191,11 +1209,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         type="checkbox"
                         checked={networkShare}
                         onChange={(e) => setNetworkShare(e.target.checked)}
-                        className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+                        className="mt-0.5 rounded border-strong bg-surface-2 text-accent focus:ring-[rgba(96,165,250,0.45)] focus:ring-offset-0"
                       />
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[12px] text-zinc-200">Join shared network</span>
-                        <span className="text-[11px] text-zinc-500">
+                        <span className="text-[12px] text-ink">Join shared network</span>
+                        <span className="text-[11px] text-ink-3">
                           Network <code className="font-mono">{app.workspace_id ? `porta-ws-${app.workspace_id.slice(0, 8)}…` : "porta-standalone"}</code>.
                           Restart app to apply.
                         </span>
@@ -1208,7 +1226,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   <Field label="Health Check Path">
                     <input spellCheck={false} value={healthCheckPath} onChange={(e) => setHealthCheckPath(e.target.value)}
                       className="input-base" placeholder="/health" />
-                    <p className="text-[10px] text-zinc-600 mt-1">
+                    <p className="text-[10px] text-ink-3 mt-1">
                       Leave blank to use port-only detection
                     </p>
                   </Field>
@@ -1217,10 +1235,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
 
               {/* Start After (dependencies) (from agent-a7a6ec3b) */}
               {siblingApps.length > 0 && (
-                <div className="flex flex-col gap-3 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+                <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
                   <div>
-                    <p className="text-[12px] font-medium text-zinc-300">Start After</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-[12px] font-medium text-ink-2">Start After</p>
+                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                       Select apps that must be running before this app starts.
                     </p>
                   </div>
@@ -1242,10 +1260,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                   : [...prev, sibling.id]
                               )
                             }
-                            className="rounded border-white/[0.15] bg-white/[0.05] text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+                            className="rounded border-strong bg-surface-2 text-accent focus:ring-[rgba(96,165,250,0.45)] focus:ring-offset-0"
                           />
-                          <span className="text-[13px] text-zinc-300">{sibling.name}</span>
-                          <span className="text-[11px] text-zinc-600">:{sibling.port}</span>
+                          <span className="text-[13px] text-ink-2">{sibling.name}</span>
+                          <span className="text-[11px] text-ink-3">:{sibling.port}</span>
                         </label>
                       );
                     })}
@@ -1259,28 +1277,28 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
           {section === "domain" && (
             <>
               <div>
-                <h1 className="text-[16px] font-semibold text-zinc-100">Domain</h1>
-                <p className="text-[12px] text-zinc-500 mt-1">Subdomains and local HTTPS URLs for this app.</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Domain</p>
+                <p className="text-[12px] text-ink-3 mt-1">Subdomains and local HTTPS URLs for this app.</p>
               </div>
 
-              <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+              <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
                 <Field label="Custom Domain" hint={customDomain && !customDomainValid ? "Must be a valid domain (e.g. myapp.dev)" : undefined}>
                   <input spellCheck={false} value={customDomain} onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
                     className={`input-base font-mono text-[12px] ${customDomain && !customDomainValid ? "border-red-500/50" : ""}`}
                     placeholder={workspace?.domain ?? "narakarya.test"} />
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    Override the workspace domain for this app. Leave empty to use <code className="text-zinc-500">{workspace?.domain ?? "narakarya.test"}</code>
+                  <p className="text-[10px] text-ink-3 mt-1">
+                    Override the workspace domain for this app. Leave empty to use <code className="text-ink-3">{workspace?.domain ?? "narakarya.test"}</code>
                   </p>
                 </Field>
 
-                <div className="h-px bg-white/[0.05]" />
+                <div className="h-px bg-surface-2" />
 
                 <Field label="Subdomain" hint={subdomain && !subdomainValid ? "Lowercase letters, numbers, hyphens, or *" : undefined}>
                   <input spellCheck={false} value={subdomain} onChange={(e) => setSubdomain(e.target.value)}
                     className={`input-base ${subdomain && !subdomainValid ? "border-red-500/50" : ""}`}
                     placeholder={app.name} />
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    Use <code className="text-zinc-500">*</code> for wildcard (any subdomain)
+                  <p className="text-[10px] text-ink-3 mt-1">
+                    Use <code className="text-ink-3">*</code> for wildcard (any subdomain)
                   </p>
                 </Field>
 
@@ -1289,12 +1307,12 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   {extraSubdomains.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {extraSubdomains.map((sub) => (
-                        <span key={sub} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.07] border border-white/[0.10] text-[11px] font-mono text-zinc-300">
+                        <span key={sub} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-2 border border-strong text-[11px] font-mono text-ink-2">
                           {sub}
                           <button
                             type="button"
                             onClick={() => setExtraSubdomains((prev) => prev.filter((s) => s !== sub))}
-                            className="text-zinc-600 hover:text-red-400 transition-colors ml-0.5"
+                            className="text-ink-3 hover:text-red-400 transition-colors ml-0.5"
                           >
                             <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
                               <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -1317,36 +1335,36 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       type="button"
                       onClick={addExtraSubdomain}
                       disabled={!extraSubdomainInput || !extraSubdomainInputValid}
-                      className="px-3 py-2 text-[12px] text-zinc-400 bg-white/[0.05] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] hover:text-zinc-200 transition-colors disabled:opacity-30 disabled:pointer-events-none shrink-0"
+                      className="px-3 py-2 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors disabled:opacity-30 disabled:pointer-events-none shrink-0"
                     >
                       Add
                     </button>
                   </div>
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    Each subdomain routes to the same port. Press <kbd className="text-zinc-500 font-sans">Enter</kbd> or comma to add.
+                  <p className="text-[10px] text-ink-3 mt-1">
+                    Each subdomain routes to the same port. Press <kbd className="text-ink-3 font-sans">Enter</kbd> or comma to add.
                   </p>
                 </Field>
 
                 {/* URL Preview */}
                 <div className="flex flex-col gap-1.5 pt-1">
-                  <p className="text-[12px] font-medium text-zinc-400">URL Preview</p>
-                  <div className="flex flex-col gap-1 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                  <p className="text-[12px] font-medium text-ink-2">URL Preview</p>
+                  <div className="flex flex-col gap-1 px-3 py-2.5 rounded-lg bg-surface-1 border border-subtle">
                     <div className="flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 shrink-0" />
-                      <span className="text-[12px] font-mono text-zinc-300 truncate">{previewPrimary}</span>
-                      <span className="text-[10px] text-zinc-600 shrink-0">primary</span>
+                      <span className="text-[12px] font-mono text-ink-2 truncate">{previewPrimary}</span>
+                      <span className="text-[10px] text-ink-3 shrink-0">primary</span>
                     </div>
                     {previewExtras.map((url) => (
                       <div key={url} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 shrink-0" />
-                        <span className="text-[12px] font-mono text-zinc-500 truncate">{url}</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-ink-3 shrink-0" />
+                        <span className="text-[12px] font-mono text-ink-3 truncate">{url}</span>
                       </div>
                     ))}
                     {previewBindings.map((b) => (
                       <div key={b.url} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500/60 shrink-0" />
-                        <span className="text-[12px] font-mono text-zinc-400 truncate">{b.url}</span>
-                        <span className="text-[10px] text-zinc-600 shrink-0">:{b.port}</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                        <span className="text-[12px] font-mono text-ink-2 truncate">{b.url}</span>
+                        <span className="text-[10px] text-ink-3 shrink-0">:{b.port}</span>
                       </div>
                     ))}
                   </div>
@@ -1354,11 +1372,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
               </div>
 
               {/* Port Bindings */}
-              <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+              <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[12px] font-medium text-zinc-300">Port Bindings</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-[12px] font-medium text-ink-2">Port Bindings</p>
+                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                       Map additional ports to their own subdomains (e.g. API server, WebSocket).
                     </p>
                   </div>
@@ -1370,7 +1388,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         { id: crypto.randomUUID(), label: "", port: 0, subdomain: null, custom_domain: null },
                       ])
                     }
-                    className="px-3 py-1.5 text-[12px] text-zinc-400 bg-white/[0.05] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] hover:text-zinc-200 transition-colors shrink-0"
+                    className="px-3 py-1.5 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
                   >
                     + Add
                   </button>
@@ -1386,7 +1404,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     setPortBindings((prev) => prev.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
 
                   return (
-                    <div key={binding.id} className="flex items-center gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                    <div key={binding.id} className="flex items-center gap-2 p-3 rounded-lg bg-surface-1 border border-subtle">
                       <input
                         spellCheck={false}
                         value={binding.label}
@@ -1425,7 +1443,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       <button
                         type="button"
                         onClick={() => setPortBindings((prev) => prev.filter((_, i) => i !== idx))}
-                        className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                        className="p-1.5 rounded-lg text-ink-3 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                         title="Remove"
                       >
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -1437,18 +1455,18 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                 })}
 
                 {portBindings.length === 0 && (
-                  <p className="text-[11px] text-zinc-600 text-center py-2">
+                  <p className="text-[11px] text-ink-3 text-center py-2">
                     No extra port bindings. Click "+ Add" to map additional ports.
                   </p>
                 )}
               </div>
 
               {/* Basic Auth */}
-              <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+              <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[12px] font-medium text-zinc-300">Basic Auth</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-[12px] font-medium text-ink-2">Basic Auth</p>
+                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                       Default browser username/password prompt for this app's hosts.
                       {authHosts.length > 1 ? " Override individual hosts below." : ""} Best paired with HTTPS.
                     </p>
@@ -1457,7 +1475,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     type="button"
                     onClick={() => setBasicAuthEnabled((v) => !v)}
                     className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
-                      basicAuthEnabled ? "bg-blue-600" : "bg-white/[0.08]"
+                      basicAuthEnabled ? "bg-accent" : "bg-surface-2"
                     }`}
                     aria-label="Toggle basic auth"
                   >
@@ -1495,12 +1513,12 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         <button
                           type="button"
                           onClick={() => setBasicAuthShowPassword((v) => !v)}
-                          className="px-3 py-2 text-[11px] text-zinc-400 bg-white/[0.05] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] hover:text-zinc-200 transition-colors shrink-0"
+                          className="px-3 py-2 text-[11px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
                         >
                           {basicAuthShowPassword ? "Hide" : "Show"}
                         </button>
                       </div>
-                      <p className="text-[10px] text-zinc-600 mt-1">
+                      <p className="text-[10px] text-ink-3 mt-1">
                         Stored as a bcrypt hash — Porta never persists the plaintext.
                       </p>
                     </Field>
@@ -1511,19 +1529,19 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     more than one host. Each host can inherit the default,
                     stay public, or use its own credentials. */}
                 {authHosts.length > 1 && (
-                  <div className="flex flex-col gap-2 pt-3 border-t border-white/[0.06]">
-                    <p className="text-[11px] font-medium text-zinc-400">Per-host overrides</p>
+                  <div className="flex flex-col gap-2 pt-3 border-t border-subtle">
+                    <p className="text-[11px] font-medium text-ink-2">Per-host overrides</p>
                     {authHosts.map(({ host, label }) => {
                       const d = hostAuthDraft(host);
                       const defaultProtected = basicAuthEnabled;
                       return (
-                        <div key={host} className="flex flex-col gap-2 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.05]">
+                        <div key={host} className="flex flex-col gap-2 p-2.5 rounded-lg bg-surface-1 border border-subtle">
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="text-[11px] font-mono text-zinc-300 truncate">{host}</p>
-                              <p className="text-[9px] uppercase tracking-wide text-zinc-600">{label}</p>
+                              <p className="text-[11px] font-mono text-ink-2 truncate">{host}</p>
+                              <p className="text-[9px] uppercase tracking-wide text-ink-3">{label}</p>
                             </div>
-                            <div className="inline-flex p-0.5 rounded-md bg-[#0c0c0e] border border-white/[0.08] shrink-0">
+                            <div className="inline-flex p-0.5 rounded-md bg-surface-0 border border-subtle shrink-0">
                               {([
                                 { key: "default", text: defaultProtected ? "Default 🔒" : "Default" },
                                 { key: "off", text: "Public" },
@@ -1534,7 +1552,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                   type="button"
                                   onClick={() => setHostAuthFor(host, { mode: opt.key })}
                                   className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-                                    d.mode === opt.key ? "bg-white/[0.10] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                                    d.mode === opt.key ? "bg-surface-2 text-ink" : "text-ink-3 hover:text-ink-2"
                                   }`}
                                 >
                                   {opt.text}
@@ -1576,75 +1594,89 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
           {section === "environment" && (
             <>
               <div>
-                <h1 className="text-[16px] font-semibold text-zinc-100">Environment</h1>
-                <p className="text-[12px] text-zinc-500 mt-1">Environment variables and startup behavior.</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Environment</p>
+                <p className="text-[12px] text-ink-3 mt-1">Environment variables and startup behavior.</p>
               </div>
 
               {/* Profile selector */}
-              <div className="flex flex-col gap-3 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
-                <div className="flex items-center justify-between">
-                  <p className="text-[12px] font-medium text-zinc-300">Profile</p>
-                  <button onClick={() => setShowNewProfile(true)} className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors">+ New Profile</button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => selectProfile(null)}
-                    className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
-                      activeProfileId === null
-                        ? "bg-blue-600/30 text-blue-300 border border-blue-500/30"
-                        : "bg-white/[0.04] text-zinc-400 border border-white/[0.07] hover:bg-white/[0.07]"
-                    }`}
-                  >Default</button>
-                  {envProfiles.map((profile) => (
-                    <div key={profile.id} className="flex items-center gap-0">
+              <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[11px] text-ink-2 shrink-0">Profile</span>
+                  {/* Compact dropdown pill for the active profile. Switching, new
+                      and delete all reuse the existing profile handlers. */}
+                  <div className="relative inline-flex items-center shrink-0">
+                    <select
+                      value={activeProfileId ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "__new__") { setShowNewProfile(true); return; }
+                        selectProfile(v === "" ? null : v);
+                      }}
+                      className="appearance-none text-[12px] text-ink bg-transparent border border-strong rounded-control pl-2.5 pr-6 py-[3px] focus:outline-none focus:border-accent cursor-pointer"
+                    >
+                      <option value="">Default</option>
+                      {envProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>{profile.name}</option>
+                      ))}
+                      <option value="__new__">+ New profile…</option>
+                    </select>
+                    <svg className="absolute right-2 pointer-events-none text-ink-3" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  {/* Muted summary of the other available profiles. */}
+                  {envProfiles.some((p) => p.id !== activeProfileId) && (
+                    <span className="text-[11px] text-ink-3 truncate">
+                      · {envProfiles.filter((p) => p.id !== activeProfileId).map((p) => p.name).join(" · ")}
+                    </span>
+                  )}
+                  {/* Delete the currently-selected named profile. */}
+                  {activeProfileId && (
+                    deleteProfileConfirm === activeProfileId ? (
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <button onClick={() => deleteProfile(activeProfileId)} className="px-1.5 py-0.5 text-[10px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded transition-colors hover:bg-red-500/20">Delete</button>
+                        <button onClick={() => setDeleteProfileConfirm(null)} className="px-1.5 py-0.5 text-[10px] text-ink-3 hover:text-ink-2 transition-colors">Cancel</button>
+                      </span>
+                    ) : (
                       <button
-                        onClick={() => selectProfile(profile.id)}
-                        className={`px-3 py-1.5 rounded-l-lg text-[12px] font-medium transition-colors ${
-                          activeProfileId === profile.id
-                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/30"
-                            : "bg-white/[0.04] text-zinc-400 border border-white/[0.07] hover:bg-white/[0.07]"
-                        }`}
-                      >{profile.name}</button>
-                      {deleteProfileConfirm === profile.id ? (
-                        <div className="flex items-center gap-1 ml-1">
-                          <button onClick={() => deleteProfile(profile.id)} className="px-1.5 py-1.5 text-[10px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded transition-colors hover:bg-red-500/20">Delete</button>
-                          <button onClick={() => setDeleteProfileConfirm(null)} className="px-1.5 py-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteProfileConfirm(profile.id)}
-                          className={`px-1.5 py-1.5 rounded-r-lg text-zinc-600 hover:text-red-400 transition-colors border-y border-r ${
-                            activeProfileId === profile.id ? "border-blue-500/30 bg-blue-600/30" : "border-white/[0.07] bg-white/[0.04] hover:bg-white/[0.07]"
-                          }`}
-                          title={`Delete ${profile.name}`}
-                        >
-                          <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                        onClick={() => setDeleteProfileConfirm(activeProfileId)}
+                        title="Delete profile"
+                        className="text-ink-3 hover:text-red-400 transition-colors p-0.5 shrink-0"
+                      >
+                        <svg width="9" height="9" viewBox="0 0 8 8" fill="none"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                      </button>
+                    )
+                  )}
+                  {/* Top-right action: append a blank inline env var row. */}
+                  <button
+                    onClick={() => setEnvVars((prev) => [...prev, { key: "", value: "" }])}
+                    className="ml-auto inline-flex items-center gap-1 text-[11px] text-accent hover:brightness-110 transition shrink-0"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                    Add variable
+                  </button>
                 </div>
                 {activeProfileId && (
-                  <p className="text-[10px] text-blue-400/60">Active profile will be used when starting the app.</p>
+                  <p className="text-[10px] text-accent-ink">Active profile will be used when starting the app.</p>
                 )}
                 {showNewProfile && (
                   <div className="flex gap-2 items-center">
                     <input spellCheck={false} value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") createProfile(); if (e.key === "Escape") { setShowNewProfile(false); setNewProfileName(""); } }}
                       className="input-base flex-1 text-[12px]" placeholder="Profile name (e.g. staging)" autoFocus />
-                    <button onClick={createProfile} disabled={!newProfileName.trim()} className="px-3 py-2 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors shrink-0">Create</button>
-                    <button onClick={() => { setShowNewProfile(false); setNewProfileName(""); }} className="px-2 py-2 text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors shrink-0">Cancel</button>
+                    <button onClick={createProfile} disabled={!newProfileName.trim()} className="px-3 py-2 text-[12px] font-medium bg-accent hover:brightness-110 text-white rounded-lg disabled:opacity-40 transition-colors shrink-0">Create</button>
+                    <button onClick={() => { setShowNewProfile(false); setNewProfileName(""); }} className="px-2 py-2 text-[12px] text-ink-3 hover:text-ink transition-colors shrink-0">Cancel</button>
                   </div>
                 )}
               </div>
 
-              <div className="flex flex-col gap-5 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+              <div className="flex flex-col gap-5 p-5 rounded-card bg-surface-1 border border-subtle">
                 <div className="flex flex-col gap-2">
-                  <p className="text-[12px] font-medium text-zinc-300">.env File</p>
-                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  <p className="text-[12px] font-medium text-ink-2">.env File</p>
+                  <p className="text-[11px] text-ink-3 leading-relaxed">
                     Variables from this file are injected when the app starts.
-                    Relative paths (e.g. <code className="text-zinc-400">.env</code>) resolve from the app's root directory.
-                    <code className="text-zinc-400 ml-1">PORT</code> is always overridden by Porta's assigned port.
+                    Relative paths (e.g. <code className="text-ink-2">.env</code>) resolve from the app's root directory.
+                    <code className="text-ink-2 ml-1">PORT</code> is always overridden by Porta's assigned port.
                   </p>
                   <div className="flex gap-2">
                     <input spellCheck={false}
@@ -1655,36 +1687,46 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     />
                     <button
                       onClick={browseEnvFile}
-                      className="px-3 py-2 text-[12px] text-zinc-400 bg-white/[0.05] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] hover:text-zinc-200 transition-colors shrink-0"
+                      className="px-3 py-2 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
                     >
                       Browse
                     </button>
                   </div>
                   {envFile && (
-                    <button onClick={() => setEnvFile("")} className="self-start text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+                    <button onClick={() => setEnvFile("")} className="self-start text-[10px] text-ink-3 hover:text-ink-2 transition-colors">
                       Clear
                     </button>
                   )}
                 </div>
 
-                <div className="h-px bg-white/[0.05]" />
+                <div className="h-px bg-surface-2" />
 
                 {/* Inline env vars editor */}
                 <EnvVarEditor vars={envVars} onChange={setEnvVars} />
 
-                <div className="h-px bg-white/[0.05]" />
+                {/* Import/export hint (mockup 20 footer) */}
+                <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M8 1.5H3.5A1 1 0 0 0 2.5 2.5v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5L8 1.5Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M8 1.5V5h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M7 6.5V10M5.5 8.5L7 10l1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Import from .env · export
+                </div>
+
+                <div className="h-px bg-surface-2" />
 
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[13px] font-medium text-zinc-200">Auto-start on launch</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-[13px] font-medium text-ink">Auto-start on launch</p>
+                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                       Automatically start this app when Porta opens.
                     </p>
                   </div>
                   <button
                     onClick={() => setAutoStart((v) => !v)}
                     className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
-                      autoStart ? "bg-blue-600" : "bg-zinc-700"
+                      autoStart ? "bg-accent" : "bg-surface-2"
                     }`}
                   >
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
@@ -1693,13 +1735,13 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </button>
                 </div>
 
-                <div className="h-px bg-white/[0.05]" />
+                <div className="h-px bg-surface-2" />
 
                 {/* Restart policy */}
                 <div className="flex flex-col gap-3">
                   <div>
-                    <p className="text-[12px] font-medium text-zinc-300">Restart Policy</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-[12px] font-medium text-ink-2">Restart Policy</p>
+                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                       What to do when this app exits unexpectedly.
                     </p>
                   </div>
@@ -1710,8 +1752,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         onClick={() => setRestartPolicy(policy)}
                         className={`flex-1 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
                           restartPolicy === policy
-                            ? "bg-blue-600/30 text-blue-300 border border-blue-500/30"
-                            : "bg-white/[0.04] text-zinc-400 border border-white/[0.07] hover:bg-white/[0.07]"
+                            ? "bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.30)]"
+                            : "bg-surface-1 text-ink-2 border border-subtle hover:bg-white/[0.07]"
                         }`}
                       >
                         {policy === "never" ? "Never" : policy === "on-failure" ? "On Failure" : "Always"}
@@ -1720,7 +1762,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </div>
                   {restartPolicy !== "never" && (
                     <div className="flex items-center gap-3">
-                      <label className="text-[12px] text-zinc-400 flex-1">Max retries</label>
+                      <label className="text-[12px] text-ink-2 flex-1">Max retries</label>
                       <input spellCheck={false}
                         type="number"
                         min={1}
@@ -1735,14 +1777,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
 
                 {autoSleepSupported && (
                   <>
-                    <div className="h-px bg-white/[0.05]" />
+                    <div className="h-px bg-surface-2" />
 
                     {/* Auto-sleep: stop when idle, wake transparently on next request */}
                     <div className="flex flex-col gap-3">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-[13px] font-medium text-zinc-200">Auto-sleep when idle</p>
-                          <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                          <p className="text-[13px] font-medium text-ink">Auto-sleep when idle</p>
+                          <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                             Stop this app after a period with no HTTP requests to free RAM.
                             It wakes automatically the next time its domain is opened.
                           </p>
@@ -1750,7 +1792,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         <button
                           onClick={() => setAutoSleepEnabled((v) => !v)}
                           className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
-                            autoSleepEnabled ? "bg-blue-600" : "bg-zinc-700"
+                            autoSleepEnabled ? "bg-accent" : "bg-surface-2"
                           }`}
                         >
                           <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
@@ -1760,7 +1802,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       </div>
                       {autoSleepEnabled && (
                         <div className="flex items-center gap-3">
-                          <label className="text-[12px] text-zinc-400 flex-1">Idle timeout (minutes)</label>
+                          <label className="text-[12px] text-ink-2 flex-1">Idle timeout (minutes)</label>
                           <input spellCheck={false}
                             type="number"
                             min={1}
@@ -1775,15 +1817,15 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                   </>
                 )}
 
-                <div className="h-px bg-white/[0.05]" />
+                <div className="h-px bg-surface-2" />
 
                 {/* Max upload size — per-app override of the proxy body limit */}
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[13px] font-medium text-zinc-200">Max upload size</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-[13px] font-medium text-ink">Max upload size</p>
+                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
                       Largest request body the proxy accepts for this app. Leave blank to
-                      use the global default; set <span className="text-zinc-400">0</span> for
+                      use the global default; set <span className="text-ink-2">0</span> for
                       unlimited. Larger uploads get a 413.
                     </p>
                   </div>
@@ -1796,7 +1838,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       onChange={(e) => setMaxUploadMb(e.target.value)}
                       className="input-base w-24 text-center"
                     />
-                    <span className="text-[12px] text-zinc-500">MB</span>
+                    <span className="text-[12px] text-ink-3">MB</span>
                   </div>
                 </div>
               </div>
@@ -1808,14 +1850,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
           {section === "tunneling" && (
             <>
               <div>
-                <h1 className="text-[16px] font-semibold text-zinc-100">Tunneling</h1>
-                <p className="text-[12px] text-zinc-500 mt-1">Expose this app to the internet via a secure tunnel.</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Tunneling</p>
+                <p className="text-[12px] text-ink-3 mt-1">Expose this app to the internet via a secure tunnel.</p>
               </div>
 
-              <div className="flex flex-col gap-5 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+              <div className="flex flex-col gap-5 p-5 rounded-card bg-surface-1 border border-subtle">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                    <label className="text-[12px] font-medium text-zinc-400">Provider</label>
+                    <label className="text-[12px] font-medium text-ink-2">Provider</label>
                     {(() => {
                       // Status-dot color reflects "is this provider ready to
                       // Connect right now?" — green when fully set up, amber
@@ -1823,7 +1865,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                       // zinc while we're still probing on first open.
                       const cfReady = cloudflaredInstalled === true;
                       const cfNeedsSetup = cloudflaredInstalled === false;
-                      const cfDot = cfReady ? "bg-emerald-400" : cfNeedsSetup ? "bg-amber-400" : "bg-zinc-600";
+                      const cfDot = cfReady ? "bg-emerald-400" : cfNeedsSetup ? "bg-amber-400" : "bg-ink-3";
                       const cfTip = cfReady
                         ? "Ready"
                         : cfNeedsSetup
@@ -1831,7 +1873,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                           : "Checking…";
                       const tsReady = !!(tsStatus?.installed && tsStatus.running && tsStatus.logged_in);
                       const tsKnown = !!tsStatus;
-                      const tsDot = tsReady ? "bg-emerald-400" : tsKnown ? "bg-amber-400" : "bg-zinc-600";
+                      const tsDot = tsReady ? "bg-emerald-400" : tsKnown ? "bg-amber-400" : "bg-ink-3";
                       const tsTip = !tsKnown
                         ? "Checking…"
                         : tsReady
@@ -1849,7 +1891,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         <div
                           role="radiogroup"
                           aria-label="Tunnel provider"
-                          className="inline-flex p-0.5 rounded-lg bg-[#0c0c0e] border border-white/[0.08] w-fit"
+                          className="inline-flex p-0.5 rounded-lg bg-surface-0 border border-subtle w-fit"
                         >
                           {options.map((opt) => {
                             const selected = tunnelProvider === opt.key;
@@ -1874,8 +1916,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                 }}
                                 className={`px-4 py-1.5 rounded-md text-[12px] font-medium inline-flex items-center gap-2 transition-colors ${
                                   selected
-                                    ? "bg-white/[0.08] text-zinc-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
-                                    : "text-zinc-400 hover:text-zinc-200"
+                                    ? "bg-surface-2 text-ink shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                                    : "text-ink-2 hover:text-ink"
                                 }`}
                               >
                                 <span className={`h-1.5 w-1.5 rounded-full ${opt.dot}`} />
@@ -1956,14 +1998,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
 
                 {!selectedIsLive && tunnelProvider === "cloudflare" && (
                   <Field label="Mode">
-                    <div className="flex gap-1 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1 mb-2">
+                    <div className="flex gap-1 bg-surface-1 border border-subtle rounded-lg p-1 mb-2">
                       {(["quick", "named"] as const).map((m) => (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setTunnelMode(m)}
                           className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
-                            tunnelMode === m ? "bg-white/[0.08] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                            tunnelMode === m ? "bg-surface-2 text-ink" : "text-ink-3 hover:text-ink-2"
                           }`}
                         >
                           {m === "quick" ? "Quick (random URL)" : "Named (custom domain)"}
@@ -1998,6 +2040,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                               onCopy={copyCmd}
                               onRecheck={refreshTunnels}
                               recheckLabel="I've installed it"
+                              loading={tunnelsLoading}
                             />
                           )}
 
@@ -2012,6 +2055,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                               onCopy={copyCmd}
                               onRecheck={refreshTunnels}
                               recheckLabel="I've logged in"
+                              loading={tunnelsLoading}
                             />
                           )}
 
@@ -2026,6 +2070,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                               onCopy={copyCmd}
                               onRecheck={refreshTunnels}
                               recheckLabel="I've created it"
+                              loading={tunnelsLoading}
                             />
                           )}
 
@@ -2034,18 +2079,18 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                             <>
                               <div>
                                 <div className="flex items-center gap-2 mb-1.5">
-                                  <span className="text-[11px] font-medium text-zinc-400">Cloudflare Tunnel</span>
+                                  <span className="text-[11px] font-medium text-ink-2">Cloudflare Tunnel</span>
                                   <button
                                     type="button"
                                     onClick={refreshTunnels}
                                     disabled={tunnelsLoading}
-                                    className="text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-50"
+                                    className="text-[10px] text-ink-3 hover:text-ink transition-colors disabled:opacity-50"
                                   >
                                     {tunnelsLoading ? "Loading…" : "↻ Refresh"}
                                   </button>
                                 </div>
                                 {tunnelsLoading && availableTunnels.length === 0 ? (
-                                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-zinc-500">
+                                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-subtle text-[12px] text-ink-3">
                                     <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
                                       <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                                     </svg>
@@ -2073,7 +2118,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                           }
                                         }
                                       }}
-                                      className="w-full appearance-none bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors pr-8 cursor-pointer"
+                                      className="w-full appearance-none bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink outline-none focus:border-accent transition-colors pr-8 cursor-pointer"
                                     >
                                       <option value="">Select a tunnel…</option>
                                       {availableTunnels.map((t) => (
@@ -2082,7 +2127,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                         </option>
                                       ))}
                                     </select>
-                                    <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                    <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" width="10" height="10" viewBox="0 0 10 10" fill="none">
                                       <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                   </div>
@@ -2101,7 +2146,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                               </div>
 
                               <div>
-                                <span className="text-[11px] font-medium text-zinc-400 block mb-1.5">Hostname</span>
+                                <span className="text-[11px] font-medium text-ink-2 block mb-1.5">Hostname</span>
                                 {(() => {
                                   // Infer the most common base domain (eTLD+1) from the
                                   // routes already pointing at this tunnel. Powers two UX
@@ -2167,11 +2212,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                         className="input-base font-mono text-[12px]"
                                         placeholder={placeholder}
                                       />
-                                      <p className="text-[10px] text-zinc-600 mt-1">
+                                      <p className="text-[10px] text-ink-3 mt-1">
                                         DNS route auto-created on Connect (domain must be in your Cloudflare zone).
                                         {dominantBase && (
                                           <>
-                                            {" "}Type a subdomain — Tab or click away to append <span className="font-mono text-zinc-500">.{dominantBase}</span>.
+                                            {" "}Type a subdomain — Tab or click away to append <span className="font-mono text-ink-3">.{dominantBase}</span>.
                                           </>
                                         )}
                                       </p>
@@ -2196,13 +2241,13 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                   rewrite ON the upstream sees its native
                                   domain, so multi-tenant apps that key on
                                   hostname keep working unchanged. */}
-                              <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-2">
-                                <p className="text-[11px] font-medium text-zinc-300">
+                              <div className="mt-4 pt-4 border-t border-subtle space-y-2">
+                                <p className="text-[11px] font-medium text-ink-2">
                                   Public alias domain
-                                  <span className="ml-2 text-[9px] uppercase tracking-wider text-zinc-600">advanced</span>
+                                  <span className="ml-2 text-[9px] uppercase tracking-wider text-ink-3">advanced</span>
                                 </p>
-                                <p className="text-[10px] text-zinc-500 leading-relaxed">
-                                  Caddy also serves this app at the alias hostname pattern. Use a wildcard like <span className="font-mono text-zinc-400">*.example.com</span> to expose every subdomain through the tunnel. Leave blank to disable.
+                                <p className="text-[10px] text-ink-3 leading-relaxed">
+                                  Caddy also serves this app at the alias hostname pattern. Use a wildcard like <span className="font-mono text-ink-2">*.example.com</span> to expose every subdomain through the tunnel. Leave blank to disable.
                                 </p>
                                 <input
                                   type="text"
@@ -2218,11 +2263,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                                     type="checkbox"
                                     checked={tunnelAliasRewriteHost}
                                     onChange={(e) => setTunnelAliasRewriteHost(e.target.checked)}
-                                    className="mt-0.5 accent-blue-500"
+                                    className="mt-0.5 accent-[#60a5fa]"
                                   />
-                                  <span className="text-[11px] text-zinc-400 leading-snug">
+                                  <span className="text-[11px] text-ink-2 leading-snug">
                                     Rewrite <span className="font-mono">Host</span> header to local pattern.{" "}
-                                    <span className="text-zinc-600">
+                                    <span className="text-ink-3">
                                       Recommended on. Multi-tenant apps that match tenant by hostname will see their native domain.
                                     </span>
                                   </span>
@@ -2239,7 +2284,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                 {!selectedIsLive && tunnelProvider === "tailscale" && (() => {
                   if (tsLoading && tsStatus === null) {
                     return (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-zinc-500">
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-subtle text-[12px] text-ink-3">
                         <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
                           <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                         </svg>
@@ -2308,25 +2353,25 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                           ↻ Refresh
                         </button>
                       </div>
-                      <div className="px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08]">
-                        <p className="text-[10px] text-zinc-500 mb-1">Your URL will be:</p>
-                        <p className="font-mono text-[12px] text-zinc-200 break-all">{previewUrl}</p>
-                        <p className="text-[10px] text-zinc-600 mt-2 leading-relaxed">
+                      <div className="px-3 py-2 rounded-lg bg-surface-1 border border-subtle">
+                        <p className="text-[10px] text-ink-3 mb-1">Your URL will be:</p>
+                        <p className="font-mono text-[12px] text-ink break-all">{previewUrl}</p>
+                        <p className="text-[10px] text-ink-3 mt-2 leading-relaxed">
                           {tsFunnel
                             ? "Funnel exposes this publicly to the internet. Anyone with the URL can access it."
                             : "Only devices logged into your tailnet can reach this URL."}
                         </p>
                       </div>
-                      <label className="flex items-start gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] cursor-pointer select-none">
+                      <label className="flex items-start gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-subtle cursor-pointer select-none">
                         <input
                           type="checkbox"
                           checked={tsFunnel}
                           onChange={(e) => setTsFunnel(e.target.checked)}
-                          className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-orange-500 focus:ring-orange-500/30 focus:ring-offset-0"
+                          className="mt-0.5 rounded border-strong bg-surface-2 text-orange-500 focus:ring-orange-500/30 focus:ring-offset-0"
                         />
                         <div className="flex-1">
-                          <p className="text-[12px] text-zinc-200">Expose publicly via Funnel</p>
-                          <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">
+                          <p className="text-[12px] text-ink">Expose publicly via Funnel</p>
+                          <p className="text-[10px] text-ink-3 mt-0.5 leading-relaxed">
                             Share to the public internet instead of just your tailnet. Requires Funnel to be enabled in your Tailscale admin console.
                           </p>
                         </div>
@@ -2379,11 +2424,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         setTunnelAutoStart(!next);
                       }
                     }}
-                    className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+                    className="mt-0.5 rounded border-strong bg-surface-2 text-accent focus:ring-[rgba(96,165,250,0.45)] focus:ring-offset-0"
                   />
                   <div>
-                    <p className="text-[12px] text-zinc-300">Auto-start with app</p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">
+                    <p className="text-[12px] text-ink-2">Auto-start with app</p>
+                    <p className="text-[10px] text-ink-3 mt-0.5">
                       When this app starts, the tunnel connects automatically using the settings above.
                     </p>
                   </div>
@@ -2410,10 +2455,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                     <button
                       onClick={handleDisconnect}
                       disabled={tunnelBusy !== null}
-                      className="px-4 py-2 text-[13px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                      className="px-4 py-2 text-[13px] font-medium text-ink-2 bg-surface-2 hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
                     >
                       {tunnelBusy === "disconnecting" && (
-                        <span className="inline-block h-3 w-3 rounded-full border-2 border-zinc-400/40 border-t-zinc-200 animate-spin" />
+                        <span className="inline-block h-3 w-3 rounded-full border-2 border-strong border-t-zinc-200 animate-spin" />
                       )}
                       {tunnelBusy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
                     </button>
@@ -2425,10 +2470,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
                         (tunnelProvider === "cloudflare" && tunnelMode === "named" && (!tunnelName.trim() || !tunnelHostname.trim())) ||
                         (tunnelProvider === "tailscale" && (!tsStatus || !tsStatus.installed || !tsStatus.running || !tsStatus.logged_in))
                       }
-                      className="px-4 py-2 text-[13px] font-medium text-purple-100 bg-purple-500/25 hover:bg-purple-500/35 border border-purple-500/40 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                      className="px-4 py-2 text-[13px] font-medium text-white bg-accent hover:brightness-110 border border-[rgba(96,165,250,0.30)] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
                     >
                       {tunnelBusy === "connecting" && (
-                        <span className="inline-block h-3 w-3 rounded-full border-2 border-purple-400/30 border-t-purple-300 animate-spin" />
+                        <span className="inline-block h-3 w-3 rounded-full border-2 border-white/40 border-t-white animate-spin" />
                       )}
                       {tunnelBusy === "connecting"
                         ? "Connecting…"
@@ -2459,7 +2504,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
       {/* Sticky footer — replaces the per-section Save/Cancel rows. Hidden on
           Danger Zone since deletion has its own dedicated confirm flow. */}
       {section !== "danger" && section !== "health" && (
-        <footer className="shrink-0 border-t border-white/[0.06] bg-[#111113] px-8 py-3 flex items-center gap-2">
+        <footer className="shrink-0 border-t border-subtle bg-surface-input px-8 py-3 flex items-center gap-2">
           {saveError && <p className="text-[11px] text-red-400 flex-1 truncate" title={saveError}>{saveError}</p>}
           {!saveError && isDirty && (
             <p className="text-[11px] text-amber-400/70 flex-1">Unsaved changes</p>
@@ -2475,7 +2520,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
           <div className="flex gap-2 ml-auto">
             <button
               onClick={requestClose}
-              className="px-4 py-2 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors"
+              className="px-4 py-2 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
             >
               Cancel
             </button>
@@ -2483,7 +2528,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved }: P
               onClick={handleSave}
               disabled={!canSave || saving || !isDirty}
               title={!isDirty ? "No changes to save" : undefined}
-              className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 text-[13px] font-medium bg-accent hover:brightness-110 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
             >
               {saving && (
                 <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">

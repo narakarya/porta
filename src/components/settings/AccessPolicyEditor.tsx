@@ -58,28 +58,28 @@ export default function AccessPolicyEditor({
   return (
     <div className="space-y-2">
       <label className="block">
-        <span className="text-[10px] text-zinc-500 block mb-1">
-          Allowed emails <span className="text-zinc-700">(one per line or comma-separated)</span>
+        <span className="text-[10px] text-ink-3 block mb-1">
+          Allowed emails <span className="text-ink-3">(one per line or comma-separated)</span>
         </span>
         <textarea
           spellCheck={false}
           value={emails}
           onChange={(e) => setEmails(e.target.value)}
           rows={2}
-          className="w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[12px] text-zinc-100 outline-none focus:border-violet-500/50 transition-colors font-mono"
+          className="w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[12px] text-ink outline-none focus:border-accent transition-colors font-mono"
           placeholder="you@example.com"
         />
       </label>
       <label className="block">
-        <span className="text-[10px] text-zinc-500 block mb-1">
-          Allowed email-domains <span className="text-zinc-700">(everyone with that email suffix)</span>
+        <span className="text-[10px] text-ink-3 block mb-1">
+          Allowed email-domains <span className="text-ink-3">(everyone with that email suffix)</span>
         </span>
         <textarea
           spellCheck={false}
           value={domains}
           onChange={(e) => setDomains(e.target.value)}
           rows={2}
-          className="w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[12px] text-zinc-100 outline-none focus:border-violet-500/50 transition-colors font-mono"
+          className="w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[12px] text-ink outline-none focus:border-accent transition-colors font-mono"
           placeholder="narakarya.com"
         />
       </label>
@@ -91,9 +91,9 @@ export default function AccessPolicyEditor({
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-violet-500/20 hover:bg-violet-500/30 text-violet-100 border border-violet-500/40 transition-colors disabled:opacity-40 inline-flex items-center gap-2"
+          className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.30)] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
         >
-          {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-violet-400/30 border-t-violet-300 animate-spin" />}
+          {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.30)] border-t-accent-ink animate-spin" />}
           {saving ? "Saving…" : saveLabel}
         </button>
         {onCancel && (
@@ -101,7 +101,7 @@ export default function AccessPolicyEditor({
             type="button"
             onClick={onCancel}
             disabled={saving}
-            className="px-3 py-1.5 text-[11.5px] rounded-md text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-40"
+            className="px-3 py-1.5 text-[11.5px] rounded-md text-ink-2 hover:text-ink transition-colors disabled:opacity-40"
           >
             Cancel
           </button>

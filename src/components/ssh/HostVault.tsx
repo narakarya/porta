@@ -8,6 +8,7 @@ export default function HostVault() {
   const hosts = usePortaStore((s) => s.sshHosts);
   const workspaces = usePortaStore((s) => s.workspaces);
   const sessions = usePortaStore((s) => s.sshSessions);
+  const activeSessionId = usePortaStore((s) => s.activeSessionId);
   const connectOrFocusSsh = usePortaStore((s) => s.connectOrFocusSsh);
   const connectSsh = usePortaStore((s) => s.connectSsh);
   const deleteSshHost = usePortaStore((s) => s.deleteSshHost);
@@ -56,8 +57,14 @@ export default function HostVault() {
 
   const activeFilterName = wsFilter ? wsName.get(wsFilter) : null;
 
+  const activeHostId = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId)?.hostId ?? null,
+    [sessions, activeSessionId]
+  );
+
   return (
     <div className="p-2">
+      <div className="px-1 mb-2 text-[11px] uppercase tracking-[0.04em] text-ink-3">Hosts</div>
       <div className="flex items-center gap-1.5 mb-2">
         <input
           value={query}
@@ -110,19 +117,19 @@ export default function HostVault() {
       <div className="flex flex-col gap-0.5">
         {list.map((h) => {
           const live = liveCount.get(h.id) ?? 0;
+          const selected = h.id === activeHostId;
           return (
             <div
               key={h.id}
-              className="group flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-white/[0.05] transition-colors"
+              className={`group flex items-center gap-1 px-2 py-1.5 rounded-lg transition-colors ${
+                selected ? "bg-accent-bg" : "hover:bg-white/[0.05]"
+              }`}
             >
               <button
                 className="flex-1 text-left min-w-0 flex items-center gap-2"
                 onClick={() => connectOrFocusSsh(h.id)}
                 title={live ? `Focus session · ${h.username}@${h.hostname}:${h.port}` : `Connect ${h.username}@${h.hostname}:${h.port}`}
               >
-                <span className="shrink-0 w-4 text-center text-[13px]" title={h.detected_os ?? undefined}>
-                  {osGlyph(h.detected_os)}
-                </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     {live > 0 && (
@@ -143,6 +150,9 @@ export default function HostVault() {
                       ))}
                     </span>
                   )}
+                </span>
+                <span className="shrink-0 ml-auto w-4 text-center text-[13px]" title={h.detected_os ?? undefined}>
+                  {osGlyph(h.detected_os)}
                 </span>
               </button>
               <button

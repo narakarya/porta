@@ -109,18 +109,6 @@ const LEVEL_CLASS: Record<NonNullable<LogLevel>, string> = {
   success: "text-emerald-400",
 };
 
-// Left rail tint for continuation lines — ties a nested block (SQL body,
-// `↳` caller) back to the severity of its leveled header without coloring
-// the body text itself.
-const LEVEL_RAIL: Record<NonNullable<LogLevel>, string> = {
-  error:   "border-red-500/30",
-  warn:    "border-amber-500/30",
-  info:    "border-blue-500/30",
-  debug:   "border-zinc-600/40",
-  trace:   "border-zinc-700/40",
-  success: "border-emerald-500/30",
-};
-
 // ── Ingest pipeline ───────────────────────────────────────────────────────────
 interface ProcessedLine {
   text: string;
@@ -171,7 +159,7 @@ function highlightLine(line: string, query: string): React.ReactNode {
   const parts = line.split(new RegExp(`(${escaped})`, "gi"));
   return parts.map((part, i) =>
     part.toLowerCase() === query.toLowerCase()
-      ? <mark key={i} style={{ background: "rgba(250,204,21,0.25)", color: "#fef08a", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
+      ? <mark key={i} style={{ background: "rgba(251,191,36,0.25)", color: "#fde68a", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
       : part
   );
 }
@@ -179,15 +167,13 @@ function highlightLine(line: string, query: string): React.ReactNode {
 // ── Level filter ──────────────────────────────────────────────────────────────
 type EnabledLevels = Set<NonNullable<LogLevel>>;
 
-// Always-colored severity pills (mockup): full-word labels + a leading square
-// dot in the level tint. Order Error/Warn/Info/Debug/Trace/Success.
-const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; cls: string; dot: string }[] = [
-  { key: "error",   label: "Error",   cls: "bg-red-500/15 text-red-400",       dot: "bg-red-400" },
-  { key: "warn",    label: "Warn",    cls: "bg-amber-500/15 text-amber-400",   dot: "bg-amber-400" },
-  { key: "info",    label: "Info",    cls: "bg-blue-500/15 text-blue-300",     dot: "bg-blue-400" },
-  { key: "debug",   label: "Debug",   cls: "bg-zinc-700/40 text-zinc-300",     dot: "bg-zinc-500" },
-  { key: "trace",   label: "Trace",   cls: "bg-violet-500/15 text-violet-300", dot: "bg-violet-400" },
-  { key: "success", label: "Success", cls: "bg-emerald-500/15 text-emerald-400", dot: "bg-emerald-400" },
+// Segmented level filter (mockup): All | Info | Warn | Error. "All" maps to an
+// empty enabledLevels set (no filter); each level segment toggles that level in
+// the same additive set the filtering pipeline already consumes.
+const FILTER_SEGMENTS: { key: NonNullable<LogLevel>; label: string; cls: string }[] = [
+  { key: "info",  label: "Info",  cls: "text-ink-2" },
+  { key: "warn",  label: "Warn",  cls: "text-warn" },
+  { key: "error", label: "Error", cls: "text-bad" },
 ];
 
 // ── Container name shortening ─────────────────────────────────────────────────
@@ -236,85 +222,59 @@ interface LogLineProps {
   text: string;
   level: LogLevel;
   isContinuation: boolean;
-  ownerLevel: LogLevel;
   originalIndex: number;
-  /** Stable absolute line number for the gutter (see ProcessedLine.seq). */
-  seq: number;
   crashed: boolean;
   query: string;
   isActiveMatch: boolean;
-  isAlternateBlock: boolean;
   copied: boolean;
-  blockCopied: boolean;
   wrap: boolean;
+  showTimestamps: boolean;
   onCopy: (text: string, idx: number) => void;
-  onCopyBlock: (idx: number) => void;
 }
 
 const LogLine = memo(function LogLine({
-  text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
-  isActiveMatch, copied, blockCopied, wrap, onCopy, onCopyBlock,
+  text, level, isContinuation, originalIndex, crashed, query,
+  isActiveMatch, copied, wrap, showTimestamps, onCopy,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
   const showLevel = !isContinuation && !!effectiveLevel;
   const isErrorRow = !isContinuation && effectiveLevel === "error";
   // Peel the leading timestamp (and, on a leveled header, the redundant
   // `[LEVEL]` marker) into their own columns. The message body renders neutral —
-  // severity lives in the inline level token and the error-row tint, never in
-  // the body text.
+  // severity lives in the bare inline level token and the error-row tint.
   const { ts, body } = splitLeadingMeta(text, showLevel);
-  // Continuation lines (SQL body, `↳` caller, stacktrace) tie back to their
-  // header's severity via a tinted left rail; the body text itself stays neutral.
-  const railLevel = crashed ? "error" : ownerLevel;
-  const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
   const rowBg = isActiveMatch
     ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20"
     : isErrorRow
       ? "bg-red-500/[0.08] border-l-2 border-red-400"
       : "bg-transparent hover:bg-white/[0.025]";
+  // Message body: error headers tint reddish (#fca5a5); continuation lines
+  // (SQL body, `↳` caller, stacktrace) render flat gray, indented ~44px; every
+  // other line stays neutral.
+  const bodyTone = isContinuation
+    ? "text-[#8a8a8a] pl-[44px]"
+    : isErrorRow
+      ? "text-[#fca5a5]"
+      : "text-[#d4d4d4]";
 
   return (
     <div className={`flex py-[2.5px] rounded px-1 group items-start ${rowBg}`}>
-      <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] pr-2 group-hover:text-zinc-400 select-none">
-        {seq + 1}
-      </span>
-      {ts && (
-        <span className="text-[11px] text-[#55565b] tabular-nums mr-2 shrink-0 pt-[2px] select-none">
+      {showTimestamps && ts && (
+        <span className="text-[11px] text-[#5f5f5f] tabular-nums mr-2 shrink-0 pt-[2px] select-none">
           {ts}
         </span>
       )}
       {showLevel && effectiveLevel && (
-        <span className={`text-[13.5px] shrink-0 mr-2 select-none ${LEVEL_CLASS[effectiveLevel]}`}>
-          [{effectiveLevel}]
+        <span className={`text-[11px] shrink-0 mr-2 select-none ${LEVEL_CLASS[effectiveLevel]}`}>
+          {effectiveLevel}
         </span>
       )}
       <span
-        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[13.5px] text-zinc-400 ${
-          isContinuation ? `border-l ${railCls} pl-2` : ""
-        }`}
+        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[11px] ${bodyTone}`}
       >
         {highlightLine(body, query)}
       </span>
-      <span className="shrink-0 ml-2 flex items-center gap-1 pt-[2px] select-none">
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onCopyBlock(originalIndex)}
-          title="Copy this entry (with its body/stacktrace)"
-          className={`transition-opacity ${
-            blockCopied ? "opacity-100 text-emerald-400" : "opacity-0 group-hover:opacity-60 text-zinc-600"
-          }`}
-        >
-          {blockCopied ? (
-            <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
-              <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <rect x="3.4" y="3.4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-              <path d="M2.2 7.4V2.6a.6.6 0 01.6-.6h4.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-            </svg>
-          )}
-        </button>
+      <span className="shrink-0 ml-2 flex items-center pt-[2px] select-none">
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onCopy(text, originalIndex)}
@@ -324,13 +284,13 @@ const LogLine = memo(function LogLine({
           }`}
         >
           {copied ? (
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
               <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : (
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <rect x="1" y="3" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-              <path d="M3.5 3V2a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v5.5a.5.5 0 01-.5.5H8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="3.4" y="3.4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M2.2 7.4V2.6a.6.6 0 01.6-.6h4.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
             </svg>
           )}
         </button>
@@ -351,8 +311,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   const [followTail, setFollowTail] = useState(true);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
-  const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
   const [wrap, setWrap] = useState(true);
+  const [showTimestamps, setShowTimestamps] = useState(true);
   const [copiedToast, setCopiedToast] = useState(false);
   const [localLogs, setLocalLogs] = useState<ProcessedLine[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -574,27 +534,6 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   };
   const handleCopyLine = useMemo(() => (text: string, index: number) => copyLineRef.current(text, index), []);
 
-  // Copy a whole leveled entry — the header line plus every continuation
-  // (SQL body, `↳` caller, stacktrace) that belongs to it. Clicking the badge
-  // anywhere in the block walks up to its header first, then collects down.
-  const copyBlockRef = useRef<(index: number) => void>(() => {});
-  copyBlockRef.current = (index: number) => {
-    let start = index;
-    while (start > 0 && lineMeta[start]?.isContinuation) start--;
-    const parts = [allLogs[start]?.text ?? ""];
-    for (let i = start + 1; i < allLogs.length; i++) {
-      if (!lineMeta[i]?.isContinuation) break;
-      parts.push(allLogs[i].text);
-    }
-    void copyToClipboard(parts.join("\n")).then((ok) => {
-      if (!ok) return;
-      setCopiedBlock(start);
-      showCopiedToast();
-      setTimeout(() => setCopiedBlock(null), 1200);
-    });
-  };
-  const handleCopyBlock = useMemo(() => (index: number) => copyBlockRef.current(index), []);
-
   const filterActive = enabledLevels.size > 0;
 
   function toggleLevel(level: NonNullable<LogLevel>) {
@@ -793,6 +732,42 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     setTruncated(false);
   }
 
+  // Track how many lines have arrived since the user stopped following, so the
+  // footer can offer "Paused · N new — jump to live". Captured once on the
+  // follow→paused transition; stays put while paused.
+  const pausedAtRef = useRef(0);
+  const prevFollowRef = useRef(followTail);
+  useEffect(() => {
+    if (!followTail && prevFollowRef.current) {
+      pausedAtRef.current = filteredLines.length;
+    }
+    prevFollowRef.current = followTail;
+  }, [followTail, filteredLines.length]);
+  const pendingNew = followTail ? 0 : Math.max(0, filteredLines.length - pausedAtRef.current);
+
+  // Footer source label — the active service (container) or the app itself.
+  const sourceLabel = services.find((s) => s.key === selectedKey)?.label ?? appName;
+
+  // Error count for the segmented filter's Error badge.
+  const errorCount = useMemo(
+    () => allLogs.reduce((n, l) => n + (l.level === "error" ? 1 : 0), 0),
+    [allLogs],
+  );
+
+  // Download the current buffer as a plain-text file.
+  function handleExport() {
+    const text = allLogs.map((l) => l.text).join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${appName}-logs.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className={embedded
       ? "h-full w-full flex flex-col overflow-hidden bg-surface-0"
@@ -804,7 +779,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         Copied
       </div>
 
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.07] shrink-0 select-none">
+      <div className="flex-1 flex flex-col min-h-0 m-3 rounded-card border border-subtle bg-surface-2 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle bg-surface-1 shrink-0 select-none flex-wrap">
         <div className="flex items-center gap-2 shrink-0">
           <span className={`w-2 h-2 rounded-full ${
             crashed ? "bg-red-400" :
@@ -820,19 +796,9 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           )}
         </div>
 
-        <span className="shrink-0 text-[11px] text-zinc-500 bg-white/[0.04] border border-white/[0.06] rounded-md px-1.5 py-0.5">
-          {localLogs === null ? (
-            "loading…"
-          ) : (
-            <>
-              <span className="tabular-nums text-zinc-400">{allLogs.length.toLocaleString()}</span> lines
-              {truncated && <span className="text-amber-500/70"> · capped</span>}
-            </>
-          )}
-        </span>
-
-        <div className="flex-1 relative max-w-[400px]">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
+        {/* Compact search pill — inline match count + up/down chevrons. */}
+        <div className="flex items-center gap-1.5 flex-1 min-w-[160px] max-w-[300px] rounded-control border border-strong bg-surface-input px-2 py-1 focus-within:border-[rgba(96,165,250,0.5)] transition-colors">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-ink-3 shrink-0 pointer-events-none">
             <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
@@ -840,144 +806,127 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search logs… (⌘F)"
-            className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg pl-7 pr-3 py-1.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500/50 focus:bg-white/[0.07] transition-all select-text"
+            placeholder="Search…"
+            className="flex-1 min-w-0 bg-transparent text-[12px] text-ink placeholder:text-ink-3 outline-none select-text"
           />
-          {query && (
-            <button onClick={() => setQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </button>
+          {matchCount !== null && (
+            <span className="flex items-center gap-1 shrink-0 text-[11px] tabular-nums text-ink-3">
+              <span className={matchCount === 0 ? "text-ink-3" : "text-ink-2"}>
+                {matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
+              </span>
+              <button
+                onClick={goToPrevMatch}
+                disabled={matchCount === 0}
+                className="text-ink-3 hover:text-ink disabled:opacity-30 disabled:hover:text-ink-3 transition-colors"
+                title="Previous match (Shift+Enter)"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 7.5L6 4l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={goToNextMatch}
+                disabled={matchCount === 0}
+                className="text-ink-3 hover:text-ink disabled:opacity-30 disabled:hover:text-ink-3 transition-colors"
+                title="Next match (Enter)"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </span>
           )}
         </div>
 
-        {matchCount !== null && (
-          <div className="flex items-center shrink-0 gap-0.5 rounded-lg border border-white/[0.08] bg-white/[0.04] pl-2.5 pr-1 py-0.5">
-            <span className={`text-[11px] tabular-nums ${matchCount === 0 ? "text-zinc-600" : "text-zinc-400"}`}>
-              {matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
-            </span>
-            <div className="w-px h-4 bg-white/[0.10] mx-1.5" />
-            <button
-              onClick={goToPrevMatch}
-              disabled={matchCount === 0}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default transition-colors"
-              title="Previous match (Shift+Enter)"
-            >
-              <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-                <path d="M2.5 7.5L6 4l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            <button
-              onClick={goToNextMatch}
-              disabled={matchCount === 0}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08] disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default transition-colors"
-              title="Next match (Enter)"
-            >
-              <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-                <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        )}
-
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-1 shrink-0">
-          {FILTER_PILLS.map(({ key, label, cls, dot }) => {
-            const isActive = enabledLevels.has(key);
-            // Pills are always in their level color (mockup). When a filter is
-            // active, the unselected ones dim; the selected ones get a ring.
-            const dimmed = filterActive && !isActive;
+        {/* Segmented level filter: All | Info | Warn | Error. */}
+        <div className="inline-flex shrink-0 rounded-control border border-subtle overflow-hidden text-[11px] select-none">
+          <button
+            onClick={resetLevels}
+            className={`px-2.5 py-1 transition-colors ${!filterActive ? "bg-surface-2 text-ink" : "text-ink-2 hover:text-ink"}`}
+            title="Show all levels"
+          >
+            All
+          </button>
+          {FILTER_SEGMENTS.map(({ key, label, cls }) => {
+            const active = enabledLevels.has(key);
             return (
               <button
                 key={key}
                 onClick={() => toggleLevel(key)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all ${cls} ${
-                  dimmed ? "opacity-40 hover:opacity-70" : ""
-                } ${isActive ? "ring-1 ring-inset ring-white/25" : ""}`}
-                title={isActive ? `Showing only ${label}` : `Filter to ${label}`}
+                className={`px-2.5 py-1 border-l border-subtle transition-colors ${active ? "bg-surface-2 text-ink" : `${cls} hover:text-ink`}`}
+                title={active ? `Showing ${label}` : `Filter to ${label}`}
               >
-                <span className={`w-1.5 h-1.5 rounded-[2px] ${dot}`} />
                 {label}
+                {key === "error" && errorCount > 0 && (
+                  <span className="ml-1 text-bad tabular-nums">{errorCount}</span>
+                )}
               </button>
             );
           })}
-          {/* Always rendered to reserve its slot — fades in only when a filter
-              is active, so toggling a pill never shifts the row. */}
-          <button
-            onClick={resetLevels}
-            disabled={!filterActive}
-            aria-hidden={!filterActive}
-            className={`px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-all ${
-              filterActive
-                ? "bg-white/[0.04] text-zinc-400 border-white/[0.06] hover:text-zinc-200 opacity-100"
-                : "opacity-0 pointer-events-none border-transparent"
-            }`}
-            title="Clear filter — show all levels"
-          >
-            ×
-          </button>
         </div>
 
-        <button
-          onClick={() => setWrap((w) => !w)}
-          title={wrap ? "Disable soft wrap" : "Soft-wrap long lines"}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${
-            wrap
-              ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
-              : "bg-white/[0.04] text-zinc-500 border border-white/[0.06] hover:text-zinc-300"
-          }`}
-        >
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-            <path d="M1 2h10M1 6h7.5a2 2 0 110 4H6.5m0 0l1.5-1.5M6.5 10L8 11.5M1 10h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Wrap
-        </button>
+        <div className="flex-1" />
 
-        <button
-          onClick={() => {
-            if (followTail) {
-              setFollowTail(false);
-            } else {
-              // The follow-tail effect pins to the bottom once this flips on.
-              setFollowTail(true);
-            }
-          }}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-colors ${
-            followTail
-              ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
-              : "bg-white/[0.04] text-zinc-500 border border-white/[0.06] hover:text-zinc-300"
-          }`}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M5 1v6M2.5 4.5L5 7l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 9h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          </svg>
-          {followTail ? "Following" : "Follow"}
-        </button>
-
-        <button
-          onClick={async () => {
-            if (
-              !window.confirm(
-                `Clear all logs for "${appName}"? This wipes the log file on disk. Running apps keep writing — the log just starts fresh.`,
+        {/* Icon-only controls: timestamps, wrap, export, clear. */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => setShowTimestamps((s) => !s)}
+            title={showTimestamps ? "Hide timestamps" : "Show timestamps"}
+            className={`p-1.5 rounded-control transition-colors ${
+              showTimestamps ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+            }`}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M8 4.5V8l2.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={() => setWrap((w) => !w)}
+            title={wrap ? "Disable soft wrap" : "Soft-wrap long lines"}
+            className={`p-1.5 rounded-control transition-colors ${
+              wrap ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+            }`}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M2 3.5h12M2 8h9a2.5 2.5 0 110 5H8m0 0l1.8-1.8M8 13l1.8 1.8M2 12.5h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={handleExport}
+            title="Export logs"
+            className="p-1.5 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M8 2v8m0 0L5 7m3 3l3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M3 12.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={async () => {
+              if (
+                !window.confirm(
+                  `Clear all logs for "${appName}"? This wipes the log file on disk. Running apps keep writing — the log just starts fresh.`,
+                )
               )
-            )
-              return;
-            try {
-              await clearAppLogFile(appId);
-            } catch {
-              // Truncate failed (file locked/missing) — still clear the view.
-            }
-            setLocalLogs([]);
-            setTruncated(false);
-            onClear();
-          }}
-          className="px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-600 hover:text-zinc-300 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.07] transition-colors"
-        >
-          Clear
-        </button>
+                return;
+              try {
+                await clearAppLogFile(appId);
+              } catch {
+                // Truncate failed (file locked/missing) — still clear the view.
+              }
+              setLocalLogs([]);
+              setTruncated(false);
+              onClear();
+            }}
+            title="Clear logs"
+            className="p-1.5 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4.5h10M6.5 4.5V3.2a.7.7 0 01.7-.7h1.6a.7.7 0 01.7.7v1.3M4.5 4.5l.6 8a.9.9 0 00.9.8h4a.9.9 0 00.9-.8l.6-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
 
         {!embedded && <button
           onClick={onClose}
@@ -1078,18 +1027,14 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   text={line.text}
                   level={line.level}
                   isContinuation={lineMeta[originalIndex].isContinuation}
-                  ownerLevel={lineMeta[originalIndex].ownerLevel}
                   originalIndex={originalIndex}
-                  seq={line.seq}
                   crashed={!!crashed}
                   query={debouncedQuery}
                   isActiveMatch={isActiveMatch}
-                  isAlternateBlock={lineMeta[originalIndex].isAlternateBlock}
                   copied={copiedLine === originalIndex}
-                  blockCopied={copiedBlock === originalIndex}
                   wrap={wrap}
+                  showTimestamps={showTimestamps}
                   onCopy={handleCopyLine}
-                  onCopyBlock={handleCopyBlock}
                 />
               );
             })}
@@ -1097,21 +1042,40 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         )}
       </div>
 
-      <div className="flex items-center gap-3 px-4 py-2 border-t border-white/[0.05] shrink-0 select-none">
-        <span className="text-[10px] text-zinc-700 font-mono">
-          {filterActive ? `Showing ${filteredLines.length} of ${allLogs.length} lines` : `${allLogs.length} lines`}
-        </span>
-        <div className="flex items-center gap-3 text-[10px] text-zinc-700">
-          <span className="text-red-400/60">● ERR</span>
-          <span className="text-amber-400/60">● WARN</span>
-          <span className="text-emerald-400/60">● OK</span>
-          <span className="text-blue-400/60">● INFO</span>
-          <span className="text-zinc-500/60">● DBG</span>
-        </div>
+      <div className="flex items-center gap-2 px-3 py-1.5 border-t border-subtle shrink-0 select-none text-[11px]">
+        {followTail ? (
+          <span className="flex items-center gap-1.5 text-ink-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            following
+          </span>
+        ) : (
+          <button
+            onClick={() => setFollowTail(true)}
+            className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-accent bg-accent-bg hover:brightness-110 transition-all"
+            title="Jump to the newest line and resume following"
+          >
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path d="M4.5 3.5v7M9.5 3.5v7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            Paused{pendingNew > 0 ? ` · ${pendingNew.toLocaleString()} new` : ""} — jump to live
+          </button>
+        )}
         <span className="flex-1" />
-        <span className="text-[10px] text-zinc-700">Esc close · ⌘F search · Enter/↑↓ navigate · select → auto-copy</span>
+        <span className="text-ink-3 font-mono tabular-nums">
+          {localLogs === null ? (
+            "loading…"
+          ) : (
+            <>
+              {sourceLabel} · {filterActive
+                ? `${filteredLines.length.toLocaleString()} of ${allLogs.length.toLocaleString()} lines`
+                : `${allLogs.length.toLocaleString()} lines`}
+              {truncated && <span className="text-warn"> · capped</span>}
+            </>
+          )}
+        </span>
       </div>
         </div>
+      </div>
       </div>
     </div>
   );

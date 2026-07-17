@@ -336,6 +336,50 @@ pub fn list_app_volume_snapshots(app_id: String) -> Result<Vec<AppSnapshotSummar
     Ok(out)
 }
 
+/// Take a fresh volume snapshot for an app on demand (outside the update flow).
+///
+/// Reads the app's `kind` from the DB to choose the docker vs compose snapshot
+/// path — docker apps name their volumes verbatim, compose apps use local names
+/// resolved against the compose project. Returns a summary of the snapshot just
+/// written, shaped exactly like the entries [`list_app_volume_snapshots`] yields
+/// so the frontend can prepend it to the list.
+///
+/// The DB read + snapshot both run on a blocking thread: `Database::open` is
+/// sync and the snapshot shells out to `docker`/`tar`.
+#[tauri::command]
+pub async fn create_app_volume_snapshot(
+    app_id: String,
+    volumes: Vec<String>,
+) -> Result<AppSnapshotSummary, String> {
+    tokio::task::spawn_blocking(move || {
+        let db_path = crate::porta_dir().join("porta.db");
+        let db = crate::db::Database::open(db_path).map_err(|e| e.to_string())?;
+        let app = db
+            .list_apps()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|a| a.id == app_id)
+            .ok_or_else(|| format!("app {} not found", app_id))?;
+
+        let result = if app.is_docker() {
+            snapshot_docker_volumes(&app_id, &volumes)?
+        } else if app.is_compose() {
+            snapshot_compose_volumes(&app_id, &volumes)?
+        } else {
+            return Err("app has no docker volumes".to_string());
+        };
+
+        let total_bytes = result.entries.iter().map(|e| e.size_bytes).sum();
+        Ok(AppSnapshotSummary {
+            timestamp: result.timestamp,
+            entries: result.entries,
+            total_bytes,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Delete a specific snapshot folder.
 #[tauri::command]
 pub fn delete_app_volume_snapshot(app_id: String, timestamp: String) -> Result<(), String> {

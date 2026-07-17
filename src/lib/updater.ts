@@ -5,6 +5,12 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { usePortaStore } from "../store";
 import type { UpdaterPhase } from "../store/slices/ui";
 
+// The updater plugin calls into the native runtime; in a plain browser (Vite
+// dev / design review) those `invoke` calls throw "Cannot read properties of
+// undefined (reading 'invoke')". Guard every entry point so the browser never
+// hits a native call — the toast can still be previewed via a mocked phase.
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 /**
  * App updater driver. Owns the update lifecycle (check → download → install →
  * relaunch) and drives the UpdaterPhase state in the Zustand store so any
@@ -58,6 +64,7 @@ function setPhase(phase: UpdaterPhase, patch: Record<string, unknown> = {}) {
 export function checkForUpdate(
   opts: { silent?: boolean; source?: "popover" | "menu" | "background" } = {},
 ): Promise<void> {
+  if (!isTauri) return Promise.resolve();
   if (activeCheck) return activeCheck;
   usePortaStore.setState({ updaterCheckSource: opts.source ?? "menu" });
   const generation = ++checkGeneration;
@@ -218,6 +225,7 @@ export async function startUpdateDownload(): Promise<void> {
  * app mid-download.
  */
 export async function restartForUpdate(): Promise<void> {
+  if (!isTauri) return;
   if (usePortaStore.getState().updaterPhase !== "ready") return;
   setPhase("restarting");
   try {

@@ -251,11 +251,19 @@ pub fn run() {
             commands::git_push,
             commands::git_branches,
             commands::git_switch_branch,
+            commands::git_changed_files,
+            commands::git_diff_file,
+            commands::git_stage,
+            commands::git_unstage,
+            commands::git_discard,
+            commands::git_commit,
+            commands::git_commit_amend,
             commands::get_git_autofetch_enabled,
             commands::set_git_autofetch_enabled,
             commands::get_git_autofetch_interval_secs,
             commands::set_git_autofetch_interval_secs,
             commands::git_worktree_list,
+            commands::git_worktree_add,
             commands::list_instances,
             commands::start_instance,
             commands::stop_instance,
@@ -405,6 +413,7 @@ pub fn run() {
             commands::update_app_images,
             commands::classify_image_update,
             commands::list_app_volume_snapshots,
+            commands::create_app_volume_snapshot,
             commands::delete_app_volume_snapshot,
             commands::system_disk_usage,
             commands::list_docker_images,
@@ -447,6 +456,8 @@ pub fn run() {
             commands::extension_storage_remove,
             commands::extension_storage_keys,
             commands::read_extension_file,
+            // System metrics (Activity domain)
+            commands::system_metrics,
         ])
         .on_window_event(|window, event| {
             use std::sync::OnceLock;

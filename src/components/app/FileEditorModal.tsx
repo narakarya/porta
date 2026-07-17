@@ -800,16 +800,27 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
       className="fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden"
       onMouseDown={(e) => { if (e.target === e.currentTarget) attemptClose(); }}
     >
-      <div className="flex flex-col flex-1 m-4 md:m-8 bg-[#1c1c1e] border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl">
+      <div className="flex flex-col flex-1 m-4 md:m-8 bg-surface-2 border border-subtle rounded-card overflow-hidden shadow-2xl">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.07] shrink-0 select-none">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-zinc-500">
-            <rect x="2" y="2" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M4.5 5h5M4.5 7h5M4.5 9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-subtle bg-surface-1 shrink-0 select-none">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-ink-2">
+            <path d="M8 1.5H3.5a1 1 0 00-1 1v9a1 1 0 001 1h7a1 1 0 001-1V5L8 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M8 1.5V5h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M5.6 8L4.6 9l1 1M8.4 8l1 1-1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <span className="text-[13px] font-semibold text-zinc-200">{appName}</span>
-          <span className="text-zinc-700 text-[12px]">·</span>
-          <span className="text-[12px] text-zinc-500">files</span>
+          <span className="text-[13px] font-semibold text-ink">{appName}</span>
+          <span className="text-ink-3 text-[12px]">·</span>
+          {active ? (
+            <span className="text-[12px] font-mono text-ink-2 truncate max-w-[220px]" title={active.name}>{active.name}</span>
+          ) : (
+            <span className="text-[12px] text-ink-3">files</span>
+          )}
+          {active && isDirty && (
+            <span className="flex items-center gap-1 text-[11px] text-warn" title="Unsaved changes">
+              <span className="w-1.5 h-1.5 rounded-full bg-warn shrink-0" />
+              unsaved
+            </span>
+          )}
 
           <div className="flex-1 flex items-center justify-end px-2">
             {searchOpen && (active?.kind === "compose" || active?.kind === "generic" || active?.kind === "env") && (
@@ -897,9 +908,9 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <button
             onClick={handleSave}
             disabled={!active || !isDirty || saving}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-accent-bg border border-[rgba(96,165,250,0.30)] text-accent-ink hover:bg-[rgba(96,165,250,0.24)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : "Save ⌘S"}
           </button>
 
           <button
@@ -953,7 +964,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
         {/* Body */}
         <div className="flex flex-1 min-h-0">
           {/* Sidebar */}
-          <div className="w-64 shrink-0 border-r border-white/[0.07] overflow-y-auto bg-[#161618]">
+          <div className="w-64 shrink-0 border-r border-subtle overflow-y-auto bg-surface-1">
             {files.length === 0 ? (
               <div className="px-4 py-6 text-[12px] text-zinc-500">No editable files for this app.</div>
             ) : (
@@ -1004,7 +1015,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           </div>
 
           {/* Editor pane */}
-          <div className="flex-1 min-w-0 flex flex-col bg-[#0d0d0f]">
+          <div className="flex-1 min-w-0 flex flex-col bg-surface-code">
             {error && (
               <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
                 {error}

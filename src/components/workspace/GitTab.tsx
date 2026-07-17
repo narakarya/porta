@@ -7,9 +7,17 @@ import {
   gitPush,
   gitBranches,
   gitSwitchBranch,
+  gitChangedFiles,
+  gitDiffFile,
+  gitStage,
+  gitUnstage,
+  gitDiscard,
+  gitCommit,
+  gitCommitAmend,
   type BranchList,
+  type ChangedFile,
 } from "../../lib/commands";
-import { Card, Input, EmptyState, Badge, Popover } from "../ui";
+import { Card, Input, EmptyState, Badge, Popover, Button, Spinner } from "../ui";
 import type { App } from "../../types";
 
 type Busy = "fetch" | "pull" | "push" | null;
@@ -50,6 +58,53 @@ function DotsIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+function PlusIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={className} aria-hidden="true">
+      <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function MinusIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={className} aria-hidden="true">
+      <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function TrashIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M3 4.5h10M6.5 4.5V3.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M5 4.5l.5 8c0 .4.3.7.7.7h3.6c.4 0 .7-.3.7-.7l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function CheckboxIcon({ checked, className = "" }: { checked: boolean; className?: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+      {checked && <path d="M5 8.2l2 2 4-4.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
+  );
+}
+
+// XY status badge — colour by section + git status char.
+function statusBadge(f: ChangedFile, staged: boolean): { char: string; cls: string } {
+  if (staged) {
+    const c = f.staged_status && f.staged_status !== "." ? f.staged_status : "M";
+    return { char: c, cls: "text-ok" };
+  }
+  if (f.untracked) return { char: "?", cls: "text-accent" };
+  const c = f.unstaged_status && f.unstaged_status !== "." ? f.unstaged_status : "M";
+  if (c === "D") return { char: "D", cls: "text-bad" };
+  if (c === "U") return { char: "U", cls: "text-accent" };
+  return { char: c, cls: "text-warn" };
+}
+
+function splitPath(path: string): { dir: string; base: string } {
+  const i = path.lastIndexOf("/");
+  return i >= 0 ? { dir: path.slice(0, i + 1), base: path.slice(i + 1) } : { dir: "", base: path };
+}
 
 /**
  * Full-panel Git view for the app workbench — the roomy counterpart to the
@@ -58,9 +113,10 @@ function DotsIcon({ className = "" }: { className?: string }) {
  *
  * Layout mirrors docs/design-mockups/08_porta_git_tab_full.html: one unified
  * panel that fills the pane, a Changes/History/… sub-nav, a branch pill +
- * Sync/overflow header, and a body. There is NO file-diff/staging backend, so
- * History/Branches/Pull-requests are disabled placeholders and the Changes
- * body shows an honest summary rather than a fabricated file list.
+ * Sync/overflow header, and a body. Changes (two-pane diff/stage/commit) and
+ * Branches (list + switch + create) are live tabs backed by real git commands.
+ * History and Pull-requests stay disabled placeholders — git log/stash/rebase
+ * belong to the separate git-manager extension, not this panel.
  */
 export default function GitTab({ app }: { app: App }) {
   const status = usePortaStore((s) => s.appGit[app.id]);
@@ -68,13 +124,25 @@ export default function GitTab({ app }: { app: App }) {
   const pollError = usePortaStore((s) => s.appGitError[app.id]);
   const setAppGitError = usePortaStore((s) => s.setAppGitError);
 
+  const [tab, setTab] = useState<"changes" | "branches">("changes");
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchList | null>(null);
   const [branchQuery, setBranchQuery] = useState("");
+  const [newBranch, setNewBranch] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
   const [branchOpen, setBranchOpen] = useState(false);
   const [opsOpen, setOpsOpen] = useState(false);
+
+  // ── Working-surface state (changed files / diff / commit box) ──────────────
+  const [changed, setChanged] = useState<ChangedFile[]>([]);
+  const [selected, setSelected] = useState<{ path: string; staged: boolean } | null>(null);
+  const [diff, setDiff] = useState("");
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [commitMsg, setCommitMsg] = useState("");
+  const [amend, setAmend] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [mutating, setMutating] = useState<string | null>(null);
   // Local "probed, not a repo" bookkeeping — the store only holds GitStatus, so
   // a non-repo can't be recorded there; this stops the seeding effect refiring.
   const probedNonRepo = useRef(false);
@@ -106,6 +174,89 @@ export default function GitTab({ app }: { app: App }) {
     gitBranches(app.root_dir).then(setBranches).catch(() => setBranches(null));
   }, [status, app.root_dir]);
 
+  // Load changed files once we know it's a repo (mirrors the branches effect).
+  useEffect(() => {
+    if (!status || !app.root_dir) return;
+    let cancelled = false;
+    gitChangedFiles(app.root_dir)
+      .then((files) => { if (!cancelled) setChanged(files); })
+      .catch(() => { if (!cancelled) setChanged([]); });
+    return () => { cancelled = true; };
+  }, [status, app.root_dir]);
+
+  // Load the unified diff for the selected file.
+  useEffect(() => {
+    if (!selected || !app.root_dir) { setDiff(""); return; }
+    let cancelled = false;
+    setDiffLoading(true);
+    gitDiffFile(app.root_dir, selected.path, selected.staged)
+      .then((d) => { if (!cancelled) setDiff(d); })
+      .catch(() => { if (!cancelled) setDiff(""); })
+      .finally(() => { if (!cancelled) setDiffLoading(false); });
+    return () => { cancelled = true; };
+  }, [selected, app.root_dir]);
+
+  // Refresh both the changed-file list and the header GitStatus badge after any
+  // mutation, keeping the store-backed poller value in sync.
+  async function refreshAfterMutation(): Promise<ChangedFile[]> {
+    const [files, fresh] = await Promise.all([
+      gitChangedFiles(app.root_dir),
+      gitStatus(app.root_dir),
+    ]);
+    if (!mounted.current) return files;
+    setChanged(files);
+    if (fresh) setAppGit(app.id, fresh);
+    return files;
+  }
+
+  // stage(+) / unstage(−): nextStaged is the section the file should show in
+  // afterwards; discard passes null (selection is dropped if it was showing).
+  async function mutateFile(
+    path: string,
+    fn: () => Promise<void>,
+    nextStaged: boolean | null,
+  ) {
+    setMutating(path);
+    setError(null);
+    try {
+      await fn();
+      const files = await refreshAfterMutation();
+      if (!mounted.current) return;
+      setSelected((sel) => {
+        if (!sel || sel.path !== path) return sel;
+        if (nextStaged === null) return null;
+        const stillThere = files.some(
+          (f) => f.path === path && (nextStaged ? f.staged : f.unstaged || f.untracked),
+        );
+        return stillThere ? { path, staged: nextStaged } : null;
+      });
+    } catch (e) {
+      if (mounted.current) setError(String(e));
+    } finally {
+      if (mounted.current) setMutating(null);
+    }
+  }
+
+  async function doCommit(thenPush: boolean) {
+    const msg = commitMsg.trim();
+    setCommitting(true);
+    setError(null);
+    try {
+      if (amend) await gitCommitAmend(app.root_dir, msg);
+      else await gitCommit(app.root_dir, msg);
+      if (thenPush) await gitPush(app.root_dir);
+      await refreshAfterMutation();
+      if (!mounted.current) return;
+      setCommitMsg("");
+      setAmend(false);
+      setSelected(null);
+    } catch (e) {
+      if (mounted.current) setError(String(e));
+    } finally {
+      if (mounted.current) setCommitting(false);
+    }
+  }
+
   async function run(kind: Exclude<Busy, null>) {
     setBusy(kind);
     setError(null);
@@ -133,12 +284,20 @@ export default function GitTab({ app }: { app: App }) {
       if (fresh) setAppGit(app.id, fresh);
       await gitBranches(app.root_dir).then(setBranches).catch(() => {});
       setBranchQuery("");
+      setNewBranch("");
       setBranchOpen(false);
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
       if (mounted.current) setSwitching(null);
     }
+  }
+
+  // ＋ New branch (Branches tab): git switch -c off current HEAD.
+  function createBranch() {
+    const name = newBranch.trim();
+    if (name === "" || switching !== null) return;
+    switchTo(name, true);
   }
 
   if (pollError) {
@@ -185,16 +344,29 @@ export default function GitTab({ app }: { app: App }) {
   const syncBusy = busy === "fetch" || busy === "pull";
   const clean = ahead === 0 && behind === 0 && dirty === 0;
 
+  const stagedFiles = changed.filter((f) => f.staged);
+  const unstagedFiles = changed.filter((f) => f.unstaged || f.untracked);
+  const canCommit = !committing && (amend || (stagedFiles.length > 0 && commitMsg.trim() !== ""));
+
   return (
     <div className="h-full p-3">
       <div className="h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden">
-        {/* Sub-nav — Changes is live; the rest are disabled placeholders (no backend). */}
+        {/* Sub-nav — Changes and Branches are live tabs; History/Pull requests
+            are honest disabled placeholders (git-manager extension territory). */}
         <div className="flex items-center gap-3.5 px-3.5 py-2 border-b border-subtle text-[12px]">
-          <span className="text-ink border-b-[1.5px] border-accent pb-2 -mb-2 cursor-default">
+          <button
+            onClick={() => setTab("changes")}
+            className={`pb-2 -mb-2 transition-colors duration-fast ${tab === "changes" ? "text-ink border-b-[1.5px] border-accent" : "text-ink-3 hover:text-ink-2"}`}
+          >
             Changes{dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
-          </span>
+          </button>
+          <button
+            onClick={() => setTab("branches")}
+            className={`pb-2 -mb-2 transition-colors duration-fast ${tab === "branches" ? "text-ink border-b-[1.5px] border-accent" : "text-ink-3 hover:text-ink-2"}`}
+          >
+            Branches{branches && <span className="text-ink-3"> {branches.local.length}</span>}
+          </button>
           <span className="text-ink-3 cursor-default" title="Not available yet">History</span>
-          <span className="text-ink-3 cursor-default" title="Not available yet">Branches</span>
           <span className="text-ink-3 cursor-default" title="Not available yet">Pull requests</span>
           <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
             {upstream ? `↕ ${upstream}` : "no upstream"}
@@ -329,33 +501,271 @@ export default function GitTab({ app }: { app: App }) {
           </div>
         </div>
 
-        {/* Body — no diff/staging backend, so an honest summary (never a fake file list). */}
-        <div className="flex-1 overflow-y-auto px-3.5 py-2.5 flex flex-col">
-          {error && (
-            <pre className="text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 mb-3">{error}</pre>
-          )}
-          <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-8">
-            <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-ink-3">
-              <GitBranchIcon className="scale-125" />
+        {/* Body — Branches list, or the two-pane working surface. */}
+        {tab === "branches" ? (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {error && (
+              <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
+            )}
+
+            {/* ＋ New branch — git switch -c off current HEAD. */}
+            <div className="shrink-0 flex items-center gap-2 px-3.5 py-2.5 border-b border-subtle">
+              <Input
+                value={newBranch}
+                onChange={(e) => setNewBranch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); createBranch(); }
+                }}
+                placeholder="New branch name…"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Button
+                size="sm"
+                icon={<PlusIcon />}
+                loading={switching !== null && switching === newBranch.trim()}
+                disabled={newBranch.trim() === "" || switching !== null}
+                onClick={createBranch}
+                className="shrink-0 whitespace-nowrap"
+              >
+                New branch
+              </Button>
             </div>
-            <div className="text-[13px] text-ink">
-              {dirty > 0 ? `${dirty} uncommitted change${dirty === 1 ? "" : "s"}` : "Working tree clean"}
-            </div>
-            <p className="text-[12px] text-ink-3 max-w-xs">
-              Porta doesn't show a file-level diff yet. Use the terminal for staging &amp; commits.
-              {(ahead > 0 || behind > 0) && (
-                <>
-                  {" "}
-                  {ahead > 0 && `${ahead} to push`}
-                  {ahead > 0 && behind > 0 && " · "}
-                  {behind > 0 && `${behind} to pull`}
-                  .
-                </>
+
+            {/* Local branch list — current is highlighted; others get a Switch. */}
+            <div className="flex-1 min-h-0 overflow-y-auto py-1">
+              {!branches ? (
+                <div className="inline-flex items-center gap-2 px-3.5 py-3 text-[12px] text-ink-3">
+                  <Spinner size={12} /> Loading branches…
+                </div>
+              ) : branches.local.length === 0 ? (
+                <div className="px-3.5 py-3 text-[12px] text-ink-3">No local branches.</div>
+              ) : (
+                branches.local.map((name) => {
+                  const isCurrent = branches.current === name;
+                  return (
+                    <div
+                      key={name}
+                      className={`flex items-center gap-2.5 mx-1 px-2.5 py-1.5 rounded-control transition-colors duration-fast ${isCurrent ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+                    >
+                      <GitBranchIcon className={`shrink-0 ${isCurrent ? "text-accent" : "text-ink-3"}`} />
+                      <span className="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title={name}>
+                        {name}
+                        {isCurrent && <span className="text-ok"> ●</span>}
+                      </span>
+                      {isCurrent ? (
+                        <span className="shrink-0 text-[10px] text-ink-3">current</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          loading={switching === name}
+                          disabled={switching !== null}
+                          onClick={() => switchTo(name, false)}
+                          className="shrink-0"
+                        >
+                          Switch
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })
               )}
-            </p>
+            </div>
           </div>
+        ) : (
+        <div className="flex-1 min-h-0 flex flex-col">
+          {error && (
+            <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
+          )}
+
+          {changed.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-8">
+              <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-ink-3">
+                <GitBranchIcon className="scale-125" />
+              </div>
+              <div className="text-[13px] text-ink">Working tree clean</div>
+              <p className="text-[12px] text-ink-3 max-w-xs">
+                Nothing staged or modified.
+                {(ahead > 0 || behind > 0) && (
+                  <>
+                    {" "}
+                    {ahead > 0 && `${ahead} to push`}
+                    {ahead > 0 && behind > 0 && " · "}
+                    {behind > 0 && `${behind} to pull`}
+                    .
+                  </>
+                )}
+              </p>
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 flex">
+              {/* Left pane — Staged / Changes sections. */}
+              <div className="w-[240px] shrink-0 border-r border-subtle overflow-y-auto py-1">
+                {stagedFiles.length > 0 && (
+                  <>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
+                      Staged Changes · {stagedFiles.length}
+                    </div>
+                    {stagedFiles.map((f) => (
+                      <FileRow
+                        key={`staged:${f.path}`}
+                        file={f}
+                        staged
+                        active={selected?.path === f.path && selected?.staged === true}
+                        busy={mutating === f.path}
+                        onSelect={() => setSelected({ path: f.path, staged: true })}
+                        onToggle={() => mutateFile(f.path, () => gitUnstage(app.root_dir, f.path), false)}
+                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path), null)}
+                      />
+                    ))}
+                  </>
+                )}
+                {unstagedFiles.length > 0 && (
+                  <>
+                    <div className="text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
+                      Changes · {unstagedFiles.length}
+                    </div>
+                    {unstagedFiles.map((f) => (
+                      <FileRow
+                        key={`work:${f.path}`}
+                        file={f}
+                        staged={false}
+                        active={selected?.path === f.path && selected?.staged === false}
+                        busy={mutating === f.path}
+                        onSelect={() => setSelected({ path: f.path, staged: false })}
+                        onToggle={() => mutateFile(f.path, () => gitStage(app.root_dir, f.path), true)}
+                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path), null)}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Right pane — unified diff + commit box. */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <div className="flex-1 min-h-0 overflow-auto bg-surface-code font-mono text-[11px] leading-[1.7] px-3 py-2.5">
+                  {!selected ? (
+                    <div className="h-full flex items-center justify-center text-ink-3 text-[12px] font-sans">
+                      Select a file to view its diff
+                    </div>
+                  ) : diffLoading ? (
+                    <div className="text-ink-3">Loading diff…</div>
+                  ) : diff.trim() === "" ? (
+                    <div className="text-ink-3">No textual diff to show.</div>
+                  ) : (
+                    diff.split("\n").map((line, i) => {
+                      let cls = "text-ink-2";
+                      if (line.startsWith("@@")) cls = "text-accent";
+                      else if (line.startsWith("+++") || line.startsWith("---")) cls = "text-ink-3";
+                      else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "text-ink-3";
+                      else if (line.startsWith("+")) cls = "bg-ok-bg text-ok";
+                      else if (line.startsWith("-")) cls = "bg-bad-bg text-bad";
+                      return (
+                        <div key={i} className={`whitespace-pre ${cls}`}>
+                          {line === "" ? " " : line}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Commit box. */}
+                <div className="shrink-0 border-t border-subtle p-3 bg-surface-1">
+                  <textarea
+                    value={commitMsg}
+                    onChange={(e) => setCommitMsg(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        if (canCommit) doCommit(false);
+                      }
+                    }}
+                    placeholder={amend ? "Amend message (blank keeps existing)…" : "Commit message…"}
+                    rows={2}
+                    spellCheck={false}
+                    className="w-full resize-none rounded-control border border-subtle bg-surface-input text-[12px] text-ink placeholder:text-ink-3 px-2.5 py-1.5 mb-2 focus:outline-none focus:border-strong"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => doCommit(false)}
+                      disabled={!canCommit}
+                      className="text-[11px] text-accent-ink bg-accent-bg rounded-control px-3 py-1 hover:brightness-110 disabled:opacity-40 disabled:pointer-events-none transition duration-fast"
+                    >
+                      {committing ? "Committing…" : amend ? "Amend" : "Commit"}
+                    </button>
+                    <button
+                      onClick={() => doCommit(true)}
+                      disabled={!canCommit}
+                      className="text-[11px] text-ink border border-strong rounded-control px-3 py-1 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                    >
+                      Commit &amp; push
+                    </button>
+                    <button
+                      onClick={() => setAmend((v) => !v)}
+                      className={`ml-auto inline-flex items-center gap-1.5 text-[11px] rounded-control px-2 py-1 transition-colors duration-fast ${amend ? "text-accent" : "text-ink-2 hover:bg-white/[0.05]"}`}
+                      aria-pressed={amend}
+                    >
+                      <CheckboxIcon checked={amend} />
+                      Amend
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ── One row in the changes list ─────────────────────────────────────────────
+function FileRow({
+  file,
+  staged,
+  active,
+  busy,
+  onSelect,
+  onToggle,
+  onDiscard,
+}: {
+  file: ChangedFile;
+  staged: boolean;
+  active: boolean;
+  busy: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+  onDiscard: () => void;
+}) {
+  const { char, cls } = statusBadge(file, staged);
+  const { dir, base } = splitPath(file.path);
+  return (
+    <div
+      onClick={onSelect}
+      className={`group flex items-center gap-2 mx-1 px-2 py-1 rounded-control cursor-pointer transition-colors duration-fast ${active ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+    >
+      <span className={`w-3 shrink-0 text-center font-mono text-[11px] ${cls}`}>{char}</span>
+      <span className="flex-1 min-w-0 truncate font-mono text-[12px]" title={file.path}>
+        <span className="text-ink-3">{dir}</span>
+        <span className="text-ink">{base}</span>
+      </span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDiscard(); }}
+        disabled={busy}
+        title="Discard changes"
+        className="shrink-0 opacity-0 group-hover:opacity-100 text-ink-3 hover:text-bad disabled:opacity-30 transition-colors"
+      >
+        <TrashIcon />
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        disabled={busy}
+        title={staged ? "Unstage" : "Stage"}
+        className="shrink-0 text-ink-3 hover:text-ink disabled:opacity-30 transition-colors"
+      >
+        {staged ? <MinusIcon /> : <PlusIcon />}
+      </button>
     </div>
   );
 }

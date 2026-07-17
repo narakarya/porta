@@ -1,7 +1,7 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes, ReactNode } from "react";
 
 const base =
-  "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-accent/60 transition-colors duration-fast";
+  "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.6)] transition-colors duration-fast";
 
 export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={`${base} ${className}`} {...rest} />;

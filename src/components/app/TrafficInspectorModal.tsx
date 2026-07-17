@@ -66,8 +66,8 @@ const STATUS_FILTER_ACTIVE: Record<StatusFilter, string> = {
 
 function methodColor(method: string): string {
   switch (method) {
-    case "GET": return "text-sky-400";
-    case "POST": return "text-emerald-400";
+    case "GET": return "text-emerald-400";
+    case "POST": return "text-amber-400";
     case "PUT": case "PATCH": return "text-amber-400";
     case "DELETE": return "text-red-400";
     default: return "text-zinc-400";
@@ -289,10 +289,25 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#111113] flex flex-col">
+    <div className="fixed inset-0 z-50 bg-surface-2 rounded-card flex flex-col">
       {/* Header */}
       <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.08] shrink-0 flex-wrap">
-        <span className="text-[14px] font-semibold text-zinc-100 font-mono">
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-zinc-400 shrink-0"
+          aria-hidden="true"
+        >
+          <path d="M4 8h16M17 5l3 3-3 3" />
+          <path d="M20 16H4M7 13l-3 3 3 3" />
+        </svg>
+        <span className="text-[12px] font-medium text-zinc-100">
           Traffic · {appName}
         </span>
         <span
@@ -301,6 +316,12 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
         >
           Body capture: max 64 KB
         </span>
+        {!paused && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+            recording
+          </span>
+        )}
 
         <div className="flex-1" />
 
@@ -418,7 +439,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                     key={`${e.ts}-${idx}`}
                     onClick={() => setSelectedIdx(idx)}
                     className={`cursor-pointer border-b border-white/[0.04] hover:bg-white/[0.04] ${
-                      selectedIdx === idx ? "bg-white/[0.06]" : ""
+                      selectedIdx === idx ? "bg-accent-bg" : ""
                     }`}
                   >
                     <td className="px-3 py-1.5 text-zinc-500 whitespace-nowrap">{fmtTime(e.ts)}</td>
@@ -461,8 +482,12 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                   </button>
                 ))}
                 <div className="flex-1" />
-                <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[40ch]" title={`${selected.method} ${selected.host}${selected.uri}`}>
-                  {selected.method} {selected.host}{selected.uri}
+                <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[40ch]" title={`${selected.method} ${selected.host}${selected.uri} ${selected.status || ""}`}>
+                  <span className={methodColor(selected.method)}>{selected.method}</span>{" "}
+                  {selected.host}{selected.uri}
+                  {selected.status ? (
+                    <> <span className={statusColor(selected.status)}>{selected.status}</span></>
+                  ) : null}
                 </span>
               </div>
 

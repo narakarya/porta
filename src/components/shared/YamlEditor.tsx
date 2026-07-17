@@ -64,7 +64,7 @@ export default function YamlEditor({ value, onChange, placeholder, rows = 14, ma
   }, [errorLine, errorMessage]);
 
   return (
-    <div className="bg-[#0d0d0f] border border-white/[0.08] rounded-lg overflow-hidden focus-within:border-blue-500/60 transition-colors">
+    <div className="bg-surface-code border border-subtle rounded-lg overflow-hidden focus-within:border-accent transition-colors">
       <CodeMirror
         value={value}
         onChange={onChange}

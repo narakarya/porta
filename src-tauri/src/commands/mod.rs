@@ -107,3 +107,6 @@ pub use worktree::*;
 
 mod ssh;
 pub use ssh::*;
+
+mod system_metrics;
+pub use system_metrics::*;

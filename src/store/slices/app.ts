@@ -85,6 +85,14 @@ export interface AppSlice {
   setInstances: (appId: string, list: AppInstance[]) => void;
   refreshInstances: (appId: string) => Promise<void>;
   runInstance: (appId: string, worktreePath: string) => Promise<void>;
+  /** Create a worktree for `branch` (optionally a new branch) then run an
+   *  instance from it. Returns the created worktree path. */
+  runInstanceOnBranch: (
+    appId: string,
+    rootDir: string,
+    branch: string,
+    createNew: boolean,
+  ) => Promise<void>;
   stopInstanceAction: (instanceId: string, appId: string) => Promise<void>;
   killInstanceAction: (instanceId: string, appId: string) => Promise<void>;
   removeInstanceAction: (instanceId: string, appId: string) => Promise<void>;
@@ -537,6 +545,13 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       const next = cur.filter((i) => i.id !== inst.id).concat(inst);
       return { instances: { ...s.instances, [appId]: next } };
     });
+  },
+
+  runInstanceOnBranch: async (appId, rootDir, branch, createNew) => {
+    // Create (or reuse) the worktree for this branch, then run an instance from
+    // its path via the existing runInstance flow.
+    const entry = await cmd.gitWorktreeAdd(rootDir, branch, createNew);
+    await get().runInstance(appId, entry.path);
   },
 
   stopInstanceAction: async (instanceId, appId) => {

@@ -1,6 +1,7 @@
-//! Discover existing git worktrees of an app's repo and run the app from them
-//! as isolated instances. Porta never creates or removes worktrees — it only
-//! reads `git worktree list` and runs from what already exists.
+//! Discover git worktrees of an app's repo and run the app from them as
+//! isolated instances. Porta reads `git worktree list`, can create a worktree
+//! for a branch (`git_worktree_add`) so an instance can be launched by branch,
+//! and runs the app from a worktree path.
 
 use crate::app_state::AppState;
 use crate::commands::git::git_bin;
@@ -142,6 +143,73 @@ pub(crate) fn worktree_list_for(root_dir: &str) -> Result<Vec<WorktreeEntry>, St
         return Err(stderr.trim().to_string());
     }
     Ok(parse_worktree_porcelain(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Create a git worktree for `branch` (checking out an existing branch, or with
+/// `create_new` making a new branch off HEAD), placed in a sibling
+/// `<repo>-worktrees/<sanitized-branch>` directory. Returns the freshly-created
+/// worktree entry so the caller can immediately run an instance from it.
+#[tauri::command]
+pub async fn git_worktree_add(
+    root_dir: String,
+    branch: String,
+    create_new: bool,
+) -> Result<WorktreeEntry, String> {
+    tokio::task::spawn_blocking(move || worktree_add_for(&root_dir, &branch, create_new))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn worktree_add_for(root_dir: &str, branch: &str, create_new: bool) -> Result<WorktreeEntry, String> {
+    let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
+    let root = Path::new(root_dir);
+    if !root.is_dir() {
+        return Err("app root directory not found".to_string());
+    }
+    if branch.trim().is_empty() {
+        return Err("branch name is required".to_string());
+    }
+    let repo_name = root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repo");
+    let parent = root
+        .parent()
+        .ok_or_else(|| "cannot resolve the repo's parent directory".to_string())?;
+    let wt_root = parent.join(format!("{repo_name}-worktrees"));
+    let wt_path = wt_root.join(sanitize_label(branch));
+    std::fs::create_dir_all(&wt_root).map_err(|e| e.to_string())?;
+    let wt_path_str = wt_path
+        .to_str()
+        .ok_or_else(|| "worktree path is not valid UTF-8".to_string())?
+        .to_string();
+
+    // `git worktree add -b <branch> <path>` makes a new branch off HEAD;
+    // `git worktree add <path> <branch>` checks out an existing branch.
+    let mut args: Vec<&str> = vec!["worktree", "add"];
+    if create_new {
+        args.push("-b");
+        args.push(branch);
+        args.push(&wt_path_str);
+    } else {
+        args.push(&wt_path_str);
+        args.push(branch);
+    }
+
+    let out = Command::new(bin)
+        .current_dir(root_dir)
+        .env("LC_ALL", "C")
+        .args(&args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+
+    worktree_list_for(root_dir)?
+        .into_iter()
+        .find(|w| w.path == wt_path_str)
+        .ok_or_else(|| "worktree was created but did not appear in the list".to_string())
 }
 
 #[tauri::command]

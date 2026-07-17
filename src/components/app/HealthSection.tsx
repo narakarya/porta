@@ -128,28 +128,28 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
 
   if (!loaded) {
     return (
-      <div className="text-[12px] text-zinc-500">Loading probe…</div>
+      <div className="text-[12px] text-ink-3">Loading probe…</div>
     );
   }
 
   return (
     <>
       <div>
-        <h1 className="text-[16px] font-semibold text-zinc-100">Health</h1>
-        <p className="text-[12px] text-zinc-500 mt-1">
+        <h1 className="text-[16px] font-semibold text-ink">Health</h1>
+        <p className="text-[12px] text-ink-3 mt-1">
           Customize how Porta checks this app's health. Without a custom probe,
           Porta uses the built-in HTTP/TCP check based on the app's port and
           health check path.
         </p>
       </div>
 
-      <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
-        <label className="flex items-center gap-2 text-[12px] text-zinc-300">
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
+        <label className="flex items-center gap-2 text-[12px] text-ink-2">
           <input
             type="checkbox"
             checked={probe.enabled}
             onChange={(e) => update("enabled", e.target.checked)}
-            className="accent-blue-500"
+            className="accent-[#60a5fa]"
           />
           Probe enabled
         </label>
@@ -165,8 +165,8 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
                   onClick={() => changeKind(k)}
                   className={`px-3 py-1.5 text-[12px] rounded-lg border transition-colors ${
                     active
-                      ? "bg-blue-500/15 border-blue-500/40 text-blue-200"
-                      : "bg-white/[0.03] border-white/[0.08] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200"
+                      ? "bg-accent-bg border-[rgba(96,165,250,0.30)] text-accent-ink"
+                      : "bg-surface-1 border-subtle text-ink-2 hover:bg-white/[0.06] hover:text-ink"
                   }`}
                 >
                   {k === "http" ? "HTTP" : k === "tcp" ? "TCP" : "Command"}
@@ -209,7 +209,7 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
               step={1}
               value={probe.interval_sec}
               onChange={(e) => update("interval_sec", parseInt(e.target.value, 10) || 10)}
-              className="w-full accent-blue-500"
+              className="w-full accent-[#60a5fa]"
             />
           </Field>
 
@@ -262,7 +262,7 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
             type="button"
             onClick={handleTest}
             disabled={testing}
-            className="px-3 py-1.5 text-[12px] font-medium bg-white/[0.05] hover:bg-white/[0.08] text-zinc-200 rounded-lg border border-white/[0.08] disabled:opacity-50 transition-colors"
+            className="px-3 py-1.5 text-[12px] font-medium bg-surface-2 hover:bg-white/[0.08] text-ink rounded-lg border border-subtle disabled:opacity-50 transition-colors"
           >
             {testing ? "Testing…" : "Test now"}
           </button>
@@ -270,7 +270,7 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors"
+            className="px-3 py-1.5 text-[12px] font-medium bg-accent hover:bg-accent text-white rounded-lg disabled:opacity-50 transition-colors"
           >
             {saving ? "Saving…" : hasCustom ? "Save probe" : "Enable custom probe"}
           </button>
@@ -279,7 +279,7 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
               type="button"
               onClick={handleReset}
               disabled={saving}
-              className="px-3 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-[12px] text-ink-2 hover:text-ink rounded-lg transition-colors"
             >
               Reset to default
             </button>
@@ -313,10 +313,10 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
         )}
 
         {!hasCustom && (
-          <p className="text-[11px] text-zinc-500 leading-relaxed">
+          <p className="text-[11px] text-ink-3 leading-relaxed">
             No custom probe saved yet — the form is pre-filled with the
             defaults Porta would synthesize from this app's port
-            {defaultPath ? <> and health check path <code className="font-mono text-zinc-400">{defaultPath}</code></> : null}.
+            {defaultPath ? <> and health check path <code className="font-mono text-ink-2">{defaultPath}</code></> : null}.
           </p>
         )}
       </div>

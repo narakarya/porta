@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { usePortaStore } from "../../store";
 import type { ServiceTemplate } from "../../types";
@@ -247,6 +247,13 @@ interface Props {
    * it by default; the user can still flip it to global in the form.
    */
   defaultScope?: "global" | string;
+  /**
+   * Pre-fill the form from a built-in preset by its label (e.g. "PostgreSQL",
+   * "Redis"). Used by the Services template picker so a chip opens the modal
+   * ready to submit. Matched against `allPresets` on mount; unknown labels are
+   * ignored (modal opens on the empty preset grid).
+   */
+  initialPreset?: string;
 }
 
 function sanitizeVolumeName(s: string): string {
@@ -255,7 +262,7 @@ function sanitizeVolumeName(s: string): string {
 
 type PresetEntry = Preset & { userTemplateId?: string };
 
-export default function AddServiceModal({ onClose, defaultScope }: Props) {
+export default function AddServiceModal({ onClose, defaultScope, initialPreset }: Props) {
   const {
     workspaces,
     services,
@@ -364,6 +371,21 @@ export default function AddServiceModal({ onClose, defaultScope }: Props) {
       setCollisionHint(null);
     }
   }
+
+  // Template picker → pre-fill from a built-in preset once on mount. Matched
+  // by label against the combined preset list; ignored if not found.
+  const didPrefill = useRef(false);
+  useEffect(() => {
+    if (didPrefill.current || !initialPreset) return;
+    const idx = allPresets.findIndex((p) => p.label === initialPreset);
+    if (idx >= 0) {
+      didPrefill.current = true;
+      selectPreset(idx);
+    }
+    // selectPreset/allPresets are stable enough for a one-shot prefill; the ref
+    // guard prevents re-running if allPresets identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPreset, allPresets]);
 
   function toEnvRecord(): Record<string, string> {
     const rec: Record<string, string> = {};

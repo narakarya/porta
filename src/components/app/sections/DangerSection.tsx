@@ -31,20 +31,20 @@ export default function DangerSection({ appName, onConfirmDelete }: Props) {
   return (
     <>
       <div>
-        <h1 className="text-[16px] font-semibold text-zinc-100">Danger Zone</h1>
-        <p className="text-[12px] text-zinc-500 mt-1">Irreversible actions — proceed carefully.</p>
+        <h1 className="text-[16px] font-semibold text-ink">Danger Zone</h1>
+        <p className="text-[12px] text-ink-3 mt-1">Irreversible actions — proceed carefully.</p>
       </div>
 
-      <div className="flex flex-col gap-3 p-5 rounded-xl bg-red-500/[0.04] border border-red-500/20">
+      <div className="flex flex-col gap-3 p-5 rounded-card bg-red-500/[0.04] border border-red-500/20">
         <div>
           <p className="text-[13px] font-semibold text-red-400">Delete this app</p>
-          <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
+          <p className="text-[12px] text-ink-3 mt-1 leading-relaxed">
             Removes the app from Porta. The files on disk won't be deleted.
           </p>
         </div>
         <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] text-zinc-500">
-            Type <span className="text-zinc-300 font-mono">{appName}</span> to confirm
+          <span className="text-[11px] text-ink-3">
+            Type <span className="text-ink-2 font-mono">{appName}</span> to confirm
           </span>
           <input
             spellCheck={false}

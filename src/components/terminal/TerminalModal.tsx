@@ -408,6 +408,11 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
                     : "text-ink-2 hover:text-ink hover:bg-white/[0.05]"
                 }`}
               >
+                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" className="shrink-0 text-ink-3" aria-hidden="true">
+                  <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
+                  <path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M7.5 9.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                </svg>
                 {busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Activity" />}
                 {isEditing ? (
                   <input
@@ -518,7 +523,7 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
                   // startup command); fall back to the tab's app name.
                   const paneShell = pane.startupCommand?.trim().split(/\s+/)[0] || "zsh";
                   const paneLabel = `${tab.appName} · ${paneShell}`;
-                  const sep = idx > 0 ? (isRows ? "border-t border-subtle" : "border-l border-subtle") : "";
+                  const sep = idx > 0 ? (isRows ? "border-t border-[rgba(255,255,255,0.12)]" : "border-l border-[rgba(255,255,255,0.12)]") : "";
                   return (
                     <div
                       key={pane.id}
