@@ -14,6 +14,8 @@ const AddWorkspaceModal = lazy(() => import("../workspace/AddWorkspaceModal"));
 const WorkspaceSettingsModal = lazy(() => import("../workspace/WorkspaceSettingsModal"));
 const AddServiceModal = lazy(() => import("../service/AddServiceModal"));
 const ServiceSettingsModal = lazy(() => import("../service/ServiceSettingsModal"));
+const AddAppModal = lazy(() => import("../app/AddAppModal"));
+const ImportComposeModal = lazy(() => import("../workspace/ImportComposeModal"));
 
 interface ContextMenuState {
   ws: Workspace;
@@ -44,6 +46,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   );
   const [showAddWs, setShowAddWs] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
+  const [showAddApp, setShowAddApp] = useState(false);
+  const [showImportCompose, setShowImportCompose] = useState(false);
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -454,6 +458,25 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         )}
       </div>
 
+      {/* App-list foot — Add App / Import compose (mockup: bottom of the list) */}
+      <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-1">
+        <button
+          onClick={() => setShowAddApp(true)}
+          className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-zinc-300 border border-white/[0.08] hover:bg-white/[0.05] transition-colors"
+        >
+          <svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+          Add App
+        </button>
+        <button
+          onClick={() => setShowImportCompose(true)}
+          title="Import from docker-compose.yml"
+          className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors"
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1.5v6M3.5 5L6 7.5 8.5 5M2 9.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Import
+        </button>
+      </div>
+
       <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-0.5">
         <button
           onClick={onOpenSettings}
@@ -505,6 +528,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       <Suspense fallback={null}>
         {showAddWs && <AddWorkspaceModal onClose={() => setShowAddWs(false)} />}
         {showAddService && <AddServiceModal onClose={() => setShowAddService(false)} />}
+        {showAddApp && <AddAppModal workspaceId={selectedWorkspaceId} onClose={() => setShowAddApp(false)} />}
+        {showImportCompose && <ImportComposeModal workspaceId={selectedWorkspaceId} onClose={() => setShowImportCompose(false)} />}
         {settingsWs && <WorkspaceSettingsModal workspace={settingsWs} onClose={() => setSettingsWs(null)} />}
         {editingService && <ServiceSettingsModal service={editingService} onClose={() => setEditingService(null)} />}
       </Suspense>
