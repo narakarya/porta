@@ -33,6 +33,11 @@ features. Non-negotiables:
   and **multiple tabs** (plus fullscreen). Preserve keep-warm mounting so switching
   domains/tabs never disposes an xterm/PTY or drops listeners.
 - **SSH (Hosts)** — the v0.10.0 SSH client stays fully functional.
+- **Tunnel / Publish** — the existing Cloudflare tunnel + DNS + quick/named tunnel
+  flows must keep working, AND get the improved UI/UX from mockup **`11` (v2)**:
+  local→public routing hero (copy/open/QR), Quick-vs-Named mode switch with
+  descriptions, public hostnames list (primary/alias + Add), and access control
+  (Public / Password / CF Access). Wire to the real tunnel state/commands.
 - General: every redesigned surface must be wired to real state/commands; a mockup
   that currently shows placeholder data must be connected before it's "done".
 
@@ -50,6 +55,9 @@ Because the scope is large, implement **phase by phase**, validating each increm
 - Design tokens + motion language defined (`18`); redesign-friendly architecture = Tokens → Primitives → Features → Shell (`31`).
 
 ## Mockup index
+
+> Where a **v2** exists it supersedes v1 — use **`11` (tunnel/publish)** over `09`,
+> and **`12` (logs)** over `10`.
 
 | # | File | Surface |
 |---|------|---------|
