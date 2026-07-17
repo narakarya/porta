@@ -10,8 +10,7 @@ import HealthSection from "./HealthSection";
 import DangerSection from "./sections/DangerSection";
 import GeneralSection from "./config/GeneralSection";
 import DomainSection from "./config/DomainSection";
-import { IconRemove, IconPlus } from "./config/icons";
-import EnvVarTable from "./config/EnvVarTable";
+import EnvironmentSection from "./config/EnvironmentSection";
 import {
   useAppConfigDraft,
   AppConfigProvider,
@@ -77,14 +76,6 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
     section, setSection,
     tunnelUrlCopied, setTunnelUrlCopied,
     port,
-    envFile, setEnvFile, autoStart, setAutoStart,
-    envVars, setEnvVars,
-    restartPolicy, setRestartPolicy,
-    maxRetries, setMaxRetries,
-    autoSleepEnabled, setAutoSleepEnabled,
-    idleTimeoutMin, setIdleTimeoutMin,
-    autoSleepSupported,
-    maxUploadMb, setMaxUploadMb,
     tunnelProvider, setTunnelProvider,
     tunnelMode, setTunnelMode,
     tunnelName, setTunnelName,
@@ -107,21 +98,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
     tunnelBusy,
     copyCmd, handleConnect, handleDisconnect, refreshTailscale, refreshTunnels,
     saving, saveError, savedAt,
-    portNum,
     canSave,
-    envProfiles,
-    activeProfileId,
-    showNewProfile, setShowNewProfile,
-    newProfileName, setNewProfileName,
-    deleteProfileConfirm, setDeleteProfileConfirm,
-    renamingProfileId, setRenamingProfileId,
-    renameValue, setRenameValue,
-    commitRename,
-    selectProfile, createProfile, deleteProfile,
     isDirty, requestClose,
     selectedIsLive, otherProviderLive,
     configuredTunnelHosts, liveTunnelHosts,
-    handleSave, browseEnvFile, handleDelete,
+    handleSave, handleDelete,
     isStatic, isProxy,
   } = draft;
 
@@ -231,255 +212,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
 
           {section === "domain" && <DomainSection />}
 
-          {section === "environment" && (
-            <>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Environment</p>
-                <p className="text-[12px] text-ink-3 mt-1">Environment variables and startup behavior.</p>
-              </div>
-
-              {/* Profile tab bar (mockup 20) — pills for Default + named
-                  profiles. Switch (click), rename (double-click), delete and
-                  add all reuse the existing profile state + handlers. */}
-              <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => selectProfile(null)}
-                    className={`px-3 py-1 rounded-control text-[12px] font-medium transition-colors ${activeProfileId === null ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"}`}
-                  >
-                    Default
-                  </button>
-                  {envProfiles.map((p) => {
-                    const active = p.id === activeProfileId;
-                    if (renamingProfileId === p.id) {
-                      return (
-                        <input
-                          key={p.id}
-                          spellCheck={false}
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={commitRename}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); commitRename(); }
-                            if (e.key === "Escape") { setRenamingProfileId(null); setRenameValue(""); }
-                          }}
-                          className="input-base text-[12px] w-28 py-1"
-                        />
-                      );
-                    }
-                    return (
-                      <span
-                        key={p.id}
-                        className={`inline-flex items-center rounded-control text-[12px] font-medium transition-colors ${active ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => selectProfile(p.id)}
-                          onDoubleClick={() => { setRenamingProfileId(p.id); setRenameValue(p.name); }}
-                          title="Click to switch · double-click to rename"
-                          className={`pl-3 py-1 ${active ? "pr-1" : "pr-3"}`}
-                        >
-                          {p.name}
-                        </button>
-                        {active && (
-                          deleteProfileConfirm === p.id ? (
-                            <span className="inline-flex items-center gap-1 pr-1.5">
-                              <button type="button" onClick={() => deleteProfile(p.id)} className="px-1.5 py-0.5 text-[10px] font-medium text-bad bg-bad-bg rounded hover:brightness-110 transition">Delete</button>
-                              <button type="button" onClick={() => setDeleteProfileConfirm(null)} className="text-[10px] text-ink-3 hover:text-ink-2 transition-colors">Cancel</button>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setDeleteProfileConfirm(p.id)}
-                              title="Delete profile"
-                              aria-label={`Delete ${p.name}`}
-                              className="pr-2 pl-0.5 py-1 text-accent-ink hover:text-bad transition-colors"
-                            >
-                              <IconRemove />
-                            </button>
-                          )
-                        )}
-                      </span>
-                    );
-                  })}
-                  {showNewProfile ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <input spellCheck={false} value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") createProfile(); if (e.key === "Escape") { setShowNewProfile(false); setNewProfileName(""); } }}
-                        className="input-base text-[12px] w-32 py-1" placeholder="staging" autoFocus />
-                      <button type="button" onClick={createProfile} disabled={!newProfileName.trim()} className="px-2.5 py-1 text-[12px] font-medium bg-accent hover:brightness-110 text-white rounded-control disabled:opacity-40 transition-colors shrink-0">Add</button>
-                      <button type="button" onClick={() => { setShowNewProfile(false); setNewProfileName(""); }} className="text-[12px] text-ink-3 hover:text-ink transition-colors shrink-0">Cancel</button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setShowNewProfile(true)}
-                      title="Add profile"
-                      aria-label="Add profile"
-                      className="inline-flex items-center justify-center w-6 h-6 rounded-control text-ink-3 hover:bg-white/[0.05] hover:text-ink transition-colors"
-                    >
-                      <IconPlus />
-                    </button>
-                  )}
-                  {/* Top-right action: append a blank inline env var row. */}
-                  <button
-                    type="button"
-                    onClick={() => setEnvVars((prev) => [...prev, { key: "", value: "" }])}
-                    className="ml-auto inline-flex items-center gap-1 text-[11px] text-accent hover:brightness-110 transition shrink-0"
-                  >
-                    <IconPlus /> Add variable
-                  </button>
-                </div>
-                {activeProfileId && (
-                  <p className="text-[10px] text-accent-ink">Active profile will be used when starting the app.</p>
-                )}
-              </div>
-
-              {/* Key/value table for the active profile (mockup 20). */}
-              <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
-                <EnvVarTable
-                  vars={envVars}
-                  onChange={setEnvVars}
-                  port={portNum || app.port}
-                  envFile={envFile}
-                  onImportFile={browseEnvFile}
-                  onClearFile={() => setEnvFile("")}
-                />
-              </div>
-
-              {/* Startup behavior */}
-              <div className="flex flex-col gap-5 p-5 rounded-card bg-surface-1 border border-subtle">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[13px] font-medium text-ink">Auto-start on launch</p>
-                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
-                      Automatically start this app when Porta opens.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setAutoStart((v) => !v)}
-                    className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
-                      autoStart ? "bg-accent" : "bg-surface-2"
-                    }`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                      autoStart ? "left-[18px]" : "left-0.5"
-                    }`} />
-                  </button>
-                </div>
-
-                <div className="h-px bg-surface-2" />
-
-                {/* Restart policy */}
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <p className="text-[12px] font-medium text-ink-2">Restart Policy</p>
-                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
-                      What to do when this app exits unexpectedly.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {(["never", "on-failure", "always"] as const).map((policy) => (
-                      <button
-                        key={policy}
-                        onClick={() => setRestartPolicy(policy)}
-                        className={`flex-1 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
-                          restartPolicy === policy
-                            ? "bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.30)]"
-                            : "bg-surface-1 text-ink-2 border border-subtle hover:bg-white/[0.07]"
-                        }`}
-                      >
-                        {policy === "never" ? "Never" : policy === "on-failure" ? "On Failure" : "Always"}
-                      </button>
-                    ))}
-                  </div>
-                  {restartPolicy !== "never" && (
-                    <div className="flex items-center gap-3">
-                      <label className="text-[12px] text-ink-2 flex-1">Max retries</label>
-                      <input spellCheck={false}
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={maxRetries}
-                        onChange={(e) => setMaxRetries(e.target.value)}
-                        className="input-base w-20 text-center"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {autoSleepSupported && (
-                  <>
-                    <div className="h-px bg-surface-2" />
-
-                    {/* Auto-sleep: stop when idle, wake transparently on next request */}
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-[13px] font-medium text-ink">Auto-sleep when idle</p>
-                          <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
-                            Stop this app after a period with no HTTP requests to free RAM.
-                            It wakes automatically the next time its domain is opened.
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => setAutoSleepEnabled((v) => !v)}
-                          className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
-                            autoSleepEnabled ? "bg-accent" : "bg-surface-2"
-                          }`}
-                        >
-                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                            autoSleepEnabled ? "left-[18px]" : "left-0.5"
-                          }`} />
-                        </button>
-                      </div>
-                      {autoSleepEnabled && (
-                        <div className="flex items-center gap-3">
-                          <label className="text-[12px] text-ink-2 flex-1">Idle timeout (minutes)</label>
-                          <input spellCheck={false}
-                            type="number"
-                            min={1}
-                            max={1440}
-                            value={idleTimeoutMin}
-                            onChange={(e) => setIdleTimeoutMin(e.target.value)}
-                            className="input-base w-20 text-center"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                <div className="h-px bg-surface-2" />
-
-                {/* Max upload size — per-app override of the proxy body limit */}
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[13px] font-medium text-ink">Max upload size</p>
-                    <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
-                      Largest request body the proxy accepts for this app. Leave blank to
-                      use the global default; set <span className="text-ink-2">0</span> for
-                      unlimited. Larger uploads get a 413.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                    <input spellCheck={false}
-                      type="number"
-                      min={0}
-                      placeholder="default"
-                      value={maxUploadMb}
-                      onChange={(e) => setMaxUploadMb(e.target.value)}
-                      className="input-base w-24 text-center"
-                    />
-                    <span className="text-[12px] text-ink-3">MB</span>
-                  </div>
-                </div>
-              </div>
-
-            </>
-          )}
+          {section === "environment" && <EnvironmentSection />}
 
           {/* Tunneling section (from agent-a02c9388) */}
           {section === "tunneling" && (
