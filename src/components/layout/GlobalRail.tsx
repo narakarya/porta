@@ -95,7 +95,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
         <button
           title="Account"
           aria-label="Account"
-          className="relative w-7 h-7 rounded-full bg-white/[0.08] text-[11px] font-medium text-zinc-300 flex items-center justify-center hover:bg-white/[0.12] transition-colors"
+          className="relative w-[30px] h-[30px] rounded-full bg-[#232428] text-[11px] font-medium text-zinc-300 flex items-center justify-center hover:bg-[#2c2d31] transition-colors"
         >
           NG
           {updateReady && (

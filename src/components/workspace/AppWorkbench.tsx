@@ -96,9 +96,10 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 8l1.6 1.6L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </span>
         <span className="text-[16px] font-semibold text-ink">{app.name}</span>
-        <StatusDot status={st} />
         <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
-        {running && health === "healthy" && <Badge tone="ok">healthy</Badge>}
+        {running && health === "healthy" && (
+          <Badge tone="ok"><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="inline-block -mt-px mr-0.5"><path d="M8 14s-5.5-3.5-5.5-7.2A3 3 0 018 5.2 3 3 0 0113.5 6.8C13.5 10.5 8 14 8 14z"/></svg>healthy</Badge>
+        )}
         {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
         {domainHost && (
           <button
@@ -120,13 +121,13 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
         <div className="ml-auto flex gap-2">
           {running ? (
             <>
-              <Button onClick={() => restartApp(app.id)}>Restart</Button>
-              <Button variant="danger" onClick={() => stopApp(app.id)}>Stop</Button>
+              <Button icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => restartApp(app.id)}>Restart</Button>
+              <Button variant="danger" icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => stopApp(app.id)}>Stop</Button>
             </>
           ) : (
-            <Button variant="primary" onClick={() => startApp(app.id)}>Start</Button>
+            <Button variant="primary" icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => startApp(app.id)}>Start</Button>
           )}
-          <Button variant="primary" onClick={() => window.open(url, "_blank")}>Open</Button>
+          <Button variant="primary" icon={<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M5.5 3h5.5v5.5M11 3L6 8M9 9v2.5H3V5.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => window.open(url, "_blank")}>Open</Button>
           <Button variant="ghost" onClick={() => onOpenSettings(app)} title="App settings" aria-label="More">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/></svg>
           </Button>
@@ -179,7 +180,7 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
                   <button
                     key={t.id}
                     onClick={t.onClick}
-                    className="group flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-card border border-subtle bg-surface-1 text-ink-3 hover:text-ink hover:border-strong hover:bg-white/[0.03] transition-colors duration-fast"
+                    className="group flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-lg border border-subtle bg-surface-1 text-ink-3 hover:text-ink hover:border-strong hover:bg-white/[0.03] transition-colors duration-fast"
                   >
                     <span className="group-hover:text-accent transition-colors duration-fast">{t.icon}</span>
                     <span className="text-[11px] font-medium">{t.label}</span>

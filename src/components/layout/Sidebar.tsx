@@ -276,7 +276,7 @@ export default function Sidebar() {
                     onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); } }}
                     onContextMenu={(e) => handleRightClick(e, w)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
-                    className={`flex items-center gap-1 px-1.5 py-1 mt-1.5 rounded-[6px] text-[10.5px] font-semibold uppercase tracking-wide w-full text-left select-none cursor-grab transition-colors ${
+                    className={`group/wsh flex items-center gap-1 px-1.5 py-1 mt-1.5 rounded-[6px] text-[10.5px] font-medium uppercase tracking-[0.05em] w-full text-left select-none cursor-grab transition-colors ${
                       isSelected ? "text-zinc-300" : "text-zinc-500 hover:text-zinc-300"
                     }`}
                   >
@@ -297,8 +297,16 @@ export default function Sidebar() {
                       </Tooltip>
                     )}
                     {count > 0 && (
-                      <span className="text-[11px] text-emerald-400 font-medium tabular-nums">{count}</span>
+                      <span className="text-[11px] text-emerald-400 font-semibold tabular-nums">{count}</span>
                     )}
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); selectWorkspace(w.id); setShowAddApp(true); }}
+                      title={`New app in ${w.name}`}
+                      className="shrink-0 -mr-0.5 p-0.5 rounded text-zinc-600 opacity-0 group-hover/wsh:opacity-100 hover:text-zinc-300 transition-opacity"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                    </button>
                   </div>
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
@@ -327,7 +335,7 @@ export default function Sidebar() {
           className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors"
         >
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1.5v6M3.5 5L6 7.5 8.5 5M2 9.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          Import
+          Import compose
         </button>
       </div>
 
