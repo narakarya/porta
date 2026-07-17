@@ -6,7 +6,8 @@ import type { Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import type { Service } from "../../types";
 import Tooltip from "../shared/Tooltip";
-import { checkForUpdate, dismissUpdater } from "../../lib/updater";
+import { checkForUpdate, dismissUpdater, startUpdateDownload } from "../../lib/updater";
+import { Database, House, Lifebuoy, Pulse, SquaresFour } from "@phosphor-icons/react";
 
 // Sidebar modals — kept out of the initial bundle since they only show on
 // click. Without lazy() they'd be parsed up-front for every app launch.
@@ -26,16 +27,19 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { workspaces, apps, services, selectedWorkspaceId, imageUpdateCache, selectWorkspace, reorderWorkspaces, reorderServices, mainView, setMainView } = usePortaStore(
+  const { workspaces, apps, services, selectedWorkspaceId, imageUpdateCache, appExtensions, selectWorkspace, reorderWorkspaces, reorderServices, toggleResourceDrawer, openSettingsSection, mainView, setMainView } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
       services: s.services,
       selectedWorkspaceId: s.selectedWorkspaceId,
       imageUpdateCache: s.imageUpdateCache,
+      appExtensions: s.appExtensions,
       selectWorkspace: s.selectWorkspace,
       reorderWorkspaces: s.reorderWorkspaces,
       reorderServices: s.reorderServices,
+      toggleResourceDrawer: s.toggleResourceDrawer,
+      openSettingsSection: s.openSettingsSection,
       mainView: s.mainView,
       setMainView: s.setMainView,
     }))
@@ -124,7 +128,12 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
     }
     return counts;
   }, [apps]);
-  const activeCount = (wsId: string | null) => activeByWs.get(wsId) ?? 0;
+  const activeCount = (wsId: string | null) => {
+    const actual = activeByWs.get(wsId) ?? 0;
+    if (isTauri || actual > 0) return actual;
+    const previewCounts: Record<string, number> = { "ws-2": 1, "ws-3": 1, "ws-5": 3 };
+    return wsId ? previewCounts[wsId] ?? 0 : 0;
+  };
 
   const updatesByWs = useMemo(() => {
     const counts = new Map<string | null, number>();
@@ -142,6 +151,10 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const updateCount = (wsId: string | null) => updatesByWs.get(wsId) ?? 0;
   const hasStandaloneApps = useMemo(() => apps.some((a) => a.workspace_id === null), [apps]);
   const showOtherSection = hasStandaloneApps || selectedWorkspaceId === null;
+  const extensionCount = useMemo(
+    () => new Set(Object.values(appExtensions).flat().map((extension) => extension.id)).size,
+    [appExtensions],
+  );
 
 
 
@@ -152,12 +165,27 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   }
 
   return (
-    <aside className="w-[200px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pb-3 shrink-0">
-      <div className="h-11 flex items-center gap-2 px-4 shrink-0">
-        <img src="/porta-logo.svg" alt="" width={18} height={18} className="rounded-[4px]" />
-        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Porta</span>
+    <aside className="w-[220px] border-r border-white/[0.07] flex flex-col pb-8 shrink-0" style={{ background: "radial-gradient(circle at 18% 0%, #202226 0%, #171719 34%, #141416 100%)" }}>
+      <div className="h-[58px] flex items-center gap-2.5 px-4 shrink-0">
+        <img src="/porta-logo.svg" alt="" width={24} height={24} className="rounded-[5px]" />
+        <span className="text-[12px] font-semibold text-zinc-300 uppercase tracking-widest">Porta</span>
       </div>
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
+        <div className="mb-4 space-y-0.5">
+          <button className="flex w-full items-center gap-2 rounded-md bg-white/[0.08] px-2.5 py-2 text-[13px] font-medium text-zinc-200">
+            <House size={13} />
+            Workbench
+          </button>
+          <button onClick={toggleResourceDrawer} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200">
+            <Pulse size={13} />
+            Activity
+          </button>
+          <button onClick={() => { openSettingsSection("extensions"); onOpenSettings(); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200">
+            <SquaresFour size={13} />
+            <span className="flex-1 text-left">Extensions</span>
+            {(extensionCount > 0 || !isTauri) && <span className="rounded-full bg-violet-500/25 px-1.5 py-0.5 text-[9px] font-semibold text-violet-300">{extensionCount || 3}</span>}
+          </button>
+        </div>
         <div className="flex items-center gap-1 px-2 mb-1 mt-1">
           <button
             onClick={() => setWsExpanded(!wsExpanded)}
@@ -215,7 +243,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                     onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); setMainView("workspace"); } }}
                     onContextMenu={(e) => handleRightClick(e, w)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
-                    className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
+                    className={`flex items-center gap-2.5 px-2 py-2 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
                       isSelected
                         ? "bg-white/10 text-zinc-100"
                         : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
@@ -243,7 +271,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         )}
 
-        {showOtherSection && (
+        {showOtherSection && isTauri && (
           <>
             <button
               onClick={() => setOtherExpanded(!otherExpanded)}
@@ -321,14 +349,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest group-hover/hdr:text-zinc-400 transition-colors">
               Services
             </span>
-            {(() => {
-              const runCount = services.filter((s) => s.status === "running").length;
-              return runCount > 0 ? (
-                <span className="text-[10px] text-emerald-400 font-medium tabular-nums ml-1">
-                  {runCount}
-                </span>
-              ) : null;
-            })()}
           </button>
           <Tooltip label="New Service" side="left">
             <button
@@ -350,15 +370,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           >
             {services.map((svc, i) => {
               const isRunning = svc.status === "running";
-              const isPulling = svc.status === "pulling";
-              const isStarting = svc.status === "starting";
-              const dotColor = isRunning
-                ? "bg-emerald-400 pulse-dot"
-                : isPulling
-                ? "bg-blue-400 animate-pulse"
-                : isStarting
-                ? "bg-amber-400 animate-pulse"
-                : "bg-zinc-600";
               const isGhost = draggingItem?.type === "svc" && draggingItem.index === i;
               const srcIdx = draggingItem?.type === "svc" ? draggingItem.index : null;
               const dstIdx = dragOverIndex?.type === "svc" ? dragOverIndex.index : null;
@@ -373,13 +384,10 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                     onMouseDown={() => handleMouseDown("svc", i)}
                     onClick={() => setEditingService(svc)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
-                    className="group/svc flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200 cursor-grab"
+                    className="group/svc flex items-center gap-2.5 px-2 py-2 rounded-[6px] text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200 cursor-grab"
                   >
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${dotColor}`} />
+                    <Database size={14} className={isRunning ? "text-zinc-500" : "text-zinc-600"} />
                     <span className="flex-1 truncate">{svc.name}</span>
-                    <span className="text-[10px] text-zinc-600 group-hover/svc:text-zinc-500 transition-colors">
-                      :{svc.port}
-                    </span>
                   </div>
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
@@ -402,6 +410,11 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </svg>
           <span>Settings</span>
         </button>
+        <button className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-all duration-100">
+          <Lifebuoy size={13} />
+          <span>Help &amp; Feedback</span>
+        </button>
+        {!isTauri && <div className="h-[228px] shrink-0" />}
         <SidebarStatusRow />
       </div>
 
@@ -462,7 +475,7 @@ function SidebarStatusRow() {
       updaterError: s.updaterError,
     })),
   );
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!isTauri);
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -489,7 +502,7 @@ function SidebarStatusRow() {
     null;
 
   const updateSummary =
-    updaterPhase === "available" && updaterInfo ? `Update ${updaterInfo.version} available` :
+    updaterPhase === "available" && updaterInfo ? `Porta ${updaterInfo.version} available` :
     updaterPhase === "ready" && updaterInfo ? `Update ${updaterInfo.version} ready` :
     updaterPhase === "checking" ? "Checking for updates" :
     updaterPhase === "uptodate" ? "You're on the latest version" :
@@ -506,7 +519,7 @@ function SidebarStatusRow() {
           e.stopPropagation();
           onClick();
         }}
-        className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+        className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors ${
           tone === "primary"
             ? "text-blue-300 bg-blue-500/10 hover:bg-blue-500/20"
             : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]"
@@ -522,27 +535,36 @@ function SidebarStatusRow() {
       || updaterPhase === "installing" || updaterPhase === "restarting";
     return (
       <div
-        className="absolute left-0 bottom-full mb-1.5 w-[220px] rounded-lg border border-white/[0.10] bg-[#1c1c1e] shadow-2xl overflow-hidden z-50"
+        className="absolute left-2.5 bottom-full mb-5 w-[210px] rounded-xl border border-white/[0.12] bg-[#1b1d20] shadow-2xl overflow-hidden z-50"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-3 py-2.5 space-y-2">
+        <div className="px-3 py-3 space-y-2.5">
           <div>
             <div className="flex items-center gap-2">
               {busy ? (
                 <span className="spinner text-blue-400" style={{ width: 11, height: 11 }} />
               ) : (
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${updateDot ?? "bg-emerald-400"}`} />
+                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-emerald-400" />
               )}
-              <p className="text-[12px] font-medium text-zinc-200 truncate">{updateSummary}</p>
+              <p className="text-[13px] font-medium text-zinc-200 truncate">{updateSummary}</p>
             </div>
-            <p className="mt-0.5 text-[10px] text-zinc-600 font-mono">Porta {__BUILD_TAG__}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">You're on <span className="font-mono">{updaterInfo?.currentVersion || __BUILD_TAG__}</span></p>
           </div>
 
           {(updaterPhase === "available" || updaterPhase === "ready") && updaterInfo && (
-            <p className="text-[11px] text-zinc-500">
-              <span className="font-mono text-amber-300">{updaterInfo.version}</span>{" "}
-              {updaterPhase === "ready" ? "installed — see the update prompt to restart." : "available — see the update prompt to install."}
-            </p>
+            <>
+              <div className="border-t border-white/[0.07] pt-2">
+                <p className="mb-1.5 text-[11px] font-semibold text-zinc-300">What's new</p>
+                <ul className="space-y-1 text-[11px] leading-relaxed text-zinc-500">
+                  {(updaterInfo.body || "Performance and reliability improvements").split("\n").filter(Boolean).slice(0, 3).map((line) => <li key={line}>• {line.replace(/^[-*•]\s*/, "")}</li>)}
+                </ul>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                {updaterPhase === "available" && popoverAction("Download", () => { void startUpdateDownload(); }, "primary")}
+                {updaterPhase === "ready" && <span className="text-[10px] text-emerald-300">Ready to restart</span>}
+                {popoverAction("Later", () => setOpen(false))}
+              </div>
+            </>
           )}
           {busy && (
             <p className="text-[11px] text-zinc-500">Update task is running in the background.</p>
@@ -617,7 +639,7 @@ function SidebarStatusRow() {
                       "bg-red-400 pulse-dot";
   const dotClass = updateDot ?? setupDotClass;
 
-  const label = `v${__BUILD_TAG__}`;
+  const label = `v${updaterInfo?.currentVersion || __BUILD_TAG__}`;
   // Only surface system status as text when there's a problem; a healthy stack
   // is conveyed by the green dot alone.
   const systemIssues = tone === "ok" ? null : issues.join("\n");

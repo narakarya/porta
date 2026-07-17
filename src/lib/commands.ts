@@ -1478,14 +1478,35 @@ export const liveAccessLogStop = (streamId: string): Promise<void> =>
 export type { ExtensionInfo, ExtensionActionContrib } from "../types/extension";
 import type { ExtensionInfo } from "../types/extension";
 
+const browserExtensions: ExtensionInfo[] = [
+  {
+    id: "git-manager", name: "Git Manager", version: "0.7.61",
+    description: "Status, stage, commit, branches, sync, rebase, stash, tags, and pull requests.",
+    author: "Porta", enabled: true, path: "/preview/extensions/git-manager", main_path: "/preview/extensions/git-manager/index.html",
+    contributes_app_actions: [], permissions: ["shell", "fs:read"], activate_on: ["app:root:*"], source: null,
+  },
+  {
+    id: "kamal", name: "Kamal Deploy", version: "0.2.5",
+    description: "Deploy, rollback, logs, app lifecycle, accessories, and environment controls.",
+    author: "Porta", enabled: true, path: "/preview/extensions/kamal", main_path: "/preview/extensions/kamal/index.html",
+    contributes_app_actions: [], permissions: ["shell", "terminal"], activate_on: ["app:root:*"], source: null,
+  },
+  {
+    id: "phoenix-packages", name: "Phoenix Package Manager", version: "0.5.1",
+    description: "View, update, audit, and diagnose Mix dependency conflicts.",
+    author: "Porta", enabled: true, path: "/preview/extensions/phoenix-packages", main_path: "/preview/extensions/phoenix-packages/index.html",
+    contributes_app_actions: [], permissions: ["shell", "fs:read"], activate_on: ["app:root:*"], source: null,
+  },
+];
+
 export const listExtensions = (): Promise<ExtensionInfo[]> =>
-  isTauri ? invoke("list_extensions") : Promise.resolve([]);
+  isTauri ? invoke("list_extensions") : Promise.resolve(browserExtensions);
 
 export const getExtensionsForApp = (appKind: string, appTags: string[]): Promise<ExtensionInfo[]> =>
-  isTauri ? invoke("get_extensions_for_app", { appKind, appTags }) : Promise.resolve([]);
+  isTauri ? invoke("get_extensions_for_app", { appKind, appTags }) : Promise.resolve(browserExtensions);
 
 export const rescanExtensions = (): Promise<ExtensionInfo[]> =>
-  isTauri ? invoke("rescan_extensions") : Promise.resolve([]);
+  isTauri ? invoke("rescan_extensions") : Promise.resolve(browserExtensions);
 
 export const installExtensionFromFolder = (path: string): Promise<ExtensionInfo> =>
   isTauri ? invoke("install_extension_from_folder", { path }) : Promise.reject(new Error("not available"));

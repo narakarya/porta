@@ -7,7 +7,7 @@ import { autoCheckForUpdate, checkForUpdate } from "./lib/updater";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "./lib/commands";
 import Layout from "./components/layout/Layout";
-import WorkspaceView from "./components/workspace/WorkspaceView";
+import WorkspaceWorkbench from "./components/workspace/WorkspaceWorkbench";
 import HostsView from "./components/ssh/HostsView";
 import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
@@ -58,6 +58,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!isTauri) {
+      usePortaStore.setState({
+        updaterPhase: "available",
+        updaterInfo: {
+          version: "0.7.34",
+          currentVersion: "0.7.33",
+          body: "Git diff viewer performance\nTerminal split pane persist fix\nLogs search improvements",
+          total: 0,
+          downloaded: 0,
+        },
+        updaterError: null,
+      });
+    }
     checkSetup();
     load().then(() => refreshHealth());
     loadSettings();
@@ -193,7 +206,7 @@ export default function App() {
                 </button>
               </div>
             )}
-            <WorkspaceView />
+            <WorkspaceWorkbench />
           </div>
           <div hidden={mainView !== "hosts"}>
             <HostsView />
@@ -208,7 +221,7 @@ export default function App() {
       {/* Global toast for the updater — always mounted regardless of page so
           a download started from Settings stays visible after the user
           switches back to Main. */}
-      <UpdateToast />
+      {isTauri && <UpdateToast />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       </ExtensionHostProvider>
     </ErrorBoundary>

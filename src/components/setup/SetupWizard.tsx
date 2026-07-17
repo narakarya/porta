@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { runSetup } from "../../lib/commands";
+import { isTauri, runSetup } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";
 
@@ -103,6 +103,11 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Tauri's event listener is unavailable in the browser preview. Keeping the
+    // guard here makes the local design/dev build behave like the desktop app
+    // without generating unhandled promise rejections.
+    if (!isTauri) return;
+
     let cancelled = false;
     const unlisteners: Array<() => void> = [];
 

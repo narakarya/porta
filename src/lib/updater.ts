@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 
 import { usePortaStore } from "../store";
 import type { UpdaterPhase } from "../store/slices/ui";
+import { isTauri } from "./commands";
 
 /**
  * App updater driver. Owns the update lifecycle (check → download → install →
@@ -58,6 +59,9 @@ function setPhase(phase: UpdaterPhase, patch: Record<string, unknown> = {}) {
 export function checkForUpdate(
   opts: { silent?: boolean; source?: "popover" | "menu" | "background" } = {},
 ): Promise<void> {
+  // The updater plugin only exists inside the desktop runtime. Browser mode is
+  // used for local development and visual QA, so update checks should be inert.
+  if (!isTauri) return Promise.resolve();
   if (activeCheck) return activeCheck;
   usePortaStore.setState({ updaterCheckSource: opts.source ?? "menu" });
   const generation = ++checkGeneration;
@@ -168,6 +172,16 @@ async function runUpdateCheck(
  * off this session.
  */
 export async function startUpdateDownload(): Promise<void> {
+  if (!isTauri) {
+    const info = usePortaStore.getState().updaterInfo;
+    if (!info) return;
+    setPhase("downloading", { updaterInfo: { ...info, total: 100, downloaded: 42 } });
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    setPhase("installing", { updaterInfo: { ...info, total: 100, downloaded: 100 } });
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    setPhase("ready");
+    return;
+  }
   if (downloadInFlight) return;
   if (!cachedUpdate) return;
   const upd = cachedUpdate;

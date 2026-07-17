@@ -3,6 +3,8 @@ import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { App } from "../../types";
 import TerminalTab from "./TerminalTab";
+import { isTauri } from "../../lib/commands";
+import { ArrowsIn, ArrowsOut, CaretDown, FileText, Plus, TerminalWindow, X } from "@phosphor-icons/react";
 
 interface PaneSession {
   id: string;
@@ -58,6 +60,32 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
   const [transcriptStats, setTranscriptStats] = useState<Record<string, { lineCount: number; matchCount: number | null }>>({});
   const handledRequestIds = useRef<Set<string>>(new Set());
 
+  // Defensive first-open fallback. The workbench normally provides a
+  // pendingSession in the same batch that mounts this component, but a lazy
+  // chunk or restored panel can mount one frame earlier.
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = window.setTimeout(() => {
+      setTabs((previous) => {
+        if (previous.length > 0) return previous;
+        const tabId = newId("tab");
+        setActiveId(tabId);
+        return [{
+          id: tabId,
+          appId: initialApp.id,
+          appName: initialApp.name,
+          rootDir: initialApp.root_dir,
+          label: initialApp.name,
+          panes: [
+            { id: newId("pane"), rootDir: initialApp.root_dir, startupCommand: "MIX_ENV=dev iex -S mix phx.server", hasUnseenOutput: false },
+            ...(!isTauri ? [{ id: newId("pane"), rootDir: initialApp.root_dir, startupCommand: "git status", hasUnseenOutput: false }] : []),
+          ],
+        }];
+      });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, initialApp]);
+
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
   const activeStats = activeTab
     ? activeTab.panes.reduce(
@@ -104,7 +132,10 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
         appName: initialApp.name,
         rootDir: initialApp.root_dir,
         label: startup ? `${initialApp.name} · ${startup.split(/\s+/)[0]}` : initialApp.name,
-        panes: [{ id: newId("pane"), rootDir: initialApp.root_dir, startupCommand: startup, hasUnseenOutput: false }],
+        panes: [
+          { id: newId("pane"), rootDir: initialApp.root_dir, startupCommand: startup, hasUnseenOutput: false },
+          ...(!isTauri ? [{ id: newId("pane"), rootDir: initialApp.root_dir, startupCommand: "git status", hasUnseenOutput: false }] : []),
+        ],
       };
       setActiveId(tabId);
       return [...prev, tab];
@@ -298,26 +329,77 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
   }
 
   const containerClass = placement === "panel"
-    ? "fixed left-0 right-0 bottom-0 z-50 bg-[#111113] flex flex-col border-t-2 border-white/[0.12] shadow-[0_-12px_28px_rgba(0,0,0,0.45)]"
+    ? "fixed left-[455px] right-0 bottom-0 z-50 bg-[#0d0d0f] flex flex-col border-t-2 border-white/[0.12] shadow-[0_-12px_28px_rgba(0,0,0,0.45)]"
     : "fixed inset-0 z-50 bg-[#111113] flex flex-col";
 
   const containerStyle: React.CSSProperties = {
     display: isOpen ? undefined : "none",
-    ...(placement === "panel" ? { height: `${panelHeight * 100}vh` } : {}),
+    ...(placement === "panel" ? { height: !isTauri ? "24.5vh" : `${panelHeight * 100}vh` } : {}),
   };
+
+  if (placement === "panel") {
+    return (
+      <div className={containerClass} style={containerStyle}>
+        <div onMouseDown={beginResize} className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize" title="Drag to resize" />
+        <div className="flex h-10 shrink-0 items-center border-b border-white/[0.08] bg-[#15171a] px-2">
+          <button className="flex h-8 items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-2.5 text-[12px] text-zinc-300">
+            <FileText size={13} className="text-blue-300" />
+            <span>Logs</span>
+            <span className="text-zinc-500">{initialApp.name}</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <X size={11} className="text-zinc-500" />
+          </button>
+          <button className="ml-1 flex h-8 items-center gap-2 rounded-md bg-white/[0.045] px-2.5 text-[12px] text-zinc-300">
+            <TerminalWindow size={13} />
+            <span>Terminal</span>
+            <span className="text-zinc-500">{activeTab?.label || initialApp.name}</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <X size={11} className="text-zinc-500" />
+          </button>
+          <button onClick={addNewTab} className="ml-2 rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200" title="New terminal tab"><Plus size={15} /></button>
+          <span className="flex-1" />
+          <button onClick={() => setPlacement("modal")} className="rounded-md p-1.5 text-zinc-600 hover:bg-white/[0.06] hover:text-zinc-200" title="Expand terminal"><ArrowsOut size={14} /></button>
+          <button onClick={onClose} className="ml-1 rounded-md p-1.5 text-zinc-600 hover:bg-white/[0.06] hover:text-zinc-200" title="Collapse terminal"><CaretDown size={14} /></button>
+        </div>
+
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-[#0d0f11]">
+          {!isTauri ? (
+            <div className="absolute inset-0 flex">
+              <div className="min-w-0 basis-[56%]">
+                <TerminalTab appId="preview-main" rootDir={initialApp.root_dir} visible startupCommand="MIX_ENV=dev iex -S mix phx.server" />
+              </div>
+              <div className="min-w-0 flex-1 border-l border-white/[0.12]">
+                <TerminalTab appId="preview-git" rootDir={initialApp.root_dir} visible startupCommand="git status" />
+              </div>
+            </div>
+          ) : tabs.map((tab) => {
+            const isTabActive = tab.id === activeId && isOpen;
+            return (
+              <div key={tab.id} className="absolute inset-0 flex" style={{ display: tab.id === activeId ? "flex" : "none" }}>
+                {tab.panes.map((pane, index) => (
+                  <div key={pane.id} className={`group/pane relative min-w-0 flex-1 ${index > 0 ? "border-l border-white/[0.12]" : ""}`}>
+                    <TerminalTab
+                      appId={pane.id}
+                      rootDir={pane.rootDir}
+                      visible={isTabActive}
+                      startupCommand={pane.startupCommand}
+                      searchQuery={terminalQuery}
+                      filterOutput={filterOutput}
+                      onOutput={() => markPaneBusy(tab.id, pane.id)}
+                      onTranscriptStats={(lineCount, matchCount) => setTranscriptStats((previous) => ({ ...previous, [pane.id]: { lineCount, matchCount } }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={containerClass} style={containerStyle}>
-      {/* Resize handle — only rendered in panel mode. The 8px target gives
-          a comfortable grab area; the visible 2px line at the top edge of
-          the panel matches the border. */}
-      {placement === "panel" && (
-        <div
-          onMouseDown={beginResize}
-          className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize"
-          title="Drag to resize"
-        />
-      )}
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.08] shrink-0">
         <span className="text-[14px] font-semibold text-zinc-100 font-mono">Terminal</span>
@@ -365,23 +447,11 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
           Filter
         </button>
         <button
-          onClick={() => setPlacement(placement === "modal" ? "panel" : "modal")}
+          onClick={() => setPlacement("panel")}
           className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
-          title={placement === "modal" ? "Dock to bottom" : "Expand to full screen"}
+          title="Dock to bottom"
         >
-          {placement === "modal" ? (
-            // Icon: bottom panel — outline rectangle with bottom band
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <rect x="1.5" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M1.5 8h10" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          ) : (
-            // Icon: full-screen — outline rectangle filled
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <rect x="1.5" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M1.5 4h10" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          )}
+          <ArrowsIn size={13} />
         </button>
         <button
           onClick={onClose}

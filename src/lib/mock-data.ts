@@ -5,18 +5,24 @@
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
 
 export const mockWorkspaces: Workspace[] = [
-  { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
-  { id: "ws-2", name: "Client Portal", domain: "portal.test", deployment: null },
+  { id: "ws-1", name: "UQ", domain: "uq.test", deployment: null },
+  { id: "ws-2", name: "Tanya Obat", domain: "tanyaobat.test", deployment: null },
+  { id: "ws-3", name: "Mediapress", domain: "mediapress.test", deployment: null },
+  { id: "ws-4", name: "Interblade", domain: "interblade.test", deployment: null },
+  { id: "ws-5", name: "Tigger", domain: "tigger.test", deployment: null },
+  { id: "ws-6", name: "Tools", domain: "tools.test", deployment: null },
+  { id: "ws-7", name: "SpreadGrid", domain: "spreadgrid.test", deployment: null },
+  { id: "ws-8", name: "Narakarya", domain: "narakarya.test", deployment: null },
 ];
 
 export const mockApps: App[] = [
   {
     id: "app-1",
     workspace_id: "ws-1",
-    name: "frontend",
-    root_dir: "/Users/dev/narakarya/frontend",
-    port: 3000,
-    subdomain: "app",
+    name: "smartuq",
+    root_dir: "/Users/dev/narakarya_academic",
+    port: 3001,
+    subdomain: "smartuq",
     start_command: "npm run dev",
     start_command_source: "package.json",
     status: "running",
@@ -58,14 +64,14 @@ export const mockApps: App[] = [
   {
     id: "app-2",
     workspace_id: "ws-1",
-    name: "api",
-    root_dir: "/Users/dev/narakarya/api",
-    port: 4000,
-    subdomain: "api",
+    name: "uq_people_hub",
+    root_dir: "/Users/dev/uq/people_hub",
+    port: 3111,
+    subdomain: "people",
     start_command: "mix phx.server",
     start_command_source: "mix.exs",
-    status: "stopped",
-    pid: null,
+    status: "running",
+    pid: 12346,
     env_file: ".env",
     auto_start: false,
     env_vars: { DATABASE_URL: "postgres://localhost/mydb_dev" },
@@ -103,15 +109,15 @@ export const mockApps: App[] = [
   },
   {
     id: "app-3",
-    workspace_id: "ws-2",
-    name: "dashboard",
-    root_dir: "/Users/dev/portal/dashboard",
-    port: 3001,
-    subdomain: "dash",
+    workspace_id: "ws-1",
+    name: "sidiq-brand",
+    root_dir: "/Users/dev/uq/sidiq-brand",
+    port: 3002,
+    subdomain: "brand",
     start_command: "npm run dev",
     start_command_source: "package.json",
-    status: "starting",
-    pid: 12400,
+    status: "stopped",
+    pid: null,
     env_file: null,
     auto_start: false,
     env_vars: {},
@@ -399,7 +405,11 @@ export function stopMockTunnel(appId: string): void {
 
 // ── Mock services ─────────────────────────────────────────────────────────────
 
-export const mockServices: Service[] = [];
+export const mockServices: Service[] = [
+  { id: "svc-db", name: "Databases", image: "postgres", tag: "16", port: 5432, env_vars: {}, volumes: [], scope: "global", status: "running", container_id: "mock-postgres" },
+  { id: "svc-broker", name: "Message Brokers", image: "rabbitmq", tag: "3", port: 5672, env_vars: {}, volumes: [], scope: "global", status: "running", container_id: "mock-rabbitmq" },
+  { id: "svc-cache", name: "Caches", image: "redis", tag: "7", port: 6379, env_vars: {}, volumes: [], scope: "global", status: "running", container_id: "mock-redis" },
+];
 
 export function startMockService(
   serviceId: string,

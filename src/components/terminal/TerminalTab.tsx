@@ -180,6 +180,26 @@ export default function TerminalTab({
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
+    if (!isTauri) {
+      const project = rootDir.split("/").filter(Boolean).pop() || "narakarya_academic";
+      const isGitPane = startupCommand?.includes("git status");
+      window.setTimeout(() => {
+        if (isGitPane) {
+          term.write(`\x1b[32msmartuq\x1b[0m \x1b[36mgit:(main)\x1b[0m ✗\r\n`);
+          term.write(`❯ git status\r\nOn branch main\r\nYour branch is up to date with 'origin/main'.\r\n\r\nnothing to commit, working tree clean\r\n`);
+          term.write(`\x1b[32msmartuq\x1b[0m \x1b[36mgit:(main)\x1b[0m ✗\r\n❯ `);
+        } else {
+          term.write(`\x1b[32msmartuq\x1b[0m \x1b[34m~/${project}\x1b[0m\r\n`);
+          term.write(`❯ MIX_ENV=dev iex -S mix phx.server\r\n`);
+          term.write(`[info] Running NarakaryaAcademicWeb.Endpoint with Bandit 1.5.9 at 0.0.0.0:4000 (http)\r\n`);
+          term.write(`[info] Access NarakaryaAcademicWeb.Endpoint at http://localhost:4000\r\n`);
+          term.write(`[info] Watching paths for changes: lib, test, config, priv/repo\r\n`);
+          term.write(`[info] \x1b[34mCompiled 3 files (.ex)\x1b[0m\r\n`);
+          term.write(`\x1b[32msmartuq\x1b[0m \x1b[34m~/${project}\x1b[0m\r\n❯ `);
+        }
+      }, 80);
+    }
+
     // Delay fit so the container is fully laid out.
     requestAnimationFrame(() => {
       fitAddon.fit();
@@ -228,9 +248,6 @@ export default function TerminalTab({
         unlistenData = d;
         unlistenExit = x;
       });
-    } else {
-      // Browser mock: show placeholder
-      term.writeln("\x1b[90m(Terminal unavailable outside Tauri app)\x1b[0m");
     }
 
     // Resize observer — keep PTY in sync with container size changes.
@@ -262,11 +279,42 @@ export default function TerminalTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId, rootDir]);
 
+  if (!isTauri) {
+    const project = rootDir.split("/").filter(Boolean).pop() || "narakarya_academic";
+    const isGitPane = startupCommand?.includes("git status");
+    return (
+      <div className="h-full overflow-auto bg-[#0d0f11] px-4 py-3 font-mono text-[12px] leading-[1.6] text-zinc-300">
+        {isGitPane ? (
+          <>
+            <p><span className="font-semibold text-emerald-400">smartuq</span> <span className="text-cyan-400">git:(main)</span> <span className="text-amber-400">✗</span></p>
+            <p><span className="text-emerald-300">❯</span> git status</p>
+            <p className="mt-1">On branch main</p>
+            <p>Your branch is up to date with 'origin/main'.</p>
+            <p className="mt-2">nothing to commit, working tree clean</p>
+            <p className="mt-2"><span className="font-semibold text-emerald-400">smartuq</span> <span className="text-cyan-400">git:(main)</span> <span className="text-amber-400">✗</span></p>
+            <p><span className="text-emerald-300">❯</span></p>
+          </>
+        ) : (
+          <>
+            <p><span className="font-semibold text-emerald-400">smartuq</span> <span className="text-blue-400">~/{project}</span></p>
+            <p><span className="text-emerald-300">❯</span> MIX_ENV=dev iex -S mix phx.server</p>
+            <p className="mt-1">[info] Running NarakaryaAcademicWeb.Endpoint with Bandit 1.5.9 at 0.0.0.0:4000 (http)</p>
+            <p>[info] Access NarakaryaAcademicWeb.Endpoint at http://localhost:4000</p>
+            <p>[info] Watching paths for changes: lib, test, config, priv/repo</p>
+            <p>[info] <span className="text-blue-400">Compiled 3 files (.ex)</span></p>
+            <p className="mt-2"><span className="font-semibold text-emerald-400">smartuq</span> <span className="text-blue-400">~/{project}</span></p>
+            <p><span className="text-emerald-300">❯</span></p>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="relative h-full w-full bg-[#0d0d0f]">
       <div
         ref={containerRef}
-        className="h-full w-full bg-[#0d0d0f]"
+        className="h-full w-full bg-[#0d0d0f] p-3"
         style={{ visibility: transcriptVisible ? "hidden" : "visible" }}
         // Let xterm.js handle all keyboard events inside the terminal area.
         onKeyDown={(e) => e.stopPropagation()}
