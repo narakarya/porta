@@ -111,8 +111,6 @@ export interface UiSlice {
    * sidebar showed stale version numbers until reload.
    */
   extensionListVersion: number;
-  /** Resource monitoring drawer. Docker stats polling is gated on this. */
-  resourceDrawerOpen: boolean;
   /** Which top-level surface the main content area renders. */
   activeDomain: "workspaces" | "hosts" | "services" | "activity" | "extensions";
   /** App opened in the Workspaces workbench (null = app list). */
@@ -135,7 +133,6 @@ export interface UiSlice {
   cacheAppExtensions: (appId: string, extensions: ExtensionInfo[]) => void;
   openSettingsSection: (section: SettingsSection) => void;
   clearSettingsSection: () => void;
-  toggleResourceDrawer: () => void;
   setTerminalPlacement: (p: TerminalPlacement) => void;
   setTerminalPanelHeight: (frac: number) => void;
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
@@ -185,7 +182,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   terminalPlacement: loadPlacement(),
   terminalPanelHeight: loadPanelHeight(),
   extensionListVersion: 0,
-  resourceDrawerOpen: false,
   activeDomain: "workspaces",
   selectedAppId: null,
   settingsAppId: null,
@@ -242,7 +238,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   openSettingsSection: (section) => set({ settingsSection: section }),
   clearSettingsSection: () => set({ settingsSection: null }),
-  toggleResourceDrawer: () => set((s) => ({ resourceDrawerOpen: !s.resourceDrawerOpen })),
 
   setTerminalPlacement: (p) => {
     if (typeof localStorage !== "undefined") localStorage.setItem(LS_PLACEMENT, p);
