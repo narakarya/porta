@@ -2,6 +2,10 @@
 
 These HTML mockups are the **agreed visual target** for the app redesign. Open `index.html` to browse the gallery, or any `NN_*.html` directly.
 
+> **REVIEW EVERYTHING → [`_review.html`](./_review.html)** — one navigable page with
+> *every* screen (grouped index + hero + 30 per-surface sections), self-contained.
+> Also published as a private artifact: https://claude.ai/code/artifact/ec8d163c-8bdf-4366-8d53-c44a4b75b019
+>
 > **START HERE → [`_FINAL_shell_c_complete.html`](./_FINAL_shell_c_complete.html)** — the
 > consolidated north-star mockup: the full Shell C app with all feedback folded in
 > (rail → grouped app list with collapse/add → content-forward workbench: rich header,
