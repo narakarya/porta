@@ -172,7 +172,14 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       </div>
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag">
         <div className="mb-4 space-y-0.5">
-          <button className="flex w-full items-center gap-2 rounded-md bg-white/[0.08] px-2.5 py-2 text-[13px] font-medium text-zinc-200">
+          <button
+            onClick={() => setMainView("workspace")}
+            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] ${
+              mainView === "workspace"
+                ? "bg-white/[0.08] font-medium text-zinc-200"
+                : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+            }`}
+          >
             <House size={13} />
             Workbench
           </button>
