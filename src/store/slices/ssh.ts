@@ -35,6 +35,8 @@ export interface SshSlice {
   updateSshHost: (host: SshHost) => Promise<void>;
   deleteSshHost: (id: string) => Promise<void>;
   connectSsh: (hostId: string) => Promise<void>;
+  /** Focus the host's most recent live session if one exists, else open a new one. */
+  connectOrFocusSsh: (hostId: string) => Promise<void>;
   disconnectSsh: (sessionId: string) => Promise<void>;
   setActiveSession: (id: string | null) => void;
   upsertSession: (s: SshSession) => void;
@@ -72,6 +74,15 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     }),
   setActiveSession: (id) => set({ activeSessionId: id }),
 
+  connectOrFocusSsh: async (hostId) => {
+    const live = get().sshSessions.filter((s) => s.hostId === hostId && s.status !== "disconnected");
+    if (live.length > 0) {
+      set({ activeSessionId: live[live.length - 1].id });
+      return;
+    }
+    await get().connectSsh(hostId);
+  },
+
   connectSsh: async (hostId) => {
     const host = get().sshHosts.find((h) => h.id === hostId);
     if (!host) return;
@@ -106,6 +117,10 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
         get().setSessionStatus(sessionId, "error");
       }),
       listen(`ssh:auth-failed:${sessionId}`, () => get().setSessionStatus(sessionId, "error")),
+      listen(`ssh:host-os:${sessionId}`, (e) => {
+        const os = (e.payload as { os: string }).os;
+        set({ sshHosts: get().sshHosts.map((h) => (h.id === hostId ? { ...h, detected_os: os } : h)) });
+      }),
     ]);
     sessionUnlisteners.set(sessionId, unlisteners);
 

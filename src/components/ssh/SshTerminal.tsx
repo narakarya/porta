@@ -26,6 +26,7 @@ export default function SshTerminal({ sessionId, visible }: Props) {
     requestAnimationFrame(() => {
       fitAddon.fit();
       term.refresh(0, term.rows - 1);
+      term.focus(); // keys go to the active session's terminal, not a stale element
     });
   }, [visible]);
 
@@ -66,7 +67,25 @@ export default function SshTerminal({ sessionId, visible }: Props) {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
-    fitAddon.fit();
+
+    const safeFit = () => {
+      try {
+        fitAddon.fit();
+      } catch {
+        /* container not laid out yet */
+      }
+    };
+    safeFit();
+    // Re-fit once the web font (JetBrains Mono) finishes loading. Fitting before
+    // the font loads measures cell width with the fallback font, so real glyphs
+    // end up wider than the cell and visually overlap ("joined" text).
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        safeFit();
+        term.refresh(0, term.rows - 1);
+      });
+    }
+    term.focus();
 
     termRef.current = term;
     fitRef.current = fitAddon;
@@ -89,9 +108,13 @@ export default function SshTerminal({ sessionId, visible }: Props) {
 
     if (isTauri) {
       Promise.all([
-        listen<number[]>(`ssh:data:${sessionId}`, (e) => {
+        // Payload is base64 (far cheaper over IPC than a JSON int-array).
+        listen<string>(`ssh:data:${sessionId}`, (e) => {
           if (!mounted) return;
-          term.write(new Uint8Array(e.payload));
+          const bin = atob(e.payload);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          term.write(bytes);
         }),
         listen<void>(`ssh:exit:${sessionId}`, () => {
           if (mounted) term.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n");

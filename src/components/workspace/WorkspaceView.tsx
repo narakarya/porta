@@ -34,7 +34,7 @@ export default function WorkspaceView() {
     }))
   );
   const sshHosts = usePortaStore((s) => s.sshHosts);
-  const connectSsh = usePortaStore((s) => s.connectSsh);
+  const connectOrFocusSsh = usePortaStore((s) => s.connectOrFocusSsh);
   const setMainView = usePortaStore((s) => s.setMainView);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
@@ -525,7 +525,7 @@ export default function WorkspaceView() {
                       <button
                         key={h.id}
                         onClick={() => {
-                          connectSsh(h.id);
+                          connectOrFocusSsh(h.id);
                           setMainView("hosts");
                         }}
                         title={`Connect ${h.username}@${h.hostname}:${h.port}`}

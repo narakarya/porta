@@ -195,7 +195,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             {workspaces.map((w, i) => {
               const count = activeCount(w.id);
               const updCount = updateCount(w.id);
-              const isSelected = selectedWorkspaceId === w.id;
+              const isSelected = mainView === "workspace" && selectedWorkspaceId === w.id;
               const isGhost = draggingItem?.type === "ws" && draggingItem.index === i;
               const srcIdx = draggingItem?.type === "ws" ? draggingItem.index : null;
               const dstIdx = dragOverIndex?.type === "ws" ? dragOverIndex.index : null;
@@ -262,7 +262,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             {otherExpanded && (() => {
               const count = activeCount(null);
               const updCount = updateCount(null);
-              const isSelected = selectedWorkspaceId === null;
+              const isSelected = mainView === "workspace" && selectedWorkspaceId === null;
               return (
                 <button
                   onClick={() => { selectWorkspace(null); setMainView("workspace"); }}

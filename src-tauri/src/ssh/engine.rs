@@ -469,6 +469,19 @@ impl SshManager {
             serde_json::json!({ "phase": "connected", "keyType": key_type }),
         );
 
+        // 5b. Best-effort remote OS detection (Termius-style badge). Non-fatal and
+        //     time-boxed so a slow/quiet host never holds up the shell.
+        {
+            let probe = detect_remote_os(&handle);
+            if let Ok(Ok(os)) = tokio::time::timeout(std::time::Duration::from_secs(4), probe).await {
+                let os = os.trim().to_string();
+                if !os.is_empty() {
+                    let _ = db.lock().unwrap().set_detected_os(&host.id, &os);
+                    Self::emit(&app, &session_id, "host-os", serde_json::json!({ "os": os }));
+                }
+            }
+        }
+
         // 6. Spawn the read/write pump. The `Handle` is moved in and kept alive
         //    for the session's lifetime (dropping it would close the transport).
         let app2 = app.clone();
@@ -480,7 +493,11 @@ impl SshManager {
                 tokio::select! {
                     msg = channel.wait() => match msg {
                         Some(russh::ChannelMsg::Data { data }) => {
-                            Self::emit(&app2, &sid2, "data", serde_json::json!(data.to_vec()));
+                            // base64 string, not a JSON int-array: ~1/4 the payload
+                            // size and far cheaper to serialize/parse per chunk.
+                            use base64::Engine as _;
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                            Self::emit(&app2, &sid2, "data", serde_json::json!(b64));
                         }
                         Some(russh::ChannelMsg::Eof)
                         | Some(russh::ChannelMsg::Close)
@@ -561,6 +578,35 @@ fn expand_tilde(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
+}
+
+/// Probe the remote OS over a throwaway exec channel. Returns the distro
+/// PRETTY_NAME (Linux) or `uname -sr` (macOS/BSD/other). Best-effort.
+async fn detect_remote_os(
+    handle: &russh::client::Handle<CaptureHandler>,
+) -> Result<String, String> {
+    let mut ch = handle.channel_open_session().await.map_err(|e| e.to_string())?;
+    ch.exec(
+        true,
+        "sh -c '. /etc/os-release 2>/dev/null && printf %s \"$PRETTY_NAME\" || uname -sr'",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::new();
+    while let Some(msg) = ch.wait().await {
+        match msg {
+            russh::ChannelMsg::Data { data } => out.extend_from_slice(&data),
+            russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+            _ => {}
+        }
+    }
+    Ok(String::from_utf8_lossy(&out)
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim()
+        .to_string())
 }
 
 fn now_epoch() -> i64 {

@@ -6,7 +6,38 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
-## [0.9.0] — 2026-07-16
+## [0.10.0] — 2026-07-17
+
+### Added
+
+- **Remote OS detection.** On first connect, Porta probes the host
+  (`/etc/os-release` / `uname`) over a throwaway channel and shows an OS glyph
+  on the host card — à la Termius.
+- **Session-aware host list.** Hosts with a live session get a green dot (and a
+  count); clicking a host now focuses its existing session instead of always
+  opening a new one — use the hover **＋** to force a new session.
+
+### Changed
+
+- **Faster terminal streaming.** SSH output is sent as base64 rather than a
+  JSON integer array (~¼ the payload, much cheaper to parse) — noticeably more
+  responsive.
+- **Terminal rendering.** Fit the terminal after the web font loads and focus
+  it on activation, fixing overlapping/"joined" glyphs and keeping keystrokes on
+  the active session.
+- **Host form redesign.** Sectioned layout; the free-text Group field is gone
+  (workspaces organize the vault now); workspace attachment is a searchable
+  checklist popover that scales past a handful of workspaces; key-file field
+  defaults to `~/.ssh/id_ed25519` with a Browse picker.
+- **Vault filter** moved to a compact funnel popover instead of a full-width
+  dropdown.
+- Sidebar no longer shows a workspace as "active" while the Hosts view is open.
+
+### Fixed
+
+- **Host delete now confirms.** It used `window.confirm`, which the Tauri
+  webview silently treats as accepted; it now uses the native dialog plugin.
+
 
 ### Added
 

@@ -625,6 +625,11 @@ pub struct SshHost {
     /// `insert`/`update` replaces the host's join rows with this list.
     #[serde(default)]
     pub workspace_ids: Vec<String>,
+    /// Remote OS string detected on first successful connect (uname /
+    /// /etc/os-release). `None` until detected. Updated out-of-band by the
+    /// engine, not by the host form.
+    #[serde(default)]
+    pub detected_os: Option<String>,
 }
 
 /// How to authenticate. Password/passphrase values are prompted at connect
