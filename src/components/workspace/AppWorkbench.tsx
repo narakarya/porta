@@ -2,8 +2,9 @@ import { lazy, Suspense, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
-import { Button, Tabs, StatusDot, Badge, Card, EmptyState, type Status, type TabItem } from "../ui";
+import { Button, Tabs, StatusDot, Badge, Card, type Status, type TabItem } from "../ui";
 import TerminalTab from "../terminal/TerminalTab";
+import GitTab from "./GitTab";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
 
@@ -121,10 +122,7 @@ export default function AppWorkbench({ app, onBack, onOpenSettings }: Props) {
         )}
 
         <div hidden={tab !== "git"} className="h-full">
-          <EmptyState
-            title="Git"
-            hint="The Git tab is wired in the Git phase (core git + the simplified git-manager)."
-          />
+          <GitTab app={app} />
         </div>
       </div>
     </div>
