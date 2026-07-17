@@ -55,7 +55,7 @@ impl Database {
 
     pub fn list_ssh_hosts(&self) -> Result<Vec<SshHost>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, label, grp, hostname, port, username, auth_json, jump_host_id, created_at, last_used_at
+            "SELECT id, label, grp, hostname, port, username, auth_json, jump_host_id, created_at, last_used_at, detected_os
              FROM ssh_hosts ORDER BY grp, label, rowid")?;
         let mut hosts = stmt.query_map([], row_to_ssh_host)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -67,7 +67,7 @@ impl Database {
 
     pub fn get_ssh_host(&self, id: &str) -> Result<Option<SshHost>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, label, grp, hostname, port, username, auth_json, jump_host_id, created_at, last_used_at
+            "SELECT id, label, grp, hostname, port, username, auth_json, jump_host_id, created_at, last_used_at, detected_os
              FROM ssh_hosts WHERE id=?1")?;
         let mut rows = stmt.query_map(params![id], row_to_ssh_host)?;
         let mut host = match rows.next() { Some(r) => r?, None => return Ok(None) };
@@ -79,6 +79,13 @@ impl Database {
 
     pub fn touch_ssh_host(&self, id: &str, at: i64) -> Result<()> {
         self.conn.execute("UPDATE ssh_hosts SET last_used_at=?1 WHERE id=?2", params![at, id])?;
+        Ok(())
+    }
+
+    /// Store the remote OS detected on connect. Engine-managed (the host form
+    /// never sets it, so `update_ssh_host` leaves this column untouched).
+    pub fn set_detected_os(&self, id: &str, os: &str) -> Result<()> {
+        self.conn.execute("UPDATE ssh_hosts SET detected_os=?1 WHERE id=?2", params![os, id])?;
         Ok(())
     }
 }
@@ -139,6 +146,7 @@ fn row_to_ssh_host(row: &rusqlite::Row) -> rusqlite::Result<SshHost> {
         jump_host_id: row.get(7)?,
         created_at: row.get(8)?,
         last_used_at: row.get(9)?,
+        detected_os: row.get(10)?,
         workspace_ids: Vec::new(), // populated by the caller (list/get) from the join table
     })
 }
@@ -154,8 +162,17 @@ mod tests {
             hostname: "1.2.3.4".into(), port: 22, username: "deploy".into(),
             auth: SshAuth::KeyFile { path: "~/.ssh/id_ed25519".into() },
             jump_host_id: None, created_at: 100, last_used_at: None,
-            workspace_ids: Vec::new(),
+            workspace_ids: Vec::new(), detected_os: None,
         }
+    }
+
+    #[test]
+    fn set_detected_os_persists() {
+        let db = Database::open(":memory:".into()).unwrap();
+        db.insert_ssh_host(&sample()).unwrap();
+        assert!(db.get_ssh_host("s1").unwrap().unwrap().detected_os.is_none());
+        db.set_detected_os("s1", "Ubuntu 22.04").unwrap();
+        assert_eq!(db.get_ssh_host("s1").unwrap().unwrap().detected_os.as_deref(), Some("Ubuntu 22.04"));
     }
 
     #[test]

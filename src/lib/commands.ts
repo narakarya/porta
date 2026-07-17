@@ -1667,6 +1667,8 @@ export interface SshHost {
   last_used_at: number | null;
   /** Workspaces this host is attached to (many-to-many); empty = global. */
   workspace_ids: string[];
+  /** Remote OS detected on first successful connect (e.g. "Ubuntu 22.04"). */
+  detected_os: string | null;
 }
 
 export const sshListHosts = (): Promise<SshHost[]> =>

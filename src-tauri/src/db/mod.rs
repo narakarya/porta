@@ -289,6 +289,10 @@ impl Database {
             );
         ")?;
 
+        // Remote OS detected on connect (added after the initial ssh_hosts table
+        // shipped, so ALTER for existing installs; ignored if already present).
+        let _ = self.conn.execute("ALTER TABLE ssh_hosts ADD COLUMN detected_os TEXT", []);
+
         Ok(())
     }
 }
