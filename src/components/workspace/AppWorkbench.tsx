@@ -22,7 +22,7 @@ function toStatus(s: string): Status {
   return "stopped";
 }
 
-const I = { w: 13, h: 13, viewBox: "0 0 16 16", fill: "none" } as const;
+const I = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none" } as const;
 const TABS: TabItem[] = [
   { id: "overview", label: "Overview", icon: <svg {...I}><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg> },
   { id: "logs", label: "Logs", icon: <svg {...I}><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
@@ -120,13 +120,16 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
         <div className="ml-auto flex gap-2">
           {running ? (
             <>
-              <Button onClick={() => stopApp(app.id)}>Stop</Button>
               <Button onClick={() => restartApp(app.id)}>Restart</Button>
+              <Button variant="danger" onClick={() => stopApp(app.id)}>Stop</Button>
             </>
           ) : (
             <Button variant="primary" onClick={() => startApp(app.id)}>Start</Button>
           )}
           <Button variant="primary" onClick={() => window.open(url, "_blank")}>Open</Button>
+          <Button variant="ghost" onClick={() => onOpenSettings(app)} title="App settings" aria-label="More">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/></svg>
+          </Button>
         </div>
       </div>
 
