@@ -276,8 +276,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                     tabIndex={0}
                     data-wsrow={i}
                     onMouseDown={() => handleMouseDown("ws", i)}
-                    onClick={() => { selectWorkspace(w.id); setActiveDomain("workspaces"); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); setActiveDomain("workspaces"); } }}
+                    onClick={() => { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); } }}
                     onContextMenu={(e) => handleRightClick(e, w)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
                     className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
@@ -342,7 +342,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               return (
                 <>
                 <button
-                  onClick={() => { selectWorkspace(null); setActiveDomain("workspaces"); }}
+                  onClick={() => { selectWorkspace(null); selectApp(null); setActiveDomain("workspaces"); }}
                   className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
                     isSelected
                       ? "bg-white/10 text-zinc-100"

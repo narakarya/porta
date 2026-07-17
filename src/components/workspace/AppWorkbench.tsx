@@ -28,28 +28,34 @@ const TABS: TabItem[] = [
 
 interface Props {
   app: App;
-  onBack: () => void;
   onOpenSettings: (app: App) => void;
 }
 
-export default function AppWorkbench({ app, onBack, onOpenSettings }: Props) {
+export default function AppWorkbench({ app, onOpenSettings }: Props) {
   const [tab, setTab] = useState("overview");
   const [logsSeen, setLogsSeen] = useState(false);
   const [termSeen, setTermSeen] = useState(false);
 
-  const { startApp, stopApp, restartApp, clearAppLogs, logs } = usePortaStore(
+  const { startApp, stopApp, restartApp, clearAppLogs, logs, health, branch } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
       restartApp: s.restartApp,
       clearAppLogs: s.clearAppLogs,
       logs: s.appLogs[app.id] ?? EMPTY,
+      health: s.healthStatuses[app.id],
+      branch: s.appGit[app.id]?.branch,
     }))
   );
 
   const running = app.status === "running";
   const st = toStatus(app.status);
   const url = app.tunnel_active && app.tunnel_url ? app.tunnel_url : `http://localhost:${app.port}`;
+  // Public host Caddy exposes this app under (if any) — shown as a link in the
+  // header, matching the mockup's "mediapress.test" affordance.
+  const domainHost =
+    app.tunnel_active && app.tunnel_url ? app.tunnel_url.replace(/^https?:\/\//, "")
+    : app.custom_domain || (app.subdomain ? `${app.subdomain}.test` : null);
 
   function select(id: string) {
     setTab(id);
@@ -62,14 +68,29 @@ export default function AppWorkbench({ app, onBack, onOpenSettings }: Props) {
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
-      <div className="flex items-center gap-2.5 px-5 py-3 border-b border-subtle">
-        <button onClick={onBack} title="Back to apps" className="text-ink-3 hover:text-ink p-1 -ml-1 rounded transition-colors">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <span className="text-[15px] font-medium text-ink">{app.name}</span>
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-subtle">
         <StatusDot status={st} />
+        <span className="text-[15px] font-medium text-ink">{app.name}</span>
         <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
-        <span className="text-[11px] text-ink-3 font-mono">:{app.port}</span>
+        {running && health === "healthy" && <Badge tone="ok">healthy</Badge>}
+        {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
+        {domainHost && (
+          <button
+            onClick={() => window.open(`https://${domainHost}`, "_blank")}
+            title={`Open https://${domainHost}`}
+            className="text-[11px] text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors"
+          >
+            {domainHost}
+            <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        )}
+        <span className="text-[11px] text-ink-3 font-mono">port {app.port}</span>
+        {branch && (
+          <span className="text-[11px] text-ink-3 font-mono inline-flex items-center gap-1" title={`branch ${branch}`}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            {branch}
+          </span>
+        )}
         <div className="ml-auto flex gap-2">
           {running ? (
             <>
@@ -79,7 +100,7 @@ export default function AppWorkbench({ app, onBack, onOpenSettings }: Props) {
           ) : (
             <Button variant="primary" onClick={() => startApp(app.id)}>Start</Button>
           )}
-          <Button onClick={() => window.open(url, "_blank")}>Open</Button>
+          <Button variant="primary" onClick={() => window.open(url, "_blank")}>Open</Button>
         </div>
       </div>
 

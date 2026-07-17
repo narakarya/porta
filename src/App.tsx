@@ -38,7 +38,6 @@ export default function App() {
   const activeDomain = usePortaStore((s) => s.activeDomain);
   const selectedAppId = usePortaStore((s) => s.selectedAppId);
   const apps = usePortaStore((s) => s.apps);
-  const selectApp = usePortaStore((s) => s.selectApp);
   const openAppSettings = usePortaStore((s) => s.openAppSettings);
   const selectedApp = selectedAppId ? (apps.find((a) => a.id === selectedAppId) ?? null) : null;
   const [page, setPage] = useState<Page>("main");
@@ -224,7 +223,6 @@ export default function App() {
                 {selectedApp && (
                   <AppWorkbench
                     app={selectedApp}
-                    onBack={() => selectApp(null)}
                     onOpenSettings={(a) => openAppSettings(a.id)}
                   />
                 )}
