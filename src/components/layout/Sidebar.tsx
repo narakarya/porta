@@ -26,14 +26,16 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { workspaces, apps, services, selectedWorkspaceId, imageUpdateCache, selectWorkspace, reorderWorkspaces, reorderServices, activeDomain, setActiveDomain } = usePortaStore(
+  const { workspaces, apps, services, selectedWorkspaceId, selectedAppId, imageUpdateCache, selectWorkspace, selectApp, reorderWorkspaces, reorderServices, activeDomain, setActiveDomain } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
       services: s.services,
       selectedWorkspaceId: s.selectedWorkspaceId,
+      selectedAppId: s.selectedAppId,
       imageUpdateCache: s.imageUpdateCache,
       selectWorkspace: s.selectWorkspace,
+      selectApp: s.selectApp,
       reorderWorkspaces: s.reorderWorkspaces,
       reorderServices: s.reorderServices,
       activeDomain: s.activeDomain,
@@ -47,6 +49,15 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [wsExpanded, setWsExpanded] = useState(true);
   const [otherExpanded, setOtherExpanded] = useState(true);
+  // Per-workspace collapse of the app sub-list (Shell C: apps live under each
+  // workspace header in this column). Holds the ids that are collapsed.
+  const [collapsedWs, setCollapsedWs] = useState<Set<string>>(new Set());
+  const toggleWsCollapse = (id: string) =>
+    setCollapsedWs((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   const [servicesCollapsed, setServicesCollapsed] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
@@ -79,10 +90,19 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   ) {
     const src = dragSrcRef.current;
     if (!isDraggingRef.current || src?.type !== type || !ref.current || count === 0) return;
-    const rect = ref.current.getBoundingClientRect();
-    const relY = e.clientY - rect.top;
-    // Derive index from proportional Y position within the container
-    const idx = Math.min(count - 1, Math.max(0, Math.floor(relY / (rect.height / count))));
+    let idx: number;
+    if (type === "ws") {
+      // Workspace rows now interleave with their app sub-lists, so the container
+      // is no longer a uniform grid — derive the target from the header rows'
+      // actual positions (tagged data-wsrow) instead of proportional height.
+      const rows = Array.from(ref.current.querySelectorAll<HTMLElement>("[data-wsrow]"));
+      idx = rows.findIndex((el) => e.clientY < el.getBoundingClientRect().bottom);
+      if (idx === -1) idx = count - 1;
+    } else {
+      const rect = ref.current.getBoundingClientRect();
+      const relY = e.clientY - rect.top;
+      idx = Math.min(count - 1, Math.max(0, Math.floor(relY / (rect.height / count))));
+    }
     setDragOver(idx !== src.index ? { type, index: idx } : null);
   }
 
@@ -126,6 +146,18 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   }, [apps]);
   const activeCount = (wsId: string | null) => activeByWs.get(wsId) ?? 0;
 
+  // Apps grouped by workspace id, preserving store order — feeds the per-group
+  // app rows rendered under each workspace header (Shell C app list column).
+  const appsByWs = useMemo(() => {
+    const m = new Map<string | null, typeof apps>();
+    for (const a of apps) {
+      const list = m.get(a.workspace_id) ?? [];
+      list.push(a);
+      m.set(a.workspace_id, list);
+    }
+    return m;
+  }, [apps]);
+
   const updatesByWs = useMemo(() => {
     const counts = new Map<string | null, number>();
     for (const a of apps) {
@@ -149,6 +181,38 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ ws, x: e.clientX, y: e.clientY });
+  }
+
+  // App rows shown under a workspace header. Clicking one opens the app in the
+  // workbench (content-forward main). Status/port are baked into the row.
+  function renderApps(wsId: string | null) {
+    const list = appsByWs.get(wsId) ?? [];
+    if (list.length === 0) return null;
+    return (
+      <div className="flex flex-col gap-px mb-0.5">
+        {list.map((a) => {
+          const on = selectedAppId === a.id;
+          const dot =
+            a.status === "running" ? "bg-emerald-400 pulse-dot"
+            : a.status === "starting" ? "bg-amber-400"
+            : "bg-zinc-600";
+          return (
+            <button
+              key={a.id}
+              onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
+              title={`${a.name} · :${a.port}`}
+              className={`group flex items-center gap-2 pl-6 pr-2 py-1 rounded-[6px] text-[12.5px] w-full text-left transition-colors ${
+                on ? "bg-white/10 text-zinc-100" : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+              <span className="flex-1 truncate">{a.name}</span>
+              <span className="text-[10px] text-zinc-600 font-mono tabular-nums group-hover:text-zinc-500">:{a.port}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -210,17 +274,28 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                   <div
                     role="button"
                     tabIndex={0}
+                    data-wsrow={i}
                     onMouseDown={() => handleMouseDown("ws", i)}
                     onClick={() => { selectWorkspace(w.id); setActiveDomain("workspaces"); }}
                     onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); setActiveDomain("workspaces"); } }}
                     onContextMenu={(e) => handleRightClick(e, w)}
                     style={isGhost ? { opacity: 0.35 } : undefined}
-                    className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-grab ${
                       isSelected
                         ? "bg-white/10 text-zinc-100"
                         : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
                     }`}
                   >
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); toggleWsCollapse(w.id); }}
+                      className="shrink-0 -ml-1 p-0.5 text-zinc-600 hover:text-zinc-300"
+                      title={collapsedWs.has(w.id) ? "Expand" : "Collapse"}
+                    >
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className={`transition-transform duration-150 ${collapsedWs.has(w.id) ? "" : "rotate-90"}`}>
+                        <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
                       count > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
                     }`} />
@@ -237,6 +312,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
                   )}
+                  {!collapsedWs.has(w.id) && renderApps(w.id)}
                 </div>
               );
             })}
@@ -264,6 +340,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
               const updCount = updateCount(null);
               const isSelected = activeDomain === "workspaces" && selectedWorkspaceId === null;
               return (
+                <>
                 <button
                   onClick={() => { selectWorkspace(null); setActiveDomain("workspaces"); }}
                   className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
@@ -285,6 +362,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
                     <span className="text-[11px] text-emerald-400 font-medium tabular-nums">{count}</span>
                   )}
                 </button>
+                {renderApps(null)}
+                </>
               );
             })()}
           </>
