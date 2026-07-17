@@ -37,49 +37,61 @@ export default function UpdateToast() {
 
   // ─── Style by phase ────────────────────────────────────────────────────
   const accent =
-    phase === "ready"        ? "border-emerald-500/30" :
-    phase === "uptodate"     ? "border-emerald-500/30" :
-    phase === "error"        ? "border-red-500/30" :
-    phase === "restarting"   ? "border-blue-500/30" :
-                               "border-white/[0.10]";
+    phase === "ready"        ? "border-accent/30" :
+    phase === "uptodate"     ? "border-ok/30" :
+    phase === "error"        ? "border-bad/30" :
+    phase === "restarting"   ? "border-accent/30" :
+                               "border-strong";
 
   const dotColor =
-    phase === "ready"        ? "bg-emerald-400" :
-    phase === "uptodate"     ? "bg-emerald-400" :
-    phase === "error"        ? "bg-red-400" :
-    phase === "checking"     ? "bg-blue-400 pulse-dot" :
-    phase === "downloading"  ? "bg-blue-400 pulse-dot" :
-    phase === "installing"   ? "bg-amber-400 pulse-dot" :
-    phase === "restarting"   ? "bg-blue-400 pulse-dot" :
-                               "bg-blue-400";
+    phase === "ready"        ? "bg-accent" :
+    phase === "uptodate"     ? "bg-ok" :
+    phase === "error"        ? "bg-bad" :
+    phase === "checking"     ? "bg-accent pulse-dot" :
+    phase === "downloading"  ? "bg-accent pulse-dot" :
+    phase === "installing"   ? "bg-warn pulse-dot" :
+    phase === "restarting"   ? "bg-accent pulse-dot" :
+                               "bg-accent";
 
-  // ─── Title + actions per phase ─────────────────────────────────────────
+  // Leading glyph. A sparkle for the celebratory announce/ready states, a
+  // status dot for the transient work states.
+  const sparkle = (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent">
+      <path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" />
+    </svg>
+  );
+  const dot = <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />;
+  const leadIcon = phase === "available" || phase === "ready" ? sparkle : dot;
+
+  // Shared button styles keyed off the design tokens.
+  const primaryBtn =
+    "inline-flex items-center gap-1.5 px-3 py-[5px] text-[12px] font-medium text-white bg-accent " +
+    "rounded-control hover:opacity-90 transition-opacity";
+  const secondaryBtn =
+    "px-3 py-[5px] text-[12px] font-medium text-ink-2 border border-subtle rounded-control " +
+    "hover:border-strong hover:text-ink transition-colors";
+
+  // ─── Title + subtitle + body + actions per phase ───────────────────────
   let title = "";
-  let detail: React.ReactNode = null;
+  let subtitle: React.ReactNode = null;
+  let body: React.ReactNode = null;
   let actions: React.ReactNode = null;
 
   if (phase === "checking") {
     title = "Checking for updates";
-    detail = (
-      <p className="text-[11px] text-zinc-500 mt-1">
-        Contacting the release server.
-      </p>
-    );
+    subtitle = "Contacting the release server.";
     actions = (
-      <button
-        onClick={dismissUpdater}
-        className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
-      >
+      <button onClick={dismissUpdater} className={secondaryBtn}>
         Cancel
       </button>
     );
   } else if (phase === "uptodate") {
     title = "You're on the latest version";
-    detail = (
-      <p className="text-[11px] text-zinc-500 mt-1">Porta is up to date.</p>
-    );
+    subtitle = "Porta is up to date.";
   } else if (phase === "available" && info) {
     title = `Porta ${info.version} available`;
+    subtitle = `You're on ${info.currentVersion}.`;
     // Body may be a bullet list of commit subjects. Render the first
     // ~5 lines so the toast stays compact; the GitHub release page
     // carries the full log.
@@ -88,47 +100,43 @@ export default function UpdateToast() {
       .map((l) => l.trim())
       .filter((l) => l.length > 0)
       .slice(0, 5);
-    detail = (
-      <div className="mt-1">
-        <p className="text-[11px] text-zinc-500">You're on {info.currentVersion}.</p>
-        {bullets.length > 0 && (
-          <ul className="mt-1.5 space-y-0.5 max-h-28 overflow-y-auto pr-1">
-            {bullets.map((line, i) => (
-              <li key={i} className="text-[11px] text-zinc-400 leading-snug">
-                {line.startsWith("- ") ? line.slice(2) : line}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    );
+    if (bullets.length > 0) {
+      body = (
+        <div className="space-y-1 max-h-28 overflow-y-auto pr-1 text-[12px] text-ink-2 leading-relaxed">
+          {bullets.map((line, i) => (
+            <div key={i} className="flex gap-2">
+              <span className="text-ok shrink-0">+</span>
+              <span>{line.startsWith("- ") ? line.slice(2) : line}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
     actions = (
       <>
-        <button
-          onClick={() => void startUpdateDownload()}
-          className="px-2.5 py-1 text-[11px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
-        >
+        <button onClick={() => void startUpdateDownload()} className={primaryBtn}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" />
+          </svg>
           Download
         </button>
-        <button
-          onClick={dismissUpdater}
-          className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
-        >
+        <button onClick={dismissUpdater} className={secondaryBtn}>
           Later
         </button>
       </>
     );
   } else if (phase === "downloading" && info) {
     title = `Downloading ${info.version}`;
-    detail = (
+    body = (
       <>
-        <div className="mt-1.5 h-1 bg-white/[0.05] rounded-full overflow-hidden">
+        <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
           <div
-            className="h-full bg-blue-400 transition-[width] duration-150"
+            className="h-full bg-accent transition-[width] duration-150"
             style={{ width: `${pct}%` }}
           />
         </div>
-        <p className="text-[10px] text-zinc-500 mt-1 font-mono">
+        <p className="text-[10px] text-ink-3 mt-1.5 font-mono">
           {info.total > 0
             ? `${formatBytes(info.downloaded)} / ${formatBytes(info.total)} · ${pct}%`
             : `${formatBytes(info.downloaded)}…`}
@@ -137,50 +145,40 @@ export default function UpdateToast() {
     );
   } else if (phase === "installing") {
     title = "Installing…";
-    detail = (
-      <p className="text-[11px] text-zinc-500 mt-1">
-        Replacing the app bundle. Don't close Porta.
-      </p>
-    );
+    subtitle = "Replacing the app bundle. Don't close Porta.";
   } else if (phase === "ready" && info) {
     title = `Porta ${info.version} is ready`;
-    detail = (
-      <p className="text-[11px] text-zinc-500 mt-1">
+    subtitle = `You're on ${info.currentVersion} · downloaded & verified`;
+    body = (
+      <p className="text-[12px] text-ink-2 leading-relaxed">
         Restart to apply the update. You can keep working — it'll launch fresh.
       </p>
     );
     actions = (
-      <button
-        onClick={() => void restartForUpdate()}
-        className="px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md transition-colors"
-      >
-        Restart now
+      <button onClick={() => void restartForUpdate()} className={primaryBtn}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v4h-4" />
+        </svg>
+        Restart to update
       </button>
     );
   } else if (phase === "restarting") {
     title = "Restarting…";
-    detail = (
-      <p className="text-[11px] text-zinc-500 mt-1">Hang tight.</p>
-    );
+    subtitle = "Hang tight.";
   } else if (phase === "error") {
     title = "Update failed";
-    detail = (
-      <p className="text-[11px] text-red-300/80 mt-1 break-all">
+    body = (
+      <p className="text-[12px] text-bad/90 break-all leading-relaxed">
         {error || "Unknown error"}
       </p>
     );
     actions = (
       <>
-        <button
-          onClick={() => void checkForUpdate({ silent: false })}
-          className="px-2.5 py-1 text-[11px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
-        >
+        <button onClick={() => void checkForUpdate({ silent: false })} className={primaryBtn}>
           Retry
         </button>
-        <button
-          onClick={dismissUpdater}
-          className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
-        >
+        <button onClick={dismissUpdater} className={secondaryBtn}>
           Dismiss
         </button>
       </>
@@ -194,30 +192,39 @@ export default function UpdateToast() {
 
   return (
     <div
-      className={`fixed right-4 bottom-4 z-[60] w-[320px] bg-[#1c1c1e] border rounded-xl shadow-2xl overflow-hidden ${accent}`}
+      className={`fixed right-4 bottom-4 z-[60] w-[300px] bg-surface-2 border rounded-card shadow-2xl overflow-hidden ${accent}`}
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.05]">
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
-        <span className="text-[12px] font-medium text-zinc-200 flex-1 truncate">{title}</span>
+      {/* Header: leading glyph + title + close */}
+      <div className="flex items-start gap-2 px-3.5 pt-3 pb-1">
+        <span className="mt-px flex items-center">{leadIcon}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-medium text-ink truncate">{title}</p>
+          {subtitle && <p className="text-[11px] text-ink-3 mt-0.5">{subtitle}</p>}
+        </div>
         {showClose && (
           <button
             onClick={dismissUpdater}
-            className="text-zinc-600 hover:text-zinc-300 transition-colors shrink-0"
+            className="text-ink-3 hover:text-ink-2 transition-colors shrink-0 mt-0.5"
             title="Dismiss"
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
           </button>
         )}
       </div>
 
-      <div className="px-3 py-2">
-        {detail}
-        {actions && <div className="flex items-center gap-2 mt-2">{actions}</div>}
-      </div>
+      {/* Body: release notes / progress / detail */}
+      {body && <div className="px-3.5 pb-3 pt-1.5">{body}</div>}
+
+      {/* Footer: actions on a raised bar, matching the popover mockup */}
+      {actions && (
+        <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-subtle bg-surface-1">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }

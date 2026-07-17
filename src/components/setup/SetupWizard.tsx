@@ -25,22 +25,24 @@ const STEP_ESTIMATE: Record<string, string> = {
 };
 
 function StepIcon({ state }: { state: StepState }) {
-  if (state === "loading") return <span className="spinner text-blue-400 shrink-0" />;
+  if (state === "loading") return <span className="spinner text-accent shrink-0" />;
   if (state === "done") {
     return (
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-emerald-400 shrink-0">
-        <path d="M2.5 6.5l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ok shrink-0">
+        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.4" />
+        <path d="M5 8l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
   if (state === "error") {
     return (
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-red-400 shrink-0">
-        <path d="M3 3l7 7M10 3l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-bad shrink-0">
+        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" opacity="0.4" />
+        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     );
   }
-  return <span className="w-[13px] h-[13px] rounded-full border border-zinc-700 shrink-0" />;
+  return <span className="w-4 h-4 rounded-full border border-strong shrink-0" />;
 }
 
 function CopyButton({ text, className = "" }: { text: string; className?: string }) {
@@ -205,23 +207,24 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
   }
 
   const activeStepLabel = steps.find((s) => s.key === activeStep)?.label;
+  const doneCount = steps.filter((s) => s.ok).length;
 
   return (
-    <div className="fixed inset-0 bg-[#111113]/95 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-7 w-[440px] shadow-2xl relative flex flex-col gap-5">
+    <div className="fixed inset-0 bg-surface-0/95 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-surface-2 border border-subtle rounded-card w-[420px] shadow-2xl relative flex flex-col overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" className="text-blue-400">
+        <div className="flex items-start gap-3.5 px-5 pt-5 pb-3">
+          <div className="w-10 h-10 rounded-card bg-accent-bg border border-accent/20 flex items-center justify-center shrink-0">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" className="text-accent">
               <path d="M10 2L3 6v4c0 3.5 3 6.7 7 8 4-1.3 7-4.5 7-8V6l-7-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
             </svg>
           </div>
-          <div className="flex-1">
-            <h1 className="text-[15px] font-semibold text-zinc-100">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-[15px] font-semibold text-ink">
               {forceShow ? "Setup & Certificates" : "Welcome to Porta"}
             </h1>
-            <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+            <p className="text-[12px] text-ink-2 mt-0.5 leading-relaxed">
               {forceShow
                 ? "Re-run setup to regenerate SSL certs or fix broken services."
                 : "One-time setup. Installs Caddy, dnsmasq, and mkcert via Homebrew."
@@ -229,7 +232,7 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
             </p>
           </div>
           {forceShow && onClose && !running && (
-            <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5">
+            <button onClick={onClose} className="text-ink-3 hover:text-ink transition-colors mt-0.5 shrink-0">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
@@ -238,30 +241,31 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
         </div>
 
         {/* Steps */}
-        <ul className="flex flex-col gap-2">
-          {steps.map((step) => {
+        <ul className="flex flex-col px-5 pb-1">
+          {steps.map((step, i) => {
             const state = stepState(step.ok, step.key);
             const isActive = state === "loading";
+            const isLast = i === steps.length - 1;
             return (
-              <li key={step.key} className={`flex items-center gap-3 px-2 py-1 rounded-lg transition-colors ${isActive ? "bg-blue-500/[0.06]" : ""}`}>
+              <li
+                key={step.key}
+                className={`flex items-center gap-2.5 py-2 transition-colors ${isLast ? "" : "border-b border-subtle"}`}
+              >
                 <StepIcon state={state} />
-                <span className={`flex-1 text-[13px] transition-colors ${
-                  state === "done"    ? "text-zinc-400" :
-                  state === "loading" ? "text-zinc-100 font-medium" :
-                  state === "error"   ? "text-red-400"  :
-                  "text-zinc-600"
-                }`}>
-                  {step.label}
-                </span>
-                {state === "loading" ? (
-                  <span className="text-[11px] text-blue-400 shrink-0">
-                    {STEP_ESTIMATE[step.key]}
-                  </span>
-                ) : state === "idle" && !running ? (
-                  <span className="text-[11px] text-zinc-700 shrink-0">
-                    {STEP_ESTIMATE[step.key]}
-                  </span>
-                ) : null}
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[13px] transition-colors ${
+                    state === "done"    ? "text-ink-2" :
+                    state === "loading" ? "text-ink font-medium" :
+                    state === "error"   ? "text-bad"   :
+                    "text-ink-3"
+                  }`}>
+                    {step.label}
+                  </div>
+                  <div className={`text-[11px] mt-0.5 ${isActive ? "text-accent" : "text-ink-3"}`}>
+                    {state === "done" ? "ready" : STEP_ESTIMATE[step.key]}
+                  </div>
+                </div>
+                {isActive && <span className="spinner text-accent shrink-0" />}
               </li>
             );
           })}
@@ -269,27 +273,27 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
 
         {/* Live log */}
         {(running || logs.length > 0) && (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1.5 px-5 pb-3 pt-1">
             {activeStepLabel && running && (
-              <p className="text-[11px] text-blue-400 font-medium">{activeStepLabel}…</p>
+              <p className="text-[11px] text-accent font-medium">{activeStepLabel}…</p>
             )}
-            <div className="relative bg-black/40 rounded-lg border border-white/[0.06] h-[120px] overflow-auto px-3 py-2 terminal-log-font select-text">
+            <div className="relative bg-surface-code rounded-control border border-subtle h-[120px] overflow-auto px-3 py-2 terminal-log-font select-text">
               {logs.length > 0 && (
                 <CopyButton
                   text={logs.map(stripAnsi).join("\n")}
-                  className="sticky top-0 float-right z-10 bg-white/[0.04] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.08]"
+                  className="sticky top-0 float-right z-10 bg-white/[0.04] text-ink-2 hover:text-ink hover:bg-white/[0.08]"
                 />
               )}
               {logs.map((line, i) => {
                 const clean = stripAnsi(line);
                 const level = detectLevel(clean);
-                const cls = level ? LEVEL_CLS[level] : "text-zinc-400";
+                const cls = level ? LEVEL_CLS[level] : "text-ink-2";
                 return (
                   <p key={i} className={`terminal-log-line text-[11px] ${cls}`}>{clean}</p>
                 );
               })}
               {running && logs.length === 0 && (
-                <p className="text-[11px] text-zinc-600">Starting…</p>
+                <p className="text-[11px] text-ink-3">Starting…</p>
               )}
               <div ref={logEndRef} />
             </div>
@@ -298,34 +302,40 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
 
         {/* Error */}
         {error && (
-          <div className="px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+          <div className="mx-5 mb-3 px-3 py-2.5 bg-bad-bg border border-bad/20 rounded-control">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[12px] text-red-400 leading-relaxed font-mono select-text whitespace-pre-wrap break-words">{error}</p>
+              <p className="text-[12px] text-bad leading-relaxed font-mono select-text whitespace-pre-wrap break-words">{error}</p>
               <CopyButton
                 text={error}
-                className="shrink-0 text-red-300/80 hover:text-red-200 hover:bg-red-500/15"
+                className="shrink-0 text-bad/80 hover:text-bad hover:bg-bad-bg"
               />
             </div>
           </div>
         )}
 
-        {allGood && !running && !error && setupStarted ? (
-          <button
-            onClick={() => forceShow ? onClose?.() : setDismissed(true)}
-            className="w-full py-2 rounded-lg text-[13px] font-medium transition-all flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
-          >
-            Done
-          </button>
-        ) : (
-          <button
-            onClick={handleRunSetup}
-            disabled={running}
-            className="w-full py-2 rounded-lg text-[13px] font-medium transition-all disabled:opacity-60 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white"
-          >
-            {running && <span className="spinner text-white/70" />}
-            {running ? "Running…" : error ? "Retry" : forceShow ? "Re-run Setup" : "Run Setup"}
-          </button>
-        )}
+        {/* Footer bar */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-subtle bg-surface-1">
+          <span className="text-[11px] text-ink-3">
+            {doneCount} of {steps.length} ready
+          </span>
+          {allGood && !running && !error && setupStarted ? (
+            <button
+              onClick={() => forceShow ? onClose?.() : setDismissed(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-control px-4 py-1.5 text-[12px] font-medium text-white bg-ok hover:brightness-110 transition-all"
+            >
+              Done
+            </button>
+          ) : (
+            <button
+              onClick={handleRunSetup}
+              disabled={running}
+              className="inline-flex items-center justify-center gap-2 rounded-control px-4 py-1.5 text-[12px] font-medium text-white bg-accent hover:brightness-110 transition-all disabled:opacity-60"
+            >
+              {running && <span className="spinner text-white/70" />}
+              {running ? "Running…" : error ? "Retry" : forceShow ? "Re-run Setup" : "Run Setup"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

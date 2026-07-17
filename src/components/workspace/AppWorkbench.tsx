@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
@@ -71,8 +71,23 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
     if (id === "terminal") setTermSeen(true);
   }
 
-  const row = "flex items-center justify-between py-2 border-b border-subtle text-[13px] last:border-0";
-  const key = "text-ink-3";
+  const row = "flex items-center justify-between gap-4 py-2 border-b border-subtle text-[13px] last:border-0";
+  const key = "text-ink-3 shrink-0";
+
+  // Overview "Quick action" tiles — icon-first buttons that open the app's
+  // ancillary surfaces. Wired to the same handlers as before; presentation only.
+  const tiles: { id: string; label: string; icon: ReactNode; onClick: () => void }[] = [
+    { id: "traffic", label: "Traffic", onClick: () => setOverlay("traffic"),
+      icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg> },
+    { id: "files", label: "Files", onClick: () => setOverlay("files"),
+      icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v5.5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg> },
+    { id: "logs", label: "Logs", onClick: () => select("logs"),
+      icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
+    { id: "terminal", label: "Terminal", onClick: () => select("terminal"),
+      icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6.5L7 8l-2 1.5M8.5 9.5H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+    { id: "settings", label: "Settings", onClick: () => onOpenSettings(app),
+      icon: <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
+  ];
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
@@ -118,23 +133,57 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
       <Tabs tabs={TABS} active={tab} onSelect={select} />
 
       <div className="flex-1 min-h-0">
-        <div hidden={tab !== "overview"} className="h-full overflow-y-auto p-5">
-          <Card className="max-w-xl">
-            <div className={row}><span className={key}>Status</span><span className="text-ink flex items-center gap-1.5"><StatusDot status={st} />{app.status}</span></div>
-            <div className={row}><span className={key}>Port</span><span className="text-ink font-mono">{app.port}</span></div>
-            <div className={row}><span className={key}>Kind</span><span className="text-ink">{app.kind || "process"}</span></div>
-            <div className={row}><span className={key}>Root</span><span className="text-ink font-mono truncate max-w-[16rem]">{app.root_dir}</span></div>
-            <div className={row}><span className={key}>URL</span><span className="text-accent-ink font-mono">{url}</span></div>
-          </Card>
-          <div className="mt-4">
-            <div className="text-[11px] uppercase tracking-wide text-ink-3 mb-1.5">Quick actions</div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => setOverlay("traffic")}>Traffic</Button>
-              <Button onClick={() => setOverlay("files")}>Files</Button>
-              <Button onClick={() => select("logs")}>Logs</Button>
-              <Button onClick={() => select("terminal")}>Terminal</Button>
-              <Button onClick={() => onOpenSettings(app)}>Settings…</Button>
-            </div>
+        <div hidden={tab !== "overview"} className="h-full overflow-y-auto px-6 py-5">
+          <div className="max-w-2xl space-y-6">
+            <section>
+              <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Details</div>
+              <Card padded={false} className="overflow-hidden">
+                <div className="px-4">
+                  <div className={row}>
+                    <span className={key}>Status</span>
+                    <span className="text-ink flex items-center gap-1.5"><StatusDot status={st} />{app.status}</span>
+                  </div>
+                  <div className={row}>
+                    <span className={key}>Port</span>
+                    <span className="text-ink-2 font-mono">{app.port}</span>
+                  </div>
+                  <div className={row}>
+                    <span className={key}>Kind</span>
+                    <span className="text-ink-2">{app.kind || "process"}</span>
+                  </div>
+                  <div className={row}>
+                    <span className={key}>Root</span>
+                    <span className="text-ink-2 font-mono truncate max-w-[20rem]" title={app.root_dir}>{app.root_dir}</span>
+                  </div>
+                  <div className={row}>
+                    <span className={key}>URL</span>
+                    <button
+                      onClick={() => window.open(url, "_blank")}
+                      className="text-accent-ink font-mono truncate max-w-[20rem] hover:underline"
+                      title={`Open ${url}`}
+                    >
+                      {url}
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            </section>
+
+            <section>
+              <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Quick actions</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                {tiles.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={t.onClick}
+                    className="group flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-card border border-subtle bg-surface-1 text-ink-3 hover:text-ink hover:border-strong hover:bg-white/[0.03] transition-colors duration-fast"
+                  >
+                    <span className="group-hover:text-accent transition-colors duration-fast">{t.icon}</span>
+                    <span className="text-[11px] font-medium">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
         </div>
 

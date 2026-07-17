@@ -129,7 +129,7 @@ function HighlightedLabel({
     <>
       {parts.map((p, i) =>
         p.highlighted ? (
-          <span key={i} className="text-blue-400">
+          <span key={i} className="text-blue-300">
             {p.text}
           </span>
         ) : (
@@ -480,17 +480,17 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] bg-black/40 backdrop-blur-sm"
       onClick={close}
     >
       <div
-        className="w-full max-w-[480px] bg-[#1c1c1e] border border-white/[0.10] rounded-xl shadow-2xl overflow-hidden"
+        className="w-full max-w-[400px] bg-[#1a1a1c] border-[0.5px] border-white/[0.18] rounded-xl shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
         {/* Search input */}
-        <div className="flex items-center px-3 border-b border-white/[0.08]">
-          <span className="text-zinc-500 mr-2 text-sm">⌕</span>
+        <div className="flex items-center gap-2.5 px-[15px] py-3 border-b-[0.5px] border-white/[0.08]">
+          <span className="text-[15px] leading-none text-zinc-500 flex-shrink-0">⌕</span>
           <input
             spellCheck={false}
             ref={inputRef}
@@ -498,22 +498,26 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search commands..."
-            className="flex-1 bg-transparent py-3 text-[13px] text-zinc-100 placeholder-zinc-600 outline-none"
+            className="flex-1 bg-transparent text-[14px] text-[#e7e7ea] placeholder-zinc-600 outline-none"
           />
-          {query && (
+          {query ? (
             <button
               onClick={() => setQuery("")}
-              className="text-zinc-600 hover:text-zinc-400 text-xs px-1"
+              className="text-[11px] text-zinc-600 hover:text-zinc-400 border-[0.5px] border-white/[0.08] rounded px-1.5 py-px flex-shrink-0"
             >
-              ✕
+              clear
             </button>
+          ) : (
+            <span className="text-[10px] text-zinc-500 border-[0.5px] border-white/[0.08] rounded px-1.5 py-px flex-shrink-0 select-none">
+              esc
+            </span>
           )}
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="max-h-[300px] overflow-y-auto py-1">
+        <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1.5">
           {flatItems.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12px] text-zinc-600">
+            <div className="px-2 py-6 text-center text-[12px] text-zinc-600">
               No commands found
             </div>
           ) : (
@@ -521,7 +525,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
               const groupStartIndex = flatItems.indexOf(group.items[0]);
               return (
                 <div key={group.title}>
-                  <div className="text-[10px] text-zinc-600 uppercase tracking-wider px-3 py-1 mt-1 select-none">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-[0.04em] px-[9px] pt-2 pb-[3px] select-none">
                     {group.title}
                   </div>
                   {group.items.map((cmd, i) => {
@@ -531,15 +535,19 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                       <div
                         key={`${group.title}-${cmd.id}`}
                         data-active={isActive ? "true" : undefined}
-                        className={`flex items-center gap-2.5 px-3 py-2 text-[13px] text-zinc-200 rounded-lg cursor-pointer mx-1 transition-colors ${
+                        className={`flex items-center gap-2.5 px-[9px] py-[7px] text-[13px] text-[#e7e7ea] rounded-[7px] cursor-pointer transition-colors ${
                           isActive
-                            ? "bg-white/[0.08]"
+                            ? "bg-blue-400/[0.16]"
                             : "hover:bg-white/[0.05]"
                         }`}
                         onMouseEnter={() => setActiveIndex(globalIdx)}
                         onClick={() => cmd.run()}
                       >
-                        <span className="text-zinc-500 text-[11px] w-4 text-center flex-shrink-0">
+                        <span
+                          className={`text-[15px] leading-none w-4 text-center flex-shrink-0 ${
+                            isActive ? "text-blue-300" : "text-zinc-400"
+                          }`}
+                        >
                           {cmd.icon}
                         </span>
                         {cmd.statusColor && (
@@ -552,8 +560,13 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                           />
                         </span>
                         {cmd.hint && (
-                          <span className="text-zinc-600 text-[11px] truncate max-w-[120px]">
+                          <span className="text-zinc-500 text-[11px] truncate max-w-[120px]">
                             {cmd.hint}
+                          </span>
+                        )}
+                        {isActive && (
+                          <span className="text-[11px] text-zinc-400 flex-shrink-0 leading-none">
+                            ↵
                           </span>
                         )}
                       </div>
@@ -566,15 +579,15 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
         </div>
 
         {/* Footer hint */}
-        <div className="flex items-center gap-3 px-3 py-2 border-t border-white/[0.06] text-[10px] text-zinc-700">
-          <span>
-            <kbd className="font-mono">↑↓</kbd> navigate
+        <div className="flex items-center gap-3 px-[15px] py-2 border-t-[0.5px] border-white/[0.06] text-[10px] text-zinc-600">
+          <span className="flex items-center gap-1">
+            <kbd className="font-mono text-zinc-500">↑↓</kbd> navigate
           </span>
-          <span>
-            <kbd className="font-mono">↵</kbd> select
+          <span className="flex items-center gap-1">
+            <kbd className="font-mono text-zinc-500">↵</kbd> select
           </span>
-          <span>
-            <kbd className="font-mono">esc</kbd> close
+          <span className="flex items-center gap-1">
+            <kbd className="font-mono text-zinc-500">esc</kbd> close
           </span>
         </div>
       </div>

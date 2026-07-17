@@ -46,8 +46,8 @@ function slugify(s: string): string {
     .slice(0, 63);
 }
 
-const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
-const labelCls = "text-[11px] font-medium text-zinc-500 uppercase tracking-wide";
+const inputCls = "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-accent/60 transition-colors";
+const labelCls = "text-[11px] font-medium text-ink-3";
 
 // Valid subdomain: letters/digits/hyphens, or "*" for wildcard
 const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^\*$/;
@@ -341,24 +341,29 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
       <form
         onSubmit={submit}
         onMouseDown={(e) => e.stopPropagation()}
-        className={`relative bg-[#1c1c1e] border border-white/[0.08] rounded-2xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto transition-[width] duration-200 ${
+        className={`relative bg-surface-2 border border-subtle rounded-card flex flex-col shadow-2xl max-h-[90vh] overflow-hidden transition-[width] duration-200 ${
           kind === "compose" ? "w-[720px]" : "w-[420px]"
         }`}
       >
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-3 right-3 z-10 p-1 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+          className="absolute top-3 right-3 z-10 p-1 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] transition-colors"
           title="Close (Esc)"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </button>
-        <div>
-          <h2 className="text-[15px] font-semibold text-zinc-100">Add App</h2>
-          <p className="text-[12px] text-zinc-500 mt-0.5">Register a local project with Porta</p>
+
+        {/* Header band */}
+        <div className="px-5 py-3.5 border-b border-subtle shrink-0">
+          <h2 className="text-[14px] font-medium text-ink">Add App</h2>
+          <p className="text-[12px] text-ink-3 mt-0.5">Register a local project with Porta</p>
         </div>
+
+        {/* Scrollable body */}
+        <div className="flex flex-col gap-4 px-5 py-4 overflow-y-auto min-h-0 flex-1">
 
         {/* Folder picker — required for process/static, optional for docker, hidden for proxy */}
         {kind !== "proxy" && (
@@ -376,7 +381,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
               }
                 className={`${inputCls} flex-1 cursor-default`} />
               <button type="button" onClick={pickFolder}
-                className="px-3 py-2 bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.08] rounded-lg text-[13px] text-zinc-300 transition-colors shrink-0">
+                className="px-3 py-2 bg-white/[0.07] hover:bg-white/[0.11] border border-subtle rounded-lg text-[13px] text-ink-2 transition-colors shrink-0">
                 Browse
               </button>
             </div>
@@ -386,7 +391,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
         {/* Kind toggle */}
         <div className="flex flex-col gap-1.5">
           <span className={labelCls}>Type</span>
-          <div className="flex gap-1 bg-[#111113] border border-white/[0.08] rounded-lg p-1">
+          <div className="flex gap-1 bg-surface-input border border-subtle rounded-lg p-1">
             {(["process", "static", "docker", "compose", "proxy"] as AppKind[]).map((k) => (
               <button
                 key={k}
@@ -394,8 +399,8 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                 onClick={() => setKind(k)}
                 className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors capitalize ${
                   kind === k
-                    ? "bg-white/[0.08] text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-300"
+                    ? "bg-white/[0.08] text-ink"
+                    : "text-ink-3 hover:text-ink-2"
                 }`}
               >
                 {k}
@@ -435,7 +440,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
         {kind === "compose" && (
           <div className="flex flex-col gap-1.5">
             <span className={labelCls}>Compose Source</span>
-            <div className="flex gap-1 bg-[#111113] border border-white/[0.08] rounded-lg p-1">
+            <div className="flex gap-1 bg-surface-input border border-subtle rounded-lg p-1">
               {(["paste", "file"] as const).map((m) => (
                 <button
                   key={m}
@@ -443,8 +448,8 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                   onClick={() => setComposeMode(m)}
                   className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors capitalize ${
                     composeMode === m
-                      ? "bg-white/[0.08] text-zinc-100"
-                      : "text-zinc-500 hover:text-zinc-300"
+                      ? "bg-white/[0.08] text-ink"
+                      : "text-ink-3 hover:text-ink-2"
                   }`}
                 >
                   {m === "paste" ? "Paste YAML" : "File on disk"}
@@ -641,7 +646,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                 spellCheck={false}
               />
               {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
+                <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-surface-2 border border-subtle rounded-lg shadow-xl overflow-hidden">
                   {suggestions.map((s, i) => (
                     <button
                       key={i}
@@ -709,9 +714,12 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
         </div>
 
         {/* Preview URL */}
-        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/[0.03] rounded-lg border border-white/[0.05]">
-          <span className="text-[10px] text-zinc-600 font-medium shrink-0">URL</span>
-          <span className="text-[11px] text-zinc-400 font-mono truncate">{scheme}://{preview}</span>
+        <div className="flex flex-col gap-1.5">
+          <span className={labelCls}>URL</span>
+          <div className="flex items-center gap-1.5 bg-surface-input border border-subtle rounded-lg px-3 py-2 font-mono text-[12px] truncate">
+            <span className="text-ink-3 shrink-0">{scheme}://</span>
+            <span className="text-ink truncate">{preview}</span>
+          </div>
         </div>
 
         {/* Workspace */}
@@ -719,7 +727,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
           <label className="flex flex-col gap-1.5">
             <span className={labelCls}>Workspace</span>
             <select value={wsId ?? ""} onChange={(e) => setWsId(e.target.value || null)}
-              className={`${inputCls} appearance-none cursor-pointer`}>
+              className="select-base">
               {workspaces.map((w) => (
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}
@@ -727,13 +735,16 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
           </label>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
+        </div>
+
+        {/* Footer band */}
+        <div className="flex justify-end gap-2 px-5 py-3.5 border-t border-subtle bg-surface-1 shrink-0">
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors">
+            className="px-4 py-1.5 text-[13px] text-ink-2 hover:text-ink rounded-lg transition-colors">
             Cancel
           </button>
           <button type="submit" disabled={submitting || !!subdomainError}
-            className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:brightness-110 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
             {submitting && (
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
