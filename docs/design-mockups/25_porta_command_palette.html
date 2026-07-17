@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_command_palette</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">The command palette: a search box with grouped results for navigation, apps and hosts, and app actions.</h2>
+<div style="min-height:250px; background:rgba(0,0,0,.35); display:flex; align-items:flex-start; justify-content:center; border-radius:12px; padding:2rem 1rem; font-family:var(--font-sans);">
+  <div style="width:400px; background:var(--surface-popover); border:0.5px solid var(--border-strong); border-radius:12px; box-shadow:var(--shadow-popover); overflow:hidden;">
+    <div style="display:flex; align-items:center; gap:9px; padding:12px 15px; border-bottom:0.5px solid var(--border);">
+      <i class="ti ti-search" style="font-size:16px; color:var(--text-muted);" aria-hidden="true"></i>
+      <span style="font-size:14px; color:var(--text-primary);">rest<span style="color:var(--text-muted);">art frontend</span></span>
+      <span style="margin-left:auto; font-size:10px; color:var(--text-muted); border:0.5px solid var(--border); border-radius:4px; padding:1px 6px;">esc</span>
+    </div>
+    <div style="padding:6px;">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:5px 9px 3px;">Actions</div>
+      <div style="display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px; background:var(--bg-accent);"><i class="ti ti-refresh" style="font-size:16px; color:var(--text-accent);" aria-hidden="true"></i><span style="font-size:13px; color:var(--text-primary);">Restart <span style="color:var(--text-secondary);">frontend</span></span><span style="margin-left:auto; font-size:10px; color:var(--text-muted);">↵</span></div>
+      <div style="display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px;"><i class="ti ti-player-stop" style="font-size:16px; color:var(--text-secondary);" aria-hidden="true"></i><span style="font-size:13px; color:var(--text-primary);">Stop <span style="color:var(--text-secondary);">frontend</span></span></div>
+      <div style="display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px;"><i class="ti ti-external-link" style="font-size:16px; color:var(--text-secondary);" aria-hidden="true"></i><span style="font-size:13px; color:var(--text-primary);">Open <span style="color:var(--text-secondary);">frontend</span> in browser</span></div>
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:8px 9px 3px;">Go to</div>
+      <div style="display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px;"><i class="ti ti-server" style="font-size:16px; color:var(--text-secondary);" aria-hidden="true"></i><span style="font-size:13px; color:var(--text-primary);">Hosts · prod-web</span></div>
+    </div>
+  </div>
+</div></body></html>

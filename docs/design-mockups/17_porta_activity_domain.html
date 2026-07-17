@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_activity_domain</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">The Activity domain: a list of Overview, Resources, Disk, Updates, Events, and Containers, with an Overview dashboard of metric cards, a resource chart, and a recent-events feed.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <span style="font-size:12px; font-weight:500; color:var(--text-accent); background:var(--bg-accent); padding:2px 10px; border-radius:20px;">Activity</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">system + runtime observability</span>
+    </div>
+    <div style="display:flex; height:270px;">
+
+      <div style="width:44px; flex-shrink:0; border-right:0.5px solid var(--border); display:flex; flex-direction:column; align-items:center; gap:11px; padding:12px 0; background:var(--surface-1);">
+        <i class="ti ti-layout-grid" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-server" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-activity" style="font-size:18px; color:var(--text-accent);" aria-hidden="true"></i>
+        <i class="ti ti-settings" style="font-size:18px; color:var(--text-muted); margin-top:auto;" aria-hidden="true"></i>
+      </div>
+
+      <div style="width:130px; flex-shrink:0; border-right:0.5px solid var(--border); padding:10px 7px; font-size:13px;">
+        <div style="padding:5px 8px; background:var(--bg-accent); border-radius:6px; color:var(--text-primary);">Overview</div>
+        <div style="padding:5px 8px; color:var(--text-secondary);">Resources</div>
+        <div style="padding:5px 8px; color:var(--text-secondary);">Disk</div>
+        <div style="padding:5px 8px; color:var(--text-secondary); display:flex; align-items:center; gap:6px;">Updates<span style="margin-left:auto; font-size:10px; color:var(--text-warning); background:var(--bg-warning); border-radius:20px; padding:0 6px;">3</span></div>
+        <div style="padding:5px 8px; color:var(--text-secondary);">Events</div>
+        <div style="padding:5px 8px; color:var(--text-secondary);">Containers</div>
+      </div>
+
+      <div style="flex:1; padding:12px 14px; min-width:0; overflow:hidden;">
+        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px;">
+          <div style="background:var(--surface-1); border-radius:8px; padding:8px 10px;"><div style="font-size:11px; color:var(--text-secondary);">CPU</div><div style="font-size:18px; font-weight:500;">34%</div></div>
+          <div style="background:var(--surface-1); border-radius:8px; padding:8px 10px;"><div style="font-size:11px; color:var(--text-secondary);">Memory</div><div style="font-size:18px; font-weight:500;">6.2<span style="font-size:11px; color:var(--text-muted);">/16G</span></div></div>
+          <div style="background:var(--surface-1); border-radius:8px; padding:8px 10px;"><div style="font-size:11px; color:var(--text-secondary);">Disk free</div><div style="font-size:18px; font-weight:500;">142<span style="font-size:11px; color:var(--text-muted);">G</span></div></div>
+          <div style="background:var(--surface-1); border-radius:8px; padding:8px 10px;"><div style="font-size:11px; color:var(--text-secondary);">Updates</div><div style="font-size:18px; font-weight:500; color:var(--text-warning);">3</div></div>
+        </div>
+
+        <svg viewBox="0 0 300 44" width="100%" height="44" style="margin-bottom:12px; display:block;" role="img" aria-label="CPU and memory usage trend">
+          <polyline points="0,34 30,30 60,32 90,22 120,26 150,14 180,20 210,10 240,16 270,12 300,18" fill="none" stroke="#378add" stroke-width="1.5"/>
+          <polyline points="0,40 30,39 60,38 90,36 120,37 150,33 180,34 210,31 240,32 270,30 300,31" fill="none" stroke="#1d9e75" stroke-width="1.5"/>
+        </svg>
+
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px;">Recent events</div>
+        <div style="font-size:12px; display:flex; align-items:center; gap:8px; padding:3px 0;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span><span style="color:var(--text-primary);">frontend started</span><span style="margin-left:auto; color:var(--text-muted);">14:02</span></div>
+        <div style="font-size:12px; display:flex; align-items:center; gap:8px; padding:3px 0;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-warning);"></span><span style="color:var(--text-primary);">nginx 1.25 → 1.27 available</span><span style="margin-left:auto; color:var(--text-muted);">13:48</span></div>
+        <div style="font-size:12px; display:flex; align-items:center; gap:8px; padding:3px 0;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-danger);"></span><span style="color:var(--text-primary);">worker crashed · exit 1</span><span style="margin-left:auto; color:var(--text-muted);">13:20</span></div>
+      </div>
+    </div>
+  </div>
+</div></body></html>

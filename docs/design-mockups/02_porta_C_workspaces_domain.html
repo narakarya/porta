@@ -1,0 +1,71 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_C_workspaces_domain</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Layout C applied to the Workspaces domain: a rail, a thin app list carrying status, and a content-forward workbench area with logs, git, and terminal tabs.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <span style="width:9px;height:9px;border-radius:50%;background:var(--border-strong);"></span>
+      <span style="width:9px;height:9px;border-radius:50%;background:var(--border-strong);"></span>
+      <span style="width:9px;height:9px;border-radius:50%;background:var(--border-strong);"></span>
+      <span style="margin-left:6px; font-size:12px; font-weight:500; color:var(--text-accent); background:var(--bg-accent); padding:2px 10px; border-radius:20px;">C · Workspaces domain</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">thin list (status baked in) · workbench main</span>
+    </div>
+    <div style="display:flex; height:230px;">
+
+      <div style="width:44px; flex-shrink:0; border-right:0.5px solid var(--border); display:flex; flex-direction:column; align-items:center; gap:11px; padding:12px 0; background:var(--surface-1);">
+        <i class="ti ti-layout-grid" style="font-size:18px; color:var(--text-accent);" aria-hidden="true"></i>
+        <i class="ti ti-server" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-activity" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-puzzle" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-settings" style="font-size:18px; color:var(--text-muted); margin-top:auto;" aria-hidden="true"></i>
+      </div>
+
+      <div style="width:170px; flex-shrink:0; border-right:0.5px solid var(--border); padding:10px 8px; overflow:hidden;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin:0 4px 6px;">Mediapress</div>
+        <div style="font-size:13px; background:var(--bg-accent); border-radius:6px; padding:5px 8px; margin-bottom:2px; display:flex; align-items:center; gap:7px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>frontend<span style="margin-left:auto; font-size:10px; color:var(--text-muted);">:3000</span></div>
+        <div style="font-size:13px; color:var(--text-secondary); padding:5px 8px; display:flex; align-items:center; gap:7px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);"></span>api<span style="margin-left:auto; font-size:10px; color:var(--text-muted);">:4000</span></div>
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin:10px 4px 6px;">SpreadGrid</div>
+        <div style="font-size:13px; color:var(--text-secondary); padding:5px 8px; display:flex; align-items:center; gap:7px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>web<span style="margin-left:auto; font-size:10px; color:var(--text-warning);">2↑</span></div>
+        <div style="font-size:13px; color:var(--text-secondary); padding:5px 8px; display:flex; align-items:center; gap:7px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);"></span>worker</div>
+      </div>
+
+      <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+        <div style="padding:11px 16px 9px; border-bottom:0.5px solid var(--border);">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:15px; font-weight:500;">frontend</span>
+            <span style="font-size:11px; color:var(--text-success); background:var(--bg-success); padding:1px 8px; border-radius:20px;">running</span>
+            <span style="font-size:11px; color:var(--text-muted);">:3000 · pid 48213</span>
+            <span style="margin-left:auto; display:flex; gap:6px;">
+              <span style="font-size:11px; border:0.5px solid var(--border-strong); border-radius:6px; padding:3px 10px;">Restart</span>
+              <span style="font-size:11px; border:0.5px solid var(--border); border-radius:6px; padding:3px 10px; color:var(--text-secondary);">Open</span>
+            </span>
+          </div>
+        </div>
+        <div style="display:flex; gap:2px; padding:6px 12px 0;">
+          <span style="font-size:12px; padding:4px 12px; border-radius:6px 6px 0 0; background:var(--surface-1); border:0.5px solid var(--border); border-bottom:none;"><i class="ti ti-file-text" style="font-size:13px; vertical-align:-2px; margin-right:4px;" aria-hidden="true"></i>Logs</span>
+          <span style="font-size:12px; padding:4px 12px; color:var(--text-secondary);"><i class="ti ti-git-branch" style="font-size:13px; vertical-align:-2px; margin-right:4px;" aria-hidden="true"></i>Git</span>
+          <span style="font-size:12px; padding:4px 12px; color:var(--text-secondary);"><i class="ti ti-terminal-2" style="font-size:13px; vertical-align:-2px; margin-right:4px;" aria-hidden="true"></i>Terminal</span>
+        </div>
+        <div style="flex:1; margin:0 12px 12px; border:0.5px solid var(--border); border-radius:0 8px 8px 8px; background:#0d0d0f; padding:10px 12px; font-family:var(--font-mono); font-size:11px; line-height:1.7; color:#8a8a8a; overflow:hidden;">
+          <span style="color:#60a5fa;">[info]</span> Local: http://mediapress.test<br>
+          <span style="color:#4ade80;">[ready]</span> compiled in 812ms<br>
+          <span style="color:#60a5fa;">[info]</span> GET /  200 · 14ms<br>
+          <span style="color:#fbbf24;">[warn]</span> slow query 240ms — /api/posts
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div></body></html>

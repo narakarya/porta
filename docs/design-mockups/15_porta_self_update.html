@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_self_update</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Porta self-update: a version in the rail footer with an update dot on the account avatar, opening a compact popover with the new version, release notes, and a restart-to-update action.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="display:flex; gap:14px; align-items:flex-end;">
+
+    <div style="width:52px; flex-shrink:0; border:0.5px solid var(--border); border-radius:12px; background:var(--surface-1); padding:12px 0; display:flex; flex-direction:column; align-items:center; gap:12px; height:230px;">
+      <i class="ti ti-layout-grid" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+      <i class="ti ti-server" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+      <i class="ti ti-activity" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+      <span style="margin-top:auto; display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <i class="ti ti-settings" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <span style="position:relative;">
+          <span style="width:26px; height:26px; border-radius:50%; background:var(--bg-accent); color:var(--text-accent); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500;">NG</span>
+          <span style="position:absolute; top:-1px; right:-1px; width:9px; height:9px; border-radius:50%; background:var(--fill-accent); border:1.5px solid var(--surface-1);"></span>
+        </span>
+        <span style="font-size:9px; color:var(--text-muted);">0.10</span>
+      </span>
+    </div>
+
+    <div style="width:280px; border:0.5px solid var(--border-strong); border-radius:12px; background:var(--surface-popover); box-shadow:var(--shadow-popover); overflow:hidden;">
+      <div style="padding:12px 14px 10px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <i class="ti ti-sparkles" style="font-size:16px; color:var(--text-accent);" aria-hidden="true"></i>
+          <span style="font-size:13px; font-weight:500;">Porta 0.11.0 is ready</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">You're on 0.10.0 · downloaded &amp; verified</div>
+      </div>
+      <div style="padding:0 14px 10px; font-size:12px; color:var(--text-secondary); line-height:1.65;">
+        <div style="display:flex; gap:7px;"><span style="color:var(--text-success);">+</span>App workbench &amp; multi-domain shell</div>
+        <div style="display:flex; gap:7px;"><span style="color:var(--text-success);">+</span>Redesigned Publish &amp; Logs</div>
+        <div style="font-size:11px; color:var(--text-accent); margin-top:4px;">Full release notes</div>
+      </div>
+      <div style="display:flex; gap:8px; padding:10px 14px; border-top:0.5px solid var(--border); background:var(--surface-1);">
+        <span style="font-size:12px; color:#fff; background:var(--fill-accent); border-radius:6px; padding:5px 13px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-refresh" style="font-size:14px;" aria-hidden="true"></i>Restart to update</span>
+        <span style="font-size:12px; border:0.5px solid var(--border); border-radius:6px; padding:5px 12px; color:var(--text-secondary);">Later</span>
+      </div>
+    </div>
+
+  </div>
+</div></body></html>

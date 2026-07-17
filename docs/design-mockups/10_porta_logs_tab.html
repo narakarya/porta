@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_logs_tab</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">The Logs tab: a toolbar with search, level filters, follow, wrap, and clear controls above a level-colored live log stream with a following indicator.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <span style="display:flex; align-items:center; gap:6px; border:0.5px solid var(--border); border-radius:6px; padding:4px 9px; color:var(--text-muted); font-size:12px; min-width:150px;"><i class="ti ti-search" style="font-size:13px;" aria-hidden="true"></i>Filter…</span>
+      <span style="display:inline-flex; border:0.5px solid var(--border); border-radius:6px; overflow:hidden; font-size:11px;">
+        <span style="padding:4px 9px; background:var(--surface-2); color:var(--text-primary);">All</span>
+        <span style="padding:4px 9px; color:var(--text-secondary); border-left:0.5px solid var(--border);">Info</span>
+        <span style="padding:4px 9px; color:var(--text-warning); border-left:0.5px solid var(--border);">Warn</span>
+        <span style="padding:4px 9px; color:var(--text-danger); border-left:0.5px solid var(--border);">Error</span>
+      </span>
+      <span style="margin-left:auto; display:flex; align-items:center; gap:12px; color:var(--text-secondary);">
+        <span style="font-size:11px; color:var(--text-accent); display:inline-flex; align-items:center; gap:4px;"><i class="ti ti-arrow-bar-to-down" style="font-size:14px;" aria-hidden="true"></i>Follow</span>
+        <i class="ti ti-text-wrap" style="font-size:15px;" aria-hidden="true" title="Wrap"></i>
+        <i class="ti ti-trash" style="font-size:15px;" aria-hidden="true" title="Clear"></i>
+      </span>
+    </div>
+
+    <div style="height:186px; overflow:hidden; padding:9px 12px; background:#0d0d0f; font-family:var(--font-mono); font-size:11px; line-height:1.75;">
+      <div><span style="color:#5f5f5f;">14:02:11</span> <span style="color:#60a5fa;">info</span> <span style="color:#d4d4d4;">GET / 200 · 14ms</span></div>
+      <div><span style="color:#5f5f5f;">14:02:12</span> <span style="color:#60a5fa;">info</span> <span style="color:#d4d4d4;">compiled in 812ms</span></div>
+      <div><span style="color:#5f5f5f;">14:02:13</span> <span style="color:#fbbf24;">warn</span> <span style="color:#d4d4d4;">slow query 240ms — </span><span style="background:rgba(251,191,36,.22); color:#fde68a;">/api/posts</span></div>
+      <div><span style="color:#5f5f5f;">14:02:14</span> <span style="color:#60a5fa;">info</span> <span style="color:#d4d4d4;">GET /api/posts 200 · 41ms</span></div>
+      <div><span style="color:#5f5f5f;">14:02:16</span> <span style="color:#f87171;">error</span> <span style="color:#d4d4d4;">ECONNREFUSED redis:6379</span></div>
+      <div><span style="color:#5f5f5f;">14:02:16</span> <span style="color:#60a5fa;">info</span> <span style="color:#d4d4d4;">retrying in 2s…</span></div>
+      <div><span style="color:#5f5f5f;">14:02:18</span> <span style="color:#60a5fa;">info</span> <span style="color:#d4d4d4;">redis connected</span><span style="background:#4ade80; color:#0d0d0f;">&nbsp;</span></div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:6px; padding:5px 12px; border-top:0.5px solid var(--border); font-size:11px; color:var(--text-secondary);">
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>following · frontend
+      <span style="margin-left:auto; color:var(--text-muted);">1,204 lines</span>
+    </div>
+  </div>
+</div></body></html>

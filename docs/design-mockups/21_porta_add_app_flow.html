@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_add_app_flow</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Add app flow: pick a project folder, Porta auto-detects the stack and suggests a name, port, subdomain, and start command.</h2>
+<div style="min-height:270px; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; border-radius:12px; padding:1rem; font-family:var(--font-sans);">
+  <div style="width:360px; background:var(--surface-2); border:0.5px solid var(--border); border-radius:12px; overflow:hidden;">
+    <div style="padding:12px 16px; border-bottom:0.5px solid var(--border); font-size:14px; font-weight:500;">Add app</div>
+    <div style="padding:14px 16px; display:flex; flex-direction:column; gap:11px;">
+      <div>
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">Project folder</div>
+        <div style="display:flex; gap:8px;"><div style="flex:1; border:0.5px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12px; font-family:var(--font-mono); color:var(--text-primary);">~/projects/mediapress</div><span style="font-size:12px; border:0.5px solid var(--border-strong); border-radius:8px; padding:7px 12px;">Browse…</span></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; background:var(--bg-success); border-radius:8px; padding:8px 11px;">
+        <i class="ti ti-flame" style="font-size:16px; color:var(--text-success);" aria-hidden="true"></i>
+        <span style="font-size:12px; color:var(--text-success);">Detected <span style="font-weight:500;">Phoenix</span> · start `mix phx.server`</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <div style="flex:1;"><div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">Name</div><div style="border:0.5px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12px;">mediapress</div></div>
+        <div style="width:76px;"><div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">Port</div><div style="border:0.5px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12px; font-family:var(--font-mono);">4000</div></div>
+      </div>
+      <div><div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">URL</div><div style="border:0.5px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12px; font-family:var(--font-mono); color:var(--text-secondary);">mediapress<span style="color:var(--text-primary);">.test</span></div></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:8px; padding:11px 16px; border-top:0.5px solid var(--border); background:var(--surface-1);">
+      <span style="font-size:12px; color:var(--text-secondary); padding:5px 12px;">Cancel</span>
+      <span style="font-size:12px; color:#fff; background:var(--fill-accent); border-radius:6px; padding:5px 14px;">Add app</span>
+    </div>
+  </div>
+</div></body></html>

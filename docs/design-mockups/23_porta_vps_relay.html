@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_vps_relay</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Remote VPS relay: a VPS host with WireGuard tunnel status and the apps exposed on it via remote Caddy.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans); display:flex; flex-direction:column; gap:12px;">
+  <div style="border:0.5px solid var(--border); border-radius:10px; padding:12px 14px;">
+    <div style="display:flex; align-items:center; gap:9px;">
+      <i class="ti ti-cloud-computing" style="font-size:18px; color:var(--text-accent);" aria-hidden="true"></i>
+      <span style="font-size:13px; font-weight:500;">prod-vps</span>
+      <span style="font-size:11px; color:var(--text-secondary); font-family:var(--font-mono);">203.0.113.5</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-success); display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-lock" style="font-size:13px;" aria-hidden="true"></i>WireGuard up</span>
+    </div>
+    <div style="display:flex; gap:16px; margin-top:8px; font-size:11px; color:var(--text-secondary); font-family:var(--font-mono);">
+      <span>handshake 12s ago</span><span>↓ 4.2 MB</span><span>↑ 1.1 MB</span><span>wg0 · 10.0.0.1</span>
+    </div>
+  </div>
+
+  <div>
+    <div style="display:flex; align-items:center; margin-bottom:7px;"><span style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted);">Exposed apps</span><span style="margin-left:auto; font-size:11px; color:var(--text-accent); display:inline-flex; align-items:center; gap:3px;"><i class="ti ti-plus" style="font-size:13px;" aria-hidden="true"></i>Expose app</span></div>
+    <div style="border:0.5px solid var(--border); border-radius:8px; padding:9px 12px; display:flex; align-items:center; gap:10px; margin-bottom:5px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--fill-success);"></span>
+      <span style="font-size:13px;">frontend</span>
+      <i class="ti ti-arrow-right" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i>
+      <span style="font-size:12px; font-family:var(--font-mono); color:var(--text-primary);">app.klien-a.id</span>
+      <span style="margin-left:auto; font-size:10px; color:var(--text-success);">active · DNS ✓</span>
+    </div>
+    <div style="border:0.5px solid var(--border); border-radius:8px; padding:9px 12px; display:flex; align-items:center; gap:10px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--text-muted);"></span>
+      <span style="font-size:13px;">api</span>
+      <i class="ti ti-arrow-right" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i>
+      <span style="font-size:12px; font-family:var(--font-mono); color:var(--text-secondary);">api.klien-a.id</span>
+      <span style="margin-left:auto; font-size:10px; color:var(--text-warning);">pending push</span>
+    </div>
+  </div>
+  <div style="font-size:11px; color:var(--text-muted);">Local Caddy dials back over the tunnel · remote Caddy terminates TLS · optional auto-DNS via Cloudflare.</div>
+</div></body></html>

@@ -1,0 +1,76 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_A_vs_C_hosts_domain</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Comparison of layout A versus C for the Hosts domain: A fills the main area with a host detail page, C fills it with a maximized live terminal.</h2>
+<div style="display:flex; flex-direction:column; gap:20px; padding:0.5rem 0; font-family:var(--font-sans);">
+
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <span style="font-size:12px; font-weight:500; color:var(--text-accent); background:var(--bg-accent); padding:2px 10px; border-radius:20px;">A · main = host detail page</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">browse &amp; manage</span>
+    </div>
+    <div style="display:flex; height:200px;">
+      <div style="width:44px; flex-shrink:0; border-right:0.5px solid var(--border); display:flex; flex-direction:column; align-items:center; gap:10px; padding:12px 0; background:var(--surface-1);">
+        <i class="ti ti-layout-grid" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-server" style="font-size:18px; color:var(--text-accent);" aria-hidden="true"></i>
+        <i class="ti ti-activity" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+      </div>
+      <div style="width:158px; flex-shrink:0; border-right:0.5px solid var(--border); padding:10px 8px;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px;">Hosts</div>
+        <div style="font-size:13px; background:var(--bg-accent); border-radius:6px; padding:6px 8px; margin-bottom:3px; display:flex; align-items:center; gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>prod-web</div>
+        <div style="font-size:13px; color:var(--text-secondary); padding:6px 8px;">db-01</div>
+        <div style="font-size:13px; color:var(--text-secondary); padding:6px 8px;">staging</div>
+      </div>
+      <div style="flex:1; padding:14px 16px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px;"><span style="font-size:15px;" aria-hidden="true">🐧</span><span style="font-size:15px; font-weight:500;">prod-web</span><span style="font-size:11px; color:var(--text-success); background:var(--bg-success); padding:1px 8px; border-radius:20px;">connected</span></div>
+        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">deploy@10.0.0.4 · Ubuntu 22.04 · ed25519</div>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <span style="font-size:12px; border:0.5px solid var(--border-strong); border-radius:6px; padding:4px 12px;">Open terminal</span>
+          <span style="font-size:12px; border:0.5px solid var(--border); border-radius:6px; padding:4px 12px; color:var(--text-secondary);">Edit</span>
+        </div>
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px;">Sessions · 2</div>
+        <div style="border:0.5px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12px; margin-bottom:5px; display:flex; align-items:center; gap:7px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>shell · 12m</div>
+        <div style="border:0.5px solid var(--border); border-radius:8px; padding:7px 10px; font-size:12px; display:flex; align-items:center; gap:7px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>logs · 4m</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <span style="font-size:12px; font-weight:500; color:var(--text-accent); background:var(--bg-accent); padding:2px 10px; border-radius:20px;">C · main = the terminal itself</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">land straight in the work</span>
+    </div>
+    <div style="display:flex; height:200px;">
+      <div style="width:44px; flex-shrink:0; border-right:0.5px solid var(--border); display:flex; flex-direction:column; align-items:center; gap:10px; padding:12px 0; background:var(--surface-1);">
+        <i class="ti ti-layout-grid" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+        <i class="ti ti-server" style="font-size:18px; color:var(--text-accent);" aria-hidden="true"></i>
+        <i class="ti ti-activity" style="font-size:18px; color:var(--text-muted);" aria-hidden="true"></i>
+      </div>
+      <div style="width:130px; flex-shrink:0; border-right:0.5px solid var(--border); padding:10px 8px;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px;">Hosts</div>
+        <div style="font-size:12px; background:var(--bg-accent); border-radius:6px; padding:5px 7px; margin-bottom:3px; display:flex; align-items:center; gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>prod-web <span style="margin-left:auto;font-size:13px;" aria-hidden="true">🐧</span></div>
+        <div style="font-size:12px; color:var(--text-secondary); padding:5px 7px; display:flex; align-items:center; gap:5px;">db-01 <span style="margin-left:auto;font-size:13px;" aria-hidden="true">🍎</span></div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; background:#0d0d0f;">
+        <div style="display:flex; gap:6px; padding:7px 10px; border-bottom:0.5px solid rgba(255,255,255,.08);">
+          <span style="font-size:11px; color:#d4d4d4; background:rgba(255,255,255,.08); border-radius:5px; padding:3px 8px; display:flex; align-items:center; gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span>shell</span>
+          <span style="font-size:11px; color:#8a8a8a; padding:3px 8px;">logs</span>
+          <span style="font-size:11px; color:#8a8a8a; padding:3px 6px;" aria-hidden="true">＋</span>
+        </div>
+        <div style="flex:1; padding:10px 12px; font-family:var(--font-mono); font-size:11px; line-height:1.7; color:#86efac;">deploy@prod-web:~$ <span style="color:#d4d4d4;">systemctl status web</span><br><span style="color:#8a8a8a;">● web.service — active (running) since 2h ago</span><br>deploy@prod-web:~$ <span style="color:#d4d4d4;">tail -f app.log</span><br><span style="color:#8a8a8a;">[info] listening on :3000</span><span style="background:#4ade80; color:#0d0d0f;">&nbsp;</span></div>
+      </div>
+    </div>
+  </div>
+
+</div></body></html>

@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_git_manager_full_redesign</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Full git-manager redesign: a seven-area sub-nav, a folder-nested file tree with staged and unstaged sections, and a diff pane with per-hunk staging and a unified-versus-split toggle, plus a commit box.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+
+    <div style="display:flex; align-items:center; gap:13px; padding:8px 14px; border-bottom:0.5px solid var(--border);">
+      <span style="font-size:12px; color:var(--text-primary); border-bottom:1.5px solid var(--text-accent); padding-bottom:6px; margin-bottom:-9px;">Status</span>
+      <span style="font-size:12px; color:var(--text-secondary);">Branches</span>
+      <span style="font-size:12px; color:var(--text-secondary);">Sync</span>
+      <span style="font-size:12px; color:var(--text-secondary);">History</span>
+      <span style="font-size:12px; color:var(--text-secondary);">Rebase</span>
+      <span style="font-size:12px; color:var(--text-secondary);">Stash</span>
+      <span style="font-size:12px; color:var(--text-secondary);">Tags</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-secondary); display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-git-branch" style="font-size:13px;" aria-hidden="true"></i>main <span style="color:var(--text-muted);">↓2 ↑1</span></span>
+    </div>
+
+    <div style="display:flex; height:214px;">
+      <div style="width:200px; flex-shrink:0; border-right:0.5px solid var(--border); overflow:hidden; font-family:var(--font-mono); font-size:12px;">
+        <div style="font-size:10px; font-family:var(--font-sans); text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:8px 12px 3px;">Staged · 1</div>
+        <div style="display:flex; align-items:center; gap:6px; padding:3px 12px 3px 14px;"><i class="ti ti-folder" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-secondary);">hooks</span></div>
+        <div style="display:flex; align-items:center; gap:6px; padding:3px 12px 3px 30px;"><i class="ti ti-check" style="font-size:12px; color:var(--text-accent);" aria-hidden="true"></i><span style="color:var(--text-success);">A</span><span style="color:var(--text-primary);">useFeed.ts</span></div>
+        <div style="font-size:10px; font-family:var(--font-sans); text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:8px 12px 3px;">Changes · 2</div>
+        <div style="display:flex; align-items:center; gap:6px; padding:3px 12px 3px 14px;"><i class="ti ti-folder" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-secondary);">api</span></div>
+        <div style="display:flex; align-items:center; gap:6px; padding:3px 12px 3px 30px; background:var(--bg-accent); border-radius:6px; margin:0 4px;"><i class="ti ti-square" style="font-size:12px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-warning);">M</span><span style="color:var(--text-primary);">posts.ts</span><span style="margin-left:auto; font-size:10px; color:var(--text-success); font-family:var(--font-sans);">+40</span></div>
+        <div style="display:flex; align-items:center; gap:6px; padding:3px 12px 3px 14px;"><i class="ti ti-square" style="font-size:12px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-warning);">M</span><span style="color:var(--text-primary);">app.tsx</span></div>
+      </div>
+
+      <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+          <span style="font-family:var(--font-mono); font-size:12px;">api/posts.ts</span>
+          <span style="margin-left:auto; display:inline-flex; border:0.5px solid var(--border); border-radius:6px; overflow:hidden; font-size:11px;">
+            <span style="padding:2px 9px; background:var(--surface-2); color:var(--text-primary);">Unified</span>
+            <span style="padding:2px 9px; color:var(--text-secondary); border-left:0.5px solid var(--border);">Split</span>
+          </span>
+        </div>
+        <div style="flex:1; font-family:var(--font-mono); font-size:11px; line-height:1.65; overflow:hidden; background:#0d0d0f;">
+          <div style="display:flex; align-items:center; gap:8px; padding:3px 12px; background:var(--surface-1); border-bottom:0.5px solid var(--border);">
+            <span style="font-size:10px; color:var(--text-muted);">@@ -12,6 +12,9 @@ list()</span>
+            <span style="margin-left:auto; font-size:10px; color:var(--text-accent); border:0.5px solid var(--border-strong); border-radius:5px; padding:1px 8px; font-family:var(--font-sans);">Stage hunk</span>
+            <span style="font-size:10px; color:var(--text-secondary); border:0.5px solid var(--border); border-radius:5px; padding:1px 8px; font-family:var(--font-sans);">Discard</span>
+          </div>
+          <div style="padding:0 12px;"><span style="color:#8a8a8a;"> export async function list() {</span></div>
+          <div style="padding:0 12px; background:rgba(74,222,128,.12); color:#86efac;">+  const cached = await cache.get(key)</div>
+          <div style="padding:0 12px; background:rgba(74,222,128,.12); color:#86efac;">+  if (cached) return cached</div>
+          <div style="padding:0 12px; background:rgba(248,113,113,.12); color:#fca5a5;">-  return db.query(sql)</div>
+          <div style="padding:0 12px; background:rgba(74,222,128,.12); color:#86efac;">+  return cache.set(key, await db.query(sql))</div>
+        </div>
+        <div style="border-top:0.5px solid var(--border); padding:8px 12px; background:var(--surface-1);">
+          <div style="border:0.5px solid var(--border); border-radius:6px; padding:5px 9px; font-size:12px; color:var(--text-muted); margin-bottom:6px;">Commit message… <span style="font-size:10px; float:right;">⌘↵</span></div>
+          <div style="display:flex; gap:6px;">
+            <span style="font-size:11px; color:var(--text-accent); background:var(--bg-accent); border-radius:6px; padding:4px 12px;">Commit</span>
+            <span style="font-size:11px; border:0.5px solid var(--border-strong); border-radius:6px; padding:4px 12px;">Commit &amp; push</span>
+            <span style="margin-left:auto; font-size:11px; color:var(--text-secondary); padding:4px 6px;">Amend</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></body></html>

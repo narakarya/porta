@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_worktree_instances</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Worktree instances: one app running from its main checkout plus two git-worktree branches, each with its own port and URL.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans); display:flex; flex-direction:column; gap:10px;">
+  <div style="display:flex; align-items:center; gap:8px;"><i class="ti ti-git-fork" style="font-size:16px; color:var(--text-accent);" aria-hidden="true"></i><span style="font-size:14px; font-weight:500;">frontend</span><span style="font-size:11px; color:var(--text-secondary);">· 3 instances</span><span style="margin-left:auto; font-size:11px; color:var(--text-accent); display:inline-flex; align-items:center; gap:3px;"><i class="ti ti-plus" style="font-size:13px;" aria-hidden="true"></i>New from branch</span></div>
+
+  <div style="border:0.5px solid var(--border); border-radius:9px; padding:9px 12px; display:flex; align-items:center; gap:10px;">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--fill-success);"></span>
+    <span style="font-size:13px;">main</span>
+    <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">:3000 · frontend.test</span>
+    <span style="margin-left:auto; font-size:11px; color:var(--text-secondary);">primary</span>
+  </div>
+  <div style="border:0.5px solid var(--border); border-radius:9px; padding:9px 12px; display:flex; align-items:center; gap:10px;">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--fill-success);"></span>
+    <span style="font-size:13px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-git-branch" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i>feat/checkout</span>
+    <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">:3001 · feat-checkout.frontend.test</span>
+    <span style="margin-left:auto; display:flex; gap:8px; color:var(--text-muted);"><i class="ti ti-external-link" style="font-size:14px;" aria-hidden="true"></i><i class="ti ti-player-stop" style="font-size:14px;" aria-hidden="true"></i></span>
+  </div>
+  <div style="border:0.5px solid var(--border); border-radius:9px; padding:9px 12px; display:flex; align-items:center; gap:10px;">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--text-muted);"></span>
+    <span style="font-size:13px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-git-branch" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i>fix/nav</span>
+    <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">:3002 · stopped</span>
+    <span style="margin-left:auto; display:flex; gap:8px; color:var(--text-muted);"><i class="ti ti-player-play" style="font-size:14px; color:var(--text-success);" aria-hidden="true"></i><i class="ti ti-trash" style="font-size:14px;" aria-hidden="true"></i></span>
+  </div>
+</div></body></html>

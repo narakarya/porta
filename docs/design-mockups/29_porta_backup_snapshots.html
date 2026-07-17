@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_backup_snapshots</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Backup and volume snapshots: a backup schedule with a Google Drive destination, and per-service volume snapshots with restore.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans); display:flex; flex-direction:column; gap:12px;">
+  <div style="border:0.5px solid var(--border); border-radius:10px; padding:12px 14px;">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px;"><i class="ti ti-cloud-up" style="font-size:16px; color:var(--text-accent);" aria-hidden="true"></i><span style="font-size:13px; font-weight:500;">Backup</span><span style="margin-left:auto; font-size:11px; color:var(--text-success);">last: today 03:00 ✓</span></div>
+    <div style="display:flex; align-items:center; gap:8px; font-size:12px;">
+      <span style="color:var(--text-secondary);">Every</span><span style="border:0.5px solid var(--border-strong); border-radius:6px; padding:2px 10px;">daily</span>
+      <span style="color:var(--text-secondary);">to</span><span style="border:0.5px solid var(--border); border-radius:6px; padding:2px 10px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-brand-google-drive" style="font-size:13px;" aria-hidden="true"></i>Google Drive</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-accent);">Back up now</span>
+    </div>
+  </div>
+
+  <div style="border:0.5px solid var(--border); border-radius:10px; padding:12px 14px;">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px;"><i class="ti ti-camera" style="font-size:16px; color:var(--text-secondary);" aria-hidden="true"></i><span style="font-size:13px; font-weight:500;">Volume snapshots</span><span style="margin-left:auto; font-size:11px; color:var(--text-accent); display:inline-flex; align-items:center; gap:3px;"><i class="ti ti-plus" style="font-size:13px;" aria-hidden="true"></i>Snapshot</span></div>
+    <div style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:0.5px solid var(--border); font-size:12px;"><i class="ti ti-database" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i><span>postgres_data</span><span style="color:var(--text-muted); font-family:var(--font-mono);">240 MB · 2h ago</span><span style="margin-left:auto; display:flex; gap:10px; color:var(--text-muted);"><span style="color:var(--text-accent);">Restore</span><i class="ti ti-trash" style="font-size:14px;" aria-hidden="true"></i></span></div>
+    <div style="display:flex; align-items:center; gap:10px; padding:6px 0; font-size:12px;"><i class="ti ti-database" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i><span>postgres_data</span><span style="color:var(--text-muted); font-family:var(--font-mono);">238 MB · 1d ago</span><span style="margin-left:auto; display:flex; gap:10px; color:var(--text-muted);"><span style="color:var(--text-accent);">Restore</span><i class="ti ti-trash" style="font-size:14px;" aria-hidden="true"></i></span></div>
+  </div>
+</div></body></html>

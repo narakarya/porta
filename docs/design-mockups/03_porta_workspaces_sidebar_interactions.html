@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_workspaces_sidebar_interactions</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Refined Workspaces sidebar: collapsible workspace groups with a status rollup when collapsed, an add-app plus button on the group header, a clean app row with a start/stop toggle on hover, and a right-click context menu for the rest.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="display:flex; gap:16px; align-items:flex-start;">
+
+    <div style="width:230px; flex-shrink:0; border:0.5px solid var(--border); border-radius:12px; background:var(--surface-2); padding:8px 6px;">
+
+      <div style="display:flex; align-items:center; gap:5px; padding:5px 6px; border-radius:6px;">
+        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i>
+        <span style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-secondary);">Mediapress</span>
+        <span style="font-size:10px; color:var(--text-muted);">2</span>
+        <i class="ti ti-plus" style="font-size:14px; color:var(--text-accent); margin-left:auto;" aria-hidden="true"></i>
+      </div>
+      <div style="font-size:13px; padding:6px 8px 6px 22px; border-radius:6px; display:flex; align-items:center; gap:7px; color:var(--text-primary);">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>frontend<span style="margin-left:auto; font-size:10px; color:var(--text-muted);">:3000</span>
+      </div>
+      <div style="font-size:13px; padding:6px 8px 6px 22px; border-radius:6px; display:flex; align-items:center; gap:7px; background:var(--surface-1); color:var(--text-primary);">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);"></span>api
+        <span style="margin-left:auto; display:flex; align-items:center; gap:4px;">
+          <i class="ti ti-player-play" style="font-size:15px; color:var(--text-success);" aria-hidden="true"></i>
+          <i class="ti ti-dots" style="font-size:15px; color:var(--text-muted);" aria-hidden="true"></i>
+        </span>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:5px; padding:5px 6px; margin-top:6px; border-radius:6px;">
+        <i class="ti ti-chevron-right" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i>
+        <span style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-secondary);">SpreadGrid</span>
+        <span style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+          <span style="display:flex; align-items:center; gap:4px; font-size:10px; color:var(--text-secondary);"><span style="width:5px;height:5px;border-radius:50%;background:var(--fill-success);"></span>1</span>
+          <span style="font-size:10px; color:var(--text-warning);">2↑</span>
+        </span>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:5px; padding:5px 6px; margin-top:2px; border-radius:6px;">
+        <i class="ti ti-chevron-right" style="font-size:14px; color:var(--text-muted);" aria-hidden="true"></i>
+        <span style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-secondary);">Narakarya</span>
+        <span style="margin-left:auto; font-size:10px; color:var(--text-muted);">idle</span>
+      </div>
+
+      <div style="height:0.5px; background:var(--border); margin:8px 6px;"></div>
+      <div style="font-size:12px; color:var(--text-muted); padding:4px 8px; display:flex; align-items:center; gap:6px;"><i class="ti ti-plus" style="font-size:14px;" aria-hidden="true"></i>New workspace</div>
+    </div>
+
+    <div style="width:186px; flex-shrink:0; margin-top:64px; border:0.5px solid var(--border-strong); border-radius:10px; background:var(--surface-popover); padding:5px; box-shadow:var(--shadow-popover);">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:3px 8px;">api · right-click</div>
+      <div style="font-size:13px; padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:8px;"><i class="ti ti-player-play" style="font-size:15px;" aria-hidden="true"></i>Start</div>
+      <div style="font-size:13px; padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:8px;"><i class="ti ti-refresh" style="font-size:15px;" aria-hidden="true"></i>Restart</div>
+      <div style="font-size:13px; padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:8px;"><i class="ti ti-terminal-2" style="font-size:15px;" aria-hidden="true"></i>Terminal</div>
+      <div style="font-size:13px; padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:8px;"><i class="ti ti-external-link" style="font-size:15px;" aria-hidden="true"></i>Open in browser</div>
+      <div style="font-size:13px; padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:8px;"><i class="ti ti-settings" style="font-size:15px;" aria-hidden="true"></i>Settings</div>
+      <div style="height:0.5px; background:var(--border); margin:4px 6px;"></div>
+      <div style="font-size:13px; padding:6px 8px; border-radius:6px; display:flex; align-items:center; gap:8px; color:var(--text-danger);"><i class="ti ti-trash" style="font-size:15px;" aria-hidden="true"></i>Remove</div>
+    </div>
+
+  </div>
+</div></body></html>

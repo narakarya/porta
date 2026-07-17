@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_tunnel_publish_v2</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Improved Publish tab: a local-to-public routing hero with status, a mode switch between quick and named tunnels with descriptions, a public hostnames list, and access control across public, password, and Cloudflare Access.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+
+    <div style="display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:0.5px solid var(--border);">
+      <i class="ti ti-world" style="font-size:17px; color:var(--text-success);" aria-hidden="true"></i>
+      <span style="font-size:14px; font-weight:500;">Publish</span>
+      <span style="font-size:11px; color:var(--text-success); background:var(--bg-success); padding:1px 8px; border-radius:20px;">● live · Cloudflare</span>
+      <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">Tunnel<span style="width:32px; height:18px; border-radius:20px; background:var(--fill-success); position:relative; display:inline-block;"><span style="position:absolute; top:2px; right:2px; width:14px; height:14px; border-radius:50%; background:#fff;"></span></span></span>
+    </div>
+
+    <div style="padding:14px 16px; display:flex; flex-direction:column; gap:14px;">
+
+      <div style="border:0.5px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:12px;">
+        <span style="display:flex; flex-direction:column; gap:2px; min-width:0;">
+          <span style="font-size:10px; color:var(--text-muted);">LOCAL</span>
+          <span style="font-family:var(--font-mono); font-size:13px; color:var(--text-primary);">localhost:3000</span>
+        </span>
+        <span style="display:flex; flex-direction:column; align-items:center; color:var(--text-success); flex-shrink:0;"><i class="ti ti-arrow-right" style="font-size:18px;" aria-hidden="true"></i><span style="font-size:9px; color:var(--text-muted);">tunnel</span></span>
+        <span style="display:flex; flex-direction:column; gap:2px; min-width:0; flex:1;">
+          <span style="font-size:10px; color:var(--text-accent);">PUBLIC</span>
+          <span style="font-family:var(--font-mono); font-size:13px; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">app.klien-a.id</span>
+        </span>
+        <span style="display:flex; gap:12px; color:var(--text-muted); flex-shrink:0;"><i class="ti ti-copy" style="font-size:16px;" aria-hidden="true"></i><i class="ti ti-external-link" style="font-size:16px;" aria-hidden="true"></i><i class="ti ti-qrcode" style="font-size:16px;" aria-hidden="true"></i></span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <div style="border:0.5px solid var(--border); border-radius:8px; padding:9px 11px;">
+          <div style="font-size:12px; color:var(--text-secondary);">Quick tunnel</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">Ephemeral <span style="font-family:var(--font-mono);">*.trycloudflare.com</span>. Zero setup.</div>
+        </div>
+        <div style="border:1.5px solid var(--border-accent); border-radius:8px; padding:9px 11px;">
+          <div style="font-size:12px; color:var(--text-accent); display:flex; align-items:center; gap:5px;">Named tunnel <i class="ti ti-check" style="font-size:13px;" aria-hidden="true"></i></div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">Persistent, your own domain + DNS.</div>
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex; align-items:center; margin-bottom:6px;"><span style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted);">Public hostnames</span><span style="margin-left:auto; font-size:11px; color:var(--text-accent); display:inline-flex; align-items:center; gap:3px;"><i class="ti ti-plus" style="font-size:13px;" aria-hidden="true"></i>Add</span></div>
+        <div style="font-size:12px; font-family:var(--font-mono); display:flex; align-items:center; gap:8px; padding:5px 0;"><i class="ti ti-star" style="font-size:13px; color:var(--text-warning);" aria-hidden="true"></i>app.klien-a.id<span style="margin-left:auto; font-size:10px; color:var(--text-success); font-family:var(--font-sans);">primary · active</span></div>
+        <div style="font-size:12px; font-family:var(--font-mono); display:flex; align-items:center; gap:8px; padding:5px 0;"><span style="width:13px;" aria-hidden="true"></span>staging.klien-a.id<span style="margin-left:auto; font-size:10px; color:var(--text-secondary); font-family:var(--font-sans);">alias</span></div>
+      </div>
+
+      <div style="border-top:0.5px solid var(--border); padding-top:12px;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:7px;">Who can reach it</div>
+        <div style="display:inline-flex; border:0.5px solid var(--border); border-radius:8px; overflow:hidden; font-size:12px;">
+          <span style="padding:5px 12px; color:var(--text-secondary);"><i class="ti ti-world" style="font-size:13px; vertical-align:-2px; margin-right:4px;" aria-hidden="true"></i>Public</span>
+          <span style="padding:5px 12px; background:var(--surface-1); color:var(--text-primary); border-left:0.5px solid var(--border);"><i class="ti ti-lock" style="font-size:13px; vertical-align:-2px; margin-right:4px;" aria-hidden="true"></i>Password</span>
+          <span style="padding:5px 12px; color:var(--text-secondary); border-left:0.5px solid var(--border);"><i class="ti ti-shield-lock" style="font-size:13px; vertical-align:-2px; margin-right:4px;" aria-hidden="true"></i>CF Access</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-secondary); margin-top:7px;">Basic auth — visitors need the password. <span style="color:var(--text-accent);">Set credentials</span></div>
+      </div>
+
+    </div>
+  </div>
+</div></body></html>

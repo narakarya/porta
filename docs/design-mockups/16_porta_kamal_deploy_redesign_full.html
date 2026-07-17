@@ -1,0 +1,71 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_kamal_deploy_redesign_full</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">Full Kamal redesign as a deploy dashboard: a header with current release and deploy actions, a sub-nav, a build-push-deploy pipeline stepper, host health cards, accessory status, and a streamed log.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+
+    <div style="display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:0.5px solid var(--border);">
+      <i class="ti ti-rocket" style="font-size:17px; color:var(--text-accent);" aria-hidden="true"></i>
+      <span style="font-size:14px; font-weight:500;">Deploy</span>
+      <span style="font-size:11px; color:var(--text-secondary); display:inline-flex; align-items:center; gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--fill-success);"></span>v1.24 live · 2/2 hosts · 2h ago</span>
+      <span style="margin-left:auto; display:flex; gap:6px;">
+        <span style="font-size:12px; color:#fff; background:var(--fill-accent); border-radius:6px; padding:5px 13px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-rocket" style="font-size:14px;" aria-hidden="true"></i>Deploy</span>
+        <span style="font-size:12px; border:0.5px solid var(--border-strong); border-radius:6px; padding:5px 12px;">Rollback</span>
+        <span style="font-size:12px; border:0.5px solid var(--border); border-radius:6px; padding:5px 8px; color:var(--text-secondary);"><i class="ti ti-dots" style="font-size:14px;" aria-hidden="true"></i></span>
+      </span>
+    </div>
+
+    <div style="display:flex; gap:2px; padding:6px 14px 0; border-bottom:0.5px solid var(--border); font-size:12px;">
+      <span style="padding:5px 10px; border-bottom:1.5px solid var(--text-accent); color:var(--text-primary); margin-bottom:-1px;">Overview</span>
+      <span style="padding:5px 10px; color:var(--text-secondary);">Releases</span>
+      <span style="padding:5px 10px; color:var(--text-secondary);">Hosts</span>
+      <span style="padding:5px 10px; color:var(--text-secondary);">Accessories</span>
+      <span style="padding:5px 10px; color:var(--text-secondary);">Logs</span>
+      <span style="padding:5px 10px; color:var(--text-secondary);">Commands</span>
+    </div>
+
+    <div style="padding:14px 16px; display:flex; flex-direction:column; gap:14px;">
+
+      <div style="display:flex; align-items:center; gap:0;">
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-success);"><i class="ti ti-circle-check" style="font-size:16px;" aria-hidden="true"></i>Build</span>
+        <span style="flex:1; height:1.5px; background:var(--fill-success); margin:0 8px;"></span>
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-success);"><i class="ti ti-circle-check" style="font-size:16px;" aria-hidden="true"></i>Push</span>
+        <span style="flex:1; height:1.5px; background:var(--fill-accent); margin:0 8px;"></span>
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-accent);"><i class="ti ti-loader" style="font-size:16px;" aria-hidden="true"></i>Deploy <span style="color:var(--text-muted);">1/2</span></span>
+        <span style="flex:1; height:1.5px; background:var(--border); margin:0 8px;"></span>
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted);"><i class="ti ti-circle" style="font-size:16px;" aria-hidden="true"></i>Prune</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div>
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px;">Hosts · web</div>
+          <div style="border:0.5px solid var(--border); border-radius:8px; padding:8px 11px; display:flex; align-items:center; gap:8px; margin-bottom:5px;"><span style="width:7px;height:7px;border-radius:50%;background:var(--fill-success);"></span><span style="font-size:12px; font-family:var(--font-mono);">host-1</span><span style="margin-left:auto; font-size:10px; color:var(--text-success);">live · v1.25</span></div>
+          <div style="border:0.5px solid var(--border-accent); border-radius:8px; padding:8px 11px; display:flex; align-items:center; gap:8px;"><i class="ti ti-loader" style="font-size:13px; color:var(--text-accent);" aria-hidden="true"></i><span style="font-size:12px; font-family:var(--font-mono);">host-2</span><span style="margin-left:auto; font-size:10px; color:var(--text-accent);">deploying…</span></div>
+        </div>
+        <div>
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px;">Accessories</div>
+          <div style="border:0.5px solid var(--border); border-radius:8px; padding:8px 11px; display:flex; align-items:center; gap:8px; margin-bottom:5px;"><i class="ti ti-database" style="font-size:14px; color:var(--text-secondary);" aria-hidden="true"></i><span style="font-size:12px;">postgres</span><span style="margin-left:auto; font-size:10px; color:var(--text-success);">running</span></div>
+          <div style="border:0.5px solid var(--border); border-radius:8px; padding:8px 11px; display:flex; align-items:center; gap:8px;"><i class="ti ti-bolt" style="font-size:14px; color:var(--text-secondary);" aria-hidden="true"></i><span style="font-size:12px;">redis</span><span style="margin-left:auto; font-size:10px; color:var(--text-success);">running</span></div>
+        </div>
+      </div>
+
+      <div style="font-family:var(--font-mono); font-size:11px; line-height:1.7; background:#0d0d0f; border-radius:8px; padding:9px 11px; color:#8a8a8a;">
+        <div><span style="color:#4ade80;">✔</span> host-1 <span style="color:#d4d4d4;">app-web-1a2b</span> healthy</div>
+        <div><span style="color:#60a5fa;">INFO</span> host-2 booting <span style="color:#d4d4d4;">app:v1.25</span>…<span style="background:#4ade80; color:#0d0d0f;">&nbsp;</span></div>
+      </div>
+
+    </div>
+  </div>
+</div></body></html>

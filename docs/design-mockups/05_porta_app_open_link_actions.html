@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_app_open_link_actions</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">The app workbench header separates lifecycle actions (stop, restart) from a link-aware Open split-button whose dropdown lists the local URL, the live tunnel URL, and a custom domain, each with open and copy.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+
+    <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:0.5px solid var(--border);">
+      <span style="font-size:15px; font-weight:500;">frontend</span>
+      <span style="font-size:11px; color:var(--text-success); background:var(--bg-success); padding:1px 8px; border-radius:20px;">running</span>
+      <span style="font-size:11px; color:var(--text-secondary); display:inline-flex; align-items:center; gap:4px;"><i class="ti ti-world" style="font-size:13px; color:var(--text-success);" aria-hidden="true"></i>tunnel live</span>
+
+      <span style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+        <span style="font-size:12px; border:0.5px solid var(--border-strong); border-radius:6px; padding:4px 11px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-player-stop" style="font-size:14px;" aria-hidden="true"></i>Stop</span>
+        <span style="font-size:12px; border:0.5px solid var(--border); border-radius:6px; padding:4px 11px; color:var(--text-secondary); display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-refresh" style="font-size:14px;" aria-hidden="true"></i>Restart</span>
+        <span style="width:0.5px; height:20px; background:var(--border); margin:0 2px;"></span>
+        <span style="display:inline-flex; align-items:stretch; border:0.5px solid var(--border-accent); border-radius:6px; overflow:hidden;">
+          <span style="font-size:12px; color:var(--text-accent); background:var(--bg-accent); padding:4px 11px; display:inline-flex; align-items:center; gap:5px;"><i class="ti ti-external-link" style="font-size:14px;" aria-hidden="true"></i>Open</span>
+          <span style="font-size:12px; color:var(--text-accent); background:var(--bg-accent); padding:4px 7px; border-left:0.5px solid var(--border-accent);"><i class="ti ti-chevron-down" style="font-size:13px;" aria-hidden="true"></i></span>
+        </span>
+      </span>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; padding:8px 16px 16px;">
+      <div style="width:320px; border:0.5px solid var(--border-strong); border-radius:10px; background:var(--surface-popover); box-shadow:var(--shadow-popover); padding:5px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:4px 8px;">Open in browser</div>
+
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:6px; background:var(--surface-1);">
+          <i class="ti ti-home" style="font-size:16px; color:var(--text-secondary);" aria-hidden="true"></i>
+          <span style="min-width:0;">
+            <span style="display:block; font-size:13px; color:var(--text-primary);">Local <span style="font-size:10px; color:var(--text-muted); border:0.5px solid var(--border); border-radius:4px; padding:0 4px; margin-left:2px;">default</span></span>
+            <span style="display:block; font-size:11px; color:var(--text-secondary); font-family:var(--font-mono);">app.narakarya.test</span>
+          </span>
+          <span style="margin-left:auto; display:flex; gap:8px; color:var(--text-muted);"><i class="ti ti-copy" style="font-size:15px;" aria-hidden="true"></i><i class="ti ti-external-link" style="font-size:15px;" aria-hidden="true"></i></span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:6px;">
+          <i class="ti ti-world" style="font-size:16px; color:var(--text-success);" aria-hidden="true"></i>
+          <span style="min-width:0;">
+            <span style="display:block; font-size:13px; color:var(--text-primary);">Tunnel <span style="font-size:10px; color:var(--text-success);">● live</span></span>
+            <span style="display:block; font-size:11px; color:var(--text-secondary); font-family:var(--font-mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">frontend-7x2.trycloudflare.com</span>
+          </span>
+          <span style="margin-left:auto; display:flex; gap:8px; color:var(--text-muted);"><i class="ti ti-copy" style="font-size:15px;" aria-hidden="true"></i><i class="ti ti-external-link" style="font-size:15px;" aria-hidden="true"></i></span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:6px;">
+          <i class="ti ti-star" style="font-size:16px; color:var(--text-secondary);" aria-hidden="true"></i>
+          <span style="min-width:0;">
+            <span style="display:block; font-size:13px; color:var(--text-primary);">Custom domain</span>
+            <span style="display:block; font-size:11px; color:var(--text-secondary); font-family:var(--font-mono);">app.klien-a.id</span>
+          </span>
+          <span style="margin-left:auto; display:flex; gap:8px; color:var(--text-muted);"><i class="ti ti-copy" style="font-size:15px;" aria-hidden="true"></i><i class="ti ti-external-link" style="font-size:15px;" aria-hidden="true"></i></span>
+        </div>
+
+        <div style="height:0.5px; background:var(--border); margin:4px 6px;"></div>
+        <div style="font-size:12px; color:var(--text-secondary); padding:6px 8px; display:flex; align-items:center; gap:8px;"><i class="ti ti-plus" style="font-size:14px;" aria-hidden="true"></i>Manage domains &amp; tunnel</div>
+      </div>
+    </div>
+
+  </div>
+</div></body></html>

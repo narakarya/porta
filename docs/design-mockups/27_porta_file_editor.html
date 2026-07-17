@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_file_editor</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">The in-app file editor: a config file open with line numbers and syntax highlighting, plus save and format actions.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <i class="ti ti-file-code" style="font-size:15px; color:var(--text-secondary);" aria-hidden="true"></i>
+      <span style="font-size:12px; font-family:var(--font-mono);">config/deploy.yml</span>
+      <span style="font-size:10px; color:var(--text-warning);">● unsaved</span>
+      <span style="margin-left:auto; display:flex; gap:8px; font-size:11px;"><span style="color:var(--text-secondary);">Format</span><span style="color:var(--text-accent);">Save ⌘S</span></span>
+    </div>
+    <div style="display:flex; font-family:var(--font-mono); font-size:12px; line-height:1.7; background:#0d0d0f; padding:9px 0; height:170px; overflow:hidden;">
+      <div style="width:34px; text-align:right; padding-right:10px; color:#4a4a4a; user-select:none;">1<br>2<br>3<br>4<br>5<br>6<br>7</div>
+      <div style="flex:1; padding-right:12px; color:#d4d4d4;">
+        <div><span style="color:#c084fc;">service</span>: <span style="color:#86efac;">mediapress</span></div>
+        <div><span style="color:#c084fc;">image</span>: <span style="color:#86efac;">ghcr.io/klien-a/web</span></div>
+        <div><span style="color:#c084fc;">servers</span>:</div>
+        <div>  <span style="color:#c084fc;">web</span>: [<span style="color:#86efac;">203.0.113.5</span>]</div>
+        <div><span style="color:#c084fc;">registry</span>:</div>
+        <div>  <span style="color:#c084fc;">username</span>: <span style="color:#86efac;">deploy</span></div>
+        <div>  <span style="color:#c084fc;">password</span>: [<span style="color:#fbbf24;">KAMAL_REGISTRY_PASSWORD</span>]<span style="background:#4ade80; color:#0d0d0f;">&nbsp;</span></div>
+      </div>
+    </div>
+  </div>
+</div></body></html>

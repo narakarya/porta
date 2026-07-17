@@ -1,0 +1,51 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_phoenix_packages</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">The Phoenix Package Manager extension: a Mix dependency table showing current, latest, and constraint with update type, one-click update and bump actions, and a conflict diagnostic.</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans);">
+  <div style="border:0.5px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface-2);">
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--border); background:var(--surface-1);">
+      <i class="ti ti-package" style="font-size:16px; color:var(--text-accent);" aria-hidden="true"></i>
+      <span style="font-size:12px; font-weight:500;">Packages</span>
+      <span style="font-size:10px; color:var(--text-muted); border:0.5px solid var(--border); border-radius:4px; padding:0 6px;">phoenix-packages · ext</span>
+      <span style="margin-left:auto; font-size:11px; color:var(--text-secondary);">mix hex.outdated · 3 outdated</span>
+    </div>
+    <div style="padding:4px 6px; font-size:12px;">
+      <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:0.5px solid var(--border); font-family:var(--font-mono);">
+        <span style="min-width:100px; color:var(--text-primary);">phoenix</span>
+        <span style="color:var(--text-muted);">1.7.10</span><i class="ti ti-arrow-right" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-primary);">1.7.14</span>
+        <span style="font-size:10px; color:var(--text-success); background:var(--bg-success); border-radius:20px; padding:1px 8px; font-family:var(--font-sans);">patch</span>
+        <span style="margin-left:auto; font-size:11px; color:var(--text-accent); font-family:var(--font-sans);">Update</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:0.5px solid var(--border); font-family:var(--font-mono);">
+        <span style="min-width:100px; color:var(--text-primary);">ecto</span>
+        <span style="color:var(--text-muted);">3.10.3</span><i class="ti ti-arrow-right" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-primary);">3.11.2</span>
+        <span style="font-size:10px; color:var(--text-warning); background:var(--bg-warning); border-radius:20px; padding:1px 8px; font-family:var(--font-sans);">minor</span>
+        <span style="margin-left:auto; font-size:11px; color:var(--text-accent); font-family:var(--font-sans);">Update</span>
+      </div>
+      <div style="padding:8px 10px;">
+        <div style="display:flex; align-items:center; gap:10px; font-family:var(--font-mono);">
+          <span style="min-width:100px; color:var(--text-primary);">plug</span>
+          <span style="color:var(--text-muted);">1.14.0</span><i class="ti ti-arrow-right" style="font-size:13px; color:var(--text-muted);" aria-hidden="true"></i><span style="color:var(--text-primary);">1.16.0</span>
+          <span style="font-size:10px; color:var(--text-danger); background:var(--bg-danger); border-radius:20px; padding:1px 8px; font-family:var(--font-sans);">major · blocked</span>
+          <span style="margin-left:auto; font-size:11px; color:var(--text-secondary); font-family:var(--font-sans);">Bump mix.exs</span>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:7px; margin-top:7px; padding:7px 9px; background:var(--bg-danger); border-radius:8px;">
+          <i class="ti ti-git-pull-request-closed" style="font-size:14px; color:var(--text-danger); margin-top:1px;" aria-hidden="true"></i>
+          <span style="font-size:11px; color:var(--text-danger);">Held back by <span style="font-family:var(--font-mono);">phoenix_html ~> 3.3</span> which requires <span style="font-family:var(--font-mono);">plug &lt; 1.16</span>. Bump phoenix_html first.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></body></html>

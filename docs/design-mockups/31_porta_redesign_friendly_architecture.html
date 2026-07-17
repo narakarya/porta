@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_redesign_friendly_architecture</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.20);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f;
+  --bg-accent: rgba(96,165,250,.15); --text-accent:#93c5fd;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15);
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--surface-0);color:var(--text-primary);font-family:var(--font-sans);}
+</style></head><body><h2 class="sr-only">A four-layer architecture that makes future redesigns cheap: tokens and primitives at the bottom (what a redesign changes), features and shell on top (untouched).</h2>
+<div style="padding:0.5rem 0; font-family:var(--font-sans); display:flex; gap:14px; align-items:stretch;">
+  <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+
+    <div style="border:0.5px solid var(--border); border-radius:10px; padding:11px 14px; background:var(--surface-2);">
+      <div style="font-size:13px; font-weight:500;">4 · Shell</div>
+      <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Rail · domains · slots (rail/sidebar/main). IA = recompose slots.</div>
+    </div>
+
+    <div style="border:0.5px solid var(--border); border-radius:10px; padding:11px 14px; background:var(--surface-2);">
+      <div style="font-size:13px; font-weight:500;">3 · Features</div>
+      <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">workspaces · hosts · git · publish… = <span style="color:var(--text-primary);">hooks (logic)</span> + <span style="color:var(--text-primary);">views (compose primitives)</span>. No raw styling.</div>
+    </div>
+
+    <div style="border:1.5px solid var(--border-accent); border-radius:10px; padding:11px 14px; background:var(--bg-accent);">
+      <div style="font-size:13px; font-weight:500; color:var(--text-accent);">2 · Primitives (ui/)</div>
+      <div style="font-size:11px; color:var(--text-accent); margin-top:2px;">Button · Input · Card · Modal · Tabs · Badge · StatusDot · Popover · ListRow · EmptyState · Skeleton — built only on tokens.</div>
+    </div>
+
+    <div style="border:1.5px solid var(--border-accent); border-radius:10px; padding:11px 14px; background:var(--bg-accent);">
+      <div style="font-size:13px; font-weight:500; color:var(--text-accent);">1 · Tokens</div>
+      <div style="font-size:11px; color:var(--text-accent); margin-top:2px;">surface/text/status colors · radius · spacing · type · motion (CSS vars / Tailwind theme). One source of truth.</div>
+    </div>
+
+  </div>
+
+  <div style="width:150px; flex-shrink:0; display:flex; flex-direction:column; justify-content:flex-end;">
+    <div style="border-left:2px solid var(--border-accent); border-radius:0; padding:10px 0 10px 12px; margin-bottom:2px;">
+      <div style="font-size:12px; font-weight:500; color:var(--text-accent);">A redesign changes<br>only layers 1–2</div>
+      <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">Features + shell inherit it for free — no file-by-file restyle.</div>
+    </div>
+  </div>
+</div></body></html>
