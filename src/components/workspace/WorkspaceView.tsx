@@ -16,7 +16,6 @@ import ServiceSelectionBar from "./ServiceSelectionBar";
 const AddAppModal = lazy(() => import("../app/AddAppModal"));
 const AddServiceModal = lazy(() => import("../service/AddServiceModal"));
 const ImportComposeModal = lazy(() => import("./ImportComposeModal"));
-const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
 const TerminalModal = lazy(() => import("../terminal/TerminalModal"));
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -37,8 +36,6 @@ export default function WorkspaceView() {
   const connectOrFocusSsh = usePortaStore((s) => s.connectOrFocusSsh);
   const setActiveDomain = usePortaStore((s) => s.setActiveDomain);
   const selectApp = usePortaStore((s) => s.selectApp);
-  const settingsAppId = usePortaStore((s) => s.settingsAppId);
-  const openAppSettings = usePortaStore((s) => s.openAppSettings);
   const [showAdd, setShowAdd] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [addAppDefaults, setAddAppDefaults] = useState<AddAppDefaultValues | undefined>(undefined);
@@ -107,7 +104,7 @@ export default function WorkspaceView() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  const [savedToast, setSavedToast] = useState(false);
+  const [savedToast] = useState(false);
   const [activeTerminalAppId, setActiveTerminalAppId] = useState<string | null>(null);
   // Track which apps have ever opened a terminal so their modal stays mounted (preserves PTY sessions)
   const [openedTerminalIds, setOpenedTerminalIds] = useState<Set<string>>(new Set());
@@ -240,9 +237,6 @@ export default function WorkspaceView() {
 
   // Keep settingsApp in sync with latest store data so the modal sees fresh
   // values (tunnel URL arrives async, status flips, metrics update, etc.).
-  const liveSettingsApp = settingsAppId
-    ? (apps.find((a) => a.id === settingsAppId) ?? null)
-    : null;
 
   // Terminal modals are keyed by app.id, but a sub-instance's terminal is
   // opened with the *instance* id (see deriveInstanceApp). Instance ids never
@@ -580,20 +574,8 @@ export default function WorkspaceView() {
               />
             )}
 
-            {liveSettingsApp && (
-              <AppSettingsModal
-                app={liveSettingsApp}
-                workspace={workspace}
-                onClose={() => openAppSettings(null)}
-                onSaved={() => {
-                  // Keep the modal open after save — the user often tweaks
-                  // multiple settings in one session, and auto-closing forces
-                  // re-opening the modal for every adjustment.
-                  setSavedToast(true);
-                  window.setTimeout(() => setSavedToast(false), 2000);
-                }}
-              />
-            )}
+            {/* App settings modal moved to App.tsx (top level) so it shows over
+                the workbench — WorkspaceView is hidden whenever an app is open. */}
 
             {/* One TerminalModal per app that has been opened — each isolated with its own PTY sessions.
                 Use the full `apps` list (not `visibleApps`) so switching workspace doesn't unmount
