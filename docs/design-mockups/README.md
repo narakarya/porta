@@ -16,6 +16,29 @@ NOT direction B (unified 220px sidebar) — that is what the abandoned codex bra
 
 `feat/app-redesign-shell-c` (PR #25). Already scaffolds Shell C: `GlobalRail` (icon rail), `activeDomain` store state, `AppWorkbench` (tabbed), Activity/Extensions domain views, design tokens + `src/components/ui/` primitives. This is the correct foundation — continue here, matching the mockups below. Keep the SSH client (Hosts domain) from v0.10.0 intact.
 
+## Functional guarantees (MUST hold through the redesign)
+
+This is a **big** redesign across many surfaces — the visual change must NOT break
+existing, working behavior. The redesign re-skins/relayouts; it does not regress
+features. Non-negotiables:
+
+- **Logs** — keep the real LogViewer working: live streaming, severity filter,
+  search + match-count, follow, wrap, clear. Wire the redesigned Logs tab to the
+  actual log stream, not a static mock.
+- **Git** — the core git (poller-backed `appGit`, GitBadge fetch/pull/push/branch
+  switch) must keep working. The workbench Git tab / full manager builds on the
+  same commands + store; reconcile with the `git-manager` extension rather than
+  replacing working core git.
+- **Terminal** — must keep working AND gain the agreed improvements: **split panes**
+  and **multiple tabs** (plus fullscreen). Preserve keep-warm mounting so switching
+  domains/tabs never disposes an xterm/PTY or drops listeners.
+- **SSH (Hosts)** — the v0.10.0 SSH client stays fully functional.
+- General: every redesigned surface must be wired to real state/commands; a mockup
+  that currently shows placeholder data must be connected before it's "done".
+
+Because the scope is large, implement **phase by phase**, validating each increment
+(tsc + in-browser smoke test) and never leaving a surface half-wired.
+
 ## Key decisions from the session
 
 - Workspaces list: **collapse/expand per workspace**, **add app inline** from the list (`03`).
