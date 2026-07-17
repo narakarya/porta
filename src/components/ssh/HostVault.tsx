@@ -3,7 +3,7 @@ import { usePortaStore } from "../../store";
 import type { SshHost } from "../../lib/commands";
 import HostFormModal from "./HostFormModal";
 import { OsIcon } from "./OsIcon";
-import { SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
+import { SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
 
 type MenuState = { host: SshHost; x: number; y: number };
 
@@ -35,6 +35,13 @@ export default function HostVault() {
     }
     return m;
   }, [sessions]);
+
+  // Total live sessions — feeds the header subtitle (mirrors the Workspaces
+  // sidebar's "N running" line).
+  const activeSessions = useMemo(
+    () => sessions.filter((s) => s.status !== "disconnected").length,
+    [sessions]
+  );
 
   const list = useMemo(
     () =>
@@ -108,10 +115,29 @@ export default function HostVault() {
   );
 
   return (
-    <div className="p-2">
-      {/* No standalone "Hosts" title — the grouped SidebarGroupHeaders below
-          already label the list (mirrors the Workspaces sidebar). */}
-      <div className="flex items-center gap-1.5 mb-2">
+    <>
+      {/* Title header — shared shell with the Workspaces sidebar (drag-region +
+          title + subtitle + a "+" affordance), so both domains read the same. */}
+      <SidebarHeader>
+        <div className="flex-1 min-w-0">
+          <div className="no-drag text-[15px] font-semibold text-ink leading-tight">Hosts</div>
+          <div className="no-drag text-[11px] text-ink-3 mt-0.5">
+            {hosts.length} host{hosts.length === 1 ? "" : "s"}{activeSessions > 0 ? ` · ${activeSessions} active` : ""}
+          </div>
+        </div>
+        <button
+          onClick={() => setAdding(true)}
+          title="Add host"
+          aria-label="Add host"
+          className="no-drag text-ink-3 hover:text-ink transition-colors p-1 -mr-1 mt-0.5 rounded"
+        >
+          <svg width="12" height="12" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+        </button>
+      </SidebarHeader>
+
+      {/* Search + workspace filter — occupies the same slot the Workspaces
+          sidebar reserves for its filter bar. */}
+      <div className="px-2.5 pb-2 shrink-0 flex items-center gap-1.5">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -163,7 +189,7 @@ export default function HostVault() {
       {/* Grouped list — group headers + rows mirror the Workspaces sidebar shell
           (uppercase group header with a muted count + "+" affordance; app-row
           rhythm for the host rows). */}
-      <div className="flex flex-col gap-0.5">
+      <SidebarBody className="flex flex-col gap-0.5 px-2 pt-1">
         {groups.map(([groupName, groupHosts]) => (
           <div key={groupName}>
             {/* Group header — shared shell with the Workspaces sidebar. */}
@@ -226,10 +252,13 @@ export default function HostVault() {
             })}
           </div>
         ))}
-      </div>
+      </SidebarBody>
 
-      {/* Add-host footer — shared shell with the Workspaces "Add App" button. */}
-      <SidebarAddButton label="Add host" onClick={() => setAdding(true)} className="mt-2" />
+      {/* Add-host footer — bordered footer slot, shared shell with the
+          Workspaces "Add App" button. */}
+      <SidebarFooter>
+        <SidebarAddButton label="Add host" onClick={() => setAdding(true)} />
+      </SidebarFooter>
 
       {/* Right-click / ⋯ context menu — single instance, cursor-anchored. */}
       {menu && (
@@ -272,7 +301,7 @@ export default function HostVault() {
 
       {adding && <HostFormModal onClose={() => setAdding(false)} />}
       {editing && <HostFormModal host={editing} onClose={() => setEditing(null)} />}
-    </div>
+    </>
   );
 }
 

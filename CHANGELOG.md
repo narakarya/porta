@@ -6,6 +6,47 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.2] — 2026-07-18
+
+Restores functionality the Shell-C redesign dropped from the app workbench and
+unifies the remaining chrome. Beta channel.
+
+### Fixed
+
+- **Logs.** The rewritten log viewer regained its line-number gutter, the six
+  colored level badges (ERR/WARN/INFO/DBG/TRC/OK), copy-entry (header + body +
+  stacktrace as one unit), the **Success** and **Debug** filter chips, per-level
+  text coloring for warn/info/success (not just error), and the colored
+  continuation rail / alternating block tint. The beta additions (timestamp
+  toggle, export, "Paused · N new", error-count badge) stay.
+- **Extensions unreachable from the workbench.** Opening an app hid the grid
+  card (and its extension affordances) with no replacement. The workbench header
+  now has an extensions toggle and the Overview lists each matching extension's
+  app-actions, wired to the shared extension sidebar.
+- **Git branch/switch gone from the app surface.** The workbench header showed a
+  read-only branch label; restored the interactive `GitBadge` (branch indicator
+  + switch-branch + fetch/pull/push). The full Git tab remains.
+- **Lifecycle buttons had no loading state through startup.** Start/Restart/Stop
+  cleared their spinner the instant the IPC returned, before the process was up.
+  Loading/disabled now derive from `starting` status + the `appRestarting` store
+  flag (cleared on `app:ready`), and the button set no longer flickers back to
+  "Start" mid-startup.
+- **"Open" button did nothing** in the workbench — it used raw `window.open`,
+  a no-op in the Tauri WebView. All Open affordances now use `openExternalUrl`.
+- **Domain list missing.** The workbench Details card lists every host the app
+  answers on (primary `.test` subdomain + `extra_subdomains`), each openable.
+
+### Changed
+
+- **One update popover.** The redundant self-update popover in the sidebar
+  status row was removed; the rail-anchored update popover (`UpdateToast`) is now
+  the single update surface and is built on the shared `ui/Popover` (new `card`
+  variant). The sidebar row keeps only the version + system-health dot.
+- **Unified sidebar.** The Hosts sidebar stopped hand-rolling its own 256px
+  column and now shares the same `SidebarFrame/Header/Body/Footer` shell as the
+  Workspaces sidebar (216px, matching surface/border, a "Hosts" title header,
+  and a bordered add-host footer).
+
 ## [0.12.0] — 2026-07-17
 
 ### Changed

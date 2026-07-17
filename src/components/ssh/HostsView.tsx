@@ -1,33 +1,39 @@
 import { useEffect, useState } from "react";
 import { usePortaStore } from "../../store";
 import { Skeleton } from "../ui";
+import { SidebarFrame, SidebarHeader, SidebarBody } from "../layout/SidebarShell";
 import HostVault from "./HostVault";
 import SshSessionTabs from "./SshSessionTabs";
 import TrustHostModal from "./TrustHostModal";
 import SecretPromptModal from "./SecretPromptModal";
 
 /** Sidebar placeholder shown on first load, before the host list arrives.
- *  Mirrors HostVault's top layout (label + search row + rows) so the swap to
- *  real content doesn't shift. */
+ *  Mirrors HostVault's shell (header + search row + rows) so the swap to real
+ *  content doesn't shift. */
 function HostVaultSkeleton() {
   return (
-    <div className="p-2">
-      <div className="px-1 mb-2 text-[11px] uppercase tracking-[0.04em] text-ink-3">Hosts</div>
-      <div className="flex items-center gap-1.5 mb-2">
-        <Skeleton className="h-7 flex-1 rounded-lg" />
+    <>
+      <SidebarHeader>
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-semibold text-ink leading-tight">Hosts</div>
+          <Skeleton className="h-2.5 w-16 rounded mt-1.5" />
+        </div>
+      </SidebarHeader>
+      <div className="px-2.5 pb-2 shrink-0">
+        <Skeleton className="h-7 w-full rounded-control" />
       </div>
-      <div className="flex flex-col gap-0.5">
+      <SidebarBody className="flex flex-col gap-0.5 px-2 pt-1">
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="flex items-center gap-2 px-2 py-1.5">
-            <Skeleton className="w-1.5 h-1.5 rounded-full" />
+            <Skeleton className="w-5 h-5 rounded" />
             <div className="min-w-0 flex-1">
               <Skeleton className="h-3 w-24 rounded mb-1" />
               <Skeleton className="h-2.5 w-32 rounded" />
             </div>
           </div>
         ))}
-      </div>
-    </div>
+      </SidebarBody>
+    </>
   );
 }
 
@@ -51,9 +57,11 @@ export default function HostsView() {
 
   return (
     <div className="flex h-screen -mx-6 -mt-14 pt-14 -mb-6 bg-surface-0">
-      <div className="w-64 shrink-0 h-full flex flex-col border-r border-subtle bg-surface-1 overflow-y-auto">
+      {/* Reuse the same shell the Workspaces sidebar uses (216px, #0d0d0f,
+          shared border) instead of a hand-rolled 256px column. */}
+      <SidebarFrame>
         {showSkeleton ? <HostVaultSkeleton /> : <HostVault />}
-      </div>
+      </SidebarFrame>
       <div className="flex-1 min-w-0 h-full flex flex-col bg-surface-0">
         <SshSessionTabs />
       </div>

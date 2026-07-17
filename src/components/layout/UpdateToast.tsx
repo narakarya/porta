@@ -1,5 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
+import { Popover } from "../ui";
 import { dismissUpdater, restartForUpdate, startUpdateDownload, checkForUpdate } from "../../lib/updater";
 
 // No dedicated release-URL helper exists yet, so we link straight to the
@@ -240,38 +241,48 @@ export default function UpdateToast() {
   const skin =
     "bg-[#202024] border border-strong rounded-[12px] shadow-[0_12px_40px_rgba(0,0,0,0.55)]";
 
-  // Anchored to the rail's account avatar (bottom-left), reading as a popover
-  // emanating from the rail rather than a detached bottom-right toast (mockup
-  // 15). The rail is 54px wide, so we sit just past it and let a small caret
-  // point back toward the avatar.
+  // Only the phases that carry a footer dismiss (Later / Dismiss / Cancel) may
+  // be closed with Escape — an in-flight download/install/restart must not be
+  // interrupted by a stray keypress.
+  const escDismiss =
+    phase === "available" || phase === "ready" || phase === "error" || phase === "checking";
+
+  // The single update popover — rendered through the shared ui/Popover in card
+  // mode so it inherits the common Escape handling while keeping its bespoke
+  // rail-anchored position + caret (mockup 15). No backdrop: a status card is
+  // dismissed via its own actions, not by clicking away.
   return (
-    <div
-      className="fixed left-[60px] bottom-[14px] z-[60]"
-      role="status"
-      aria-live="polite"
+    <Popover
+      open
+      onClose={dismissUpdater}
+      variant="card"
+      closeOnEscape={escDismiss}
+      panelClassName="fixed left-[60px] bottom-[14px] z-[60]"
     >
-      {/* Connecting caret — a rotated square whose left/bottom edges face the
-          rail, so the card reads as anchored to the account button. */}
-      <span
-        aria-hidden="true"
-        className="absolute left-[-5px] bottom-[9px] w-[10px] h-[10px] rotate-45 bg-[#202024] border-l border-b border-strong"
-      />
+      <div role="status" aria-live="polite">
+        {/* Connecting caret — a rotated square whose left/bottom edges face the
+            rail, so the card reads as anchored to the account button. */}
+        <span
+          aria-hidden="true"
+          className="absolute left-[-5px] bottom-[9px] w-[10px] h-[10px] rotate-45 bg-[#202024] border-l border-b border-strong"
+        />
 
-      <div className={`relative w-[280px] overflow-hidden ${skin}`}>
-        {/* Header: leading glyph inline with title, subline at the card's left
-            edge (px 14, pt 12, pb 10 per mockup 15) */}
-        <div className="px-3.5 pt-3 pb-2.5">{headerNode}</div>
+        <div className={`relative w-[280px] overflow-hidden ${skin}`}>
+          {/* Header: leading glyph inline with title, subline at the card's left
+              edge (px 14, pt 12, pb 10 per mockup 15) */}
+          <div className="px-3.5 pt-3 pb-2.5">{headerNode}</div>
 
-        {/* Body: release notes / progress / detail */}
-        {body && <div className="px-3.5 pb-2.5 pt-0">{body}</div>}
+          {/* Body: release notes / progress / detail */}
+          {body && <div className="px-3.5 pb-2.5 pt-0">{body}</div>}
 
-        {/* Footer: actions on a raised bar (surface-1), matching the popover mockup */}
-        {actions && (
-          <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-subtle bg-surface-1">
-            {actions}
-          </div>
-        )}
+          {/* Footer: actions on a raised bar (surface-1), matching the popover mockup */}
+          {actions && (
+            <div className="flex items-center gap-2 px-3.5 py-2.5 border-t border-subtle bg-surface-1">
+              {actions}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </Popover>
   );
 }

@@ -2,11 +2,14 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
-import { isTauri } from "../../lib/commands";
+import { isTauri, openExternalUrl, getExtensionsForApp, detectAppTags } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Popover, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalTab from "../terminal/TerminalTab";
 import GitTab from "./GitTab";
 import PublishTab from "./PublishTab";
+import GitBadge from "../app/GitBadge";
+import ExtensionActionButtons from "../extension/ExtensionActionButtons";
+import type { ExtensionInfo } from "../../types/extension";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
 const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
@@ -184,8 +187,9 @@ export default function AppWorkbench({ app }: Props) {
   const [instancesOpen, setInstancesOpen] = useState(false);
 
   const {
-    startApp, stopApp, restartApp, clearAppLogs, logs, health, branch,
+    startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting,
     instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
+    openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
   } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
@@ -195,17 +199,55 @@ export default function AppWorkbench({ app }: Props) {
       logs: s.appLogs[app.id] ?? EMPTY,
       health: s.healthStatuses[app.id],
       branch: s.appGit[app.id]?.branch,
+      restarting: s.appRestarting[app.id] ?? false,
       instances: s.instances[app.id] ?? EMPTY_INSTANCES,
       refreshInstances: s.refreshInstances,
       runInstance: s.runInstance,
       stopInstanceAction: s.stopInstanceAction,
       removeInstanceAction: s.removeInstanceAction,
+      openExtensionSidebar: s.openExtensionSidebar,
+      closeExtensionSidebar: s.closeExtensionSidebar,
+      cacheAppExtensions: s.cacheAppExtensions,
+      extSidebarActive: s.extensionSidebar?.appId === app.id,
     }))
   );
   useEffect(() => { void refreshInstances(app.id); }, [app.id, refreshInstances]);
 
+  // Extensions matching this app (mockup: the workbench is the app's home, so
+  // the card's extension affordances must live here too — otherwise opening an
+  // app hides the grid card and there's no way to reach its extensions).
+  const [appExtensions, setAppExtensions] = useState<ExtensionInfo[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const tags = app.root_dir ? await detectAppTags(app.root_dir).catch(() => [] as string[]) : [];
+      const exts = await getExtensionsForApp(app.kind, tags).catch(() => [] as ExtensionInfo[]);
+      if (cancelled) return;
+      setAppExtensions(exts);
+      cacheAppExtensions(app.id, exts); // expose to the command palette
+    })();
+    return () => { cancelled = true; };
+  }, [app.id, app.kind, app.root_dir, cacheAppExtensions]);
+
   const running = app.status === "running";
+  // "starting" persists (optimistic) until the backend fires app:ready seconds
+  // later; `restarting` is the store flag cleared on the same event. Both keep
+  // the lifecycle button in its loading state through the real async phase —
+  // otherwise the local `busy` flag clears the instant the IPC returns (before
+  // the process is actually up) and the button flickers back to plain "Start".
+  const isStarting = app.status === "starting";
+  const active = running || isStarting;
   const st = toStatus(app.status);
+  // Every host Caddy serves this app under — the primary .test subdomain plus
+  // any extra_subdomains, resolved against the app's custom domain or the
+  // workspace domain (mirrors the card's allHosts in main).
+  const workspace = workspaces.find((w) => w.id === app.workspace_id) ?? null;
+  const hostDomain = app.custom_domain || workspace?.domain || "narakarya.test";
+  const primaryDomainHost = (() => {
+    const sub = app.subdomain ?? app.name;
+    return sub === "*" ? `*.${hostDomain}` : `${sub}.${hostDomain}`;
+  })();
+  const allHosts = [primaryDomainHost, ...(app.extra_subdomains ?? []).map((s) => `${s}.${hostDomain}`)];
   // Instances section (mockup 26): the primary checkout counts as running when
   // the app itself is up; branch instances count their own "running" status.
   const runningCount = (running ? 1 : 0) + instances.filter((i) => i.status === "running").length;
@@ -274,7 +316,7 @@ export default function AppWorkbench({ app }: Props) {
         {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
         {domainHost && (
           <button
-            onClick={() => window.open(`https://${domainHost}`, "_blank")}
+            onClick={() => openExternalUrl(`https://${domainHost}`)}
             title={`Open https://${domainHost}`}
             className="text-[11px] text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors"
           >
@@ -283,22 +325,22 @@ export default function AppWorkbench({ app }: Props) {
           </button>
         )}
         <span className="text-[11px] text-ink-3 font-mono">port {app.port}</span>
-        {branch && (
-          <span className="text-[11px] text-ink-3 font-mono inline-flex items-center gap-1" title={`branch ${branch}`}>
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-            {branch}
-          </span>
-        )}
+        {/* Interactive git control (restored from the card's GitBadge): branch
+            indicator + switch-branch + fetch/pull/push. Self-hides for non-repos.
+            The full-panel Git tab remains for richer history/diff work. */}
+        <GitBadge app={app} onOpenTerminal={() => select("terminal")} />
         <div className="ml-auto flex gap-2">
-          {running ? (
+          {active ? (
             <>
               {/* Lifecycle actions: Stop is the more prominent neutral (border-strong),
-                  Restart the lighter subtle border — per mockup 05, neither is red. */}
-              <Button variant="secondary" loading={busy === "stop"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", () => stopApp(app.id))}>Stop</Button>
-              <Button variant="ghost" className="border border-subtle" loading={busy === "restart"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", () => restartApp(app.id))}>Restart</Button>
+                  Restart the lighter subtle border — per mockup 05, neither is red.
+                  Restart keeps spinning off the store `restarting` flag (cleared on
+                  app:ready), not the local `busy` flag which clears too early. */}
+              <Button variant="secondary" loading={busy === "stop"} disabled={busy === "stop"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", () => stopApp(app.id))}>Stop</Button>
+              <Button variant="ghost" className="border border-subtle" loading={busy === "restart" || restarting} disabled={busy === "restart" || restarting} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", () => restartApp(app.id))}>{restarting || busy === "restart" ? "Restarting" : "Restart"}</Button>
             </>
           ) : (
-            <Button variant="accent" loading={busy === "start"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", () => startApp(app.id))}>Start</Button>
+            <Button variant="accent" loading={busy === "start"} disabled={busy === "start"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", () => startApp(app.id))}>Start</Button>
           )}
           {/* Thin divider separates lifecycle actions from the Open action (mockup 05). */}
           <span className="w-px h-5 self-center bg-[var(--border-subtle)] mx-0.5" aria-hidden />
@@ -312,7 +354,7 @@ export default function AppWorkbench({ app }: Props) {
             anchor={
               <span className="inline-flex items-stretch rounded-control overflow-hidden border border-[rgba(96,165,250,0.30)] self-center">
                 <button
-                  onClick={() => window.open(localUrl, "_blank")}
+                  onClick={() => openExternalUrl(localUrl)}
                   title={`Open ${localUrl}`}
                   className="text-[12px] font-medium text-accent-ink bg-accent-bg px-2.5 py-[5px] inline-flex items-center gap-1.5 hover:bg-[rgba(96,165,250,0.24)] transition-colors duration-fast"
                 >
@@ -348,7 +390,7 @@ export default function AppWorkbench({ app }: Props) {
                 <button onClick={() => navigator.clipboard.writeText(localUrl)} title="Copy URL" aria-label="Copy local URL" className="hover:text-ink transition-colors">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 10.5A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5h5a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
                 </button>
-                <button onClick={() => window.open(localUrl, "_blank")} title="Open URL" aria-label="Open local URL" className="hover:text-ink transition-colors">
+                <button onClick={() => openExternalUrl(localUrl)} title="Open URL" aria-label="Open local URL" className="hover:text-ink transition-colors">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
               </span>
@@ -368,7 +410,7 @@ export default function AppWorkbench({ app }: Props) {
                   <button onClick={() => navigator.clipboard.writeText(app.tunnel_url!)} title="Copy URL" aria-label="Copy tunnel URL" className="hover:text-ink transition-colors">
                     <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 10.5A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5h5a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
                   </button>
-                  <button onClick={() => window.open(app.tunnel_url!, "_blank")} title="Open URL" aria-label="Open tunnel URL" className="hover:text-ink transition-colors">
+                  <button onClick={() => openExternalUrl(app.tunnel_url!)} title="Open URL" aria-label="Open tunnel URL" className="hover:text-ink transition-colors">
                     <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
                 </span>
@@ -387,7 +429,7 @@ export default function AppWorkbench({ app }: Props) {
                   <button onClick={() => navigator.clipboard.writeText(`https://${app.custom_domain}`)} title="Copy URL" aria-label="Copy custom domain URL" className="hover:text-ink transition-colors">
                     <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 10.5A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5h5a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
                   </button>
-                  <button onClick={() => window.open(`https://${app.custom_domain}`, "_blank")} title="Open URL" aria-label="Open custom domain URL" className="hover:text-ink transition-colors">
+                  <button onClick={() => openExternalUrl(`https://${app.custom_domain}`)} title="Open URL" aria-label="Open custom domain URL" className="hover:text-ink transition-colors">
                     <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
                 </span>
@@ -403,6 +445,24 @@ export default function AppWorkbench({ app }: Props) {
               Manage domains &amp; tunnel
             </button>
           </Popover>
+          {/* Extensions toggle (restored from the card): opens the global
+              extension sidebar for this app. One match → focus it directly. */}
+          {appExtensions.length > 0 && (
+            <Button
+              variant="ghost"
+              className={extSidebarActive ? "text-accent" : ""}
+              onClick={() => {
+                if (extSidebarActive) closeExtensionSidebar();
+                else if (appExtensions.length === 1) openExtensionSidebar(app.id, appExtensions, appExtensions[0].id);
+                else openExtensionSidebar(app.id, appExtensions);
+              }}
+              title={extSidebarActive ? "Close extensions" : appExtensions.length === 1 ? `Open ${appExtensions[0].name}` : `${appExtensions.length} extensions`}
+              aria-label={`${appExtensions.length} extension${appExtensions.length > 1 ? "s" : ""}`}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6.2 2.5a1.2 1.2 0 0 1 2.4 0v.8h1.7c.4 0 .7.3.7.7v1.7h.8a1.2 1.2 0 0 1 0 2.4h-.8v2.4c0 .4-.3.7-.7.7H8.6v-.8a1.2 1.2 0 0 0-2.4 0v.8H4.5a.7.7 0 0 1-.7-.7V8.6h-.8a1.2 1.2 0 0 1 0-2.4h.8V4.5c0-.4.3-.7.7-.7h1.7v-.8z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
+              {appExtensions.length > 1 && <span className="text-[10px] font-medium ml-0.5">{appExtensions.length}</span>}
+            </Button>
+          )}
           <Button variant="ghost" onClick={() => openConfig()} title="App settings" aria-label="More">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/></svg>
           </Button>
@@ -437,12 +497,30 @@ export default function AppWorkbench({ app }: Props) {
                   <div className={row}>
                     <span className={key}>URL</span>
                     <button
-                      onClick={() => window.open(url, "_blank")}
+                      onClick={() => openExternalUrl(url)}
                       className="text-accent-ink font-mono truncate max-w-[20rem] hover:underline"
                       title={`Open ${url}`}
                     >
                       {url}
                     </button>
+                  </div>
+                  {/* Every Caddy host this app answers on — the primary .test
+                      subdomain plus any extra_subdomains (restored from the card). */}
+                  <div className={row}>
+                    <span className={`${key} self-start pt-0.5`}>Domains</span>
+                    <span className="flex flex-wrap gap-1.5 min-w-0">
+                      {allHosts.map((h) => (
+                        <button
+                          key={h}
+                          onClick={() => openExternalUrl(`https://${h}`)}
+                          title={`Open https://${h}`}
+                          className="inline-flex items-center gap-1 text-[11px] text-ink-2 font-mono border border-subtle rounded-[5px] px-1.5 py-0.5 hover:text-accent-ink hover:border-strong transition-colors"
+                        >
+                          {h}
+                          <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        </button>
+                      ))}
+                    </span>
                   </div>
                 </div>
               </Card>
@@ -464,6 +542,30 @@ export default function AppWorkbench({ app }: Props) {
                 ))}
               </div>
             </section>
+
+            {/* Extensions (restored from the card): run any appAction contributed
+                by a matching extension headlessly, or open the full panel. */}
+            {appExtensions.length > 0 && (
+              <section>
+                <div className="flex items-center gap-2 mb-2 px-0.5">
+                  <span className="text-[10px] uppercase tracking-[0.09em] text-ink-3">Extensions</span>
+                  <button
+                    onClick={() => appExtensions.length === 1 ? openExtensionSidebar(app.id, appExtensions, appExtensions[0].id) : openExtensionSidebar(app.id, appExtensions)}
+                    className="ml-auto text-[11px] text-accent-ink inline-flex items-center gap-1 hover:brightness-110 transition-[filter]"
+                  >
+                    Open panel
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <ExtensionActionButtons
+                    app={app}
+                    extensions={appExtensions}
+                    onOpenExtension={(ext) => openExtensionSidebar(app.id, appExtensions, ext.id)}
+                  />
+                </div>
+              </section>
+            )}
 
             {/* Instances (mockup 26) — the primary checkout plus each git-worktree
                 branch instance, each with its own port/URL. The "＋ New from branch"
@@ -515,7 +617,7 @@ export default function AppWorkbench({ app }: Props) {
                       <span className="ml-auto flex items-center gap-1.5 text-ink-3 shrink-0">
                         {isRunning ? (
                           <>
-                            <button onClick={() => window.open(instUrl, "_blank")} title="Open instance" aria-label="Open instance" className="hover:text-accent transition-colors">
+                            <button onClick={() => openExternalUrl(instUrl)} title="Open instance" aria-label="Open instance" className="hover:text-accent transition-colors">
                               <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                             </button>
                             <button onClick={() => void stopInstanceAction(inst.id, app.id)} title="Stop instance" aria-label="Stop instance" className="hover:text-ink transition-colors">

@@ -109,6 +109,29 @@ const LEVEL_CLASS: Record<NonNullable<LogLevel>, string> = {
   success: "text-emerald-400",
 };
 
+// Left rail tint for continuation lines — ties a nested block (SQL body,
+// `↳` caller, stacktrace) back to the severity of its leveled header without
+// coloring the body text itself.
+const LEVEL_RAIL: Record<NonNullable<LogLevel>, string> = {
+  error:   "border-red-500/30",
+  warn:    "border-amber-500/30",
+  info:    "border-blue-500/30",
+  debug:   "border-zinc-600/40",
+  trace:   "border-zinc-700/40",
+  success: "border-emerald-500/30",
+};
+
+// Compact colored badge per level. Doubles as the copy-entry trigger — clicking
+// it copies the whole leveled entry (header + its continuation lines).
+const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
+  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
+  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
+  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
+  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
+  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
+  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
+};
+
 // ── Ingest pipeline ───────────────────────────────────────────────────────────
 interface ProcessedLine {
   text: string;
@@ -178,9 +201,11 @@ const FILTER_SEGMENTS: {
   dot: string;
   on: string;
 }[] = [
-  { key: "info",  label: "Info",  dot: "bg-accent", on: "bg-[rgba(96,165,250,0.14)] text-accent-ink border-[rgba(96,165,250,0.35)]" },
-  { key: "warn",  label: "Warn",  dot: "bg-warn",   on: "bg-[rgba(251,191,36,0.14)] text-warn border-[rgba(251,191,36,0.38)]" },
-  { key: "error", label: "Error", dot: "bg-bad",    on: "bg-[rgba(248,113,113,0.14)] text-bad border-[rgba(248,113,113,0.38)]" },
+  { key: "info",    label: "Info",    dot: "bg-accent",    on: "bg-[rgba(96,165,250,0.14)] text-accent-ink border-[rgba(96,165,250,0.35)]" },
+  { key: "warn",    label: "Warn",    dot: "bg-warn",      on: "bg-[rgba(251,191,36,0.14)] text-warn border-[rgba(251,191,36,0.38)]" },
+  { key: "error",   label: "Error",   dot: "bg-bad",       on: "bg-[rgba(248,113,113,0.14)] text-bad border-[rgba(248,113,113,0.38)]" },
+  { key: "success", label: "Success", dot: "bg-ok",        on: "bg-[rgba(52,211,153,0.14)] text-ok border-[rgba(52,211,153,0.35)]" },
+  { key: "debug",   label: "Debug",   dot: "bg-zinc-500",  on: "bg-[rgba(161,161,170,0.14)] text-zinc-300 border-[rgba(161,161,170,0.35)]" },
 ];
 
 // ── Container name shortening ─────────────────────────────────────────────────
@@ -229,55 +254,86 @@ interface LogLineProps {
   text: string;
   level: LogLevel;
   isContinuation: boolean;
+  ownerLevel: LogLevel;
   originalIndex: number;
+  /** Stable absolute line number for the gutter (see ProcessedLine.seq). */
+  seq: number;
   crashed: boolean;
   query: string;
   isActiveMatch: boolean;
+  isAlternateBlock: boolean;
   copied: boolean;
+  blockCopied: boolean;
   wrap: boolean;
   showTimestamps: boolean;
   onCopy: (text: string, idx: number) => void;
+  onCopyBlock: (idx: number) => void;
 }
 
 const LogLine = memo(function LogLine({
-  text, level, isContinuation, originalIndex, crashed, query,
-  isActiveMatch, copied, wrap, showTimestamps, onCopy,
+  text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
+  isActiveMatch, isAlternateBlock, copied, blockCopied, wrap, showTimestamps, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
-  const showLevel = !isContinuation && !!effectiveLevel;
+  const showBadge = !isContinuation && !!effectiveLevel;
   const isErrorRow = !isContinuation && effectiveLevel === "error";
   // Peel the leading timestamp (and, on a leveled header, the redundant
-  // `[LEVEL]` marker) into their own columns. The message body renders neutral —
-  // severity lives in the bare inline level token and the error-row tint.
-  const { ts, body } = splitLeadingMeta(text, showLevel);
+  // `[LEVEL]` marker) into their own columns. Severity lives in the level badge,
+  // the header text tint, and the continuation rail.
+  const { ts, body } = splitLeadingMeta(text, showBadge);
+
+  // A continuation line (SQL body, `↳` caller, stacktrace) belongs to the
+  // leveled entry above it — keep the whole block on the same alternating text
+  // tone, then tint the left rail with the owner's level so the block reads as
+  // one unit tied to its severity.
+  const blockTextCls = isAlternateBlock ? "text-cyan-200/70" : "text-zinc-400";
+  const continuationLevel = crashed ? "error" : ownerLevel;
+  const continuationUsesSeverity = continuationLevel === "error" || continuationLevel === "warn" || continuationLevel === "info" || continuationLevel === "success";
+  const headerUsesSeverity = effectiveLevel === "error" || effectiveLevel === "warn" || effectiveLevel === "info" || effectiveLevel === "success";
+  const textCls = crashed
+    ? LEVEL_CLASS.error
+    : isContinuation
+      ? continuationUsesSeverity && continuationLevel ? LEVEL_CLASS[continuationLevel] : blockTextCls
+      : headerUsesSeverity && effectiveLevel ? LEVEL_CLASS[effectiveLevel] : blockTextCls;
+  const badge = showBadge && effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
+  const railLevel = crashed ? "error" : ownerLevel;
+  const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
   const rowBg = isActiveMatch
     ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20"
     : isErrorRow
       ? "bg-red-500/[0.08] border-l-2 border-red-400"
       : "bg-transparent hover:bg-white/[0.025]";
-  // Message body: error headers tint reddish (#fca5a5); continuation lines
-  // (SQL body, `↳` caller, stacktrace) render flat gray, indented ~44px; every
-  // other line stays neutral.
-  const bodyTone = isContinuation
-    ? "text-[#8a8a8a] pl-[44px]"
-    : isErrorRow
-      ? "text-[#fca5a5]"
-      : "text-[#d4d4d4]";
 
   return (
     <div className={`flex py-[2.5px] rounded px-1 group items-start ${rowBg}`}>
+      <span className="text-[11px] text-ink-3 w-8 shrink-0 mr-2 text-right tabular-nums pt-[2px] group-hover:text-ink-2 select-none">
+        {seq + 1}
+      </span>
       {showTimestamps && ts && (
         <span className="text-[11px] text-[#5f5f5f] tabular-nums mr-2 shrink-0 pt-[2px] select-none">
           {ts}
         </span>
       )}
-      {showLevel && effectiveLevel && (
-        <span className={`text-[11px] shrink-0 mr-2 select-none ${LEVEL_CLASS[effectiveLevel]}`}>
-          {effectiveLevel}
-        </span>
-      )}
+      <span className="w-8 shrink-0 mr-2 pt-[1px] select-none">
+        {badge && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onCopyBlock(originalIndex)}
+            title="Copy this entry (with its body/stacktrace)"
+            className={`text-[9px] font-medium px-1 py-px rounded border transition-all cursor-pointer ${
+              blockCopied
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                : `${badge.cls} hover:brightness-125`
+            }`}
+          >
+            {blockCopied ? "✓" : badge.label}
+          </button>
+        )}
+      </span>
       <span
-        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[11px] ${bodyTone}`}
+        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[11px] ${textCls} ${
+          isContinuation ? `border-l ${railCls} pl-2` : ""
+        }`}
       >
         {highlightLine(body, query)}
       </span>
@@ -318,6 +374,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   const [followTail, setFollowTail] = useState(true);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
+  const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
   const [wrap, setWrap] = useState(true);
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [copiedToast, setCopiedToast] = useState(false);
@@ -540,6 +597,27 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     });
   };
   const handleCopyLine = useMemo(() => (text: string, index: number) => copyLineRef.current(text, index), []);
+
+  // Copy a whole leveled entry — the header line plus every continuation
+  // (SQL body, `↳` caller, stacktrace) that belongs to it. Clicking the badge
+  // anywhere in the block walks up to its header first, then collects down.
+  const copyBlockRef = useRef<(index: number) => void>(() => {});
+  copyBlockRef.current = (index: number) => {
+    let start = index;
+    while (start > 0 && lineMeta[start]?.isContinuation) start--;
+    const parts = [allLogs[start]?.text ?? ""];
+    for (let i = start + 1; i < allLogs.length; i++) {
+      if (!lineMeta[i]?.isContinuation) break;
+      parts.push(allLogs[i].text);
+    }
+    void copyToClipboard(parts.join("\n")).then((ok) => {
+      if (!ok) return;
+      setCopiedBlock(start);
+      showCopiedToast();
+      setTimeout(() => setCopiedBlock(null), 1200);
+    });
+  };
+  const handleCopyBlock = useMemo(() => (index: number) => copyBlockRef.current(index), []);
 
   const filterActive = enabledLevels.size > 0;
 
@@ -1044,14 +1122,19 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   text={line.text}
                   level={line.level}
                   isContinuation={lineMeta[originalIndex].isContinuation}
+                  ownerLevel={lineMeta[originalIndex].ownerLevel}
                   originalIndex={originalIndex}
+                  seq={line.seq}
                   crashed={!!crashed}
                   query={debouncedQuery}
                   isActiveMatch={isActiveMatch}
+                  isAlternateBlock={lineMeta[originalIndex].isAlternateBlock}
                   copied={copiedLine === originalIndex}
+                  blockCopied={copiedBlock === originalIndex}
                   wrap={wrap}
                   showTimestamps={showTimestamps}
                   onCopy={handleCopyLine}
+                  onCopyBlock={handleCopyBlock}
                 />
               );
             })}
