@@ -20,11 +20,7 @@ interface ContextMenuState {
   y: number;
 }
 
-interface SidebarProps {
-  onOpenSettings: () => void;
-}
-
-export default function Sidebar({ onOpenSettings }: SidebarProps) {
+export default function Sidebar() {
   const { workspaces, apps, selectedWorkspaceId, selectedAppId, imageUpdateCache, selectWorkspace, selectApp, reorderWorkspaces, activeDomain, setActiveDomain } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
@@ -42,6 +38,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const [showAddWs, setShowAddWs] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
   const [showImportCompose, setShowImportCompose] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [wsExpanded] = useState(true);
@@ -179,7 +176,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   // App rows shown under a workspace header. Clicking one opens the app in the
   // workbench (content-forward main). Status/port are baked into the row.
   function renderApps(wsId: string | null) {
-    const list = appsByWs.get(wsId) ?? [];
+    const q = filterQuery.trim().toLowerCase();
+    const list = (appsByWs.get(wsId) ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
     if (list.length === 0) return null;
     return (
       <div className="flex flex-col gap-px mb-0.5">
@@ -227,6 +225,24 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
             </svg>
           </button>
         </Tooltip>
+      </div>
+      {/* Filter apps (mockup) — filters the app rows by name */}
+      <div className="px-2.5 pb-2 shrink-0">
+        <div className="flex items-center gap-1.5 border border-white/[0.08] rounded-[7px] px-2 py-1 focus-within:border-white/20 transition-colors">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-zinc-600 shrink-0"><circle cx="5" cy="5" r="3.3" stroke="currentColor" strokeWidth="1.2"/><path d="M7.6 7.6l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+          <input
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Filter apps…"
+            spellCheck={false}
+            className="flex-1 min-w-0 bg-transparent text-[12px] text-zinc-300 placeholder-zinc-600 outline-none"
+          />
+          {filterQuery ? (
+            <button onClick={() => setFilterQuery("")} className="text-zinc-600 hover:text-zinc-300 text-[13px] leading-none shrink-0">×</button>
+          ) : (
+            <span className="text-[10px] text-zinc-700 border border-white/[0.08] rounded px-1 shrink-0">⌘K</span>
+          )}
+        </div>
       </div>
       <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag pt-1">
         {wsExpanded && (
@@ -315,17 +331,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         </button>
       </div>
 
-      <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-0.5">
-        <button
-          onClick={onOpenSettings}
-          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.05] transition-all duration-100"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
-            <circle cx="6" cy="6" r="2" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M6 1v1M6 10v1M1 6h1M10 6h1M2.3 2.3l.7.7M9 9l.7.7M9.7 2.3l-.7.7M3 9l-.7.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
-          <span>Settings</span>
-        </button>
+      <div className="px-2 pt-2 border-t border-white/[0.06] no-drag">
         <SidebarStatusRow />
       </div>
 

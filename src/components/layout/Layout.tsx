@@ -7,10 +7,9 @@ import ResourceDrawer from "./ResourceDrawer";
 
 interface Props {
   children: ReactNode;
-  onOpenSettings: () => void;
 }
 
-export default function Layout({ children, onOpenSettings }: Props) {
+export default function Layout({ children }: Props) {
   // Derive counts via selector so Layout only re-renders when running/total count
   // flips, not on every apps array mutation (metrics tick etc).
   const { running, total, extSidebarOpen, drawerOpen, activeDomain } = usePortaStore(
@@ -76,7 +75,7 @@ export default function Layout({ children, onOpenSettings }: Props) {
       {/* Sidebar-top drag region (only when the workspaces sidebar shows) */}
       {showSidebar && <div className="drag-region fixed top-0 left-[54px] w-[216px] h-11 z-10" />}
 
-      {showSidebar && <Sidebar onOpenSettings={onOpenSettings} />}
+      {showSidebar && <Sidebar />}
       <main className={`flex-1 overflow-y-auto overflow-x-hidden pt-14 px-6 pb-6 no-drag transition-[padding-right] duration-200 ${extSidebarOpen ? "pr-[272px]" : ""}`}>
         {children}
       </main>

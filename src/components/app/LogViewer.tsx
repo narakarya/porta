@@ -188,12 +188,15 @@ function highlightLine(line: string, query: string): React.ReactNode {
 // ── Level filter ──────────────────────────────────────────────────────────────
 type EnabledLevels = Set<NonNullable<LogLevel>>;
 
-const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; activeCls: string }[] = [
-  { key: "error",   label: "ERR",  activeCls: "bg-red-500/15 text-red-400 border-red-500/25" },
-  { key: "warn",    label: "WARN", activeCls: "bg-amber-500/15 text-amber-400 border-amber-500/25" },
-  { key: "success", label: "OK",   activeCls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
-  { key: "info",    label: "INFO", activeCls: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
-  { key: "debug",   label: "DBG",  activeCls: "bg-zinc-700/50 text-zinc-400 border-zinc-600/40" },
+// Always-colored severity pills (mockup): full-word labels + a leading square
+// dot in the level tint. Order Error/Warn/Info/Debug/Trace/Success.
+const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; cls: string; dot: string }[] = [
+  { key: "error",   label: "Error",   cls: "bg-red-500/15 text-red-400",       dot: "bg-red-400" },
+  { key: "warn",    label: "Warn",    cls: "bg-amber-500/15 text-amber-400",   dot: "bg-amber-400" },
+  { key: "info",    label: "Info",    cls: "bg-blue-500/15 text-blue-300",     dot: "bg-blue-400" },
+  { key: "debug",   label: "Debug",   cls: "bg-zinc-700/40 text-zinc-300",     dot: "bg-zinc-500" },
+  { key: "trace",   label: "Trace",   cls: "bg-violet-500/15 text-violet-300", dot: "bg-violet-400" },
+  { key: "success", label: "Success", cls: "bg-emerald-500/15 text-emerald-400", dot: "bg-emerald-400" },
 ];
 
 // ── Container name shortening ─────────────────────────────────────────────────
@@ -859,19 +862,21 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         <div className="flex-1" />
 
         <div className="flex items-center gap-1 shrink-0">
-          {FILTER_PILLS.map(({ key, label, activeCls }) => {
+          {FILTER_PILLS.map(({ key, label, cls, dot }) => {
             const isActive = enabledLevels.has(key);
+            // Pills are always in their level color (mockup). When a filter is
+            // active, the unselected ones dim; the selected ones get a ring.
+            const dimmed = filterActive && !isActive;
             return (
               <button
                 key={key}
                 onClick={() => toggleLevel(key)}
-                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
-                  isActive
-                    ? activeCls
-                    : "bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300 hover:bg-white/[0.06]"
-                }`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all ${cls} ${
+                  dimmed ? "opacity-40 hover:opacity-70" : ""
+                } ${isActive ? "ring-1 ring-inset ring-white/25" : ""}`}
                 title={isActive ? `Showing only ${label}` : `Filter to ${label}`}
               >
+                <span className={`w-1.5 h-1.5 rounded-[2px] ${dot}`} />
                 {label}
               </button>
             );

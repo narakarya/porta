@@ -203,7 +203,7 @@ export default function App() {
             <SetupWizard />
             <CommandPalette onOpenSettings={() => setPage("settings")} onShowShortcuts={() => setHelpOpen(true)} />
 
-            <Layout onOpenSettings={() => setPage("settings")}>
+            <Layout>
               {/* Domains kept warm (mounted, toggled with `hidden`) so switching
                   doesn't unmount SshTerminal (disposing xterm / dropping listeners)
                   or re-hydrate the workspace subscriptions. */}

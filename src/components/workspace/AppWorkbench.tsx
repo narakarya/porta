@@ -71,8 +71,8 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
     if (id === "terminal") setTermSeen(true);
   }
 
-  const row = "flex items-center justify-between gap-4 py-2 border-b border-subtle text-[13px] last:border-0";
-  const key = "text-ink-3 shrink-0";
+  const row = "flex items-center gap-4 py-2 border-b border-subtle text-[13px] last:border-0";
+  const key = "text-ink-3 shrink-0 w-24";
 
   // Overview "Quick action" tiles — icon-first buttons that open the app's
   // ancillary surfaces. Wired to the same handlers as before; presentation only.
