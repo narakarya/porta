@@ -14,7 +14,8 @@ interface Props {
 }
 
 export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
-  const { updateWorkspace, deleteWorkspace } = usePortaStore();
+  const { workspaces, updateWorkspace, deleteWorkspace } = usePortaStore();
+  const isLastWorkspace = workspaces.length <= 1;
   const [section, setSection] = useState<Section>("general");
 
   const [name, setName] = useState(workspace.name);
@@ -50,7 +51,7 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
   }
 
   async function handleDelete() {
-    if (deleteTyped !== workspace.name) return;
+    if (deleteTyped !== workspace.name || isLastWorkspace) return;
     await deleteWorkspace(workspace.id);
     onClose();
   }
@@ -182,7 +183,9 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
                 <div>
                   <p className="text-[13px] font-semibold text-red-400">Delete this workspace</p>
                   <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
-                    Removes the workspace from Porta. Apps won't be deleted but will become standalone.
+                    {isLastWorkspace
+                      ? "This is your only workspace — it can't be deleted. Create another workspace first."
+                      : "Removes the workspace from Porta. Its apps aren't deleted — they move to your first workspace."}
                   </p>
                 </div>
                 <label className="flex flex-col gap-1.5">
@@ -195,15 +198,16 @@ export default function WorkspaceSettingsModal({ workspace, onClose }: Props) {
                     onChange={(e) => setDeleteTyped(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleDelete()}
                     placeholder={workspace.name}
-                    className="input-base focus:border-red-500/60"
+                    disabled={isLastWorkspace}
+                    className="input-base focus:border-red-500/60 disabled:opacity-40 disabled:cursor-not-allowed"
                     autoComplete="off"
                     spellCheck={false}
                   />
                 </label>
                 <button
                   onClick={handleDelete}
-                  disabled={deleteTyped !== workspace.name}
-                  className="self-start px-4 py-2 text-[13px] font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+                  disabled={deleteTyped !== workspace.name || isLastWorkspace}
+                  className="self-start px-4 py-2 text-[13px] font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Delete Workspace
                 </button>

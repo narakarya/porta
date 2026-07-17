@@ -93,11 +93,27 @@ export const createWorkspaceSlice: StateCreator<AllSlices, [], [], WorkspaceSlic
   },
 
   deleteWorkspace: async (id) => {
+    // Apps in this workspace must not vanish (standalone is retired). Capture
+    // them, delete the workspace (backend detaches them to NULL), then move
+    // them into the first remaining workspace so they stay visible + reachable.
+    const affected = get().apps.filter((a) => a.workspace_id === id).map((a) => a.id);
     await cmd.deleteWorkspace(id);
-    set((s) => ({
-      workspaces: s.workspaces.filter((w) => w.id !== id),
-      apps: s.apps.filter((a) => a.workspace_id !== id),
-      selectedWorkspaceId: s.selectedWorkspaceId === id ? null : s.selectedWorkspaceId,
-    }));
+    set((s) => {
+      const workspaces = s.workspaces.filter((w) => w.id !== id);
+      return {
+        workspaces,
+        selectedWorkspaceId:
+          s.selectedWorkspaceId === id ? workspaces[0]?.id ?? null : s.selectedWorkspaceId,
+      };
+    });
+    const home = get().workspaces[0]?.id ?? null;
+    if (home) {
+      for (const appId of affected) await get().moveAppToWorkspace(appId, home);
+    } else {
+      // No workspaces left — reflect the detach in state (backend already NULLed).
+      set((s) => ({
+        apps: s.apps.map((a) => (affected.includes(a.id) ? { ...a, workspace_id: null } : a)),
+      }));
+    }
   },
 });

@@ -69,15 +69,19 @@ export default function App() {
 
   useEffect(() => {
     checkSetup();
-    load().then(() => {
+    load().then(async () => {
       refreshHealth();
       // Standalone apps are retired — every app must belong to a workspace.
-      // Migrate any workspace-less apps into the first workspace once, on load.
+      // Rescue any orphaned app (workspace_id null OR pointing at a workspace
+      // that no longer exists, e.g. a deleted-workspace dangling id) into the
+      // first workspace, once, on load. Sequential so it triggers a single
+      // Caddy re-sync at the end instead of N racing rewrites.
       const st = usePortaStore.getState();
       if (isTauri && st.workspaces.length > 0) {
-        for (const a of st.apps) {
-          if (a.workspace_id === null) void st.moveAppToWorkspace(a.id, st.workspaces[0].id);
-        }
+        const known = new Set(st.workspaces.map((w) => w.id));
+        const home = st.workspaces[0].id;
+        const orphans = st.apps.filter((a) => a.workspace_id === null || !known.has(a.workspace_id));
+        for (const a of orphans) await st.moveAppToWorkspace(a.id, home);
       }
     });
     loadSettings();

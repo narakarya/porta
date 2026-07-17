@@ -148,7 +148,7 @@ export const mockApps: App[] = [
   },
   {
     id: "app-4",
-    workspace_id: null,
+    workspace_id: "ws-1",
     name: "standalone-tool",
     root_dir: "/Users/dev/tools/standalone",
     port: 8080,

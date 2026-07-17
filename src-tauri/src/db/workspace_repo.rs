@@ -47,6 +47,14 @@ impl Database {
     }
 
     pub fn delete_workspace(&self, id: &str) -> Result<()> {
+        // `apps.workspace_id` has ON DELETE SET NULL, but the connection runs
+        // with foreign_keys OFF, so the cascade never fires. Detach the apps
+        // explicitly first — otherwise they keep a dangling workspace_id and
+        // become unreachable (the load-time migration then rescues the NULLs).
+        self.conn.execute(
+            "UPDATE apps SET workspace_id = NULL WHERE workspace_id = ?1",
+            params![id],
+        )?;
         self.conn.execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
         Ok(())
     }
