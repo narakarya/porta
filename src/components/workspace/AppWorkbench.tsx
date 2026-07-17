@@ -76,9 +76,12 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-subtle">
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-subtle">
+        <span className="w-[26px] h-[26px] rounded-[7px] bg-surface-2 text-accent flex items-center justify-center shrink-0">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 8l1.6 1.6L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </span>
+        <span className="text-[16px] font-semibold text-ink">{app.name}</span>
         <StatusDot status={st} />
-        <span className="text-[15px] font-medium text-ink">{app.name}</span>
         <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
         {running && health === "healthy" && <Badge tone="ok">healthy</Badge>}
         {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
