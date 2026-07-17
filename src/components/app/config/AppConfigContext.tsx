@@ -931,6 +931,7 @@ export function useAppConfigDraft(
   const isProxy = app.kind === "proxy";
 
   return {
+    app,
     tunnelError, tunnelErrorCopied, setTunnelErrorCopied,
     section, setSection,
     tunnelUrlCopied, setTunnelUrlCopied,
