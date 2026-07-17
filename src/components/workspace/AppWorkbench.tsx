@@ -7,6 +7,8 @@ import TerminalTab from "../terminal/TerminalTab";
 import GitTab from "./GitTab";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
+const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
+const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
 
 // Stable empty ref so the store selector never returns a fresh array (which
 // would make useShallow see a change every render → infinite update loop).
@@ -35,6 +37,9 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
   const [tab, setTab] = useState("overview");
   const [logsSeen, setLogsSeen] = useState(false);
   const [termSeen, setTermSeen] = useState(false);
+  // Traffic + Files reuse their existing full-screen surfaces, opened as an
+  // overlay from the Overview quick actions (they aren't inline tabs yet).
+  const [overlay, setOverlay] = useState<null | "traffic" | "files">(null);
 
   const { startApp, stopApp, restartApp, clearAppLogs, logs, health, branch } = usePortaStore(
     useShallow((s) => ({
@@ -116,7 +121,14 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
             <div className={row}><span className={key}>URL</span><span className="text-accent-ink font-mono">{url}</span></div>
           </Card>
           <div className="mt-4">
-            <Button onClick={() => onOpenSettings(app)}>Open settings…</Button>
+            <div className="text-[11px] uppercase tracking-wide text-ink-3 mb-1.5">Quick actions</div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setOverlay("traffic")}>Traffic</Button>
+              <Button onClick={() => setOverlay("files")}>Files</Button>
+              <Button onClick={() => select("logs")}>Logs</Button>
+              <Button onClick={() => select("terminal")}>Terminal</Button>
+              <Button onClick={() => onOpenSettings(app)}>Settings…</Button>
+            </div>
           </div>
         </div>
 
@@ -146,6 +158,23 @@ export default function AppWorkbench({ app, onOpenSettings }: Props) {
           <GitTab app={app} />
         </div>
       </div>
+
+      {overlay === "traffic" && (
+        <Suspense fallback={null}>
+          <TrafficInspectorModal appId={app.id} appName={app.name} isOpen onClose={() => setOverlay(null)} />
+        </Suspense>
+      )}
+      {overlay === "files" && (
+        <Suspense fallback={null}>
+          <FileEditorModal
+            appId={app.id}
+            appName={app.name}
+            composePath={app.compose_file ?? null}
+            currentPort={app.port}
+            onClose={() => setOverlay(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
