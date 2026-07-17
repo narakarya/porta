@@ -88,26 +88,26 @@ export default function DiskUsageSection() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-[16px] font-semibold text-zinc-100">Docker Disk Usage</h1>
-        <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
+        <h1 className="text-[16px] font-semibold text-ink">Docker Disk Usage</h1>
+        <p className="text-[12px] text-ink-3 mt-1 leading-relaxed">
           Track how much disk Docker is using and reclaim space from unused images, stopped containers, and build cache.
         </p>
       </div>
 
       {/* System totals */}
-      <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-sky-400">
+            <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.3)] flex items-center justify-center shrink-0">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
                 <ellipse cx="10" cy="5" rx="7" ry="2.5" stroke="currentColor" strokeWidth="1.5"/>
                 <path d="M3 5v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5V5" stroke="currentColor" strokeWidth="1.5"/>
                 <path d="M3 10v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5v-5" stroke="currentColor" strokeWidth="1.5"/>
               </svg>
             </div>
             <div>
-              <p className="text-[13px] font-medium text-zinc-200">System Totals</p>
-              <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+              <p className="text-[13px] font-medium text-ink">System Totals</p>
+              <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
                 Disk used by all of Docker — across every project on this machine, not just Porta-managed apps.
               </p>
             </div>
@@ -115,7 +115,7 @@ export default function DiskUsageSection() {
           <button
             onClick={refresh}
             disabled={load === "loading"}
-            className="text-[12px] text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
+            className="text-[12px] text-ink-2 hover:text-ink disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
             title="Refresh"
           >
             {load === "loading" ? (
@@ -134,7 +134,7 @@ export default function DiskUsageSection() {
         </div>
 
         {load === "error" && (
-          <p className="text-[12px] text-red-400">
+          <p className="text-[12px] text-bad">
             Couldn't reach Docker. Make sure Docker Desktop / OrbStack is running.
           </p>
         )}
@@ -154,24 +154,24 @@ export default function DiskUsageSection() {
 
         {load === "ready" && reclaimable > 0 && (
           <div className="flex items-center gap-2 text-[12px]">
-            <span className="text-zinc-500">Reclaimable across all sections:</span>
-            <span className="text-amber-400 font-medium font-mono">{formatBytes(reclaimable)}</span>
+            <span className="text-ink-3">Reclaimable across all sections:</span>
+            <span className="text-warn font-medium font-mono">{formatBytes(reclaimable)}</span>
           </div>
         )}
       </div>
 
       {/* Cleanup actions */}
-      <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-amber-400">
+          <div className="w-9 h-9 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.3)] flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-warn">
               <path d="M5 6h10l-1 10a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
               <path d="M3 6h14M8 3h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
           <div>
-            <p className="text-[13px] font-medium text-zinc-200">Cleanup</p>
-            <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+            <p className="text-[13px] font-medium text-ink">Cleanup</p>
+            <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
               Free up disk by removing dangling layers and (optionally) all images not currently in use.
             </p>
           </div>
@@ -179,10 +179,10 @@ export default function DiskUsageSection() {
 
         <div className="flex flex-col gap-3">
           {/* Dangling — safe */}
-          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
             <div className="flex flex-col gap-0.5 min-w-0">
-              <p className="text-[12px] text-zinc-300">Free up dangling images</p>
-              <p className="text-[11px] text-zinc-600">
+              <p className="text-[12px] text-ink-2">Free up dangling images</p>
+              <p className="text-[11px] text-ink-3">
                 Removes unreferenced layers left behind by past pulls. Always safe.
               </p>
             </div>
@@ -201,10 +201,10 @@ export default function DiskUsageSection() {
           </div>
 
           {/* Unused — aggressive */}
-          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
             <div className="flex flex-col gap-0.5 min-w-0">
-              <p className="text-[12px] text-zinc-300">Remove all unused images</p>
-              <p className="text-[11px] text-zinc-600">
+              <p className="text-[12px] text-ink-2">Remove all unused images</p>
+              <p className="text-[11px] text-ink-3">
                 Aggressive — also drops images for stopped apps. They'll re-pull on next start.
               </p>
             </div>
@@ -262,17 +262,17 @@ function UploadLimitCard() {
   const isUnlimited = bytes === 0;
 
   return (
-    <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+    <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
       <div className="flex items-start gap-4">
-        <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-sky-400">
+        <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.3)] flex items-center justify-center shrink-0">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
             <path d="M10 13V4M10 4 6.5 7.5M10 4l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M4 13v2.5h12V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </div>
         <div>
-          <p className="text-[13px] font-medium text-zinc-200">Upload size limit</p>
-          <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+          <p className="text-[13px] font-medium text-ink">Upload size limit</p>
+          <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
             Default cap on request bodies the proxy forwards to an app — larger uploads get a 413.
             Individual apps can override this in their own settings.
           </p>
@@ -280,7 +280,7 @@ function UploadLimitCard() {
       </div>
 
       <div>
-        <p className="text-[11px] text-zinc-500 mb-1.5">
+        <p className="text-[11px] text-ink-3 mb-1.5">
           Default max upload{loaded ? ` · ${isUnlimited ? "unlimited" : formatBytes(bytes)}` : ""}
         </p>
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -291,10 +291,10 @@ function UploadLimitCard() {
               <button
                 key={mb}
                 onClick={() => choose(b)}
-                className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+                className={`px-2.5 py-1 text-[11px] rounded-control border transition-colors ${
                   active
-                    ? "bg-blue-500/15 border-blue-500/30 text-blue-300"
-                    : "bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:bg-white/[0.07]"
+                    ? "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink"
+                    : "bg-white/[0.04] border-subtle text-ink-2 hover:bg-white/[0.07]"
                 }`}
               >
                 {mb} MB
@@ -303,10 +303,10 @@ function UploadLimitCard() {
           })}
           <button
             onClick={() => choose(0)}
-            className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+            className={`px-2.5 py-1 text-[11px] rounded-control border transition-colors ${
               isUnlimited
-                ? "bg-blue-500/15 border-blue-500/30 text-blue-300"
-                : "bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:bg-white/[0.07]"
+                ? "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink"
+                : "bg-white/[0.04] border-subtle text-ink-2 hover:bg-white/[0.07]"
             }`}
           >
             Unlimited
@@ -380,26 +380,26 @@ function LogsCard() {
   const overCap = (usage?.per_app ?? []).filter((a) => a.bytes > maxBytes);
 
   return (
-    <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+    <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-violet-400">
+          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.3)] flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
               <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M6 7h8M6 10h8M6 13h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
           <div>
-            <p className="text-[13px] font-medium text-zinc-200">App logs</p>
-            <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
-              Per-app stdout/stderr lives in <span className="font-mono text-zinc-400">~/.porta/logs/</span>. Porta auto-rotates oversized files every minute.
+            <p className="text-[13px] font-medium text-ink">App logs</p>
+            <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
+              Per-app stdout/stderr lives in <span className="font-mono text-ink-2">~/.porta/logs/</span>. Porta auto-rotates oversized files every minute.
             </p>
           </div>
         </div>
         <button
           onClick={refresh}
           disabled={loadState === "loading"}
-          className="text-[12px] text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
+          className="text-[12px] text-ink-2 hover:text-ink disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
         >
           {loadState === "loading" ? (
             <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
@@ -417,17 +417,17 @@ function LogsCard() {
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-          <span className="text-[11px] uppercase tracking-wider text-zinc-500">Total</span>
-          <span className="text-[15px] text-zinc-100 font-medium font-mono">{formatBytes(total)}</span>
+        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
+          <span className="text-[11px] uppercase tracking-wider text-ink-3">Total</span>
+          <span className="text-[15px] text-ink font-medium font-mono">{formatBytes(total)}</span>
         </div>
-        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-          <span className="text-[11px] uppercase tracking-wider text-zinc-500">Files</span>
-          <span className="text-[15px] text-zinc-100 font-medium font-mono">{usage?.per_app.length ?? 0}</span>
+        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
+          <span className="text-[11px] uppercase tracking-wider text-ink-3">Files</span>
+          <span className="text-[15px] text-ink font-medium font-mono">{usage?.per_app.length ?? 0}</span>
         </div>
-        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-          <span className="text-[11px] uppercase tracking-wider text-zinc-500">Over cap</span>
-          <span className={`text-[15px] font-medium font-mono ${overCap.length > 0 ? "text-amber-400" : "text-zinc-100"}`}>
+        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
+          <span className="text-[11px] uppercase tracking-wider text-ink-3">Over cap</span>
+          <span className={`text-[15px] font-medium font-mono ${overCap.length > 0 ? "text-warn" : "text-ink"}`}>
             {overCap.length}
           </span>
         </div>
@@ -440,8 +440,8 @@ function LogsCard() {
             const over = a.bytes > maxBytes;
             return (
               <div key={a.app_id} className="flex items-center justify-between text-[11px] font-mono px-3 py-1.5 rounded bg-white/[0.02] border border-white/[0.04]">
-                <span className="truncate text-zinc-400">{a.app_id}</span>
-                <span className={over ? "text-amber-400" : "text-zinc-300"}>{formatBytes(a.bytes)}</span>
+                <span className="truncate text-ink-2">{a.app_id}</span>
+                <span className={over ? "text-warn" : "text-ink-2"}>{formatBytes(a.bytes)}</span>
               </div>
             );
           })}
@@ -450,7 +450,7 @@ function LogsCard() {
 
       {/* Cap selector */}
       <div>
-        <p className="text-[11px] text-zinc-500 mb-1.5">Max size per app log</p>
+        <p className="text-[11px] text-ink-3 mb-1.5">Max size per app log</p>
         <div className="flex items-center gap-1.5 flex-wrap">
           {SIZE_PRESETS_MB.map((mb) => {
             const bytes = mb * 1024 * 1024;
@@ -459,10 +459,10 @@ function LogsCard() {
               <button
                 key={mb}
                 onClick={() => handlePresetChange(mb)}
-                className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+                className={`px-2.5 py-1 text-[11px] rounded-control border transition-colors ${
                   active
-                    ? "bg-blue-500/15 border-blue-500/30 text-blue-300"
-                    : "bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:bg-white/[0.07]"
+                    ? "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink"
+                    : "bg-white/[0.04] border-subtle text-ink-2 hover:bg-white/[0.07]"
                 }`}
               >
                 {mb} MB
@@ -474,10 +474,10 @@ function LogsCard() {
 
       {/* Actions */}
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+        <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
           <div className="flex flex-col gap-0.5 min-w-0">
-            <p className="text-[12px] text-zinc-300">Rotate now</p>
-            <p className="text-[11px] text-zinc-600">
+            <p className="text-[12px] text-ink-2">Rotate now</p>
+            <p className="text-[11px] text-ink-3">
               Trim every log file over the cap to its last {formatBytes(maxBytes)} (line-aligned).
             </p>
           </div>
@@ -490,10 +490,10 @@ function LogsCard() {
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+        <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04]">
           <div className="flex flex-col gap-0.5 min-w-0">
-            <p className="text-[12px] text-zinc-300">Clear all logs</p>
-            <p className="text-[11px] text-zinc-600">
+            <p className="text-[12px] text-ink-2">Clear all logs</p>
+            <p className="text-[11px] text-ink-3">
               Wipes every log file. Running apps keep writing — files just start fresh.
             </p>
           </div>
@@ -525,13 +525,13 @@ function SmallActionButton({
 }) {
   const cls =
     variant === "primary"
-      ? "bg-emerald-700 hover:bg-emerald-600 text-white"
-      : "bg-red-900/60 hover:bg-red-800/70 text-red-100 border border-red-700/40";
+      ? "bg-ok-bg hover:bg-[rgba(52,211,153,0.24)] text-ok border border-[rgba(52,211,153,0.3)]"
+      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.3)]";
   return (
     <button
       onClick={onClick}
       disabled={state === "running"}
-      className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0 ${cls}`}
+      className={`px-3 py-1.5 text-[12px] font-medium rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0 ${cls}`}
     >
       {state === "running" && (
         <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
@@ -555,26 +555,26 @@ function UsageRow({
 }) {
   return (
     <div
-      className={`flex flex-col gap-0.5 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04] ${onDetails ? "cursor-pointer hover:bg-white/[0.04] transition-colors group" : ""}`}
+      className={`flex flex-col gap-0.5 px-3 py-2.5 rounded-control bg-white/[0.02] border border-white/[0.04] ${onDetails ? "cursor-pointer hover:bg-white/[0.04] transition-colors group" : ""}`}
       onClick={onDetails}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</span>
+        <span className="text-[11px] uppercase tracking-wider text-ink-3">{label}</span>
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-zinc-600 font-mono">
+          <span className="text-[10px] text-ink-3 font-mono">
             {section ? `${section.active_count}/${section.total_count}` : "—"}
           </span>
           {onDetails && (
-            <span className="text-[10px] text-zinc-600 group-hover:text-zinc-400 transition-colors">Details →</span>
+            <span className="text-[10px] text-ink-3 group-hover:text-ink-2 transition-colors">Details →</span>
           )}
         </div>
       </div>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[15px] text-zinc-100 font-medium font-mono">
+        <span className="text-[15px] text-ink font-medium font-mono">
           {section ? formatBytes(section.size_bytes) : "—"}
         </span>
         {section && section.reclaimable_bytes > 0 && (
-          <span className="text-[11px] text-amber-400 font-mono">
+          <span className="text-[11px] text-warn font-mono">
             {formatBytes(section.reclaimable_bytes)} reclaimable
           </span>
         )}
@@ -600,22 +600,22 @@ function ActionButton({
 }) {
   const baseClass =
     variant === "primary"
-      ? "bg-emerald-700 hover:bg-emerald-600 text-white"
-      : "bg-red-900/60 hover:bg-red-800/70 text-red-100 border border-red-700/40";
+      ? "bg-ok-bg hover:bg-[rgba(52,211,153,0.24)] text-ok border border-[rgba(52,211,153,0.3)]"
+      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.3)]";
   return (
     <div className="flex items-center gap-2 shrink-0">
       {state.state === "success" && state.result && (
-        <span className="text-[11px] text-emerald-400 font-mono">
+        <span className="text-[11px] text-ok font-mono">
           Freed {formatBytes(state.result.freed_bytes)} ({state.result.removed_count})
         </span>
       )}
       {state.state === "error" && (
-        <span className="text-[11px] text-red-400">Failed</span>
+        <span className="text-[11px] text-bad">Failed</span>
       )}
       <button
         onClick={onClick}
         disabled={disabled || state.state === "running"}
-        className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ${baseClass}`}
+        className={`px-3 py-1.5 text-[12px] font-medium rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ${baseClass}`}
       >
         {state.state === "running" && (
           <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">

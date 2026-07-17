@@ -154,11 +154,11 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
   }
 
   if (token === null) {
-    return <p className="text-[12px] text-zinc-500">Loading…</p>;
+    return <p className="text-[12px] text-ink-3">Loading…</p>;
   }
   if (!token) {
     return (
-      <div className="px-3 py-3 rounded-lg bg-amber-500/[0.07] border border-amber-500/[0.25] text-[12px] text-amber-200">
+      <div className="px-3 py-3 rounded-control bg-warn-bg border border-[rgba(251,191,36,0.25)] text-[12px] text-warn">
         Add a Cloudflare API token in the bar above first. Needs <span className="font-mono">Zone:Settings:Edit + Zone:Cache Purge</span>.
       </div>
     );
@@ -170,7 +170,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
     <div className="flex flex-col gap-5">
       {/* Zone picker */}
       <div className="flex items-center gap-3">
-        <label className="text-[11px] font-medium text-zinc-400">Zone</label>
+        <label className="text-[11px] font-medium text-ink-2">Zone</label>
         <div className="min-w-[220px]">
           <select
             value={zoneId}
@@ -185,25 +185,25 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
       </div>
 
       {error && (
-        <p className="text-[11px] text-red-400 font-mono whitespace-pre-wrap break-words">{error}</p>
+        <p className="text-[11px] text-bad font-mono whitespace-pre-wrap break-words">{error}</p>
       )}
 
       {/* Cache Purge */}
-      <div className="flex flex-col gap-3 p-4 rounded-xl bg-orange-500/[0.04] border border-orange-500/[0.18]">
+      <div className="flex flex-col gap-3 p-4 rounded-card bg-[rgba(251,191,36,0.04)] border border-[rgba(251,191,36,0.18)]">
         <div>
-          <h2 className="text-[14px] font-semibold text-zinc-100">Cache Purge</h2>
-          <p className="text-[11.5px] text-zinc-500 mt-0.5">
+          <h2 className="text-[14px] font-semibold text-ink">Cache Purge</h2>
+          <p className="text-[11.5px] text-ink-3 mt-0.5">
             Useful right after deploying a static app — Cloudflare drops the cached copy and re-fetches from origin.
           </p>
         </div>
-        <div className="flex gap-1.5 p-0.5 rounded-md bg-[#0c0c0e] border border-white/[0.06] w-fit">
+        <div className="flex gap-1.5 p-0.5 rounded-control bg-surface-0 border border-subtle w-fit">
           {(["all", "hosts", "files"] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => { setPurgeMode(m); setPurgeInput(""); }}
               className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                purgeMode === m ? "bg-white/[0.08] text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                purgeMode === m ? "bg-white/[0.08] text-ink" : "text-ink-3 hover:text-ink-2"
               }`}
             >
               {m === "all" ? "Everything" : m === "hosts" ? "By hostname" : "By URL"}
@@ -217,7 +217,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
             onChange={(e) => setPurgeInput(e.target.value)}
             rows={2}
             placeholder={purgeMode === "hosts" ? "myapp.example.com\napi.example.com" : "https://myapp.example.com/file.css"}
-            className="bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[12px] font-mono text-zinc-100 outline-none focus:border-orange-500/50"
+            className="bg-surface-input border border-subtle rounded-control px-3 py-2 text-[12px] font-mono text-ink outline-none focus:border-[rgba(251,191,36,0.5)]"
           />
         )}
         <div className="flex items-center gap-2">
@@ -225,22 +225,22 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
             type="button"
             onClick={handlePurge}
             disabled={purging}
-            className="px-3 py-1.5 text-[11.5px] rounded-md bg-orange-500/15 hover:bg-orange-500/25 text-orange-200 border border-orange-500/30 disabled:opacity-40 inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 text-[11.5px] rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn border border-[rgba(251,191,36,0.3)] disabled:opacity-40 inline-flex items-center gap-1.5"
           >
-            {purging && <span className="inline-block h-3 w-3 rounded-full border-2 border-orange-400/30 border-t-orange-300 animate-spin" />}
+            {purging && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(251,191,36,0.3)] border-t-warn animate-spin" />}
             {purging ? "Purging…" : purgeMode === "all" ? "Purge everything" : "Purge"}
           </button>
-          {purgeMsg && <span className="text-[11px] text-emerald-400">{purgeMsg}</span>}
+          {purgeMsg && <span className="text-[11px] text-ok">{purgeMsg}</span>}
         </div>
       </div>
 
       {/* DNS drift */}
-      <div className="flex flex-col gap-3 p-4 rounded-xl bg-sky-500/[0.04] border border-sky-500/[0.18]">
+      <div className="flex flex-col gap-3 p-4 rounded-card bg-[rgba(96,165,250,0.04)] border border-[rgba(96,165,250,0.18)]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-[14px] font-semibold text-zinc-100">DNS drift</h2>
-            <p className="text-[11.5px] text-zinc-500 mt-0.5">
-              Compare records in {selectedZone ? <span className="font-mono text-zinc-400">{selectedZone.name}</span> : "the selected zone"} against your local Caddy + dnsmasq config.
+            <h2 className="text-[14px] font-semibold text-ink">DNS drift</h2>
+            <p className="text-[11.5px] text-ink-3 mt-0.5">
+              Compare records in {selectedZone ? <span className="font-mono text-ink-2">{selectedZone.name}</span> : "the selected zone"} against your local Caddy + dnsmasq config.
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -249,7 +249,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                 type="button"
                 onClick={() => token && zoneId && loadDiff(token, zoneId)}
                 disabled={diffLoading || !zoneId}
-                className="text-[11px] text-zinc-500 hover:text-zinc-200 disabled:opacity-40 transition-colors"
+                className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
               >
                 {diffLoading ? "Loading…" : "↻ Refresh"}
               </button>
@@ -257,7 +257,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
             <button
               type="button"
               onClick={() => setDriftOpen((v) => !v)}
-              className="text-[11px] font-medium text-sky-300 hover:text-sky-200 transition-colors"
+              className="text-[11px] font-medium text-accent hover:text-accent-ink transition-colors"
             >
               {driftOpen ? "× Hide" : "→ Compare"}
             </button>
@@ -266,7 +266,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
         {driftOpen && (
           <>
             {diffError && (
-              <p className="text-[11px] text-red-400 font-mono whitespace-pre-wrap break-words">{diffError}</p>
+              <p className="text-[11px] text-bad font-mono whitespace-pre-wrap break-words">{diffError}</p>
             )}
             {diffLoading && !diff && (
               <div className="flex flex-col gap-1.5">
@@ -278,27 +278,27 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
             {diff && (
               <div className="flex flex-col gap-2">
                 {/* Only in CF */}
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                <div className="rounded-card border border-subtle bg-surface-1 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setOpenCfList((v) => !v)}
                     className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/[0.03] transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-zinc-200">Only in Cloudflare</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      <span className="text-[12px] text-ink">Only in Cloudflare</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-warn-bg text-warn border border-[rgba(251,191,36,0.3)]">
                         {diff.only_in_cf.length}
                       </span>
                     </div>
-                    <span className="text-[10px] text-zinc-500">{openCfList ? "▾" : "▸"}</span>
+                    <span className="text-[10px] text-ink-3">{openCfList ? "▾" : "▸"}</span>
                   </button>
                   {openCfList && diff.only_in_cf.length > 0 && (
                     <div className="border-t border-white/[0.04] divide-y divide-white/[0.04]">
                       {diff.only_in_cf.map((r) => (
                         <div key={r.id} className="flex items-center gap-2 px-3 py-1.5">
-                          <span className="text-[10px] font-mono uppercase text-zinc-500 w-12 shrink-0">{r.record_type}</span>
-                          <span className="text-[11px] font-mono text-zinc-200 truncate flex-1">{r.name}</span>
-                          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[200px]" title={r.content}>{r.content}</span>
+                          <span className="text-[10px] font-mono uppercase text-ink-3 w-12 shrink-0">{r.record_type}</span>
+                          <span className="text-[11px] font-mono text-ink truncate flex-1">{r.name}</span>
+                          <span className="text-[10px] font-mono text-ink-3 truncate max-w-[200px]" title={r.content}>{r.content}</span>
                         </div>
                       ))}
                     </div>
@@ -306,28 +306,28 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                 </div>
 
                 {/* Only local */}
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                <div className="rounded-card border border-subtle bg-surface-1 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setOpenLocalList((v) => !v)}
                     className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/[0.03] transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-zinc-200">Only local</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                      <span className="text-[12px] text-ink">Only local</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.3)]">
                         {diff.only_local.length}
                       </span>
                     </div>
-                    <span className="text-[10px] text-zinc-500">{openLocalList ? "▾" : "▸"}</span>
+                    <span className="text-[10px] text-ink-3">{openLocalList ? "▾" : "▸"}</span>
                   </button>
                   {openLocalList && diff.only_local.length > 0 && (
                     <div className="border-t border-white/[0.04] divide-y divide-white/[0.04]">
                       {diff.only_local.map((r) => (
                         <div key={`${r.name}-${r.source}`} className="flex items-center gap-2 px-3 py-1.5">
-                          <span className="text-[10px] font-mono uppercase text-zinc-500 w-12 shrink-0">{r.record_type}</span>
-                          <span className="text-[11px] font-mono text-zinc-200 truncate flex-1">{r.name}</span>
-                          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[120px]">{r.content}</span>
-                          <span className="text-[9px] uppercase tracking-wide text-zinc-600 shrink-0">{r.source}</span>
+                          <span className="text-[10px] font-mono uppercase text-ink-3 w-12 shrink-0">{r.record_type}</span>
+                          <span className="text-[11px] font-mono text-ink truncate flex-1">{r.name}</span>
+                          <span className="text-[10px] font-mono text-ink-3 truncate max-w-[120px]">{r.content}</span>
+                          <span className="text-[9px] uppercase tracking-wide text-ink-3 shrink-0">{r.source}</span>
                         </div>
                       ))}
                     </div>
@@ -335,26 +335,26 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                 </div>
 
                 {/* Mismatched */}
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                <div className="rounded-card border border-subtle bg-surface-1 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setOpenMismatchList((v) => !v)}
                     className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/[0.03] transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-zinc-200">Mismatched</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30">
+                      <span className="text-[12px] text-ink">Mismatched</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-bad-bg text-bad border border-[rgba(248,113,113,0.3)]">
                         {diff.mismatched.length}
                       </span>
                     </div>
-                    <span className="text-[10px] text-zinc-500">{openMismatchList ? "▾" : "▸"}</span>
+                    <span className="text-[10px] text-ink-3">{openMismatchList ? "▾" : "▸"}</span>
                   </button>
                   {openMismatchList && diff.mismatched.length > 0 && (
                     <div className="border-t border-white/[0.04] divide-y divide-white/[0.04]">
                       {diff.mismatched.map((m) => (
                         <div key={m.cf.id} className="px-3 py-2">
-                          <div className="text-[11px] font-mono text-zinc-200 truncate">{m.name}</div>
-                          <div className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{m.reason}</div>
+                          <div className="text-[11px] font-mono text-ink truncate">{m.name}</div>
+                          <div className="text-[10px] text-ink-3 mt-0.5 leading-snug">{m.reason}</div>
                         </div>
                       ))}
                     </div>
@@ -371,9 +371,9 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-[14px] font-semibold text-zinc-100">Zone Settings</h2>
+              <h2 className="text-[14px] font-semibold text-ink">Zone Settings</h2>
               {loading && (
-                <span className="inline-flex items-center gap-1 text-[10.5px] text-zinc-500">
+                <span className="inline-flex items-center gap-1 text-[10.5px] text-ink-3">
                   <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
                     <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                   </svg>
@@ -381,25 +381,25 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                 </span>
               )}
             </div>
-            <p className="text-[11.5px] text-zinc-500 mt-0.5">
-              Per-zone toggles for HTTPS, caching, security, and TLS — applied to {selectedZone ? <span className="font-mono text-zinc-400">{selectedZone.name}</span> : "the selected zone"}.
+            <p className="text-[11.5px] text-ink-3 mt-0.5">
+              Per-zone toggles for HTTPS, caching, security, and TLS — applied to {selectedZone ? <span className="font-mono text-ink-2">{selectedZone.name}</span> : "the selected zone"}.
             </p>
           </div>
           <button
             type="button"
             onClick={() => token && zoneId && loadSettings(token, zoneId)}
             disabled={loading || !zoneId}
-            className="text-[11px] text-zinc-500 hover:text-zinc-200 disabled:opacity-40 transition-colors"
+            className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
           >
             {loading ? "Loading…" : "↻ Refresh"}
           </button>
         </div>
 
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] divide-y divide-white/[0.04] overflow-hidden">
+        <div className="rounded-card border border-subtle bg-surface-1 divide-y divide-white/[0.04] overflow-hidden">
           {loading && settings.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12px] text-zinc-500">Loading settings…</div>
+            <div className="px-3 py-6 text-center text-[12px] text-ink-3">Loading settings…</div>
           ) : settings.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12px] text-zinc-500">No settings to show.</div>
+            <div className="px-3 py-6 text-center text-[12px] text-ink-3">No settings to show.</div>
           ) : (
             settings.map((s) => {
               const meta = SETTING_LABELS[s.id] ?? { label: s.id, hint: "" };
@@ -407,18 +407,18 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
               return (
                 <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[12px] text-zinc-200">{meta.label}</p>
-                    {meta.hint && <p className="text-[10.5px] text-zinc-500 mt-0.5 leading-snug">{meta.hint}</p>}
+                    <p className="text-[12px] text-ink">{meta.label}</p>
+                    {meta.hint && <p className="text-[10.5px] text-ink-3 mt-0.5 leading-snug">{meta.hint}</p>}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-blue-400/30 border-t-blue-300 animate-spin" />}
+                    {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.3)] border-t-accent animate-spin" />}
                     {s.kind === "toggle" ? (
                       <button
                         type="button"
                         disabled={!s.editable || saving}
                         onClick={() => handleSetSetting(s, s.value === "on" ? "off" : "on")}
                         className={`relative inline-flex items-center h-5 w-9 rounded-full transition-colors disabled:opacity-40 ${
-                          s.value === "on" ? "bg-emerald-500/60" : "bg-zinc-700"
+                          s.value === "on" ? "bg-ok" : "bg-white/[0.14]"
                         }`}
                       >
                         <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
@@ -443,7 +443,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                         disabled={!s.editable || saving}
                         onBlur={(e) => handleSetSetting(s, e.target.value)}
                         onChange={(e) => setSettings((prev) => prev.map((x) => x.id === s.id ? { ...x, value: e.target.value } : x))}
-                        className="number-no-spin bg-[#111113] border border-white/[0.08] rounded px-2 py-1 text-[11px] text-zinc-100 outline-none focus:border-blue-500/50 w-[100px] disabled:opacity-40"
+                        className="number-no-spin bg-surface-input border border-subtle rounded px-2 py-1 text-[11px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] w-[100px] disabled:opacity-40"
                       />
                     )}
                   </div>

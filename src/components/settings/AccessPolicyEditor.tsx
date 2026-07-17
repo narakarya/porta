@@ -84,7 +84,7 @@ export default function AccessPolicyEditor({
         />
       </label>
       {error && (
-        <p className="text-[11px] text-red-400 whitespace-pre-wrap break-words">{error}</p>
+        <p className="text-[11px] text-bad whitespace-pre-wrap break-words">{error}</p>
       )}
       <div className="flex gap-2 pt-1">
         <button

@@ -183,8 +183,8 @@ export default function ExtensionsSection() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-[15px] font-semibold text-zinc-100 mb-1">Extensions</h1>
-          <p className="text-[12px] text-zinc-500">
+          <h1 className="text-[15px] font-semibold text-ink mb-1">Extensions</h1>
+          <p className="text-[12px] text-ink-3">
             Install custom extensions to add functionality to Porta.
           </p>
         </div>
@@ -192,7 +192,7 @@ export default function ExtensionsSection() {
           <button
             onClick={handleUpdateAll}
             disabled={!!updatingAll || !!updatingId}
-            className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="shrink-0 px-3 py-1.5 rounded-control text-[12px] font-medium bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.2)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={`Re-fetch every extension installed from a remote source (${updatableCount})`}
           >
             {updatingAll
@@ -209,7 +209,7 @@ export default function ExtensionsSection() {
           <button
             onClick={handleInstallFromFolder}
             disabled={installing || githubInstalling}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.08] text-[12px] text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-white/[0.07] hover:bg-white/[0.11] border border-subtle text-[12px] text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           >
             {installing ? (
               <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -222,15 +222,15 @@ export default function ExtensionsSection() {
             )}
             {installing ? "Installing…" : "Install from folder…"}
           </button>
-          <span className="text-[11px] text-zinc-600">
-            Folder must contain a <code className="text-zinc-500">porta.json</code> manifest
+          <span className="text-[11px] text-ink-3">
+            Folder must contain a <code className="text-ink-3">porta.json</code> manifest
           </span>
         </div>
 
         {/* From GitHub */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0 rounded-lg border border-white/[0.08] bg-white/[0.04] overflow-hidden">
-            <span className="px-2.5 text-[11px] text-zinc-600 select-none border-r border-white/[0.08] py-1.5">
+          <div className="flex items-center gap-0 rounded-control border border-subtle bg-surface-input overflow-hidden">
+            <span className="px-2.5 text-[11px] text-ink-3 select-none border-r border-subtle py-1.5">
               GitHub
             </span>
             <input
@@ -239,14 +239,14 @@ export default function ExtensionsSection() {
               onChange={(e) => setGithubUrl(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleInstallFromGithub(); }}
               placeholder="owner/repo or https://github.com/owner/repo"
-              className="bg-transparent text-[12px] text-zinc-200 placeholder-zinc-600 px-2.5 py-1.5 outline-none w-[320px]"
+              className="bg-transparent text-[12px] text-ink placeholder-ink-3 px-2.5 py-1.5 outline-none w-[320px]"
               disabled={githubInstalling || installing}
             />
           </div>
           <button
             onClick={handleInstallFromGithub}
             disabled={!githubUrl.trim() || githubInstalling || installing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.08] text-[12px] text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-white/[0.07] hover:bg-white/[0.11] border border-subtle text-[12px] text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {githubInstalling ? (
               <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -263,22 +263,22 @@ export default function ExtensionsSection() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-red-400 mt-0.5 shrink-0">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.2)]">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-bad mt-0.5 shrink-0">
             <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M6 3.5v3M6 8.5v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
-          <p className="text-[11px] text-red-400 font-mono break-all">{error}</p>
+          <p className="text-[11px] text-bad font-mono break-all">{error}</p>
         </div>
       )}
 
       {notice && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-emerald-400 mt-0.5 shrink-0">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-ok-bg border border-[rgba(52,211,153,0.2)]">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-ok mt-0.5 shrink-0">
             <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M4 6l1.5 1.5L8.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <p className="text-[11px] text-emerald-400">{notice}</p>
+          <p className="text-[11px] text-ok">{notice}</p>
         </div>
       )}
 
@@ -288,24 +288,24 @@ export default function ExtensionsSection() {
           {[0, 1].map((i) => (
             <div
               key={i}
-              className="h-16 rounded-xl bg-white/[0.03] border border-white/[0.05] animate-pulse"
+              className="h-16 rounded-card bg-surface-1 border border-subtle animate-pulse"
               style={{ animationDelay: `${i * 80}ms` }}
             />
           ))}
         </div>
       ) : extensions.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center text-zinc-600">
+          <div className="w-12 h-12 rounded-card bg-surface-1 flex items-center justify-center text-ink-3">
             <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
               <path d="M13 5h6v3c0 1.7 1.3 3 3 3s3-1.3 3-3V5h4a2 2 0 012 2v5h-3c-1.7 0-3 1.3-3 3s1.3 3 3 3h3v5a2 2 0 01-2 2h-4v-3c0-1.7-1.3-3-3-3s-3 1.3-3 3v3h-5a2 2 0 01-2-2v-5h3c1.7 0 3-1.3 3-3s-1.3-3-3-3H8V7a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
             </svg>
           </div>
-          <p className="text-[13px] text-zinc-300">No extensions installed</p>
-          <p className="text-[11px] text-zinc-500 max-w-xs">
+          <p className="text-[13px] text-ink-2">No extensions installed</p>
+          <p className="text-[11px] text-ink-3 max-w-xs">
             Use the install actions above. Try{" "}
             <button
               onClick={() => setGithubUrl("narakarya/porta-git-manager")}
-              className="font-mono text-zinc-400 hover:text-zinc-200 underline decoration-dotted underline-offset-2"
+              className="font-mono text-ink-2 hover:text-ink underline decoration-dotted underline-offset-2"
               title="Click to fill the GitHub URL above"
             >
               narakarya/porta-git-manager
@@ -332,10 +332,10 @@ export default function ExtensionsSection() {
       {/* Edit source */}
       {editingSource && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-xl p-5 w-[420px] flex flex-col gap-4 shadow-2xl">
+          <div className="bg-surface-2 border border-subtle rounded-card p-5 w-[420px] flex flex-col gap-4 shadow-2xl">
             <div className="flex flex-col gap-1">
-              <p className="text-[13px] font-semibold text-zinc-100">Edit extension source</p>
-              <p className="text-[12px] text-zinc-500">
+              <p className="text-[13px] font-semibold text-ink">Edit extension source</p>
+              <p className="text-[12px] text-ink-3">
                 Updates will re-fetch from this GitHub repo or shorthand.
               </p>
             </div>
@@ -349,25 +349,25 @@ export default function ExtensionsSection() {
                 if (e.key === "Escape") setEditingSource(null);
               }}
               placeholder="owner/repo or https://github.com/owner/repo"
-              className="w-full px-3 py-2 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500/30"
+              className="w-full px-3 py-2 rounded-control bg-white/[0.05] border border-subtle text-[12px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
             />
             <div className="flex gap-2 justify-between">
               <button
                 onClick={() => setEditingSource({ ...editingSource, value: "" })}
-                className="px-3 py-1.5 rounded-lg text-[12px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors"
+                className="px-3 py-1.5 rounded-control text-[12px] text-ink-3 hover:text-ink-2 hover:bg-white/[0.05] transition-colors"
               >
                 Clear source
               </button>
               <div className="flex gap-2">
                 <button
                   onClick={() => setEditingSource(null)}
-                  className="px-3 py-1.5 rounded-lg text-[12px] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05] transition-colors"
+                  className="px-3 py-1.5 rounded-control text-[12px] text-ink-2 hover:text-ink hover:bg-white/[0.05] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveSource}
-                  className="px-3 py-1.5 rounded-lg text-[12px] bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/20 transition-colors"
+                  className="px-3 py-1.5 rounded-control text-[12px] bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.2)] transition-colors"
                 >
                   Save source
                 </button>
@@ -380,23 +380,23 @@ export default function ExtensionsSection() {
       {/* Uninstall confirmation */}
       {confirmUninstall && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-xl p-5 w-[320px] flex flex-col gap-4 shadow-2xl">
+          <div className="bg-surface-2 border border-subtle rounded-card p-5 w-[320px] flex flex-col gap-4 shadow-2xl">
             <div className="flex flex-col gap-1">
-              <p className="text-[13px] font-semibold text-zinc-100">Uninstall extension?</p>
-              <p className="text-[12px] text-zinc-500">
-                This will remove <span className="text-zinc-300">{confirmUninstall}</span> and delete its files from disk.
+              <p className="text-[13px] font-semibold text-ink">Uninstall extension?</p>
+              <p className="text-[12px] text-ink-3">
+                This will remove <span className="text-ink-2">{confirmUninstall}</span> and delete its files from disk.
               </p>
             </div>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setConfirmUninstall(null)}
-                className="px-3 py-1.5 rounded-lg text-[12px] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05] transition-colors"
+                className="px-3 py-1.5 rounded-control text-[12px] text-ink-2 hover:text-ink hover:bg-white/[0.05] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleUninstall(confirmUninstall)}
-                className="px-3 py-1.5 rounded-lg text-[12px] bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/20 transition-colors"
+                className="px-3 py-1.5 rounded-control text-[12px] bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.2)] transition-colors"
               >
                 Uninstall
               </button>
@@ -424,14 +424,14 @@ function ExtensionCard({
   onUninstall: () => void;
 }) {
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${
+    <div className={`flex items-center gap-3 px-4 py-3 rounded-card border transition-colors ${
       ext.enabled
-        ? "bg-white/[0.03] border-white/[0.06]"
-        : "bg-transparent border-white/[0.04] opacity-60"
+        ? "bg-surface-1 border-subtle"
+        : "bg-transparent border-subtle opacity-60"
     }`}>
       {/* Puzzle piece icon */}
-      <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-violet-400">
+      <div className="w-8 h-8 rounded-control bg-accent-bg border border-[rgba(96,165,250,0.2)] flex items-center justify-center shrink-0">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-accent-ink">
           <path d="M5.5 2h3v1.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V2H12a1 1 0 0 1 1 1v1.5h-1.5C10.7 4.5 10 5.2 10 6s.7 1.5 1.5 1.5H13V9a1 1 0 0 1-1 1h-1.5v-1.5C10.5 7.7 9.8 7 9 7s-1.5.7-1.5 1.5V10H6a1 1 0 0 1-1-1V7.5H3.5C2.7 7.5 2 6.8 2 6s.7-1.5 1.5-1.5H5V3a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
         </svg>
       </div>
@@ -439,17 +439,17 @@ function ExtensionCard({
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-zinc-100 truncate">{ext.name}</span>
-          <span className="text-[10px] text-zinc-600 shrink-0">v{ext.version}</span>
+          <span className="text-[13px] font-medium text-ink truncate">{ext.name}</span>
+          <span className="text-[10px] text-ink-3 shrink-0">v{ext.version}</span>
         </div>
         {ext.description && (
-          <p className="text-[11px] text-zinc-500 truncate mt-0.5">{ext.description}</p>
+          <p className="text-[11px] text-ink-3 truncate mt-0.5">{ext.description}</p>
         )}
         <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-          <p className="text-[10px] text-zinc-700 font-mono truncate">{ext.source ?? ext.id}</p>
+          <p className="text-[10px] text-ink-3 font-mono truncate">{ext.source ?? ext.id}</p>
           <button
             onClick={onEditSource}
-            className="p-0.5 rounded text-zinc-700 hover:text-violet-400 hover:bg-violet-500/10 transition-colors shrink-0"
+            className="p-0.5 rounded text-ink-3 hover:text-accent hover:bg-accent-bg transition-colors shrink-0"
             title={ext.source ? "Edit update source" : "Add update source"}
           >
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
@@ -467,7 +467,7 @@ function ExtensionCard({
           <button
             onClick={onUpdate}
             disabled={updating}
-            className="p-1.5 rounded-md text-zinc-600 hover:text-violet-400 hover:bg-violet-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-1.5 rounded-control text-ink-3 hover:text-accent hover:bg-accent-bg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={`Update from ${ext.source}`}
           >
             {updating ? (
@@ -488,8 +488,8 @@ function ExtensionCard({
           onClick={() => onToggle(ext.id, !ext.enabled)}
           className={`relative w-8 h-4.5 rounded-full border transition-colors ${
             ext.enabled
-              ? "bg-violet-500/30 border-violet-500/40"
-              : "bg-white/[0.06] border-white/[0.1]"
+              ? "bg-accent-bg border-[rgba(96,165,250,0.4)]"
+              : "bg-white/[0.06] border-strong"
           }`}
           title={ext.enabled ? "Disable" : "Enable"}
           style={{ minWidth: "32px", height: "18px" }}
@@ -497,8 +497,8 @@ function ExtensionCard({
           <span
             className={`absolute top-[2px] w-3.5 h-3.5 rounded-full transition-all ${
               ext.enabled
-                ? "left-[calc(100%-16px)] bg-violet-400"
-                : "left-[2px] bg-zinc-500"
+                ? "left-[calc(100%-16px)] bg-accent"
+                : "left-[2px] bg-ink-3"
             }`}
             style={{ width: "14px", height: "14px" }}
           />
@@ -507,7 +507,7 @@ function ExtensionCard({
         {/* Uninstall */}
         <button
           onClick={onUninstall}
-          className="p-1.5 rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          className="p-1.5 rounded-control text-ink-3 hover:text-bad hover:bg-bad-bg transition-colors"
           title="Uninstall"
         >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">

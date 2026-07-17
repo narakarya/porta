@@ -30,7 +30,7 @@ const EMPTY_HOST: RemoteHost = {
 };
 
 const inputCls =
-  "w-full rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/25";
+  "w-full rounded-control bg-surface-input border border-subtle px-3 py-2 text-sm text-ink placeholder-white/30 focus:outline-none focus:border-strong";
 
 /**
  * Native confirmation dialog via the Tauri dialog plugin. `window.confirm` is
@@ -61,14 +61,14 @@ function formatBytes(n: number): string {
 
 /** Color + label for a host's WireGuard handshake age (green <2m, amber <5m, red ≥5m). */
 function wgHealth(st: WgStatus | undefined): { dot: string; label: string } {
-  if (!st || !st.up) return { dot: "bg-zinc-600", label: "interface down / unavailable" };
-  if (!st.peer_found) return { dot: "bg-zinc-600", label: "no peer" };
+  if (!st || !st.up) return { dot: "bg-white/[0.14]", label: "interface down / unavailable" };
+  if (!st.peer_found) return { dot: "bg-white/[0.14]", label: "no peer" };
   const age = st.handshake_age_secs;
-  if (age === null) return { dot: "bg-red-500", label: "never handshaked" };
+  if (age === null) return { dot: "bg-bad", label: "never handshaked" };
   const ago = age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`;
-  if (age < 120) return { dot: "bg-emerald-400", label: `handshake ${ago}` };
-  if (age < 300) return { dot: "bg-amber-400", label: `handshake ${ago}` };
-  return { dot: "bg-red-500", label: `handshake ${ago}` };
+  if (age < 120) return { dot: "bg-ok", label: `handshake ${ago}` };
+  if (age < 300) return { dot: "bg-warn", label: `handshake ${ago}` };
+  return { dot: "bg-bad", label: `handshake ${ago}` };
 }
 
 /**
@@ -222,7 +222,7 @@ export default function RemoteSection() {
   return (
     <div className="flex flex-col gap-5 max-w-2xl">
       <div>
-        <h2 className="text-lg font-semibold text-white">Remote Servers</h2>
+        <h2 className="text-lg font-semibold text-ink">Remote Servers</h2>
         <p className="text-sm text-white/50 mt-1">
           Expose local apps to the internet through your own VPS (WireGuard + Caddy) — the “Porta Relay” backend.
           Porta manages the public <code className="text-white/70">:443</code> entrypoint on each server via its
@@ -231,7 +231,7 @@ export default function RemoteSection() {
       </div>
 
       {remoteHosts.length === 0 && !draft && (
-        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 text-sm text-white/50">
+        <div className="rounded-card bg-surface-1 border border-subtle p-4 text-sm text-white/50">
           No remote servers yet. Add one to enable “Expose via Porta Relay” on your apps.
         </div>
       )}
@@ -241,10 +241,10 @@ export default function RemoteSection() {
         const wg = wgStatuses[h.id];
         const health = wgHealth(wg);
         return (
-          <div key={h.id} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+          <div key={h.id} className="rounded-card bg-surface-1 border border-subtle p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-white">{h.name}</div>
+                <div className="text-sm font-medium text-ink">{h.name}</div>
                 <div className="text-xs text-white/40 mt-0.5">
                   {h.tunnel_ip}:{h.admin_port} · *.{h.base_domain} · dial {h.mac_tunnel_ip}:443
                   {h.wg_interface ? ` · ${h.wg_interface}` : ""}
@@ -264,20 +264,20 @@ export default function RemoteSection() {
                 <button
                   onClick={() => runTest(h)}
                   disabled={t?.loading}
-                  className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
+                  className="text-xs rounded-control px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
                 >
                   {t?.loading ? "Testing…" : "Test"}
                 </button>
                 <button
                   onClick={() => runSync(h)}
                   disabled={syncing === h.id}
-                  className="text-xs rounded-lg px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
+                  className="text-xs rounded-control px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 disabled:opacity-50"
                 >
                   {syncing === h.id ? "Syncing…" : "Sync"}
                 </button>
                 <button
                   onClick={() => { setError(null); setDraft((cur) => (cur?.id === h.id ? null : h)); }}
-                  className={`text-xs rounded-lg px-2.5 py-1.5 hover:bg-white/[0.1] ${draft?.id === h.id ? "bg-white/[0.14] text-white" : "bg-white/[0.06] text-white/80"}`}
+                  className={`text-xs rounded-control px-2.5 py-1.5 hover:bg-white/[0.1] ${draft?.id === h.id ? "bg-white/[0.14] text-ink" : "bg-white/[0.06] text-white/80"}`}
                 >
                   {draft?.id === h.id ? "Close" : "Edit"}
                 </button>
@@ -286,7 +286,7 @@ export default function RemoteSection() {
                     if (await confirmDialog(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`, "Delete remote server"))
                       deleteRemoteHost(h.id);
                   }}
-                  className="text-xs rounded-lg px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300"
+                  className="text-xs rounded-control px-2.5 py-1.5 bg-bad-bg hover:bg-[rgba(248,113,113,0.25)] text-bad"
                 >
                   Delete
                 </button>
@@ -296,19 +296,19 @@ export default function RemoteSection() {
             {remoteDiffs[h.id] && (() => {
               const d = remoteDiffs[h.id];
               return (
-                <div className="mt-2 rounded-lg bg-black/20 border border-white/[0.05] p-2.5 text-xs flex flex-col gap-1.5">
+                <div className="mt-2 rounded-card bg-black/20 border border-subtle p-2.5 text-xs flex flex-col gap-1.5">
                   <div className="text-white/50">
                     {d.matched.length} in sync
                     {d.missing_on_vps.length === 0 && d.foreign_on_vps.length === 0 && " · no drift"}
                   </div>
                   {d.missing_on_vps.length > 0 && (
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-amber-300 truncate">
+                      <span className="text-warn truncate">
                         Missing on VPS: {d.missing_on_vps.join(", ")}
                       </span>
                       <button
                         onClick={() => runPush(h.id)}
-                        className="shrink-0 rounded px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200"
+                        className="shrink-0 rounded px-2 py-1 bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn"
                       >
                         Push
                       </button>
@@ -324,7 +324,7 @@ export default function RemoteSection() {
                           if (await confirmDialog(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`, "Remove foreign routes"))
                             runRemoveForeign(h.id, fh);
                         }}
-                        className="shrink-0 rounded px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-300"
+                        className="shrink-0 rounded px-2 py-1 bg-bad-bg hover:bg-[rgba(248,113,113,0.25)] text-bad"
                       >
                         Remove
                       </button>
@@ -334,7 +334,7 @@ export default function RemoteSection() {
               );
             })()}
             {(activity[h.id]?.length ?? 0) > 0 && (
-              <div className="mt-2 rounded-lg bg-black/30 border border-white/[0.05] p-2">
+              <div className="mt-2 rounded-card bg-black/30 border border-subtle p-2">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[10px] uppercase tracking-wider text-white/40">Activity</span>
                   <button
@@ -348,7 +348,7 @@ export default function RemoteSection() {
                   {activity[h.id].map((line, i) => (
                     <div
                       key={i}
-                      className={line.includes("✕") ? "text-red-400" : line.includes("✓") ? "text-emerald-400" : "text-white/55"}
+                      className={line.includes("✕") ? "text-bad" : line.includes("✓") ? "text-ok" : "text-white/55"}
                     >
                       {line}
                     </div>
@@ -361,8 +361,8 @@ export default function RemoteSection() {
       })}
 
       {draft ? (
-        <div className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col gap-3">
-          <div className="text-sm font-medium text-white">{editing ? "Edit server" : "Add server"}</div>
+        <div className="rounded-card bg-surface-1 border border-subtle p-4 flex flex-col gap-3">
+          <div className="text-sm font-medium text-ink">{editing ? "Edit server" : "Add server"}</div>
           <label className="flex flex-col gap-1">
             <span className="text-xs text-white/50">Name</span>
             <input className={inputCls} placeholder="my-vps" value={draft.name}
@@ -404,7 +404,7 @@ export default function RemoteSection() {
               onChange={(e) => setDraft({ ...draft, wg_interface: e.target.value })} />
           </label>
 
-          <div className="border-t border-white/[0.06] pt-3 mt-1 flex flex-col gap-3">
+          <div className="border-t border-subtle pt-3 mt-1 flex flex-col gap-3">
             <div className="text-xs font-medium text-white/70">Integrations (optional)</div>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
@@ -429,21 +429,21 @@ export default function RemoteSection() {
               <span className="text-xs text-white/60">Auto-create DNS via Cloudflare on expose (DNS-only A record)</span>
             </label>
           </div>
-          {error && <div className="text-xs text-red-400">{error}</div>}
+          {error && <div className="text-xs text-bad">{error}</div>}
           <div className="flex items-center gap-2">
             <button onClick={save} disabled={saving}
-              className="text-xs rounded-lg px-3 py-2 bg-white text-black font-medium hover:bg-white/90 disabled:opacity-50">
+              className="text-xs rounded-control px-3 py-2 bg-white text-black font-medium hover:bg-white/90 disabled:opacity-50">
               {saving ? "Saving…" : editing ? "Save changes" : "Add server"}
             </button>
             <button onClick={() => { setDraft(null); setError(null); }}
-              className="text-xs rounded-lg px-3 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-white/80">
+              className="text-xs rounded-control px-3 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-white/80">
               Cancel
             </button>
           </div>
         </div>
       ) : (
         <button onClick={() => setDraft({ ...EMPTY_HOST })}
-          className="self-start text-xs rounded-lg px-3 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-white/80">
+          className="self-start text-xs rounded-control px-3 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-white/80">
           + Add remote server
         </button>
       )}
@@ -520,7 +520,7 @@ function RemoteLogViewer({ hostId, hasSsh }: { hostId: string; hasSsh: boolean }
   }
 
   return (
-    <div className="mt-2 rounded-lg bg-black/20 border border-white/[0.05] p-2.5">
+    <div className="mt-2 rounded-card bg-black/20 border border-subtle p-2.5">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-white/60">Remote access logs</span>
         <div className="flex items-center gap-2">
@@ -529,20 +529,20 @@ function RemoteLogViewer({ hostId, hasSsh }: { hostId: string; hasSsh: boolean }
             {loading ? "Loading…" : "Load recent"}
           </button>
           <button onClick={() => void toggleLive()}
-            className={`text-[11px] rounded px-2 py-1 ${live ? "bg-emerald-500/20 text-emerald-200" : "bg-white/[0.06] text-white/70 hover:bg-white/[0.1]"}`}>
+            className={`text-[11px] rounded px-2 py-1 ${live ? "bg-ok-bg text-ok" : "bg-white/[0.06] text-white/70 hover:bg-white/[0.1]"}`}>
             {live ? "● Live" : "Go live"}
           </button>
           <button onClick={() => setOpen(false)} className="text-[11px] text-white/40 hover:text-white/70">Close</button>
         </div>
       </div>
-      {error && <div className="text-[11px] text-red-400 mb-1.5 break-words">{error}</div>}
+      {error && <div className="text-[11px] text-bad mb-1.5 break-words">{error}</div>}
       {entries.length === 0 && !error && !loading && (
         <div className="text-[11px] text-white/30">No entries yet.</div>
       )}
       <div className="max-h-[200px] overflow-y-auto font-mono text-[10.5px] flex flex-col gap-0.5">
         {entries.map((e, i) => (
           <div key={i} className="flex items-center gap-2 text-white/60">
-            <span className={e.status >= 500 ? "text-red-400" : e.status >= 400 ? "text-amber-400" : "text-emerald-400"}>
+            <span className={e.status >= 500 ? "text-bad" : e.status >= 400 ? "text-warn" : "text-ok"}>
               {e.status}
             </span>
             <span className="text-white/40 w-10 shrink-0">{e.method}</span>

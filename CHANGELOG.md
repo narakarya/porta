@@ -6,6 +6,31 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-07-17
+
+### Changed
+
+- **Settings + Config restyle.** Every Settings section and the app **Config**
+  tab migrated off legacy `zinc`/`blue`/`emerald` styling onto the design
+  tokens (`--surface-*`, `--ink-*`, `--accent`, `--success`/`--warning`/
+  `--danger`) — ~22 panels including About, Notifications, Git, Setup, Disk
+  Usage, Backup, Extensions, Remote, Tailscale, the full Cloudflare cluster
+  (Tunnels / DNS / Access / Zone / Email / Certificates), and the Config
+  General / Domain / Environment / Tunneling / Health / Danger sub-panels.
+  Radii normalized (`rounded-card` / `rounded-control`) and silent
+  opacity-on-token classes replaced with explicit rgba.
+
+### Fixed
+
+- Rail Porta logo top padding reduced so it lines up with the **Workspaces**
+  sidebar title.
+- Self-update popover caret repositioned to point at the account avatar (which
+  moved to the rail's bottom after the version label was removed).
+- Docker **Disk Usage** cleanup and **Backup → Export Database** buttons no
+  longer use a low-contrast solid-green fill (white-on-mint, ~1.9:1); the
+  cleanup action is now a legible green **tint** (mirroring its destructive
+  sibling) and Export uses the standard accent primary.
+
 ## [0.11.0] — 2026-07-17
 
 ### Changed

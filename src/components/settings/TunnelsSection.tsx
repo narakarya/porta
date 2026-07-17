@@ -331,9 +331,9 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
     return (
       <div className="flex flex-col gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-14 rounded-xl bg-white/[0.03] border border-white/[0.05] animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+          <div key={i} className="h-14 rounded-card bg-surface-1 border border-subtle animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
         ))}
-        <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-1">
+        <div className="flex items-center gap-2 text-[11px] text-ink-3 mt-1">
           <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
             <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
@@ -349,30 +349,30 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
           as the main title, so this sub-tab just needs a one-liner subtitle. */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[14px] font-semibold text-zinc-100">Tunnels</h2>
-          <p className="text-[11.5px] text-zinc-500 mt-0.5">
+          <h2 className="text-[14px] font-semibold text-ink">Tunnels</h2>
+          <p className="text-[11.5px] text-ink-3 mt-0.5">
             Manage named tunnels, DNS routes, and the apps that use them.
           </p>
         </div>
         {(loading || dnsLoading) && (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/[0.03] border border-white/[0.06]">
-            <svg className="animate-spin text-zinc-500" width="10" height="10" viewBox="0 0 12 12" fill="none">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-1 border border-subtle">
+            <svg className="animate-spin text-ink-3" width="10" height="10" viewBox="0 0 12 12" fill="none">
               <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
-            <span className="text-[10px] text-zinc-500">Loading…</span>
+            <span className="text-[10px] text-ink-3">Loading…</span>
           </div>
         )}
       </div>
 
       {installed === false && (
-        <div className="flex flex-col gap-3 px-3 py-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
-          <p className="text-[12px] text-amber-300">cloudflared CLI not found on PATH.</p>
+        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.2)]">
+          <p className="text-[12px] text-warn">cloudflared CLI not found on PATH.</p>
           <code className="text-[11px] font-mono bg-black/30 px-2.5 py-1.5 rounded">
             brew install cloudflare/cloudflare/cloudflared
           </code>
           <button
             onClick={refresh}
-            className="self-start px-3 py-1 text-[11px] font-medium rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-200"
+            className="self-start px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn"
           >
             ↻ Check again
           </button>
@@ -383,11 +383,11 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
 
       {/* Global error */}
       {error && (
-        <div className="relative px-3 py-2 pr-14 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+        <div className="relative px-3 py-2 pr-14 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
           {error}
           <button
             onClick={() => setError(null)}
-            className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] rounded bg-red-500/20 hover:bg-red-500/30 text-red-200"
+            className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] rounded bg-bad-bg hover:bg-[rgba(248,113,113,0.3)] text-bad"
           >
             Dismiss
           </button>
@@ -397,21 +397,21 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
       {/* Tunnel list */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">Tunnels</p>
+          <p className="text-[11px] font-medium text-ink-2 uppercase tracking-wide">Tunnels</p>
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
                 setCreateOpen((v) => !v);
                 if (!createOpen) setTimeout(() => createInputRef.current?.focus(), 0);
               }}
-              className="text-[10px] font-medium text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-[10px] font-medium text-accent hover:text-accent-ink transition-colors"
             >
               {createOpen ? "× Cancel" : "+ New tunnel"}
             </button>
             <button
               onClick={refreshAll}
               disabled={loading || dnsLoading}
-              className="text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-50"
+              className="text-[10px] text-ink-3 hover:text-ink transition-colors disabled:opacity-50"
             >
               {loading || dnsLoading ? "Loading…" : "↻ Refresh"}
             </button>
@@ -421,8 +421,8 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
         {/* Inline create form — collapsed by default, opens via "+ New tunnel"
             in the header above or the empty-state CTA below. */}
         {createOpen && (
-          <div className="flex flex-col gap-1.5 p-3 mb-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-            <p className="text-[11px] font-medium text-zinc-300">Create tunnel</p>
+          <div className="flex flex-col gap-1.5 p-3 mb-2 rounded-card bg-surface-1 border border-subtle">
+            <p className="text-[11px] font-medium text-ink-2">Create tunnel</p>
             <div className="flex gap-2">
               <input
                 ref={createInputRef}
@@ -439,7 +439,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
               <button
                 onClick={handleCreate}
                 disabled={!newName.trim() || creating}
-                className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors shrink-0"
+                className="px-3 py-1.5 text-[12px] font-medium bg-accent hover:opacity-90 text-white rounded-control disabled:opacity-40 transition-colors shrink-0"
               >
                 {creating ? "Creating…" : "Create"}
               </button>
@@ -447,15 +447,15 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
           </div>
         )}
         {tunnels.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center py-10 px-4 rounded-xl bg-white/[0.02] border border-dashed border-white/[0.08]">
+          <div className="flex flex-col items-center justify-center py-10 px-4 rounded-card bg-surface-1 border border-dashed border-subtle">
             <div className="w-9 h-9 rounded-full bg-white/[0.04] flex items-center justify-center mb-2.5">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-zinc-500">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-3">
                 <path d="M2 8h3m6 0h3M8 2v3m0 6v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                 <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4"/>
               </svg>
             </div>
-            <p className="text-[12px] font-medium text-zinc-300">No tunnels yet</p>
-            <p className="text-[11px] text-zinc-500 mt-0.5 mb-3 text-center max-w-[300px]">
+            <p className="text-[12px] font-medium text-ink-2">No tunnels yet</p>
+            <p className="text-[11px] text-ink-3 mt-0.5 mb-3 text-center max-w-[300px]">
               Tunnels expose local apps to the internet via Cloudflare. Create your first to start publishing.
             </p>
             <button
@@ -463,7 +463,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                 setCreateOpen(true);
                 setTimeout(() => createInputRef.current?.focus(), 0);
               }}
-              className="px-3 py-1.5 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
+              className="px-3 py-1.5 text-[11px] font-medium bg-accent hover:opacity-90 text-white rounded-control transition-colors"
             >
               + Create tunnel
             </button>
@@ -474,7 +474,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="h-14 rounded-lg bg-white/[0.02] border border-white/[0.04] animate-pulse"
+                className="h-14 rounded-card bg-surface-1 border border-subtle animate-pulse"
               />
             ))}
           </div>
@@ -513,26 +513,26 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             return (
               <div
                 key={t.id}
-                className={`rounded-lg bg-white/[0.03] border border-white/[0.06] transition-opacity ${
+                className={`rounded-card bg-surface-1 border border-subtle transition-opacity ${
                   isTunnelPending ? "opacity-60" : ""
                 }`}
               >
                 {/* Header row: status, name, connections, overflow menu */}
                 <div className="flex items-center gap-2.5 px-3 py-2.5">
                   {isTunnelPending ? (
-                    <svg className="shrink-0 animate-spin text-blue-400/70" width="10" height="10" viewBox="0 0 12 12" fill="none">
+                    <svg className="shrink-0 animate-spin text-accent" width="10" height="10" viewBox="0 0 12 12" fill="none">
                       <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                     </svg>
                   ) : (
                     <div
-                      className={`shrink-0 w-2 h-2 rounded-full ${isActive ? "bg-emerald-400" : "bg-zinc-600"}`}
+                      className={`shrink-0 w-2 h-2 rounded-full ${isActive ? "bg-ok" : "bg-white/[0.14]"}`}
                       title={isActive ? "Has active connections" : "No active connections"}
                     />
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-[12px] font-medium text-zinc-200 truncate">{t.name}</span>
-                      <span className="text-[10px] text-zinc-500 shrink-0">
+                      <span className="text-[12px] font-medium text-ink truncate">{t.name}</span>
+                      <span className="text-[10px] text-ink-3 shrink-0">
                         {isTunnelPending
                           ? "creating…"
                           : t.connection_count > 0
@@ -540,7 +540,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                             : "idle"}
                       </span>
                     </div>
-                    <p className="text-[10px] text-zinc-600 font-mono truncate">
+                    <p className="text-[10px] text-ink-3 font-mono truncate">
                       {isTunnelPending ? "waiting for cloudflared…" : t.id}
                     </p>
                   </div>
@@ -549,7 +549,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                     <button
                       onClick={() => setMenuOpenFor(isMenuOpen ? null : t.id)}
                       disabled={isTunnelPending || deletingName === t.name}
-                      className="p-1 rounded hover:bg-white/[0.06] text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                      className="p-1 rounded hover:bg-white/[0.06] text-ink-3 hover:text-ink transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                       title="More actions"
                       aria-label="Tunnel actions"
                     >
@@ -560,24 +560,24 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                       </svg>
                     </button>
                     {isMenuOpen && (
-                      <div className="absolute right-0 top-full mt-1 z-20 w-48 rounded-lg bg-[#1c1c1e] border border-white/[0.08] shadow-xl py-1 text-[11px]">
+                      <div className="absolute right-0 top-full mt-1 z-20 w-48 rounded-card bg-surface-2 border border-subtle shadow-xl py-1 text-[11px]">
                         <button
                           onClick={() => { copyToClipboard(t.id, `id-${t.id}`); setMenuOpenFor(null); }}
-                          className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-white/[0.05] flex items-center justify-between"
+                          className="w-full text-left px-3 py-1.5 text-ink-2 hover:bg-white/[0.05] flex items-center justify-between"
                         >
                           <span>Copy tunnel ID</span>
-                          {copiedId === `id-${t.id}` && <span className="text-emerald-400 text-[10px]">Copied</span>}
+                          {copiedId === `id-${t.id}` && <span className="text-ok text-[10px]">Copied</span>}
                         </button>
                         <button
                           onClick={openInCloudflareDashboard}
-                          className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-white/[0.05]"
+                          className="w-full text-left px-3 py-1.5 text-ink-2 hover:bg-white/[0.05]"
                         >
                           Open in Cloudflare ↗
                         </button>
-                        <div className="my-1 border-t border-white/[0.06]" />
+                        <div className="my-1 border-t border-subtle" />
                         <button
                           onClick={() => { setMenuOpenFor(null); setConfirmDelete({ name: t.name, force: t.connection_count > 0 }); }}
-                          className="w-full text-left px-3 py-1.5 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                          className="w-full text-left px-3 py-1.5 text-bad hover:bg-bad-bg hover:text-bad"
                         >
                           Delete tunnel
                         </button>
@@ -591,7 +591,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                   const m = metricsByTunnel[t.name];
                   if (!m) {
                     return (
-                      <div className="border-t border-white/[0.04] px-3 py-1 text-[10px] text-zinc-500 font-mono">
+                      <div className="border-t border-subtle px-3 py-1 text-[10px] text-ink-3 font-mono">
                         metrics: loading…
                       </div>
                     );
@@ -599,20 +599,20 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                   if (m.error) {
                     if (m.error.kind === "not_enabled") {
                       return (
-                        <div className="border-t border-white/[0.04] px-3 py-1 text-[10px] text-amber-400/80 font-mono">
+                        <div className="border-t border-subtle px-3 py-1 text-[10px] text-warn font-mono">
                           metrics: not enabled — restart this tunnel to expose stats.
                         </div>
                       );
                     }
                     if (m.error.kind === "not_running") {
                       return (
-                        <div className="border-t border-white/[0.04] px-3 py-1 text-[10px] text-zinc-500 font-mono">
+                        <div className="border-t border-subtle px-3 py-1 text-[10px] text-ink-3 font-mono">
                           metrics: tunnel not running
                         </div>
                       );
                     }
                     return (
-                      <div className="border-t border-white/[0.04] px-3 py-1 text-[10px] text-red-400/80 font-mono truncate" title={m.error.message ?? ""}>
+                      <div className="border-t border-subtle px-3 py-1 text-[10px] text-bad font-mono truncate" title={m.error.message ?? ""}>
                         metrics: {m.error.message ?? "error"}
                       </div>
                     );
@@ -622,20 +622,20 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                     ? ((d.errors_total / d.requests_total) * 100).toFixed(2)
                     : "0.00";
                   return (
-                    <div className="border-t border-white/[0.04] px-3 py-1 flex items-center gap-3 text-[10px] font-mono text-zinc-400">
-                      <span><span className="text-zinc-500">req</span> {d.requests_total.toLocaleString()}</span>
-                      <span className={d.errors_total > 0 ? "text-red-400" : ""}>
-                        <span className="text-zinc-500">err</span> {errRate}%
+                    <div className="border-t border-subtle px-3 py-1 flex items-center gap-3 text-[10px] font-mono text-ink-2">
+                      <span><span className="text-ink-3">req</span> {d.requests_total.toLocaleString()}</span>
+                      <span className={d.errors_total > 0 ? "text-bad" : ""}>
+                        <span className="text-ink-3">err</span> {errRate}%
                       </span>
-                      <span><span className="text-zinc-500">conns</span> {d.active_connections}</span>
-                      <span><span className="text-zinc-500">p99</span> {d.response_latency_p99_ms.toFixed(1)}ms</span>
+                      <span><span className="text-ink-3">conns</span> {d.active_connections}</span>
+                      <span><span className="text-ink-3">p99</span> {d.response_latency_p99_ms.toFixed(1)}ms</span>
                     </div>
                   );
                 })()}
 
                 {/* DNS route rows */}
                 {rows.length > 0 && (
-                  <div className="border-t border-white/[0.04] px-1 py-1">
+                  <div className="border-t border-subtle px-1 py-1">
                     {rows.map((row) => {
                       const dot = row.hostname.indexOf(".");
                       const root = dot === -1 ? row.hostname : row.hostname.slice(0, dot);
@@ -649,33 +649,33 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                         >
                           <span
                             className={`text-[9px] font-mono uppercase tracking-wide shrink-0 w-9 ${
-                              row.isDns ? "text-sky-400/70" : "text-purple-400/70"
+                              row.isDns ? "text-accent" : "text-accent"
                             }`}
                           >
                             https
                           </span>
                           <span className="text-[11px] font-mono truncate flex-1 min-w-0">
-                            <span className="text-zinc-200 font-medium">{root}</span>
-                            <span className="text-zinc-500">{tld}</span>
+                            <span className="text-ink font-medium">{root}</span>
+                            <span className="text-ink-3">{tld}</span>
                           </span>
                           {row.app && (
-                            <span className="text-[10px] text-zinc-500 shrink-0">
-                              → <span className="text-zinc-300">{row.app}</span>
+                            <span className="text-[10px] text-ink-3 shrink-0">
+                              → <span className="text-ink-2">{row.app}</span>
                             </span>
                           )}
                           {row.isPending ? (
-                            <svg className="animate-spin text-zinc-500 shrink-0 mr-1" width="10" height="10" viewBox="0 0 12 12" fill="none">
+                            <svg className="animate-spin text-ink-3 shrink-0 mr-1" width="10" height="10" viewBox="0 0 12 12" fill="none">
                               <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             </svg>
                           ) : (
                             <div className="flex items-center gap-0.5 shrink-0">
                               <button
                                 onClick={() => copyToClipboard(`https://${row.hostname}`, `url-${row.key}`)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/[0.06] text-zinc-500 hover:text-zinc-300"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/[0.06] text-ink-3 hover:text-ink-2"
                                 title="Copy URL"
                               >
                                 {copiedId === `url-${row.key}` ? (
-                                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400">
+                                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-ok">
                                     <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                                   </svg>
                                 ) : (
@@ -696,7 +696,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                                     })
                                   }
                                   disabled={deletingRouteKey === `${row.zoneId}:${row.recordId}`}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/10 text-zinc-500 hover:text-red-400 disabled:opacity-30"
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-bad-bg text-ink-3 hover:text-bad disabled:opacity-30"
                                   title="Delete DNS route"
                                 >
                                   {deletingRouteKey === `${row.zoneId}:${row.recordId}` ? (
@@ -719,7 +719,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                 )}
 
                 {/* Inline DNS route adder / "+ Add" trigger */}
-                <div className="border-t border-white/[0.04] px-3 py-1.5">
+                <div className="border-t border-subtle px-3 py-1.5">
                   {routingFor === t.name ? (
                     <div className="flex flex-col gap-1.5 py-1">
                       <div className="flex gap-1.5">
@@ -738,29 +738,29 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                         <button
                           onClick={() => handleRoute(t.name)}
                           disabled={!routeHost.trim() || routing}
-                          className="px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md disabled:opacity-40 transition-colors"
+                          className="px-2.5 py-1 text-[11px] font-medium bg-accent hover:opacity-90 text-white rounded-control disabled:opacity-40 transition-colors"
                         >
                           {routing ? "…" : "Add"}
                         </button>
                         <button
                           onClick={() => { setRoutingFor(null); setRouteHost(""); setRouteError(null); setRouteOverwrite(false); }}
-                          className="px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                          className="px-2 py-1 text-[11px] text-ink-3 hover:text-ink-2 transition-colors"
                         >
                           Cancel
                         </button>
                       </div>
                       {routeError && (
-                        <div className="text-[10px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                        <div className="text-[10px] text-bad font-mono whitespace-pre-wrap break-words">
                           {routeError}
                         </div>
                       )}
                       {routeError && routeError.toLowerCase().includes("already") && (
-                        <label className="flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer select-none">
+                        <label className="flex items-center gap-1.5 text-[10px] text-ink-2 cursor-pointer select-none">
                           <input
                             type="checkbox"
                             checked={routeOverwrite}
                             onChange={(e) => setRouteOverwrite(e.target.checked)}
-                            className="rounded border-white/[0.15] bg-white/[0.05] text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+                            className="rounded border-strong bg-white/[0.05] text-accent focus:ring-[rgba(96,165,250,0.3)] focus:ring-offset-0"
                           />
                           Overwrite existing DNS (replaces current CNAME)
                         </label>
@@ -770,7 +770,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                     <button
                       onClick={() => { setRoutingFor(t.name); setRouteError(null); }}
                       disabled={isTunnelPending}
-                      className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors disabled:opacity-30 disabled:hover:text-zinc-500"
+                      className="text-[10px] text-ink-3 hover:text-accent transition-colors disabled:opacity-30 disabled:hover:text-ink-3"
                     >
                       + Add DNS route
                     </button>
@@ -783,7 +783,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
       </div>
 
       {dnsError && (
-        <div className="px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 text-[10px] text-red-300 font-mono">
+        <div className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[10px] text-bad font-mono">
           DNS routes: {dnsError}
         </div>
       )}
@@ -796,15 +796,15 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             if (e.target === e.currentTarget) setConfirmDeleteRoute(null);
           }}
         >
-          <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl w-[400px] p-5 shadow-2xl flex flex-col gap-3">
-            <h3 className="text-[14px] font-semibold text-zinc-100">Delete DNS route?</h3>
-            <p className="text-[12px] text-zinc-400">
+          <div className="bg-surface-2 border border-subtle rounded-card w-[400px] p-5 shadow-2xl flex flex-col gap-3">
+            <h3 className="text-[14px] font-semibold text-ink">Delete DNS route?</h3>
+            <p className="text-[12px] text-ink-2">
               Removes the CNAME for{" "}
-              <code className="font-mono text-zinc-200">{confirmDeleteRoute.hostname}</code> from
+              <code className="font-mono text-ink">{confirmDeleteRoute.hostname}</code> from
               your Cloudflare zone.
               {confirmDeleteRoute.appName && (
                 <>
-                  {" "}App <span className="text-zinc-200">{confirmDeleteRoute.appName}</span> will
+                  {" "}App <span className="text-ink">{confirmDeleteRoute.appName}</span> will
                   stop receiving traffic at this hostname.
                 </>
               )}
@@ -812,7 +812,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             <div className="flex justify-end gap-2 mt-1">
               <button
                 onClick={() => setConfirmDeleteRoute(null)}
-                className="px-3 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-[12px] text-ink-2 hover:text-ink rounded-control transition-colors"
               >
                 Cancel
               </button>
@@ -825,7 +825,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                   )
                 }
                 disabled={deletingRouteKey === `${confirmDeleteRoute.zoneId}:${confirmDeleteRoute.recordId}`}
-                className="px-3 py-1.5 text-[12px] font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:opacity-50 transition-colors"
+                className="px-3 py-1.5 text-[12px] font-medium bg-bad hover:opacity-90 text-white rounded-control disabled:opacity-50 transition-colors"
               >
                 {deletingRouteKey === `${confirmDeleteRoute.zoneId}:${confirmDeleteRoute.recordId}`
                   ? "Deleting…"
@@ -844,21 +844,21 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             if (e.target === e.currentTarget) setConfirmDelete(null);
           }}
         >
-          <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl w-[400px] p-5 shadow-2xl flex flex-col gap-3">
-            <h3 className="text-[14px] font-semibold text-zinc-100">Delete tunnel?</h3>
-            <p className="text-[12px] text-zinc-400">
-              This removes <code className="font-mono text-zinc-200">{confirmDelete.name}</code> from your Cloudflare account. Apps using it will stop working until re-pointed.
+          <div className="bg-surface-2 border border-subtle rounded-card w-[400px] p-5 shadow-2xl flex flex-col gap-3">
+            <h3 className="text-[14px] font-semibold text-ink">Delete tunnel?</h3>
+            <p className="text-[12px] text-ink-2">
+              This removes <code className="font-mono text-ink">{confirmDelete.name}</code> from your Cloudflare account. Apps using it will stop working until re-pointed.
             </p>
-            <label className="flex items-start gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+            <label className="flex items-start gap-2 text-[11px] text-ink-2 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={confirmDelete.force}
                 onChange={(e) => setConfirmDelete({ ...confirmDelete, force: e.target.checked })}
-                className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-red-500 focus:ring-red-500/30 focus:ring-offset-0"
+                className="mt-0.5 rounded border-strong bg-white/[0.05] text-bad focus:ring-[rgba(248,113,113,0.3)] focus:ring-offset-0"
               />
               <span>
                 <span className="font-medium">Force delete</span>
-                <span className="block text-zinc-500 text-[10px]">
+                <span className="block text-ink-3 text-[10px]">
                   Revoke active connections. Required if the tunnel has running cloudflared instances.
                 </span>
               </span>
@@ -866,14 +866,14 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             <div className="flex justify-end gap-2 mt-1">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="px-3 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-[12px] text-ink-2 hover:text-ink rounded-control transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDelete(confirmDelete.name, confirmDelete.force)}
                 disabled={deletingName === confirmDelete.name}
-                className="px-3 py-1.5 text-[12px] font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:opacity-50 transition-colors"
+                className="px-3 py-1.5 text-[12px] font-medium bg-bad hover:opacity-90 text-white rounded-control disabled:opacity-50 transition-colors"
               >
                 {deletingName === confirmDelete.name ? "Deleting…" : "Delete"}
               </button>

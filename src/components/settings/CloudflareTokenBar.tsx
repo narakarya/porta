@@ -49,7 +49,7 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
   if (token === null) {
     // Skeleton while we load the persisted value — same height as the resting
     // state so the tab area below doesn't shift.
-    return <div className="h-[42px] rounded-xl bg-white/[0.02] border border-white/[0.05] animate-pulse" />;
+    return <div className="h-[42px] rounded-card bg-surface-1 border border-subtle animate-pulse" />;
   }
 
   const hasToken = token.length > 0;
@@ -72,11 +72,11 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-2 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+    <div className="flex flex-col gap-2 px-3 py-2.5 rounded-card bg-surface-1 border border-subtle">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <span className={`h-1.5 w-1.5 rounded-full ${hasToken ? "bg-emerald-400" : "bg-zinc-600"}`} />
-          <span className="text-[11.5px] font-medium text-zinc-200">API Token</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${hasToken ? "bg-ok" : "bg-white/[0.14]"}`} />
+          <span className="text-[11.5px] font-medium text-ink">API Token</span>
           {/* Info trigger — always available, even when token is set, so users
               who want to rotate or check required scopes can find it without
               having to clear the token first. */}
@@ -84,7 +84,7 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
             <button
               type="button"
               onClick={() => setScopesOpen((v) => !v)}
-              className="inline-flex items-center justify-center w-4 h-4 rounded-full text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors"
+              className="inline-flex items-center justify-center w-4 h-4 rounded-full text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
               aria-label="Token info — required scopes and create-token link"
               title="Required scopes & create token"
             >
@@ -95,20 +95,20 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
               </svg>
             </button>
             {scopesOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-50 w-[300px] bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl p-3 text-[11px]">
-                <p className="text-zinc-400 mb-2 leading-snug">
+              <div className="absolute left-0 top-full mt-1.5 z-50 w-[300px] bg-surface-2 border border-strong rounded-card shadow-xl p-3 text-[11px]">
+                <p className="text-ink-2 mb-2 leading-snug">
                   Token needs these scopes for full access:
                 </p>
                 <div className="flex flex-col gap-2.5 mb-3">
                   {REQUIRED_SCOPES.map((bucket) => (
                     <div key={bucket.group}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3 mb-1">
                         {bucket.group}
                       </p>
                       <ul className="flex flex-col gap-0.5">
                         {bucket.items.map((scope) => (
-                          <li key={scope} className="font-mono text-[10.5px] text-zinc-300 flex items-start gap-1.5">
-                            <span className="text-emerald-400/80 mt-0.5 shrink-0">✓</span>
+                          <li key={scope} className="font-mono text-[10.5px] text-ink-2 flex items-start gap-1.5">
+                            <span className="text-ok mt-0.5 shrink-0">✓</span>
                             <span>{scope}</span>
                           </li>
                         ))}
@@ -116,14 +116,14 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
                     </div>
                   ))}
                 </div>
-                <div className="pt-2 border-t border-white/[0.06]">
+                <div className="pt-2 border-t border-subtle">
                   <button
                     type="button"
                     onClick={() => {
                       openExternalUrl("https://dash.cloudflare.com/profile/api-tokens").catch(() => {});
                       setScopesOpen(false);
                     }}
-                    className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] text-accent hover:opacity-90 transition-colors"
                   >
                     Create token on Cloudflare
                     <svg width="9" height="9" viewBox="0 0 11 11" fill="none">
@@ -138,13 +138,13 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
 
         {!showInput && hasToken && (
           <>
-            <code className="font-mono text-[10.5px] text-zinc-500 px-1.5 py-0.5 rounded bg-white/[0.04]">
+            <code className="font-mono text-[10.5px] text-ink-3 px-1.5 py-0.5 rounded bg-white/[0.04]">
               {token.slice(0, 8)}…{token.slice(-4)}
             </code>
             <button
               type="button"
               onClick={() => { setDraft(token); setEditing(true); }}
-              className="ml-auto text-[10.5px] text-zinc-500 hover:text-zinc-200 transition-colors"
+              className="ml-auto text-[10.5px] text-ink-3 hover:text-ink transition-colors"
             >
               Edit
             </button>
@@ -160,13 +160,13 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
               placeholder="Paste Cloudflare API token"
               spellCheck={false}
               autoComplete="off"
-              className="flex-1 bg-[#111113] border border-white/[0.08] rounded-md px-2.5 py-1 text-[11.5px] font-mono text-zinc-100 outline-none focus:border-blue-500/50 transition-colors"
+              className="flex-1 bg-surface-input border border-subtle rounded-control px-2.5 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
             />
             <button
               type="button"
               onClick={save}
               disabled={saving || (!draft.trim() && !hasToken)}
-              className="px-3 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md disabled:opacity-40 transition-colors shrink-0 inline-flex items-center gap-1.5"
+              className="px-3 py-1 text-[11px] font-medium bg-accent hover:opacity-90 text-white rounded-control disabled:opacity-40 transition-colors shrink-0 inline-flex items-center gap-1.5"
             >
               {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />}
               {saving ? "Saving…" : "Save"}
@@ -176,7 +176,7 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
                 type="button"
                 onClick={() => { setEditing(false); setDraft(""); setError(null); }}
                 disabled={saving}
-                className="px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors shrink-0 disabled:opacity-40"
+                className="px-2.5 py-1 text-[11px] text-ink-2 hover:text-ink transition-colors shrink-0 disabled:opacity-40"
               >
                 Cancel
               </button>
@@ -186,10 +186,10 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
       </div>
 
       {!hasToken && !editing && (
-        <p className="text-[10px] text-zinc-500">
+        <p className="text-[10px] text-ink-3">
           Required for DNS, Tunnels, Access, and Email features. Click the
           <span className="inline-block mx-1 align-middle">
-            <svg width="9" height="9" viewBox="0 0 11 11" fill="none" className="inline-block text-zinc-400">
+            <svg width="9" height="9" viewBox="0 0 11 11" fill="none" className="inline-block text-ink-2">
               <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.1" />
               <path d="M5.5 4.7v2.4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
               <circle cx="5.5" cy="3.4" r="0.5" fill="currentColor" />
@@ -200,7 +200,7 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
       )}
 
       {error && (
-        <p className="text-[10px] text-red-400 font-mono whitespace-pre-wrap break-words">{error}</p>
+        <p className="text-[10px] text-bad font-mono whitespace-pre-wrap break-words">{error}</p>
       )}
     </div>
   );

@@ -23,7 +23,7 @@ function SectionFallback() {
   return (
     <div className="flex flex-col gap-3">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="h-14 rounded-xl bg-white/[0.03] border border-white/[0.05] animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+        <div key={i} className="h-14 rounded-card bg-surface-1 border border-subtle animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
       ))}
     </div>
   );
@@ -95,17 +95,17 @@ export default function SettingsPage({ onBack }: Props) {
   }, [activeSection]);
 
   return (
-    <div className="flex h-screen bg-[#0d0d0f] text-zinc-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-surface-0 text-ink font-sans overflow-hidden">
       {/* Drag region */}
       <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
 
       {/* Settings sidebar */}
-      <aside className="w-[172px] bg-[#1a1a1c] border-r border-white/[0.06] flex flex-col pt-8 pb-3 shrink-0">
+      <aside className="w-[172px] bg-surface-2 border-r border-subtle flex flex-col pt-8 pb-3 shrink-0">
         {/* Back button */}
         <div className="px-4 mb-4">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors"
+            className="flex items-center gap-1.5 text-[12px] text-ink-3 hover:text-ink transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M7.5 2L3.5 6l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -117,7 +117,7 @@ export default function SettingsPage({ onBack }: Props) {
         <nav className="flex-1 flex flex-col px-2 overflow-auto no-drag">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-[0.04em] text-zinc-600">
+              <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-[0.04em] text-ink-3">
                 {group.label}
               </div>
               {group.items.map((item) => {
@@ -126,9 +126,9 @@ export default function SettingsPage({ onBack }: Props) {
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`block w-full text-left truncate px-2 py-[5px] rounded-[6px] text-[13px] transition-colors duration-100 ${
+                    className={`block w-full text-left truncate px-2 py-[5px] rounded-control text-[13px] transition-colors duration-100 ${
                       active
-                        ? "bg-accent-bg text-zinc-100"
+                        ? "bg-accent-bg text-ink"
                         : "text-ink-2 hover:bg-white/[0.04]"
                     }`}
                   >

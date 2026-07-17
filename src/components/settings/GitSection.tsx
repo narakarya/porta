@@ -59,8 +59,8 @@ export default function GitSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-[13px] font-semibold text-zinc-100">Git</h2>
-        <p className="text-[11px] text-zinc-600 mt-0.5">
+        <h2 className="text-[13px] font-semibold text-ink">Git</h2>
+        <p className="text-[11px] text-ink-3 mt-0.5">
           App cards show the current branch and how many commits are waiting to
           be pushed or pulled.
         </p>
@@ -71,11 +71,11 @@ export default function GitSection() {
           type="checkbox"
           checked={enabled}
           onChange={toggle}
-          className="mt-0.5 accent-blue-500"
+          className="mt-0.5 accent-accent"
         />
         <span>
-          <span className="text-[12px] text-zinc-200">Fetch from remotes in the background</span>
-          <span className="block text-[11px] text-zinc-600 mt-0.5">
+          <span className="text-[12px] text-ink">Fetch from remotes in the background</span>
+          <span className="block text-[11px] text-ink-3 mt-0.5">
             Git can only tell you how far behind you are by asking the remote.
             Without this, the ↓ count stays at zero until you fetch yourself.
             Porta never touches your working tree — it only runs{" "}
@@ -85,7 +85,7 @@ export default function GitSection() {
       </label>
 
       <div className={enabled ? "" : "opacity-40"}>
-        <p className="text-[12px] text-zinc-200 mb-1.5">Check every</p>
+        <p className="text-[12px] text-ink mb-1.5">Check every</p>
         <div className="flex gap-1.5">
           {INTERVALS.map((i) => (
             <button
@@ -94,8 +94,8 @@ export default function GitSection() {
               disabled={!enabled}
               className={`px-2.5 py-1 rounded text-[11px] transition-colors disabled:cursor-not-allowed ${
                 intervalSecs === i.secs
-                  ? "bg-blue-500/15 border border-blue-500/30 text-blue-300"
-                  : "bg-white/[0.04] border border-white/[0.06] text-zinc-400 hover:bg-white/[0.07]"
+                  ? "bg-accent-bg border border-[rgba(96,165,250,0.3)] text-accent-ink"
+                  : "bg-white/[0.04] border border-subtle text-ink-2 hover:bg-white/[0.07]"
               }`}
             >
               {i.label}
@@ -104,7 +104,7 @@ export default function GitSection() {
         </div>
       </div>
 
-      {error && <p className="text-[12px] text-red-400">{error}</p>}
+      {error && <p className="text-[12px] text-bad">{error}</p>}
     </div>
   );
 }

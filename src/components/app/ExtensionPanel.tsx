@@ -375,8 +375,8 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
   return (
     <div className="flex-1 min-h-0 relative flex flex-col">
       {!srcDoc && !loadError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#0d0d0f] z-10">
-          <div className="flex items-center gap-2 text-[12px] text-zinc-500">
+        <div className="absolute inset-0 flex items-center justify-center bg-surface-0 z-10">
+          <div className="flex items-center gap-2 text-[12px] text-ink-3">
             <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
               <path d="M6.5 1A5.5 5.5 0 1 1 1 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
@@ -387,9 +387,9 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       {loadError && (
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="max-w-sm flex flex-col gap-2">
-            <p className="text-[12px] text-red-400 font-medium">Failed to load extension</p>
-            <p className="text-[11px] text-zinc-500 font-mono break-all">{loadError}</p>
-            <p className="text-[11px] text-zinc-600">Check that the extension's main file exists at:<br /><code className="text-zinc-500">{extension.main_path}</code></p>
+            <p className="text-[12px] text-bad font-medium">Failed to load extension</p>
+            <p className="text-[11px] text-ink-3 font-mono break-all">{loadError}</p>
+            <p className="text-[11px] text-ink-3">Check that the extension's main file exists at:<br /><code className="text-ink-3">{extension.main_path}</code></p>
           </div>
         </div>
       )}
@@ -398,7 +398,7 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
           key={`${extension.id}-${reloadKey}`}
           ref={iframeRef}
           srcDoc={srcDoc}
-          className="flex-1 w-full border-0 bg-[#0d0d0f]"
+          className="flex-1 w-full border-0 bg-surface-0"
           title={extension.name}
         />
       )}

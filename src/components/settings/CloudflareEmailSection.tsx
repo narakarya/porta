@@ -186,10 +186,10 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
     }
   }
 
-  if (token === null) return <p className="text-[12px] text-zinc-500">Loading…</p>;
+  if (token === null) return <p className="text-[12px] text-ink-3">Loading…</p>;
   if (!token) {
     return (
-      <div className="px-3 py-3 rounded-lg bg-amber-500/[0.07] border border-amber-500/[0.25] text-[12px] text-amber-200">
+      <div className="px-3 py-3 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.25)] text-[12px] text-warn">
         Add a Cloudflare API token in the bar above. Email Routing needs <span className="font-mono">Account.Email Routing Addresses:Edit + Zone.Email Routing Rules:Edit</span>.
       </div>
     );
@@ -202,9 +202,9 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-[14px] font-semibold text-zinc-100">Email Routing</h2>
+            <h2 className="text-[14px] font-semibold text-ink">Email Routing</h2>
             {loading && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] text-zinc-500">
+              <span className="inline-flex items-center gap-1 text-[10.5px] text-ink-3">
                 <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
                   <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
@@ -212,7 +212,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
               </span>
             )}
           </div>
-          <p className="text-[11.5px] text-zinc-500 mt-0.5">
+          <p className="text-[11.5px] text-ink-3 mt-0.5">
             Forward email at your domain to your real inbox — no mailserver needed.
           </p>
         </div>
@@ -226,7 +226,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
               if (zoneId) loadZone(token, zoneId);
             }}
             disabled={!token || loading}
-            className="text-[11px] text-zinc-500 hover:text-zinc-200 disabled:opacity-40 transition-colors"
+            className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
           >
             {loading ? "Loading…" : "↻ Refresh"}
           </button>
@@ -245,23 +245,23 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
       </div>
 
       {error && (
-        <p className="text-[11px] text-red-400 font-mono whitespace-pre-wrap break-words">{error}</p>
+        <p className="text-[11px] text-bad font-mono whitespace-pre-wrap break-words">{error}</p>
       )}
 
       {loading && !status ? (
-        <div className="px-3 py-6 text-center text-[12px] text-zinc-500">Loading…</div>
+        <div className="px-3 py-6 text-center text-[12px] text-ink-3">Loading…</div>
       ) : !status?.enabled ? (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500/[0.07] border border-amber-500/[0.25]">
-          <p className="text-[12px] text-amber-200">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+          <p className="text-[12px] text-warn">
             Email Routing is not enabled for this zone. Enabling will provision the required MX/SPF/TXT DNS records automatically.
           </p>
           <button
             type="button"
             onClick={handleEnable}
             disabled={enabling}
-            className="px-3 py-1.5 text-[11.5px] rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 border border-amber-500/30 disabled:opacity-40 shrink-0 inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 text-[11.5px] rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.24)] text-warn border border-[rgba(251,191,36,0.30)] disabled:opacity-40 shrink-0 inline-flex items-center gap-1.5"
           >
-            {enabling && <span className="inline-block h-3 w-3 rounded-full border-2 border-amber-400/30 border-t-amber-200 animate-spin" />}
+            {enabling && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(251,191,36,0.30)] border-t-warn animate-spin" />}
             {enabling ? "Enabling…" : "Enable for this zone"}
           </button>
         </div>
@@ -270,27 +270,27 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
           {/* Destinations (account-level) */}
           <div className="flex flex-col gap-2">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-zinc-200">Destinations</h3>
-              <p className="text-[10.5px] text-zinc-500 mt-0.5">
+              <h3 className="text-[12.5px] font-semibold text-ink">Destinations</h3>
+              <p className="text-[10.5px] text-ink-3 mt-0.5">
                 Real inbox addresses that can receive forwards. Each must be verified via the link Cloudflare emails on add.
               </p>
             </div>
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] divide-y divide-white/[0.04] overflow-hidden">
+            <div className="rounded-card border border-subtle bg-surface-1 divide-y divide-white/[0.04] overflow-hidden">
               {destinations.length === 0 ? (
-                <div className="px-3 py-4 text-center text-[11px] text-zinc-500">
+                <div className="px-3 py-4 text-center text-[11px] text-ink-3">
                   No destinations yet — add one below to receive forwards.
                 </div>
               ) : destinations.map((d) => (
                 <div key={d.tag} className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className={`h-1.5 w-1.5 rounded-full ${d.verified ? "bg-emerald-400" : "bg-amber-400"}`} />
-                    <code className="font-mono text-[12px] text-zinc-200 truncate">{d.email}</code>
-                    {!d.verified && <span className="text-[10px] text-amber-400 shrink-0">unverified</span>}
+                    <span className={`h-1.5 w-1.5 rounded-full ${d.verified ? "bg-ok" : "bg-warn"}`} />
+                    <code className="font-mono text-[12px] text-ink truncate">{d.email}</code>
+                    {!d.verified && <span className="text-[10px] text-warn shrink-0">unverified</span>}
                   </div>
                   <button
                     type="button"
                     onClick={() => handleDeleteDestination(d)}
-                    className="text-[11px] text-zinc-500 hover:text-red-400 transition-colors"
+                    className="text-[11px] text-ink-3 hover:text-bad transition-colors"
                   >
                     Remove
                   </button>
@@ -304,15 +304,15 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 value={newDestEmail}
                 onChange={(e) => setNewDestEmail(e.target.value)}
                 placeholder="real@gmail.com"
-                className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-1.5 text-[12px] font-mono text-zinc-100 outline-none focus:border-blue-500/50"
+                className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
               />
               <button
                 type="button"
                 onClick={handleAddDestination}
                 disabled={creatingDest || !newDestEmail.trim()}
-                className="px-3 py-1.5 text-[11.5px] rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-200 border border-blue-500/30 disabled:opacity-40 inline-flex items-center gap-1.5"
+                className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.30)] disabled:opacity-40 inline-flex items-center gap-1.5"
               >
-                {creatingDest && <span className="inline-block h-3 w-3 rounded-full border-2 border-blue-400/30 border-t-blue-300 animate-spin" />}
+                {creatingDest && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.30)] border-t-accent-ink animate-spin" />}
                 {creatingDest ? "Sending…" : "Add destination"}
               </button>
             </div>
@@ -321,31 +321,31 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
           {/* Forwarding rules (zone-level) */}
           <div className="flex flex-col gap-2">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-zinc-200">Forwarding rules</h3>
-              <p className="text-[10.5px] text-zinc-500 mt-0.5">
+              <h3 className="text-[12.5px] font-semibold text-ink">Forwarding rules</h3>
+              <p className="text-[10.5px] text-ink-3 mt-0.5">
                 Match an exact email address and forward to a destination.
               </p>
             </div>
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] divide-y divide-white/[0.04] overflow-hidden">
-              <div className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 text-[10px] uppercase tracking-wider text-zinc-500">
+            <div className="rounded-card border border-subtle bg-surface-1 divide-y divide-white/[0.04] overflow-hidden">
+              <div className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 text-[10px] uppercase tracking-wider text-ink-3">
                 <div>Match</div>
                 <div>Forward to</div>
                 <div className="text-right">Action</div>
               </div>
               {rules.length === 0 ? (
-                <div className="px-3 py-4 text-center text-[11px] text-zinc-500">
+                <div className="px-3 py-4 text-center text-[11px] text-ink-3">
                   No rules yet — add a forward to route mail from this zone.
                 </div>
               ) : rules.map((r) => (
-                <div key={r.tag} className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 items-center text-[12px] text-zinc-200">
+                <div key={r.tag} className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 items-center text-[12px] text-ink">
                   <code className="font-mono text-[11.5px] truncate" title={r.matcher_value}>{r.matcher_value}</code>
-                  <code className="font-mono text-[11.5px] text-zinc-300 truncate" title={r.forward_to.join(", ")}>{r.forward_to.join(", ")}</code>
+                  <code className="font-mono text-[11.5px] text-ink-2 truncate" title={r.forward_to.join(", ")}>{r.forward_to.join(", ")}</code>
                   <div className="text-right">
                     <button
                       type="button"
                       onClick={() => handleDeleteRule(r)}
                       disabled={deletingTag === r.tag}
-                      className="text-[11px] text-red-300 hover:text-red-200 transition-colors disabled:opacity-40"
+                      className="text-[11px] text-bad hover:text-bad transition-colors disabled:opacity-40"
                     >
                       {deletingTag === r.tag ? "…" : "Delete"}
                     </button>
@@ -353,13 +353,13 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 </div>
               ))}
               {/* Inline new-rule row */}
-              <div className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 items-center bg-blue-500/[0.04]">
+              <div className="grid grid-cols-[1fr_1fr_80px] gap-2 px-3 py-2 items-center bg-[rgba(96,165,250,0.04)]">
                 <input
                   spellCheck={false}
                   value={ruleMatcher}
                   onChange={(e) => setRuleMatcher(e.target.value)}
                   placeholder="hello@example.com"
-                  className="bg-[#111113] border border-white/[0.08] rounded px-2 py-1 text-[11.5px] font-mono text-zinc-100 outline-none focus:border-blue-500/50"
+                  className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
                 />
                 <input
                   list={`fwd-suggestions-${zoneId}`}
@@ -367,7 +367,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                   value={ruleForwardTo}
                   onChange={(e) => setRuleForwardTo(e.target.value)}
                   placeholder="real@gmail.com"
-                  className="bg-[#111113] border border-white/[0.08] rounded px-2 py-1 text-[11.5px] font-mono text-zinc-100 outline-none focus:border-blue-500/50"
+                  className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
                 />
                 <datalist id={`fwd-suggestions-${zoneId}`}>
                   {verifiedDestinations.map((d) => <option key={d.tag} value={d.email} />)}
@@ -377,7 +377,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                     type="button"
                     onClick={handleAddRule}
                     disabled={creatingRule || !ruleMatcher.trim() || !ruleForwardTo.trim()}
-                    className="px-2 py-0.5 text-[11px] rounded bg-blue-500/15 hover:bg-blue-500/25 text-blue-200 border border-blue-500/30 disabled:opacity-40"
+                    className="px-2 py-0.5 text-[11px] rounded bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.30)] disabled:opacity-40"
                   >
                     {creatingRule ? "…" : "Add"}
                   </button>
@@ -387,10 +387,10 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
           </div>
 
           {/* Catch-all */}
-          <div className="flex flex-col gap-2 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+          <div className="flex flex-col gap-2 p-4 rounded-card bg-surface-1 border border-subtle">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-zinc-200">Catch-all</h3>
-              <p className="text-[10.5px] text-zinc-500 mt-0.5">
+              <h3 className="text-[12.5px] font-semibold text-ink">Catch-all</h3>
+              <p className="text-[10.5px] text-ink-3 mt-0.5">
                 Anything that didn't match a rule above goes here. Empty = drop unmatched mail.
               </p>
             </div>
@@ -401,7 +401,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 value={catchAllForward}
                 onChange={(e) => setCatchAllForward(e.target.value)}
                 placeholder="real@gmail.com (or leave empty to drop)"
-                className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-1.5 text-[12px] font-mono text-zinc-100 outline-none focus:border-blue-500/50"
+                className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
               />
               <datalist id={`catchall-suggestions-${zoneId}`}>
                 {verifiedDestinations.map((d) => <option key={d.tag} value={d.email} />)}
@@ -410,9 +410,9 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 type="button"
                 onClick={handleSaveCatchAll}
                 disabled={savingCatchAll}
-                className="px-3 py-1.5 text-[11.5px] rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200 disabled:opacity-40 inline-flex items-center gap-1.5"
+                className="px-3 py-1.5 text-[11.5px] rounded-control bg-white/[0.06] hover:bg-white/[0.12] text-ink disabled:opacity-40 inline-flex items-center gap-1.5"
               >
-                {savingCatchAll && <span className="inline-block h-3 w-3 rounded-full border-2 border-zinc-400/30 border-t-zinc-200 animate-spin" />}
+                {savingCatchAll && <span className="inline-block h-3 w-3 rounded-full border-2 border-white/[0.14] border-t-ink animate-spin" />}
                 Save
               </button>
             </div>

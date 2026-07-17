@@ -56,7 +56,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
   const updateReady = updaterPhase === "available" || updaterPhase === "ready";
 
   return (
-    <nav className="drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-11 pb-3 z-20">
+    <nav className="drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-3 pb-3 z-20">
       {/* Porta logo + domain nav as one tight top cluster. */}
       <div className="no-drag flex flex-col items-center gap-1">
         <img src="/porta-logo.svg" alt="Porta" width={22} height={22} className="rounded-[6px] mb-1" />

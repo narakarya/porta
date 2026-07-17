@@ -169,17 +169,17 @@ export default function BackupSection() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-[16px] font-semibold text-zinc-100">Backup</h1>
-        <p className="text-[12px] text-zinc-500 mt-1 leading-relaxed">
+        <h1 className="text-[16px] font-semibold text-ink">Backup</h1>
+        <p className="text-[12px] text-ink-3 mt-1 leading-relaxed">
           Export the Porta database to migrate machines, or restore from an automatic snapshot.
         </p>
       </div>
 
       {/* Full DB backup */}
-      <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-emerald-400">
+          <div className="w-9 h-9 rounded-card bg-ok-bg border border-[rgba(52,211,153,0.2)] flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-ok">
               <ellipse cx="10" cy="5" rx="7" ry="2.5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 5v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5V5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 10v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5v-5" stroke="currentColor" strokeWidth="1.5"/>
@@ -187,12 +187,12 @@ export default function BackupSection() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <p className="text-[13px] font-medium text-zinc-200">Full Backup</p>
+              <p className="text-[13px] font-medium text-ink">Full Backup</p>
               <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                portaEnv === "dev" ? "bg-amber-500/15 text-amber-400" : "bg-emerald-500/15 text-emerald-400"
+                portaEnv === "dev" ? "bg-warn-bg text-warn" : "bg-ok-bg text-ok"
               }`}>{portaEnv}</span>
             </div>
-            <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+            <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
               Export or import the complete Porta database — all workspaces, apps, services, settings, and profiles. Use this to migrate to a new machine.
             </p>
           </div>
@@ -201,7 +201,7 @@ export default function BackupSection() {
           <button
             onClick={handleFullExport}
             disabled={fullExportStatus === "loading"}
-            className="px-4 py-2 text-[13px] font-medium bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 text-[13px] font-medium bg-accent hover:opacity-90 disabled:opacity-50 text-white rounded-control transition-colors flex items-center gap-1.5"
           >
             {fullExportStatus === "loading" && (
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
@@ -214,7 +214,7 @@ export default function BackupSection() {
           <button
             onClick={handleFullImportDialog}
             disabled={fullImportStatus === "loading"}
-            className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-ink-2 rounded-control transition-colors flex items-center gap-1.5"
           >
             {fullImportStatus === "loading" && (
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
@@ -226,37 +226,37 @@ export default function BackupSection() {
           </button>
           {fullExportStatus === "success" && fullExportPath && (
             <div className="flex items-center gap-2">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-emerald-400 shrink-0">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-ok shrink-0">
                 <path d="M2 6l2.5 2.5 5.5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              <span className="text-[12px] text-emerald-400 font-mono truncate max-w-[180px]" title={fullExportPath}>
+              <span className="text-[12px] text-ok font-mono truncate max-w-[180px]" title={fullExportPath}>
                 {fullExportPath.split("/").pop()}
               </span>
               <button
                 onClick={() => revealInFinder(fullExportPath)}
-                className="text-[11px] text-zinc-500 hover:text-zinc-200 underline underline-offset-2 transition-colors shrink-0"
+                className="text-[11px] text-ink-3 hover:text-ink underline underline-offset-2 transition-colors shrink-0"
               >
                 Show in Finder
               </button>
             </div>
           )}
           {fullExportStatus === "error" && (
-            <span className="text-[12px] text-red-400">Export failed</span>
+            <span className="text-[12px] text-bad">Export failed</span>
           )}
           {fullImportStatus === "success" && (
-            <span className="text-[12px] text-emerald-400">Imported! Restart the app to apply.</span>
+            <span className="text-[12px] text-ok">Imported! Restart the app to apply.</span>
           )}
           {fullImportStatus === "error" && (
-            <span className="text-[12px] text-red-400">Import failed</span>
+            <span className="text-[12px] text-bad">Import failed</span>
           )}
         </div>
       </div>
 
       {/* Schedule */}
-      <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-violet-400">
+          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.2)] flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
               <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
               <path d="M10 6v4l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
@@ -264,8 +264,8 @@ export default function BackupSection() {
           <div className="flex-1">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-[13px] font-medium text-zinc-200">Schedule</p>
-                <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+                <p className="text-[13px] font-medium text-ink">Schedule</p>
+                <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
                   Run automatic backups on a recurring schedule. Old snapshots are pruned by retention.
                 </p>
               </div>
@@ -273,7 +273,7 @@ export default function BackupSection() {
                 <button
                   onClick={() => patchSchedule({ enabled: !schedule.enabled })}
                   className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
-                    schedule.enabled ? "bg-blue-600" : "bg-zinc-700"
+                    schedule.enabled ? "bg-accent" : "bg-white/[0.14]"
                   }`}
                   aria-label="Toggle schedule"
                 >
@@ -292,15 +292,15 @@ export default function BackupSection() {
 
             {/* Frequency */}
             <div className="flex flex-col gap-2">
-              <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Frequency</p>
+              <p className="text-[11px] font-medium text-ink-3 uppercase tracking-wider">Frequency</p>
               <div className="flex items-center gap-2">
                 {(["hourly", "daily", "weekly"] as ScheduleFreq[]).map((freq) => (
                   <label
                     key={freq}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer text-[12px] border transition-colors ${
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-control cursor-pointer text-[12px] border transition-colors ${
                       schedule.frequency === freq
-                        ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
-                        : "bg-white/[0.02] border-white/[0.05] text-zinc-400 hover:text-zinc-200"
+                        ? "bg-accent-bg border-[rgba(96,165,250,0.4)] text-accent-ink"
+                        : "bg-white/[0.02] border-subtle text-ink-2 hover:text-ink"
                     }`}
                   >
                     <input
@@ -319,7 +319,7 @@ export default function BackupSection() {
             {/* Time picker (Daily / Weekly) */}
             {schedule.frequency !== "hourly" && (
               <div className="flex flex-col gap-2">
-                <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Time</p>
+                <p className="text-[11px] font-medium text-ink-3 uppercase tracking-wider">Time</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -327,18 +327,18 @@ export default function BackupSection() {
                     max={23}
                     value={schedule.hour}
                     onChange={(e) => patchSchedule({ hour: Math.max(0, Math.min(23, parseInt(e.target.value || "0", 10))) })}
-                    className="w-16 px-2 py-1.5 text-[12px] bg-white/[0.04] border border-white/[0.08] rounded-md text-zinc-200 focus:outline-none focus:border-blue-500/50"
+                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
                   />
-                  <span className="text-zinc-500">:</span>
+                  <span className="text-ink-3">:</span>
                   <input
                     type="number"
                     min={0}
                     max={59}
                     value={schedule.minute}
                     onChange={(e) => patchSchedule({ minute: Math.max(0, Math.min(59, parseInt(e.target.value || "0", 10))) })}
-                    className="w-16 px-2 py-1.5 text-[12px] bg-white/[0.04] border border-white/[0.08] rounded-md text-zinc-200 focus:outline-none focus:border-blue-500/50"
+                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
                   />
-                  <span className="text-[11px] text-zinc-500 ml-1">24-hour, local time</span>
+                  <span className="text-[11px] text-ink-3 ml-1">24-hour, local time</span>
                 </div>
               </div>
             )}
@@ -346,7 +346,7 @@ export default function BackupSection() {
             {/* Hourly: minute only */}
             {schedule.frequency === "hourly" && (
               <div className="flex flex-col gap-2">
-                <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Minute of hour</p>
+                <p className="text-[11px] font-medium text-ink-3 uppercase tracking-wider">Minute of hour</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -354,9 +354,9 @@ export default function BackupSection() {
                     max={59}
                     value={schedule.minute}
                     onChange={(e) => patchSchedule({ minute: Math.max(0, Math.min(59, parseInt(e.target.value || "0", 10))) })}
-                    className="w-16 px-2 py-1.5 text-[12px] bg-white/[0.04] border border-white/[0.08] rounded-md text-zinc-200 focus:outline-none focus:border-blue-500/50"
+                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
                   />
-                  <span className="text-[11px] text-zinc-500 ml-1">:MM each hour</span>
+                  <span className="text-[11px] text-ink-3 ml-1">:MM each hour</span>
                 </div>
               </div>
             )}
@@ -364,16 +364,16 @@ export default function BackupSection() {
             {/* Day of week (Weekly) */}
             {schedule.frequency === "weekly" && (
               <div className="flex flex-col gap-2">
-                <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Day of week</p>
+                <p className="text-[11px] font-medium text-ink-3 uppercase tracking-wider">Day of week</p>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {DAY_LABELS.map((label, idx) => (
                     <button
                       key={label}
                       onClick={() => patchSchedule({ day_of_week: idx })}
-                      className={`px-3 py-1.5 text-[12px] rounded-md border transition-colors ${
+                      className={`px-3 py-1.5 text-[12px] rounded-control border transition-colors ${
                         schedule.day_of_week === idx
-                          ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
-                          : "bg-white/[0.02] border-white/[0.05] text-zinc-400 hover:text-zinc-200"
+                          ? "bg-accent-bg border-[rgba(96,165,250,0.4)] text-accent-ink"
+                          : "bg-white/[0.02] border-subtle text-ink-2 hover:text-ink"
                       }`}
                     >
                       {label}
@@ -385,18 +385,18 @@ export default function BackupSection() {
 
             {/* Retention */}
             <div className="flex flex-col gap-2">
-              <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Retention</p>
+              <p className="text-[11px] font-medium text-ink-3 uppercase tracking-wider">Retention</p>
               <div className="flex items-center gap-2">
-                <span className="text-[12px] text-zinc-400">Keep last</span>
+                <span className="text-[12px] text-ink-2">Keep last</span>
                 <input
                   type="number"
                   min={1}
                   max={500}
                   value={schedule.retain_count}
                   onChange={(e) => patchSchedule({ retain_count: Math.max(1, Math.min(500, parseInt(e.target.value || "1", 10))) })}
-                  className="w-20 px-2 py-1.5 text-[12px] bg-white/[0.04] border border-white/[0.08] rounded-md text-zinc-200 focus:outline-none focus:border-blue-500/50"
+                  className="w-20 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
                 />
-                <span className="text-[12px] text-zinc-400">backups</span>
+                <span className="text-[12px] text-ink-2">backups</span>
               </div>
             </div>
 
@@ -407,38 +407,38 @@ export default function BackupSection() {
               <button
                 onClick={handleSaveSchedule}
                 disabled={scheduleSaveStatus === "saving"}
-                className="px-4 py-2 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors"
+                className="px-4 py-2 text-[13px] font-medium bg-accent hover:opacity-90 disabled:opacity-50 text-white rounded-control transition-colors"
               >
                 {scheduleSaveStatus === "saving" ? "Saving..." : "Save schedule"}
               </button>
               <button
                 onClick={handleRunNow}
                 disabled={runNowStatus === "loading"}
-                className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-zinc-300 rounded-lg transition-colors"
+                className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-ink-2 rounded-control transition-colors"
               >
                 {runNowStatus === "loading" ? "Running..." : "Run backup now"}
               </button>
               {scheduleSaveStatus === "saved" && (
-                <span className="text-[12px] text-emerald-400">Saved</span>
+                <span className="text-[12px] text-ok">Saved</span>
               )}
               {scheduleSaveStatus === "error" && (
-                <span className="text-[12px] text-red-400">Save failed</span>
+                <span className="text-[12px] text-bad">Save failed</span>
               )}
               {runNowStatus === "success" && (
-                <span className="text-[12px] text-emerald-400">Backup created</span>
+                <span className="text-[12px] text-ok">Backup created</span>
               )}
               {runNowStatus === "error" && (
-                <span className="text-[12px] text-red-400">Backup failed</span>
+                <span className="text-[12px] text-bad">Backup failed</span>
               )}
             </div>
 
-            <div className="flex flex-col gap-1 text-[11px] text-zinc-500 leading-relaxed">
+            <div className="flex flex-col gap-1 text-[11px] text-ink-3 leading-relaxed">
               <p>
-                <span className="text-zinc-400">Last run:</span> {formatRelative(schedule.last_run_at)}
-                {schedule.last_run_at ? <span className="text-zinc-600 ml-1">({formatAbsolute(schedule.last_run_at)})</span> : null}
+                <span className="text-ink-2">Last run:</span> {formatRelative(schedule.last_run_at)}
+                {schedule.last_run_at ? <span className="text-ink-3 ml-1">({formatAbsolute(schedule.last_run_at)})</span> : null}
               </p>
               <p>
-                <span className="text-zinc-400">Next run:</span>{" "}
+                <span className="text-ink-2">Next run:</span>{" "}
                 {schedule.enabled
                   ? `${formatRelative(schedule.next_run_at)} ${schedule.next_run_at ? `(${formatAbsolute(schedule.next_run_at)})` : ""}`
                   : "schedule disabled"}
@@ -449,27 +449,27 @@ export default function BackupSection() {
       </div>
 
       {/* Auto-backups */}
-      <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-blue-400">
+          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.2)] flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
               <ellipse cx="10" cy="5" rx="7" ry="2.5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 5v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5V5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 10v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5v-5" stroke="currentColor" strokeWidth="1.5"/>
             </svg>
           </div>
           <div>
-            <p className="text-[13px] font-medium text-zinc-200">Automatic Backups</p>
-            <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+            <p className="text-[13px] font-medium text-ink">Automatic Backups</p>
+            <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
               Porta keeps the last 10 snapshots, taken automatically on data changes. Restore any of them below.
             </p>
           </div>
         </div>
 
         {backupsLoading ? (
-          <p className="text-[12px] text-zinc-500">Loading backups...</p>
+          <p className="text-[12px] text-ink-3">Loading backups...</p>
         ) : backups.length === 0 ? (
-          <p className="text-[12px] text-zinc-500">No automatic backups yet.</p>
+          <p className="text-[12px] text-ink-3">No automatic backups yet.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {backups.map((filename) => {
@@ -477,23 +477,23 @@ export default function BackupSection() {
               return (
                 <div
                   key={filename}
-                  className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]"
+                  className="flex items-center justify-between px-3 py-2 rounded-control bg-white/[0.02] border border-subtle"
                 >
                   <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-[12px] text-zinc-300 font-mono truncate">{filename}</span>
-                    <span className="text-[11px] text-zinc-600">{parseBackupDate(filename)}</span>
+                    <span className="text-[12px] text-ink-2 font-mono truncate">{filename}</span>
+                    <span className="text-[11px] text-ink-3">{parseBackupDate(filename)}</span>
                   </div>
                   <div className="flex items-center gap-2 ml-3 shrink-0">
                     {status === "success" && (
-                      <span className="text-[11px] text-emerald-400">Restored! Reload to apply</span>
+                      <span className="text-[11px] text-ok">Restored! Reload to apply</span>
                     )}
                     {status === "error" && (
-                      <span className="text-[11px] text-red-400">Failed</span>
+                      <span className="text-[11px] text-bad">Failed</span>
                     )}
                     <button
                       onClick={() => handleRestore(filename)}
                       disabled={status === "loading"}
-                      className="px-2.5 py-1 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-not-allowed text-zinc-300 rounded-md transition-colors flex items-center gap-1.5"
+                      className="px-2.5 py-1 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-not-allowed text-ink-2 rounded-control transition-colors flex items-center gap-1.5"
                     >
                       {status === "loading" && (
                         <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">

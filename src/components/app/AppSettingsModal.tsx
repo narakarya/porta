@@ -81,22 +81,22 @@ function TunnelPublicHostsPanel({ hosts, title = "This app will expose" }: { hos
   if (hosts.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-lg bg-orange-500/[0.04] border border-orange-500/[0.15] overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-orange-500/[0.10]">
+    <div className="mt-3 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.15)] overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[rgba(251,191,36,0.1)]">
         <p className="text-[10px] text-ink-2 font-medium">{title}</p>
-        <span className="text-[9px] uppercase tracking-wider text-orange-300/80 leading-none">
+        <span className="text-[9px] uppercase tracking-wider text-warn leading-none">
           {hosts.length} {hosts.length === 1 ? "host" : "hosts"}
         </span>
       </div>
       <ul className="px-3 py-2 space-y-1">
         {hosts.map(({ host, kind }) => (
-          <li key={host} className="flex items-center gap-2 font-mono text-[11px] text-orange-200/90 min-w-0">
+          <li key={host} className="flex items-center gap-2 font-mono text-[11px] text-warn min-w-0">
             {/* Filled dot for the primary host, hollow for extras / port bindings. */}
             <span
               className={`shrink-0 w-1.5 h-1.5 rounded-full ${
                 kind === "primary"
-                  ? "bg-orange-400"
-                  : "border border-orange-400/50 bg-transparent"
+                  ? "bg-warn"
+                  : "border border-[rgba(251,191,36,0.5)] bg-transparent"
               }`}
               aria-label={kind === "primary" ? "primary" : kind}
             />
@@ -2710,7 +2710,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                           type="checkbox"
                           checked={tsFunnel}
                           onChange={(e) => setTsFunnel(e.target.checked)}
-                          className="mt-0.5 rounded border-strong bg-surface-2 text-orange-500 focus:ring-orange-500/30 focus:ring-offset-0"
+                          className="mt-0.5 rounded border-strong bg-surface-2 text-warn focus:ring-[rgba(251,191,36,0.3)] focus:ring-offset-0"
                         />
                         <div className="flex-1">
                           <p className="text-[12px] text-ink">Expose publicly via Funnel</p>

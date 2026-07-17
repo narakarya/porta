@@ -841,23 +841,23 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
               stale, `rawContent` is the source of truth. */}
           {active?.kind === "env" && envMode === "rows" && emptyValueCount > 0 && (
             <span
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] bg-amber-500/10 border border-amber-500/25 text-amber-300"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-warn-bg border border-[rgba(251,191,36,0.25)] text-warn"
               title="Variables with an empty value"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-warn" />
               {emptyValueCount} {emptyValueCount === 1 ? "value needs" : "values need"} filling
             </span>
           )}
 
           {/* Mode toggle — env files only */}
           {active?.kind === "env" && (
-            <div className="flex items-center rounded-md border border-white/[0.08] overflow-hidden text-[11px]">
+            <div className="flex items-center rounded-control border border-subtle overflow-hidden text-[11px]">
               <button
                 onClick={() => envMode !== "rows" && toggleEnvMode()}
                 className={`px-2.5 py-1 transition-colors ${
                   envMode === "rows"
-                    ? "bg-white/[0.10] text-zinc-200"
-                    : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05]"
+                    ? "bg-white/[0.10] text-ink"
+                    : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
                 }`}
               >
                 Rows
@@ -866,8 +866,8 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                 onClick={() => envMode !== "raw" && toggleEnvMode()}
                 className={`px-2.5 py-1 transition-colors ${
                   envMode === "raw"
-                    ? "bg-white/[0.10] text-zinc-200"
-                    : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05]"
+                    ? "bg-white/[0.10] text-ink"
+                    : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
                 }`}
               >
                 Raw
@@ -882,10 +882,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             <button
               onClick={() => setShowAllSensitive((v) => !v)}
               title={showAllSensitive ? "Mask secret values again" : "Reveal masked secret values"}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] border transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] border transition-colors ${
                 showAllSensitive
-                  ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                  : "bg-white/[0.05] text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:bg-white/[0.08]"
+                  ? "bg-warn-bg text-warn border-[rgba(251,191,36,0.30)]"
+                  : "bg-white/[0.05] text-ink-2 border-subtle hover:text-ink hover:bg-white/[0.08]"
               }`}
             >
               <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
@@ -900,7 +900,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <button
             onClick={handleReload}
             disabled={!active || loading}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] bg-white/[0.05] border border-white/[0.08] text-zinc-300 hover:bg-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-white/[0.05] border border-subtle text-ink-2 hover:bg-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Reload
           </button>
@@ -915,7 +915,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
           <button
             onClick={attemptClose}
-            className="p-1 text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
+            className="p-1 text-ink-3 hover:text-ink hover:bg-white/[0.06] rounded-control transition-colors"
             title="Close (Esc)"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -926,15 +926,15 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
         {/* Restart prompt — compose port drift */}
         {restartPrompt && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 text-[12px] text-amber-200">
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-warn-bg border-b border-[rgba(251,191,36,0.20)] text-[12px] text-warn">
             <span>
               Proxy port changed: <span className="font-mono">{restartPrompt.oldPort}</span> → <span className="font-mono">{restartPrompt.newPort}</span>. Restart to apply.
             </span>
             <div className="flex-1" />
-            <button onClick={handleRestart} className="px-2.5 py-1 text-[11px] font-medium bg-amber-600/80 hover:bg-amber-500 text-white rounded-md transition-colors">
+            <button onClick={handleRestart} className="px-2.5 py-1 text-[11px] font-medium bg-warn hover:brightness-110 text-white rounded-control transition-colors">
               Restart now
             </button>
-            <button onClick={() => setRestartPrompt(null)} className="text-[11px] text-amber-300 hover:text-amber-100 transition-colors">
+            <button onClick={() => setRestartPrompt(null)} className="text-[11px] text-warn hover:brightness-110 transition-colors">
               Later
             </button>
           </div>
@@ -944,7 +944,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
         {templateCandidates.map((f) => (
           <div
             key={f.path}
-            className="flex items-center gap-3 px-4 py-2.5 bg-blue-500/[0.07] border-b border-blue-500/20 text-[12px] text-blue-100"
+            className="flex items-center gap-3 px-4 py-2.5 bg-accent-bg border-b border-[rgba(96,165,250,0.20)] text-[12px] text-accent-ink"
           >
             <span>
               No <span className="font-mono">{baseName(f.templateTarget!)}</span> yet — create it from{" "}
@@ -954,7 +954,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             <button
               onClick={() => handleCreateFromTemplate(f)}
               disabled={creating !== null}
-              className="px-2.5 py-1 text-[11px] font-medium bg-blue-600/80 hover:bg-blue-500 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2.5 py-1 text-[11px] font-medium bg-accent hover:opacity-90 text-white rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {creating === f.templateTarget ? "Creating…" : `Create ${baseName(f.templateTarget!)}`}
             </button>
@@ -966,7 +966,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           {/* Sidebar */}
           <div className="w-64 shrink-0 border-r border-subtle overflow-y-auto bg-surface-1">
             {files.length === 0 ? (
-              <div className="px-4 py-6 text-[12px] text-zinc-500">No editable files for this app.</div>
+              <div className="px-4 py-6 text-[12px] text-ink-3">No editable files for this app.</div>
             ) : (
               <ul className="py-1">
                 {files.map((f) => {
@@ -978,31 +978,31 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                         onClick={() => selectFile(f)}
                         className={`w-full text-left px-3 py-2 transition-colors ${
                           isActive
-                            ? "bg-blue-500/10 border-l-2 border-blue-400"
+                            ? "bg-accent-bg border-l-2 border-accent"
                             : "border-l-2 border-transparent hover:bg-white/[0.04]"
                         }`}
                       >
                         <div className="flex items-center gap-1.5">
                           {dirty && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Unsaved changes" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-warn shrink-0" title="Unsaved changes" />
                           )}
-                          <span className={`text-[12px] font-mono truncate ${isActive ? "text-zinc-100" : "text-zinc-300"}`}>
+                          <span className={`text-[12px] font-mono truncate ${isActive ? "text-ink" : "text-ink-2"}`}>
                             {f.name}
                           </span>
                           <span className={`ml-auto text-[9px] uppercase tracking-wide px-1 py-0.5 rounded shrink-0 ${
                             f.kind === "compose"
-                              ? "bg-teal-500/10 border border-teal-500/20 text-teal-300"
+                              ? "bg-ok-bg border border-[rgba(52,211,153,0.20)] text-ok"
                               : f.kind === "generic"
-                                ? "bg-indigo-500/10 border border-indigo-500/20 text-indigo-300"
-                                : "bg-zinc-700/30 border border-zinc-600/30 text-zinc-400"
+                                ? "bg-accent-bg border border-[rgba(96,165,250,0.20)] text-accent-ink"
+                                : "bg-white/[0.06] border border-subtle text-ink-2"
                           }`}>
                             {f.kind === "generic" ? (f.language ?? "file") : f.kind}
                           </span>
                         </div>
                         {f.size != null && (
-                          <div className="text-[10px] text-zinc-500 mt-0.5 flex items-center gap-1.5">
+                          <div className="text-[10px] text-ink-3 mt-0.5 flex items-center gap-1.5">
                             <span>{formatSize(f.size)}</span>
-                            <span className="text-zinc-700">·</span>
+                            <span className="text-ink-3">·</span>
                             <span>{formatAgo(f.modified_at)}</span>
                           </div>
                         )}
@@ -1017,23 +1017,23 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           {/* Editor pane */}
           <div className="flex-1 min-w-0 flex flex-col bg-surface-code">
             {error && (
-              <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+              <div className="px-4 py-2 bg-bad-bg border-b border-[rgba(248,113,113,0.20)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                 {error}
               </div>
             )}
 
             {!active ? (
-              <div className="flex-1 flex items-center justify-center text-[12px] text-zinc-600">
+              <div className="flex-1 flex items-center justify-center text-[12px] text-ink-3">
                 Select a file to edit
               </div>
             ) : loading ? (
-              <div className="flex-1 flex items-center justify-center text-[12px] text-zinc-500">
+              <div className="flex-1 flex items-center justify-center text-[12px] text-ink-3">
                 Loading…
               </div>
             ) : fileMissing ? (
               <div className="flex-1 flex items-center justify-center p-8">
                 <div className="max-w-md flex flex-col gap-3 items-start">
-                  <div className="flex items-center gap-2 text-amber-300 text-[13px]">
+                  <div className="flex items-center gap-2 text-warn text-[13px]">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                       <path d="M7 1.5l6 11H1l6-11z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
                       <path d="M7 6v3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -1041,13 +1041,13 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                     </svg>
                     Compose file not found
                   </div>
-                  <code className="text-[11px] font-mono text-zinc-500 bg-white/[0.03] border border-white/[0.05] rounded px-2 py-1 break-all">
+                  <code className="text-[11px] font-mono text-ink-3 bg-white/[0.03] border border-white/[0.05] rounded px-2 py-1 break-all">
                     {active.path}
                   </code>
-                  <div className="text-[12px] text-zinc-400 leading-relaxed">
+                  <div className="text-[12px] text-ink-2 leading-relaxed">
                     Folder might've moved or been renamed. Browse for the new location to re-link.
                   </div>
-                  <button onClick={handleRelink} disabled={relinking} className="mt-1 px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors disabled:opacity-50">
+                  <button onClick={handleRelink} disabled={relinking} className="mt-1 px-3 py-1.5 text-[12px] font-medium bg-accent hover:opacity-90 text-white rounded-control transition-colors disabled:opacity-50">
                     {relinking ? "Linking…" : "Browse for compose file…"}
                   </button>
                 </div>
@@ -1082,8 +1082,8 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                  so the raw view is as private as the rows view. */
               <div className="flex-1 min-h-0 flex flex-col">
                 {!showAllSensitive && (
-                  <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-zinc-500 border-b border-white/[0.05] bg-white/[0.02]">
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400/70">
+                  <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-ink-3 border-b border-white/[0.05] bg-white/[0.02]">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-warn">
                       <path d="M1.5 5.5S3.5 2 5.5 2s4 3.5 4 3.5-2 3.5-4 3.5S1.5 5.5 1.5 5.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
                       <circle cx="5.5" cy="5.5" r="1.2" stroke="currentColor" strokeWidth="1.1"/>
                       <path d="M1.5 9.5l8-8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
@@ -1110,8 +1110,8 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="border-b border-white/[0.05]">
-                      <th className="px-3 py-2 text-left text-[10px] font-medium text-zinc-600 uppercase tracking-wider w-[42%]">Key</th>
-                      <th className="px-3 py-2 text-left text-[10px] font-medium text-zinc-600 uppercase tracking-wider">Value</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-medium text-ink-3 uppercase tracking-wider w-[42%]">Key</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-medium text-ink-3 uppercase tracking-wider">Value</th>
                       <th className="w-16" />
                     </tr>
                   </thead>
@@ -1128,7 +1128,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                               className={`border-l-2 border-transparent ${blank ? "h-2.5" : "px-3 pt-2.5 pb-0.5"}`}
                             >
                               {!blank && (
-                                <span className="text-[11px] font-mono text-zinc-600 select-none">
+                                <span className="text-[11px] font-mono text-ink-3 select-none">
                                   {row.raw}
                                 </span>
                               )}
@@ -1146,10 +1146,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                         <tr
                           key={i}
                           ref={(el) => { rowRefs.current[i] = el; }}
-                          className={`group/row hover:bg-white/[0.02] ${isCurrentMatch ? "bg-amber-400/15" : isMatch ? "bg-amber-400/[0.06]" : ""}`}
+                          className={`group/row hover:bg-white/[0.02] ${isCurrentMatch ? "bg-[rgba(251,191,36,0.15)]" : isMatch ? "bg-[rgba(251,191,36,0.06)]" : ""}`}
                         >
                           <td
-                            className={`px-2 py-1 border-l-2 ${unfilled ? "border-amber-400/60" : "border-transparent"}`}
+                            className={`px-2 py-1 border-l-2 ${unfilled ? "border-[rgba(251,191,36,0.60)]" : "border-transparent"}`}
                             title={unfilled ? "This value is empty" : undefined}
                           >
                             <input
@@ -1159,7 +1159,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                               onBlur={flushInputToHistory}
                               placeholder="KEY"
                               spellCheck={false}
-                              className="w-full bg-transparent text-[12px] font-mono text-zinc-200 placeholder-zinc-700 focus:outline-none px-1 py-0.5 rounded hover:bg-white/[0.03] focus:bg-white/[0.05] transition-colors"
+                              className="w-full bg-transparent text-[12px] font-mono text-ink placeholder-ink-3 focus:outline-none px-1 py-0.5 rounded hover:bg-white/[0.03] focus:bg-white/[0.05] transition-colors"
                             />
                           </td>
                           <td className="px-2 py-1">
@@ -1170,7 +1170,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                               onBlur={flushInputToHistory}
                               placeholder="value"
                               spellCheck={false}
-                              className="w-full bg-transparent text-[12px] font-mono text-zinc-300 placeholder-zinc-700 focus:outline-none px-1 py-0.5 rounded hover:bg-white/[0.03] focus:bg-white/[0.05] transition-colors"
+                              className="w-full bg-transparent text-[12px] font-mono text-ink-2 placeholder-ink-3 focus:outline-none px-1 py-0.5 rounded hover:bg-white/[0.03] focus:bg-white/[0.05] transition-colors"
                             />
                           </td>
                           <td className="px-2 py-1">
@@ -1179,7 +1179,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                                 <button
                                   type="button"
                                   onClick={() => toggleReveal(i)}
-                                  className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors"
+                                  className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded transition-colors"
                                   title={isRevealed ? "Mask value" : "Reveal value"}
                                 >
                                   {isRevealed ? (
@@ -1199,7 +1199,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                               <button
                                 type="button"
                                 onClick={() => deleteRow(i)}
-                                className="p-1 text-zinc-700 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                                className="p-1 text-ink-3 hover:text-bad hover:bg-bad-bg rounded transition-colors"
                                 title="Delete row"
                               >
                                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -1218,7 +1218,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   <button
                     type="button"
                     onClick={addRow}
-                    className="flex items-center gap-1.5 text-[11px] text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.04] px-2 py-1 rounded-md transition-colors"
+                    className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 hover:bg-white/[0.04] px-2 py-1 rounded-control transition-colors"
                   >
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                       <path d="M5 1.5v7M1.5 5h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -1230,7 +1230,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             )}
 
             {/* Footer */}
-            <div className="px-4 py-2 border-t border-white/[0.06] text-[10px] text-zinc-600 flex items-center gap-3 shrink-0">
+            <div className="px-4 py-2 border-t border-subtle text-[10px] text-ink-3 flex items-center gap-3 shrink-0">
               <span>
                 {isDirty ? "Unsaved changes" : fileMissing ? "Missing" : "Saved"}
               </span>
@@ -1242,8 +1242,8 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
       </div>
 
       {toast && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] shadow-lg ${
-          toast.ok ? "bg-zinc-800 border-emerald-500/30 text-emerald-400" : "bg-zinc-800 border-red-500/30 text-red-400"
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-control border text-[11px] shadow-lg ${
+          toast.ok ? "bg-surface-2 border-[rgba(52,211,153,0.30)] text-ok" : "bg-surface-2 border-[rgba(248,113,113,0.30)] text-bad"
         }`}>
           {toast.msg}
         </div>

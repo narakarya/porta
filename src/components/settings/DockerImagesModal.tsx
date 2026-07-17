@@ -77,20 +77,20 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
   const totalCount = data ? data.dangling.length + data.unused.length + data.used.length : 0;
 
   return (
-    <ModalWrapper onClose={onClose} className="bg-[#1a1a1c] border border-white/[0.08] rounded-2xl shadow-2xl w-[680px] max-h-[80vh] flex flex-col">
+    <ModalWrapper onClose={onClose} className="bg-surface-2 border border-subtle rounded-card shadow-2xl w-[680px] max-h-[80vh] flex flex-col">
       {/* Header */}
-      <div className="px-6 pt-5 pb-4 border-b border-white/[0.06] shrink-0">
+      <div className="px-6 pt-5 pb-4 border-b border-subtle shrink-0">
         <div className="flex items-center justify-between pr-6">
           <div>
-            <h2 className="text-[14px] font-semibold text-zinc-100">Docker Images</h2>
-            <p className="text-[11px] text-zinc-500 mt-0.5">
+            <h2 className="text-[14px] font-semibold text-ink">Docker Images</h2>
+            <p className="text-[11px] text-ink-3 mt-0.5">
               {load === "ready" ? `${totalCount} images across all projects` : "Loading…"}
             </p>
           </div>
           <button
             onClick={refresh}
             disabled={load === "loading"}
-            className="text-[11px] text-zinc-500 hover:text-zinc-300 disabled:opacity-40 transition-colors flex items-center gap-1"
+            className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40 transition-colors flex items-center gap-1"
           >
             {load === "loading" ? (
               <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
@@ -141,17 +141,17 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
       {/* Body */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {load === "error" && (
-          <div className="px-6 py-8 text-center text-[12px] text-red-400">
+          <div className="px-6 py-8 text-center text-[12px] text-bad">
             Couldn't reach Docker. Make sure Docker Desktop / OrbStack is running.
           </div>
         )}
 
         {load === "loading" && (
-          <div className="px-6 py-10 text-center text-[12px] text-zinc-500">Loading images…</div>
+          <div className="px-6 py-10 text-center text-[12px] text-ink-3">Loading images…</div>
         )}
 
         {load === "ready" && rows.length === 0 && (
-          <div className="px-6 py-10 text-center text-[12px] text-zinc-500">
+          <div className="px-6 py-10 text-center text-[12px] text-ink-3">
             No {tab} images found.
           </div>
         )}
@@ -160,9 +160,9 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
           <div className="flex flex-col">
             {/* Column header */}
             <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-6 py-2 border-b border-white/[0.04]">
-              <span className="text-[10px] uppercase tracking-wider text-zinc-600">Image</span>
-              <span className="text-[10px] uppercase tracking-wider text-zinc-600 text-right">ID</span>
-              <span className="text-[10px] uppercase tracking-wider text-zinc-600 text-right">Size</span>
+              <span className="text-[10px] uppercase tracking-wider text-ink-3">Image</span>
+              <span className="text-[10px] uppercase tracking-wider text-ink-3 text-right">ID</span>
+              <span className="text-[10px] uppercase tracking-wider text-ink-3 text-right">Size</span>
             </div>
             {rows.map((img) => (
               <ImageRow key={`${img.id}-${img.tag}`} img={img} />
@@ -173,10 +173,10 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
 
       {/* Footer actions */}
       {load === "ready" && (
-        <div className="px-6 py-4 border-t border-white/[0.06] flex items-center justify-between gap-4 shrink-0">
-          <div className="text-[11px] text-zinc-500">
+        <div className="px-6 py-4 border-t border-subtle flex items-center justify-between gap-4 shrink-0">
+          <div className="text-[11px] text-ink-3">
             {pruneResult && (
-              <span className="text-emerald-400">
+              <span className="text-ok">
                 Freed {formatBytes(pruneResult.freed_bytes)} — {pruneResult.removed_count} removed
               </span>
             )}
@@ -215,12 +215,12 @@ function ImageRow({ img }: { img: ImageDetail }) {
   return (
     <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-6 py-2 border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors items-center">
       <div className="min-w-0">
-        <span className="text-[12px] font-mono text-zinc-300 truncate block">
-          {name}<span className="text-zinc-500">{tagLabel}</span>
+        <span className="text-[12px] font-mono text-ink-2 truncate block">
+          {name}<span className="text-ink-3">{tagLabel}</span>
         </span>
       </div>
-      <span className="text-[11px] font-mono text-zinc-600 text-right truncate">{shortId}</span>
-      <span className="text-[12px] font-mono text-zinc-300 text-right">{formatBytes(img.size_bytes)}</span>
+      <span className="text-[11px] font-mono text-ink-3 text-right truncate">{shortId}</span>
+      <span className="text-[12px] font-mono text-ink-2 text-right">{formatBytes(img.size_bytes)}</span>
     </div>
   );
 }
@@ -242,19 +242,19 @@ function SummaryChip({
 }) {
   const colorMap = {
     amber: {
-      active: "bg-amber-500/15 border-amber-500/30 text-amber-300",
-      inactive: "bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:bg-white/[0.06]",
-      dot: "bg-amber-400",
+      active: "bg-warn-bg border-[rgba(251,191,36,0.3)] text-warn",
+      inactive: "bg-white/[0.03] border-subtle text-ink-2 hover:bg-white/[0.06]",
+      dot: "bg-warn",
     },
     orange: {
-      active: "bg-orange-500/15 border-orange-500/30 text-orange-300",
-      inactive: "bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:bg-white/[0.06]",
-      dot: "bg-orange-400",
+      active: "bg-warn-bg border-[rgba(251,191,36,0.3)] text-warn",
+      inactive: "bg-white/[0.03] border-subtle text-ink-2 hover:bg-white/[0.06]",
+      dot: "bg-warn",
     },
     sky: {
-      active: "bg-sky-500/15 border-sky-500/30 text-sky-300",
-      inactive: "bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:bg-white/[0.06]",
-      dot: "bg-sky-400",
+      active: "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink",
+      inactive: "bg-white/[0.03] border-subtle text-ink-2 hover:bg-white/[0.06]",
+      dot: "bg-accent",
     },
   };
   const c = colorMap[color];
@@ -262,7 +262,7 @@ function SummaryChip({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] transition-colors ${active ? c.active : c.inactive}`}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-control border text-[12px] transition-colors ${active ? c.active : c.inactive}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.dot}`} />
       <span className="font-medium">{label}</span>
@@ -286,13 +286,13 @@ function PruneButton({
 }) {
   const cls =
     variant === "primary"
-      ? "bg-emerald-700 hover:bg-emerald-600 text-white"
-      : "bg-red-900/60 hover:bg-red-800/70 text-red-100 border border-red-700/40";
+      ? "bg-ok hover:opacity-90 text-white"
+      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.4)]";
   return (
     <button
       onClick={onClick}
       disabled={state === "running"}
-      className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ${cls}`}
+      className={`px-3 py-1.5 text-[12px] font-medium rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ${cls}`}
     >
       {state === "running" && (
         <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">

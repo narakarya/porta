@@ -254,7 +254,7 @@ export default function UpdateToast() {
           rail, so the card reads as anchored to the account button. */}
       <span
         aria-hidden="true"
-        className="absolute left-[-5px] bottom-[16px] w-[10px] h-[10px] rotate-45 bg-[#202024] border-l border-b border-strong"
+        className="absolute left-[-5px] bottom-[9px] w-[10px] h-[10px] rotate-45 bg-[#202024] border-l border-b border-strong"
       />
 
       <div className={`relative w-[280px] overflow-hidden ${skin}`}>

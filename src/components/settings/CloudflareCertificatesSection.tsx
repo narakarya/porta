@@ -75,30 +75,30 @@ export default function CloudflareCertificatesSection() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 className="text-[14px] font-semibold text-zinc-100">Per-zone Origin Certs</h2>
-        <p className="text-[11.5px] text-zinc-500 mt-0.5 leading-snug max-w-2xl">
+        <h2 className="text-[14px] font-semibold text-ink">Per-zone Origin Certs</h2>
+        <p className="text-[11.5px] text-ink-3 mt-0.5 leading-snug max-w-2xl">
           Cloudflare's <code className="font-mono">cert.pem</code> only authorizes the zones picked at <code className="font-mono">cloudflared login</code>. Apps in other zones need their own cert. Login per zone, then import the freshly-issued <code className="font-mono">~/.cloudflared/cert.pem</code> here — Porta picks the right one automatically when routing DNS.
         </p>
       </div>
 
       {error && (
-        <div className="px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap">
+        <div className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap">
           {error}
         </div>
       )}
 
       {zoneCerts.length > 0 && (
-        <div className="flex flex-col divide-y divide-white/[0.04] rounded-xl bg-white/[0.02] border border-white/[0.06]">
+        <div className="flex flex-col divide-y divide-white/[0.04] rounded-card bg-surface-1 border border-subtle">
           {zoneCerts.map((c) => (
             <div key={c.zone} className="flex items-center justify-between px-3 py-2">
               <div className="flex flex-col min-w-0">
-                <code className="font-mono text-[12px] text-zinc-200">{c.zone}</code>
-                <code className="font-mono text-[10px] text-zinc-600 truncate">{c.path}</code>
+                <code className="font-mono text-[12px] text-ink">{c.zone}</code>
+                <code className="font-mono text-[10px] text-ink-3 truncate">{c.path}</code>
               </div>
               <button
                 type="button"
                 onClick={() => handleDelete(c.zone)}
-                className="text-[11px] text-zinc-500 hover:text-red-400 transition-colors shrink-0 ml-2"
+                className="text-[11px] text-ink-3 hover:text-bad transition-colors shrink-0 ml-2"
               >
                 Remove
               </button>
@@ -113,14 +113,14 @@ export default function CloudflareCertificatesSection() {
           onChange={(e) => setZoneInput(e.target.value)}
           placeholder="example.com"
           spellCheck={false}
-          className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-1.5 text-[12px] font-mono text-zinc-100 outline-none focus:border-blue-500/50 transition-colors"
+          className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
         />
         <button
           type="button"
           onClick={() => handleImport("default")}
           disabled={!zoneInput.trim() || importing}
           title="Import ~/.cloudflared/cert.pem"
-          className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors shrink-0"
+          className="px-3 py-1.5 text-[12px] font-medium bg-accent hover:opacity-90 text-white rounded-control disabled:opacity-40 transition-colors shrink-0"
         >
           {importing ? "Importing…" : "Import current"}
         </button>
@@ -128,7 +128,7 @@ export default function CloudflareCertificatesSection() {
           type="button"
           onClick={() => handleImport("pick")}
           disabled={!zoneInput.trim() || importing}
-          className="px-2.5 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 rounded-lg disabled:opacity-40 transition-colors shrink-0"
+          className="px-2.5 py-1.5 text-[12px] text-ink-2 hover:text-ink rounded-control disabled:opacity-40 transition-colors shrink-0"
         >
           Pick file…
         </button>
