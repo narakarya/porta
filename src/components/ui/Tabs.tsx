@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 export interface TabItem {
   id: string;
   label: ReactNode;
+  icon?: ReactNode;
   badge?: ReactNode;
 }
 
@@ -26,6 +27,7 @@ export default function Tabs({ tabs, active, onSelect, trailing }: Props) {
               on ? "text-ink border-accent" : "text-ink-2 border-transparent hover:text-ink"
             }`}
           >
+            {t.icon && <span className={`shrink-0 ${on ? "text-accent" : "text-ink-3"}`}>{t.icon}</span>}
             {t.label}
             {t.badge}
           </button>
