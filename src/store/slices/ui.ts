@@ -108,7 +108,7 @@ export interface UiSlice {
   /** Resource monitoring drawer. Docker stats polling is gated on this. */
   resourceDrawerOpen: boolean;
   /** Which top-level surface the main content area renders. */
-  activeDomain: "workspaces" | "hosts" | "activity" | "extensions";
+  activeDomain: "workspaces" | "hosts" | "services" | "activity" | "extensions";
   /** App opened in the Workspaces workbench (null = app list). */
   selectedAppId: string | null;
   selectApp: (id: string | null) => void;
@@ -133,7 +133,7 @@ export interface UiSlice {
   setTerminalPanelHeight: (frac: number) => void;
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
   bumpExtensionList: () => void;
-  setActiveDomain: (v: "workspaces" | "hosts" | "activity" | "extensions") => void;
+  setActiveDomain: (v: "workspaces" | "hosts" | "services" | "activity" | "extensions") => void;
 }
 
 // Monotonic counter feeding ExtensionSidebarState.focusNonce (see its docs).

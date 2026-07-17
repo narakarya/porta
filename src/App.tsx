@@ -13,6 +13,7 @@ import AppWorkbench from "./components/workspace/AppWorkbench";
 import HostsView from "./components/ssh/HostsView";
 import ActivityView from "./components/activity/ActivityView";
 import ExtensionsView from "./components/extension/ExtensionsView";
+import ServicesView from "./components/service/ServicesView";
 import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
 import CommandPalette from "./components/layout/CommandPalette";
@@ -68,7 +69,17 @@ export default function App() {
 
   useEffect(() => {
     checkSetup();
-    load().then(() => refreshHealth());
+    load().then(() => {
+      refreshHealth();
+      // Standalone apps are retired — every app must belong to a workspace.
+      // Migrate any workspace-less apps into the first workspace once, on load.
+      const st = usePortaStore.getState();
+      if (isTauri && st.workspaces.length > 0) {
+        for (const a of st.apps) {
+          if (a.workspace_id === null) void st.moveAppToWorkspace(a.id, st.workspaces[0].id);
+        }
+      }
+    });
     loadSettings();
 
     const healthInterval = setInterval(() => refreshHealth(), 30_000);
@@ -229,6 +240,9 @@ export default function App() {
               </div>
               <div hidden={activeDomain !== "hosts"}>
                 <HostsView />
+              </div>
+              <div hidden={activeDomain !== "services"}>
+                <ServicesView />
               </div>
               <div hidden={activeDomain !== "activity"}>
                 <ActivityView />

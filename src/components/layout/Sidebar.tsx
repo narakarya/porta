@@ -4,7 +4,6 @@ import { usePortaStore } from "../../store";
 import { isTauri } from "../../lib/commands";
 import type { Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
-import type { Service } from "../../types";
 import Tooltip from "../shared/Tooltip";
 import { checkForUpdate, dismissUpdater } from "../../lib/updater";
 
@@ -12,8 +11,6 @@ import { checkForUpdate, dismissUpdater } from "../../lib/updater";
 // click. Without lazy() they'd be parsed up-front for every app launch.
 const AddWorkspaceModal = lazy(() => import("../workspace/AddWorkspaceModal"));
 const WorkspaceSettingsModal = lazy(() => import("../workspace/WorkspaceSettingsModal"));
-const AddServiceModal = lazy(() => import("../service/AddServiceModal"));
-const ServiceSettingsModal = lazy(() => import("../service/ServiceSettingsModal"));
 const AddAppModal = lazy(() => import("../app/AddAppModal"));
 const ImportComposeModal = lazy(() => import("../workspace/ImportComposeModal"));
 
@@ -28,31 +25,26 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { workspaces, apps, services, selectedWorkspaceId, selectedAppId, imageUpdateCache, selectWorkspace, selectApp, reorderWorkspaces, reorderServices, activeDomain, setActiveDomain } = usePortaStore(
+  const { workspaces, apps, selectedWorkspaceId, selectedAppId, imageUpdateCache, selectWorkspace, selectApp, reorderWorkspaces, activeDomain, setActiveDomain } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
-      services: s.services,
       selectedWorkspaceId: s.selectedWorkspaceId,
       selectedAppId: s.selectedAppId,
       imageUpdateCache: s.imageUpdateCache,
       selectWorkspace: s.selectWorkspace,
       selectApp: s.selectApp,
       reorderWorkspaces: s.reorderWorkspaces,
-      reorderServices: s.reorderServices,
       activeDomain: s.activeDomain,
       setActiveDomain: s.setActiveDomain,
     }))
   );
   const [showAddWs, setShowAddWs] = useState(false);
-  const [showAddService, setShowAddService] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
   const [showImportCompose, setShowImportCompose] = useState(false);
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
-  const [editingService, setEditingService] = useState<Service | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [wsExpanded] = useState(true);
-  const [otherExpanded, setOtherExpanded] = useState(true);
   // Per-workspace collapse of the app sub-list (Shell C: apps live under each
   // workspace header in this column). Holds the ids that are collapsed.
   const [collapsedWs, setCollapsedWs] = useState<Set<string>>(new Set());
@@ -62,7 +54,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  const [servicesCollapsed, setServicesCollapsed] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   // Refs so global mouseup can read latest values without stale closures
@@ -73,7 +64,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   // mousemove on the container is more reliable than mouseenter on individual items
   // in WKWebView (Tauri/macOS) during a mouse-button-held drag.
   const wsListRef = useRef<HTMLDivElement>(null);
-  const svcListRef = useRef<HTMLDivElement>(null);
 
   function setDragOver(val: typeof dragOverIndex) {
     dragOverRef.current = val;
@@ -118,7 +108,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       const dst = dragOverRef.current;
       if (src && dst && src.type === dst.type && src.index !== dst.index) {
         if (src.type === "ws") reorderWorkspaces(src.index, dst.index);
-        else reorderServices(src.index, dst.index);
       }
       dragSrcRef.current = null;
       dragOverRef.current = null;
@@ -129,7 +118,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
     }
     window.addEventListener("mouseup", onGlobalMouseUp);
     return () => window.removeEventListener("mouseup", onGlobalMouseUp);
-  }, [reorderWorkspaces, reorderServices]);
+  }, [reorderWorkspaces]);
 
   // Keep cursor grabbing globally so it doesn't flicker as mouse moves between items
   useEffect(() => {
@@ -178,8 +167,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const updateCount = (wsId: string | null) => updatesByWs.get(wsId) ?? 0;
   const runningTotal = useMemo(() => apps.filter((a) => a.status === "running").length, [apps]);
   const updatesTotal = useMemo(() => [...updatesByWs.values()].reduce((sum, n) => sum + n, 0), [updatesByWs]);
-  const hasStandaloneApps = useMemo(() => apps.some((a) => a.workspace_id === null), [apps]);
-  const showOtherSection = hasStandaloneApps || selectedWorkspaceId === null;
 
 
 
@@ -307,139 +294,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         )}
 
-        {showOtherSection && (
-          <>
-            <button
-              onClick={() => setOtherExpanded(!otherExpanded)}
-              className="flex items-center gap-1 px-2 mb-1 mt-3 group/hdr"
-            >
-              <svg
-                width="8" height="8" viewBox="0 0 8 8" fill="none"
-                className={`text-zinc-600 transition-transform duration-150 ${otherExpanded ? "rotate-90" : ""}`}
-              >
-                <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest group-hover/hdr:text-zinc-400 transition-colors">
-                Other
-              </span>
-            </button>
-            {otherExpanded && (() => {
-              const count = activeCount(null);
-              const updCount = updateCount(null);
-              const isSelected = activeDomain === "workspaces" && selectedWorkspaceId === null;
-              return (
-                <>
-                <button
-                  onClick={() => { selectWorkspace(null); selectApp(null); setActiveDomain("workspaces"); }}
-                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] w-full text-left transition-all duration-100 ${
-                    isSelected
-                      ? "bg-white/10 text-zinc-100"
-                      : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
-                  }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
-                    count > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"
-                  }`} />
-                  <span className="flex-1">Standalone</span>
-                  {updCount > 0 && (
-                    <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
-                      <span className="text-[11px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
-                    </Tooltip>
-                  )}
-                  {count > 0 && (
-                    <span className="text-[11px] text-emerald-400 font-medium tabular-nums">{count}</span>
-                  )}
-                </button>
-                {renderApps(null)}
-                </>
-              );
-            })()}
-          </>
-        )}
-
-        {/* Services section */}
-        <div className="flex items-center gap-1 px-2 mb-1 mt-3">
-          <button
-            onClick={() => setServicesCollapsed(!servicesCollapsed)}
-            className="flex items-center gap-1 group/hdr flex-1"
-          >
-            <svg
-              width="8" height="8" viewBox="0 0 8 8" fill="none"
-              className={`text-zinc-600 transition-transform duration-150 ${servicesCollapsed ? "" : "rotate-90"}`}
-            >
-              <path d="M2.5 1.5L5.5 4L2.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            <span className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest group-hover/hdr:text-zinc-400 transition-colors">
-              Services
-            </span>
-            {(() => {
-              const runCount = services.filter((s) => s.status === "running").length;
-              return runCount > 0 ? (
-                <span className="text-[10px] text-emerald-400 font-medium tabular-nums ml-1">
-                  {runCount}
-                </span>
-              ) : null;
-            })()}
-          </button>
-          <Tooltip label="New Service" side="left">
-            <button
-              onClick={() => setShowAddService(true)}
-              className="text-zinc-600 hover:text-zinc-300 transition-colors p-0.5 rounded"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </button>
-          </Tooltip>
-        </div>
-        {!servicesCollapsed && (
-          <div
-            ref={svcListRef}
-            onMouseMove={(e) => handleListMouseMove(e, "svc", svcListRef, services.length)}
-            onMouseLeave={() => isDraggingRef.current && setDragOver(null)}
-            className="flex flex-col gap-0.5"
-          >
-            {services.map((svc, i) => {
-              const isRunning = svc.status === "running";
-              const isPulling = svc.status === "pulling";
-              const isStarting = svc.status === "starting";
-              const dotColor = isRunning
-                ? "bg-emerald-400 pulse-dot"
-                : isPulling
-                ? "bg-blue-400 animate-pulse"
-                : isStarting
-                ? "bg-amber-400 animate-pulse"
-                : "bg-zinc-600";
-              const isGhost = draggingItem?.type === "svc" && draggingItem.index === i;
-              const srcIdx = draggingItem?.type === "svc" ? draggingItem.index : null;
-              const dstIdx = dragOverIndex?.type === "svc" ? dragOverIndex.index : null;
-              const showLineBefore = dstIdx === i && srcIdx !== null && srcIdx > i;
-              const showLineAfter  = dstIdx === i && srcIdx !== null && srcIdx < i;
-              return (
-                <div key={svc.id} className="relative">
-                  {showLineBefore && (
-                    <div className="absolute -top-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
-                  )}
-                  <div
-                    onMouseDown={() => handleMouseDown("svc", i)}
-                    onClick={() => setEditingService(svc)}
-                    style={isGhost ? { opacity: 0.35 } : undefined}
-                    className="group/svc flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200 cursor-grab"
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${dotColor}`} />
-                    <span className="flex-1 truncate">{svc.name}</span>
-                    <span className="text-[10px] text-zinc-600 group-hover/svc:text-zinc-500 transition-colors">
-                      :{svc.port}
-                    </span>
-                  </div>
-                  {showLineAfter && (
-                    <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* App-list foot — Add App / Import compose (mockup: bottom of the list) */}
@@ -511,11 +365,9 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
       <Suspense fallback={null}>
         {showAddWs && <AddWorkspaceModal onClose={() => setShowAddWs(false)} />}
-        {showAddService && <AddServiceModal onClose={() => setShowAddService(false)} />}
         {showAddApp && <AddAppModal workspaceId={selectedWorkspaceId} onClose={() => setShowAddApp(false)} />}
         {showImportCompose && <ImportComposeModal workspaceId={selectedWorkspaceId} onClose={() => setShowImportCompose(false)} />}
         {settingsWs && <WorkspaceSettingsModal workspace={settingsWs} onClose={() => setSettingsWs(null)} />}
-        {editingService && <ServiceSettingsModal service={editingService} onClose={() => setEditingService(null)} />}
       </Suspense>
     </aside>
   );

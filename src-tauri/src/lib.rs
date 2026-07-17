@@ -233,6 +233,7 @@ pub fn run() {
             commands::next_available_port,
             commands::add_app,
             commands::update_app,
+            commands::move_app_to_workspace,
             commands::set_app_auto_sleep,
             commands::set_app_max_upload_bytes,
             commands::delete_app,

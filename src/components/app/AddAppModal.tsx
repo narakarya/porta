@@ -99,7 +99,9 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
   const [port, setPort] = useState<number>(3000);
   const [subdomain, setSubdomain] = useState("");
   const [subdomainError, setSubdomainError] = useState<string | null>(null);
-  const [wsId, setWsId] = useState<string | null>(workspaceId);
+  // Apps must belong to a workspace now (standalone retired) — default to the
+  // passed workspace, else the first one.
+  const [wsId, setWsId] = useState<string | null>(workspaceId ?? workspaces[0]?.id ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -718,7 +720,6 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
             <span className={labelCls}>Workspace</span>
             <select value={wsId ?? ""} onChange={(e) => setWsId(e.target.value || null)}
               className={`${inputCls} appearance-none cursor-pointer`}>
-              <option value="">Standalone</option>
               {workspaces.map((w) => (
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}

@@ -1,6 +1,6 @@
 import { usePortaStore } from "../../store";
 
-type Domain = "workspaces" | "hosts" | "activity" | "extensions";
+type Domain = "workspaces" | "hosts" | "services" | "activity" | "extensions";
 
 interface Props {
   onOpenSettings: () => void;
@@ -23,6 +23,12 @@ const ICONS: Record<Domain, React.ReactNode> = {
       <path d="M4.5 6l2 1.5-2 1.5M8 9h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
+  services: (
+    <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
+      <ellipse cx="8" cy="3.6" rx="5" ry="2.1" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M3 3.6v4.4c0 1.16 2.24 2.1 5 2.1s5-.94 5-2.1V3.6M3 8v4.4c0 1.16 2.24 2.1 5 2.1s5-.94 5-2.1V8" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
   activity: (
     <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
       <path d="M1.5 8.5h3l2-5 3 9 2-4h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -38,6 +44,7 @@ const ICONS: Record<Domain, React.ReactNode> = {
 const DOMAINS: { id: Domain; label: string }[] = [
   { id: "workspaces", label: "Workspaces" },
   { id: "hosts", label: "Hosts" },
+  { id: "services", label: "Services" },
   { id: "activity", label: "Activity" },
   { id: "extensions", label: "Extensions" },
 ];

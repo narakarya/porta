@@ -57,6 +57,7 @@ export interface AppSlice {
   stopAllInWorkspace: (workspaceId: string) => Promise<void>;
   addApp: (params: Parameters<typeof cmd.addApp>[0]) => Promise<void>;
   updateApp: (params: Parameters<typeof cmd.updateApp>[0]) => Promise<void>;
+  moveAppToWorkspace: (appId: string, workspaceId: string | null) => Promise<void>;
   setAppAutoSleep: (id: string, enabled: boolean, idleTimeoutSecs: number) => Promise<void>;
   setAppMaxUploadBytes: (id: string, maxBytes: number | null) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
@@ -202,6 +203,15 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         a.id === params.id
           ? { ...updated, tunnel_active: a.tunnel_active, tunnel_url: a.tunnel_url }
           : a
+      ),
+    }));
+  },
+
+  moveAppToWorkspace: async (appId, workspaceId) => {
+    await cmd.moveAppToWorkspace(appId, workspaceId);
+    set((s) => ({
+      apps: s.apps.map((a) =>
+        a.id === appId ? { ...a, workspace_id: workspaceId } : a
       ),
     }));
   },

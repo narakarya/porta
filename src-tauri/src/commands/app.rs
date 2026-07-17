@@ -305,6 +305,32 @@ pub fn update_app(
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
+/// Reassign an app to a workspace (or to standalone when `workspace_id` is
+/// `None`). Backs the migration that moves workspace-less apps under a
+/// workspace. The workspace determines the app's effective domain, so re-sync
+/// Caddy before returning the refreshed App.
+#[tauri::command]
+pub fn move_app_to_workspace(
+    state: State<AppState>,
+    app_id: String,
+    workspace_id: Option<String>,
+) -> Result<App, String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE apps SET workspace_id = ?1 WHERE id = ?2",
+            rusqlite::params![workspace_id, app_id],
+        )
+        .map_err(|e| e.to_string())?;
+    sync_caddy(&state)?;
+    crate::backup::auto_backup(&state.db_path).ok();
+    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    apps.into_iter().find(|a| a.id == app_id).ok_or_else(|| "app not found".into())
+}
+
 /// Persist a single app's auto-sleep config. Returns the refreshed App so the
 /// store can patch its copy without a full reload. Config-only — does not start
 /// or stop anything.
