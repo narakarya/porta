@@ -58,6 +58,16 @@ export interface AppSlice {
   addApp: (params: Parameters<typeof cmd.addApp>[0]) => Promise<void>;
   updateApp: (params: Parameters<typeof cmd.updateApp>[0]) => Promise<void>;
   moveAppToWorkspace: (appId: string, workspaceId: string | null) => Promise<void>;
+  /**
+   * Optimistic, client-only reorder of the apps belonging to `workspaceId`.
+   * `fromIndex`/`toIndex` are positions WITHIN that workspace group (post-removal
+   * target index, same convention as `reorderWorkspaces`).
+   *
+   * NOTE: there is no `reorder_apps` backend/IPC command yet, so this order is
+   * NOT persisted — it resets to the DB/insertion order on reload. When a
+   * backend command lands, call it here mirroring `reorderWorkspaces`.
+   */
+  reorderApps: (workspaceId: string | null, fromIndex: number, toIndex: number) => void;
   setAppAutoSleep: (id: string, enabled: boolean, idleTimeoutSecs: number) => Promise<void>;
   setAppMaxUploadBytes: (id: string, maxBytes: number | null) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
@@ -222,6 +232,27 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
         a.id === appId ? { ...a, workspace_id: workspaceId } : a
       ),
     }));
+  },
+
+  reorderApps: (workspaceId, fromIndex, toIndex) => {
+    set((s) => {
+      // Positions of this workspace's apps within the flat `apps` array — we
+      // reorder the group in place and leave every other app untouched.
+      const slots: number[] = [];
+      s.apps.forEach((a, i) => { if (a.workspace_id === workspaceId) slots.push(i); });
+      if (
+        fromIndex < 0 || toIndex < 0 ||
+        fromIndex >= slots.length || toIndex >= slots.length ||
+        fromIndex === toIndex
+      ) return {};
+      const group = slots.map((i) => s.apps[i]);
+      const [moved] = group.splice(fromIndex, 1);
+      group.splice(toIndex, 0, moved);
+      const next = s.apps.slice();
+      slots.forEach((slot, gi) => { next[slot] = group[gi]; });
+      return { apps: next };
+    });
+    // No `reorder_apps` IPC exists — client-only for now (see interface note).
   },
 
   setAppAutoSleep: async (id, enabled, idleTimeoutSecs) => {

@@ -50,11 +50,11 @@ export default function HostsView() {
   const showSkeleton = loading && hosts.length === 0;
 
   return (
-    <div className="flex h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14 bg-surface-0">
-      <div className="w-64 shrink-0 flex flex-col border-r border-subtle bg-surface-1 overflow-y-auto">
+    <div className="flex h-screen -mx-6 -mt-14 pt-14 -mb-6 bg-surface-0">
+      <div className="w-64 shrink-0 h-full flex flex-col border-r border-subtle bg-surface-1 overflow-y-auto">
         {showSkeleton ? <HostVaultSkeleton /> : <HostVault />}
       </div>
-      <div className="flex-1 min-w-0 flex flex-col bg-surface-0">
+      <div className="flex-1 min-w-0 h-full flex flex-col bg-surface-0">
         <SshSessionTabs />
       </div>
       <TrustHostModal />

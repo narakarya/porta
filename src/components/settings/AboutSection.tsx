@@ -6,8 +6,13 @@ import { checkForUpdate, dismissUpdater, restartForUpdate, startUpdateDownload }
 
 export default function AboutSection() {
   const [version, setVersion] = useState<string>("");
-  const { phase, info } = usePortaStore(
-    useShallow((s) => ({ phase: s.updaterPhase, info: s.updaterInfo })),
+  const { phase, info, betaUpdates, setBetaUpdates } = usePortaStore(
+    useShallow((s) => ({
+      phase: s.updaterPhase,
+      info: s.updaterInfo,
+      betaUpdates: s.betaUpdates,
+      setBetaUpdates: s.setBetaUpdates,
+    })),
   );
 
   useEffect(() => {
@@ -69,6 +74,30 @@ export default function AboutSection() {
             className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-lg transition-colors shrink-0"
           >
             {label}
+          </button>
+        </div>
+
+        <div className="h-px bg-white/[0.05]" />
+
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[13px] font-medium text-zinc-200">Beta updates</p>
+            <p className="text-[12px] text-zinc-500 mt-0.5 leading-relaxed">
+              Receive pre-release (beta) builds. Betas may be unstable.
+            </p>
+          </div>
+          <button
+            onClick={() => setBetaUpdates(!betaUpdates)}
+            className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
+              betaUpdates ? "bg-blue-600" : "bg-zinc-700"
+            }`}
+            role="switch"
+            aria-checked={betaUpdates}
+            aria-label="Toggle beta updates"
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+              betaUpdates ? "left-[18px]" : "left-0.5"
+            }`} />
           </button>
         </div>
 

@@ -10,6 +10,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# `beta` = a side-by-side beta build: its own `~/.porta-beta` data dir (see
+# porta_dir in lib.rs), paired with a separate bundle id + product name via
+# tauri.beta.conf.json. Build: `tauri build --features beta --config src-tauri/tauri.beta.conf.json`.
+[features]
+beta = []
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "devtools"] }
 tauri-plugin-dialog = "2"

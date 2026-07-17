@@ -14,8 +14,8 @@ const PROVIDER_LABEL: Record<string, string> = {
 type Access = "public" | "password" | "cfaccess";
 
 /* ── inline icons (16px stroke set, matches the rest of the app) ───────── */
-const Globe = ({ className = "" }: { className?: string }) => (
-  <svg width="17" height="17" viewBox="0 0 16 16" fill="none" className={className}>
+const Globe = ({ className = "", size = 17 }: { className?: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
     <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.2" />
     <path d="M1.8 8h12.4M8 1.8c1.7 1.7 2.6 3.9 2.6 6.2S9.7 12.5 8 14.2C6.3 12.5 5.4 10.3 5.4 8S6.3 3.5 8 1.8z" stroke="currentColor" strokeWidth="1.2" />
   </svg>
@@ -31,9 +31,6 @@ const ExternalIcon = () => (
 );
 const QrIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" /><rect x="9.5" y="1.5" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" /><rect x="1.5" y="9.5" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.1" /><path d="M9.5 9.5h2m3 0h-1m-4 3v2m0-5v1m3-1v5m2-5v2m0 2v1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" /></svg>
-);
-const Star = ({ className = "" }: { className?: string }) => (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor" className={className}><path d="M7 1.5l1.6 3.4 3.6.4-2.7 2.5.8 3.6L7 9.9l-3.3 2 .8-3.6L1.8 5.7l3.6-.4L7 1.5z" /></svg>
 );
 const Plus = () => (
   <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
@@ -129,17 +126,27 @@ export default function PublishTab({
 
   const fmtHost = (s: string) => (s.includes(".") ? s : `${s}.test`);
 
+  // Public hostnames, in the same shape the Config → Domain list uses: the
+  // primary host first, then any extra subdomains as aliases. These are the
+  // domains that become reachable publicly once the tunnel is running.
+  const hostnames: { host: string; kind: "primary" | "alias" }[] = [
+    ...(primaryHost ? [{ host: primaryHost, kind: "primary" as const }] : []),
+    ...app.extra_subdomains.map((s) => ({ host: fmtHost(s), kind: "alias" as const })),
+  ];
+
   const segments: { id: Access; label: string; icon: ReactElement }[] = [
-    { id: "public", label: "Public", icon: <Globe /> },
+    { id: "public", label: "Public", icon: <Globe size={13} /> },
     { id: "password", label: "Password", icon: <Lock /> },
     { id: "cfaccess", label: "CF Access", icon: <Shield /> },
   ];
-  const accessHelp: Record<Access, string> = {
-    public: "Anyone with the link can reach it.",
-    password: "Basic auth — visitors need the password.",
-    cfaccess: "Cloudflare Access gates every request.",
+  // Short one-line description of the selected mode + the concrete next step.
+  // Password credentials live in Config → Domain (basic auth); CF Access is
+  // configured in Config → Tunneling. Public needs no further setup.
+  const accessDetail: Record<Access, { text: string; action?: { label: string; section: import("../app/AppSettingsModal").Section } }> = {
+    public: { text: "Anyone with the link." },
+    password: { text: "Basic auth — visitors need the password.", action: { label: "Set credentials", section: "domain" } },
+    cfaccess: { text: "Cloudflare Access gates every request.", action: { label: "Configure in Tunneling", section: "tunneling" } },
   };
-  const accessLink = access === "public" ? "Configure" : "Set credentials";
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -253,7 +260,10 @@ export default function PublishTab({
               </button>
             </div>
 
-            {/* public hostnames */}
+            {/* public hostnames — same row grammar as the Config → Domain list:
+                a reachability glyph, the mono host, a primary/alias badge, and
+                per-host copy/open. Reachability is a property of the tunnel, so
+                when it's off the rows read as "not yet public". */}
             <div>
               <div className="flex items-center mb-1.5">
                 <span className="text-[11px] uppercase tracking-[0.04em] text-ink-3">Public hostnames</span>
@@ -261,42 +271,80 @@ export default function PublishTab({
                   <Plus />Add
                 </button>
               </div>
-              <div className="flex items-center gap-2 py-[5px] text-[12px] font-mono">
-                <Star className="text-warn shrink-0" />
-                <span className="truncate">{primaryHost ?? "—"}</span>
-                <span className="ml-auto text-[10px] font-sans text-ok shrink-0">{active ? "primary · active" : "primary"}</span>
-              </div>
-              {app.extra_subdomains.map((sub) => (
-                <div key={sub} className="flex items-center gap-2 py-[5px] text-[12px] font-mono">
-                  <span className="w-[13px] shrink-0" aria-hidden />
-                  <span className="truncate">{fmtHost(sub)}</span>
-                  <span className="ml-auto text-[10px] font-sans text-ink-2 shrink-0">alias</span>
+              {hostnames.length === 0 ? (
+                <div className="py-[5px] text-[12px] text-ink-3">
+                  No domain yet.{" "}
+                  <button onClick={() => openConfig("domain")} className="text-accent hover:brightness-110 transition">Add one in Domain</button>
                 </div>
-              ))}
+              ) : (
+                hostnames.map(({ host, kind }) => {
+                  const url = `https://${host}`;
+                  return (
+                    <div key={host} className="flex items-center gap-2 py-[5px] text-[12px]">
+                      {/* reachability glyph: globe (public) when the tunnel is
+                          live, padlock (not yet public) when it's off. */}
+                      {active ? (
+                        <Globe size={13} className="text-ok shrink-0" />
+                      ) : (
+                        <span className="text-ink-3 shrink-0 flex" title="Public once the tunnel starts"><Lock /></span>
+                      )}
+                      <span className={`font-mono truncate ${active ? "text-ink" : "text-ink-3"}`} title={host}>{host}</span>
+                      <span className="shrink-0">
+                        <Badge tone={kind === "primary" ? "accent" : "neutral"}>{kind}</Badge>
+                      </span>
+                      <div className="ml-auto flex items-center gap-2.5 text-ink-3 shrink-0">
+                        <button title="Copy URL" onClick={() => navigator.clipboard.writeText(url)} className="hover:text-ink transition-colors"><CopyIcon /></button>
+                        <button title="Open" onClick={() => window.open(url, "_blank")} className="hover:text-ink transition-colors"><ExternalIcon /></button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              {hostnames.length > 0 && (
+                <div className="mt-1 text-[11px] text-ink-3">
+                  {active ? "Reachable publicly now." : "Will be public when the tunnel starts."}
+                </div>
+              )}
             </div>
 
             {/* access control */}
             <div className="border-t border-subtle pt-3">
               <div className="text-[11px] uppercase tracking-[0.04em] text-ink-3 mb-[7px]">Who can reach it</div>
               <div className="inline-flex border border-subtle rounded-[8px] overflow-hidden text-[12px]">
-                {segments.map((seg, i) => (
-                  <button
-                    key={seg.id}
-                    // CF Access isn't a local toggle — route to where it's
-                    // actually configured instead of faking an access state.
-                    onClick={() => (seg.id === "cfaccess" ? openConfig("tunneling") : setAccess(seg.id))}
-                    className={`inline-flex items-center gap-1.5 px-3 py-[5px] transition-colors ${i > 0 ? "border-l border-subtle" : ""} ${
-                      access === seg.id ? "bg-surface-1 text-ink" : "text-ink-2 hover:text-ink"
-                    }`}
-                  >
-                    {seg.icon}
-                    {seg.label}
-                  </button>
-                ))}
+                {segments.map((seg, i) => {
+                  const selected = access === seg.id;
+                  return (
+                    <button
+                      key={seg.id}
+                      // Selecting a segment updates the description + next-step
+                      // below (CF Access's next step deep-links into Tunneling
+                      // config). Access is presentational-only, so selecting any
+                      // segment is safe and keeps the active fill readable.
+                      onClick={() => setAccess(seg.id)}
+                      aria-pressed={selected}
+                      className={`inline-flex items-center gap-1.5 px-3 py-[5px] transition-colors ${i > 0 ? "border-l border-subtle" : ""} ${
+                        selected ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:text-ink"
+                      }`}
+                    >
+                      {seg.icon}
+                      {seg.label}
+                    </button>
+                  );
+                })}
               </div>
               <div className="text-[11px] text-ink-3 mt-[7px]">
-                {accessHelp[access]}{" "}
-                <button onClick={() => openConfig("tunneling")} className="text-accent hover:brightness-110 transition">{accessLink}</button>
+                {accessDetail[access].text}
+                {accessDetail[access].action && (
+                  <>
+                    {" "}
+                    <button
+                      onClick={() => openConfig(accessDetail[access].action!.section)}
+                      className="text-accent hover:brightness-110 transition"
+                    >
+                      {accessDetail[access].action!.label}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

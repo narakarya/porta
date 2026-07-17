@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePortaStore } from "../../store";
-import { checkPortAvailable, checkCloudflared, loadComposeYaml, parseComposeString, listCloudflareTunnels, setTunnelConfig, getTailscaleStatus, listTailscaleServes, checkTunnelReachable, getCfApiToken, listTunnelDns, type CloudflareTunnel, type PortCheckResult, type TailscaleStatus, type TunnelDnsRoute } from "../../lib/commands";
+import { checkPortAvailable, checkCloudflared, loadComposeYaml, parseComposeString, listCloudflareTunnels, setTunnelConfig, getTailscaleStatus, listTailscaleServes, checkTunnelReachable, getCfApiToken, listTunnelDns, openExternalUrl, type CloudflareTunnel, type PortCheckResult, type TailscaleStatus, type TunnelDnsRoute } from "../../lib/commands";
 import { getCachedTailscaleStatus, setCachedTailscaleStatus } from "../../lib/tailscaleCache";
 import { getCachedDnsRoutes, setCachedDnsRoutes } from "../../lib/tunnelCache";
 import YamlEditor from "../shared/YamlEditor";
 import SetupCard from "../shared/SetupCard";
 import type { App, EnvProfile, HostAuthOverrideInput, PortBinding, Workspace } from "../../types";
 import Field from "../shared/Field";
-import EnvVarEditor from "../shared/EnvVarEditor";
 import TunnelStatusBadge from "../shared/TunnelStatusBadge";
 import CloudflareAccessPanel from "./CloudflareAccessPanel";
 import HealthSection from "./HealthSection";
@@ -105,6 +104,244 @@ function TunnelPublicHostsPanel({ hosts, title = "This app will expose" }: { hos
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// ── Small inline icons (token-styled via currentColor) ────────────────────
+function IconEye() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M1 7c.8-2.3 3-4 6-4s5.2 1.7 6 4c-.8 2.3-3 4-6 4s-5.2-1.7-6-4Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx="7" cy="7" r="1.9" stroke="currentColor" strokeWidth="1.2"/>
+    </svg>
+  );
+}
+function IconEyeOff() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M1 1l12 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M5.4 5.5a2 2 0 0 0 2.8 2.85M3.5 3.6C2.3 4.4 1.3 5.6 1 7c.8 2.3 3 4 6 4 1.2 0 2.3-.3 3.2-.8M9.9 9C11 8.3 11.7 7.3 12 7c-.8-2.3-3-4-6-4-.5 0-1 .05-1.4.15" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function IconCopy() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1.4" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M9.5 4.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v5.5a1 1 0 0 0 1 1h1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function IconCheck() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M2.5 7.5l3 3 6-6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function IconExternal() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M5.5 2.5H3A1 1 0 0 0 2 3.5v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M8 2.5h3.5V6M11 3l-5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function IconRemove() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+      <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function IconPlus() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function IconStar() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+      <path d="M7 1.5l1.6 3.4 3.7.4-2.8 2.5.8 3.7L7 10.1 3.7 12l.8-3.7L1.7 5.8l3.7-.4L7 1.5Z"/>
+    </svg>
+  );
+}
+function IconFileImport() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M8 1.5H3.5A1 1 0 0 0 2.5 2.5v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5L8 1.5Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+      <path d="M8 1.5V5h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+      <path d="M7 6.5V10M5.5 8.5L7 10l1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+/** Colored pill for a reachable host's origin. Uses explicit token utilities
+ * (never opacity modifiers on a token color). */
+function DomainBadge({ text, tone }: { text: string; tone: "local" | "custom" | "tunnel" }) {
+  const cls =
+    tone === "local"
+      ? "bg-ok-bg text-ok"
+      : tone === "custom"
+        ? "bg-accent-bg text-accent-ink"
+        : "bg-warn-bg text-warn";
+  return (
+    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded uppercase tracking-wide shrink-0 ${cls}`}>
+      {text}
+    </span>
+  );
+}
+
+/** Vercel-style key/value env table for the active profile. Owns its own
+ * reveal/copy/export view-state; the persisted data lives in `vars` (mapped
+ * back to app.env_vars on Save by the parent — unchanged). The PORT row is
+ * synthetic and read-only: Porta always manages the port, so it is never part
+ * of the editable `vars` array. */
+function EnvVarTable({
+  vars,
+  onChange,
+  port,
+  envFile,
+  onImportFile,
+  onClearFile,
+}: {
+  vars: { key: string; value: string }[];
+  onChange: (vars: { key: string; value: string }[]) => void;
+  port: number;
+  envFile: string;
+  onImportFile: () => void;
+  onClearFile: () => void;
+}) {
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [exported, setExported] = useState(false);
+
+  const updateRow = (i: number, patch: Partial<{ key: string; value: string }>) =>
+    onChange(vars.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removeRow = (i: number) => onChange(vars.filter((_, idx) => idx !== i));
+  const addRow = () => onChange([...vars, { key: "", value: "" }]);
+  const toggleReveal = (i: number) =>
+    setRevealed((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  const copyValue = (i: number, value: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedIdx(i);
+      setTimeout(() => setCopiedIdx((cur) => (cur === i ? null : cur)), 1200);
+    });
+  };
+  const exportEnv = () => {
+    const text = vars
+      .filter((v) => v.key.trim())
+      .map((v) => `${v.key.trim()}=${v.value}`)
+      .join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setExported(true);
+      setTimeout(() => setExported(false), 1500);
+    });
+  };
+
+  return (
+    <div className="flex flex-col">
+      <div className="font-mono text-[12px]">
+        {vars.map((row, i) => {
+          const isRevealed = revealed.has(i);
+          return (
+            <div key={i} className="flex items-center gap-2 py-1.5 border-b border-subtle">
+              <input
+                spellCheck={false}
+                value={row.key}
+                onChange={(e) => updateRow(i, { key: e.target.value })}
+                className="input-base w-[150px] shrink-0 font-mono text-[12px] uppercase"
+                placeholder="KEY"
+              />
+              <input
+                spellCheck={false}
+                type={isRevealed ? "text" : "password"}
+                value={row.value}
+                onChange={(e) => updateRow(i, { value: e.target.value })}
+                className="input-base flex-1 min-w-0 font-mono text-[12px]"
+                placeholder="value"
+              />
+              <button
+                type="button"
+                onClick={() => toggleReveal(i)}
+                aria-label={isRevealed ? "Hide value" : "Reveal value"}
+                title={isRevealed ? "Hide value" : "Reveal value"}
+                className="text-ink-3 hover:text-ink-2 transition-colors p-1 shrink-0"
+              >
+                {isRevealed ? <IconEyeOff /> : <IconEye />}
+              </button>
+              <button
+                type="button"
+                onClick={() => copyValue(i, row.value)}
+                aria-label="Copy value"
+                title="Copy value"
+                className={`transition-colors p-1 shrink-0 ${copiedIdx === i ? "text-ok" : "text-ink-3 hover:text-ink-2"}`}
+              >
+                {copiedIdx === i ? <IconCheck /> : <IconCopy />}
+              </button>
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                aria-label="Remove variable"
+                title="Remove variable"
+                className="text-ink-3 hover:text-bad transition-colors p-1 shrink-0"
+              >
+                <IconRemove />
+              </button>
+            </div>
+          );
+        })}
+
+        {/* Porta-managed PORT row — read-only, never part of env_vars. */}
+        <div className="flex items-center gap-2 py-1.5 border-b border-subtle">
+          <span className="w-[150px] shrink-0 text-ink-3 px-2.5">PORT</span>
+          <span className="flex-1 min-w-0 text-ink-3 px-2.5 truncate">{port}</span>
+          <span className="text-[10px] font-sans text-ink-3 shrink-0 pr-1">managed by Porta</span>
+        </div>
+      </div>
+
+      {/* Inline add-variable row */}
+      <button
+        type="button"
+        onClick={addRow}
+        className="mt-2 self-start inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] text-ink-2 hover:text-ink border border-dashed border-strong rounded-control transition-colors"
+      >
+        <IconPlus /> Add variable
+      </button>
+
+      {/* Footer: import / export (mockup 20). Import reuses the existing
+          env-file browse handler; Clear reuses the existing setter. */}
+      <div className="flex items-center gap-3 mt-4 pt-3 border-t border-subtle text-[11px]">
+        <button
+          type="button"
+          onClick={onImportFile}
+          className="inline-flex items-center gap-1.5 text-ink-2 hover:text-ink transition-colors"
+        >
+          <IconFileImport /> Import .env
+        </button>
+        <button
+          type="button"
+          onClick={exportEnv}
+          className={`inline-flex items-center gap-1.5 transition-colors ${exported ? "text-ok" : "text-ink-2 hover:text-ink"}`}
+        >
+          {exported ? <IconCheck /> : <IconCopy />} {exported ? "Copied" : "Export"}
+        </button>
+        {envFile && (
+          <span className="ml-auto inline-flex items-center gap-1.5 min-w-0">
+            <code className="font-mono text-ink-3 truncate max-w-[180px]" title={envFile}>{envFile}</code>
+            <button type="button" onClick={onClearFile} className="text-ink-3 hover:text-ink-2 transition-colors shrink-0">
+              Clear
+            </button>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -539,7 +776,6 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
   const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^\*$/;
   const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
   const subdomainValid = !subdomain || SUBDOMAIN_RE.test(subdomain);
-  const extraSubdomainInputValid = !extraSubdomainInput || SUBDOMAIN_RE.test(extraSubdomainInput);
   const customDomainValid = !customDomain || DOMAIN_RE.test(customDomain);
   // Port bindings validation
   const portBindingsValid = portBindings.every((b) => {
@@ -562,6 +798,58 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
   const [showNewProfile, setShowNewProfile] = useState(false);
   const [newProfileName, setNewProfileName] = useState("");
   const [deleteProfileConfirm, setDeleteProfileConfirm] = useState<string | null>(null);
+  // Inline rename of a named profile — writes straight into envProfiles (the
+  // same array Save persists as env_profiles), so no new saved field.
+  const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const commitRename = useCallback(() => {
+    const id = renamingProfileId;
+    const nm = renameValue.trim();
+    if (id && nm) {
+      setEnvProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, name: nm } : p)));
+    }
+    setRenamingProfileId(null);
+    setRenameValue("");
+  }, [renamingProfileId, renameValue]);
+
+  // ── Domain "Reachable at" list view-state ─────────────────────────────────
+  const [showAddDomain, setShowAddDomain] = useState(false);
+  const [showAdvancedDomain, setShowAdvancedDomain] = useState(false);
+  const [copiedHost, setCopiedHost] = useState<string | null>(null);
+  const copyHost = useCallback((url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedHost(url);
+      setTimeout(() => setCopiedHost((cur) => (cur === url ? null : cur)), 1200);
+    });
+  }, []);
+  const openHost = useCallback((url: string) => {
+    if (isTauri) void openExternalUrl(url);
+    else window.open(url, "_blank");
+  }, []);
+  // Copy + open action pair for a reachable-host row. Plain factory (not a
+  // nested component) so it doesn't remount inputs on each render.
+  const copyOpen = (url: string) => (
+    <div className="ml-auto flex items-center gap-0.5 shrink-0">
+      <button
+        type="button"
+        onClick={() => copyHost(url)}
+        title="Copy URL"
+        aria-label="Copy URL"
+        className={`p-1.5 rounded transition-colors ${copiedHost === url ? "text-ok" : "text-ink-3 hover:text-ink-2"}`}
+      >
+        {copiedHost === url ? <IconCheck /> : <IconCopy />}
+      </button>
+      <button
+        type="button"
+        onClick={() => openHost(url)}
+        title="Open URL"
+        aria-label="Open URL"
+        className="p-1.5 rounded text-ink-3 hover:text-ink-2 transition-colors"
+      >
+        <IconExternal />
+      </button>
+    </div>
+  );
 
   const selectProfile = useCallback((profileId: string | null) => {
     if (activeProfileId) {
@@ -724,15 +1012,13 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
   const scheme = setupStatus?.certs_generated ? "https" : "http";
   const domain = customDomain.trim() || workspace?.domain || "narakarya.test";
   const effectiveSub = subdomain.trim() || name.trim() || "…";
-  const previewPrimary = effectiveSub === "*"
-    ? `${scheme}://*.${domain}`
-    : `${scheme}://${effectiveSub}.${domain}`;
-  const previewExtras = extraSubdomains.map((s) => `${scheme}://${s}.${domain}`);
-  const previewBindings = portBindings.map((b) => {
-    const bDomain = b.custom_domain?.trim() || domain;
-    const bSub = b.subdomain?.trim() || b.label.trim().toLowerCase().replace(/\s+/g, "-") || "binding";
-    return { label: b.label, url: `${scheme}://${bSub}.${bDomain}`, port: b.port };
-  });
+  // Local (.test) base domain for the "Reachable at" list — always the
+  // workspace domain, independent of the custom-domain override (custom shows
+  // as its own row). The `.test`-style TLD drives the "local" badge label.
+  const localDomain = workspace?.domain || "narakarya.test";
+  const localTld = localDomain.includes(".") ? localDomain.slice(localDomain.lastIndexOf(".")) : ".test";
+  const primaryHost = effectiveSub === "*" ? `*.${localDomain}` : `${effectiveSub}.${localDomain}`;
+  const primaryUrl = `${scheme}://${primaryHost}`;
 
   // Resolved hosts this app exposes — drives the per-host auth override editor.
   // Mirrors the Rust `all_routes` host resolution so override keys line up with
@@ -771,11 +1057,24 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
     return out;
   }, [authHosts, hostAuth]);
 
-  const addExtraSubdomain = useCallback(() => {
+  // "＋ Add domain": a bare label → new extra subdomain (`{label}.test`); a full
+  // host (contains a dot) → sets custom_domain. Writes to the SAME state the old
+  // scattered fields used, so Save persists identically.
+  const addDomainInputValid = !extraSubdomainInput
+    || (extraSubdomainInput.includes(".") ? DOMAIN_RE.test(extraSubdomainInput.trim().toLowerCase()) : SUBDOMAIN_RE.test(extraSubdomainInput.trim().toLowerCase()));
+  const addDomain = useCallback(() => {
     const val = extraSubdomainInput.trim().toLowerCase();
-    if (!val || !SUBDOMAIN_RE.test(val) || extraSubdomains.includes(val)) return;
-    setExtraSubdomains((prev) => [...prev, val]);
+    if (!val) return;
+    if (val.includes(".")) {
+      if (!DOMAIN_RE.test(val)) return;
+      setCustomDomain(val);
+    } else {
+      if (!SUBDOMAIN_RE.test(val) || extraSubdomains.includes(val)) return;
+      setExtraSubdomains((prev) => [...prev, val]);
+    }
     setExtraSubdomainInput("");
+    setShowAddDomain(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extraSubdomainInput, extraSubdomains]);
 
   // The tunnel panel reflects the SELECTED provider tab, not whichever tunnel
@@ -1035,9 +1334,9 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                   </div>
                 )}
                 {isCompose && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-teal-500/10 border border-teal-500/20">
-                    <span className="text-[10px] font-semibold tracking-wider text-teal-300 mt-0.5">COMPOSE</span>
-                    <p className="text-[11px] text-teal-200/80">
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+                    <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">COMPOSE</span>
+                    <p className="text-[11px] text-accent-ink">
                       Porta runs <code className="font-mono">docker compose up/down</code> in project <code className="font-mono">porta-{app.id.slice(0, 8)}…</code>. Port should match what compose publishes.
                     </p>
                   </div>
@@ -1058,10 +1357,10 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 {!isStatic && (
                   <Field label={isDocker ? "Host Port" : isCompose ? "Proxy Port" : isProxy ? "Upstream Port" : "Port"} hint={!portValid && port ? "Must be 1-65535" : undefined}>
                     <input spellCheck={false} value={port} onChange={(e) => setPort(e.target.value)}
-                      className={`input-base ${!portValid && port ? "border-red-500/50" : ""}`}
+                      className={`input-base ${!portValid && port ? "border-[rgba(248,113,113,0.5)]" : ""}`}
                       placeholder="3000" type="number" min={1} max={65535} />
                     {portCheckResult && portValid && (
-                      <p className={`text-[10px] mt-1 ${portCheckResult.available ? "text-emerald-400" : "text-amber-400"}`}>
+                      <p className={`text-[10px] mt-1 ${portCheckResult.available ? "text-ok" : "text-warn"}`}>
                         {portCheckResult.available
                           ? "✓ Port available"
                           : `⚠ Port in use by ${portCheckResult.process_name ?? "unknown"} (PID ${portCheckResult.pid ?? "?"})`}
@@ -1103,7 +1402,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                           errorMessage={composeError ?? undefined}
                         />
                         {composeError && (
-                          <div className="mt-2 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                          <div className="mt-2 px-2.5 py-1.5 rounded-md bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                             {composeError}
                           </div>
                         )}
@@ -1148,7 +1447,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                             <button
                               type="button"
                               onClick={() => setDockerVolumes((prev) => prev.filter((_, j) => j !== i))}
-                              className="px-2.5 text-ink-3 hover:text-red-400 border border-subtle rounded-lg text-[14px] shrink-0"
+                              className="px-2.5 text-ink-3 hover:text-bad border border-subtle rounded-lg text-[14px] shrink-0"
                               title="Remove"
                             >
                               ×
@@ -1281,96 +1580,143 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 <p className="text-[12px] text-ink-3 mt-1">Subdomains and local HTTPS URLs for this app.</p>
               </div>
 
-              <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
-                <Field label="Custom Domain" hint={customDomain && !customDomainValid ? "Must be a valid domain (e.g. myapp.dev)" : undefined}>
-                  <input spellCheck={false} value={customDomain} onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
-                    className={`input-base font-mono text-[12px] ${customDomain && !customDomainValid ? "border-red-500/50" : ""}`}
-                    placeholder={workspace?.domain ?? "narakarya.test"} />
-                  <p className="text-[10px] text-ink-3 mt-1">
-                    Override the workspace domain for this app. Leave empty to use <code className="text-ink-3">{workspace?.domain ?? "narakarya.test"}</code>
-                  </p>
-                </Field>
+              {/* Reachable at — one row per public URL. Add/remove wires to the
+                  same subdomain / extra_subdomains / custom_domain state the old
+                  scattered fields wrote, so Save persists identically. */}
+              <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[12px] font-medium text-ink-2">Reachable at</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddDomain((v) => !v)}
+                    className="inline-flex items-center gap-1 text-[11px] text-accent hover:brightness-110 transition shrink-0"
+                  >
+                    <IconPlus /> Add domain
+                  </button>
+                </div>
 
-                <div className="h-px bg-surface-2" />
+                {showAddDomain && (
+                  <div className="flex flex-col gap-1">
+                    <div className="flex gap-2">
+                      <input
+                        spellCheck={false}
+                        autoFocus
+                        value={extraSubdomainInput}
+                        onChange={(e) => setExtraSubdomainInput(e.target.value.toLowerCase())}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); addDomain(); }
+                          if (e.key === "Escape") { setShowAddDomain(false); setExtraSubdomainInput(""); }
+                        }}
+                        className={`input-base flex-1 font-mono text-[12px] ${extraSubdomainInput && !addDomainInputValid ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                        placeholder="admin  ·  or  app.dev"
+                      />
+                      <button
+                        type="button"
+                        onClick={addDomain}
+                        disabled={!extraSubdomainInput || !addDomainInputValid}
+                        className="px-3 py-2 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors disabled:opacity-30 disabled:pointer-events-none shrink-0"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-ink-3">
+                      A bare label adds <code className="text-ink-3 font-mono">{`{label}${localTld}`}</code>; a full host with a dot sets a custom domain.
+                    </p>
+                  </div>
+                )}
 
-                <Field label="Subdomain" hint={subdomain && !subdomainValid ? "Lowercase letters, numbers, hyphens, or *" : undefined}>
-                  <input spellCheck={false} value={subdomain} onChange={(e) => setSubdomain(e.target.value)}
-                    className={`input-base ${subdomain && !subdomainValid ? "border-red-500/50" : ""}`}
-                    placeholder={app.name} />
-                  <p className="text-[10px] text-ink-3 mt-1">
-                    Use <code className="text-ink-3">*</code> for wildcard (any subdomain)
-                  </p>
-                </Field>
+                <div className="flex flex-col rounded-lg border border-subtle overflow-hidden">
+                  {/* Primary — subdomain stays inline-editable so setSubdomain
+                      (and its validation) is preserved. */}
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle last:border-b-0">
+                    <span className="text-warn shrink-0" title="Primary"><IconStar /></span>
+                    <span className="flex items-center min-w-0 font-mono text-[12px]">
+                      <input
+                        spellCheck={false}
+                        value={subdomain}
+                        onChange={(e) => setSubdomain(e.target.value)}
+                        placeholder={app.name}
+                        title="Primary subdomain"
+                        style={{ width: `${Math.max((subdomain || app.name || "app").length, 3)}ch` }}
+                        className={`bg-transparent outline-none focus:text-accent-ink text-right ${subdomain && !subdomainValid ? "text-bad" : "text-ink"}`}
+                      />
+                      <span className="text-ink-3">.{localDomain}</span>
+                    </span>
+                    <DomainBadge text={`local · ${localTld}`} tone="local" />
+                    {copyOpen(primaryUrl)}
+                  </div>
 
-                <Field label="Extra Subdomains" hint={extraSubdomainInput && !extraSubdomainInputValid ? "Lowercase letters, numbers, hyphens only" : undefined}>
-                  {/* Tag list */}
-                  {extraSubdomains.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {extraSubdomains.map((sub) => (
-                        <span key={sub} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-2 border border-strong text-[11px] font-mono text-ink-2">
-                          {sub}
-                          <button
-                            type="button"
-                            onClick={() => setExtraSubdomains((prev) => prev.filter((s) => s !== sub))}
-                            className="text-ink-3 hover:text-red-400 transition-colors ml-0.5"
-                          >
-                            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                              <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                            </svg>
-                          </button>
-                        </span>
-                      ))}
+                  {/* Extra subdomains */}
+                  {extraSubdomains.map((sub) => {
+                    const url = `${scheme}://${sub}.${localDomain}`;
+                    return (
+                      <div key={sub} className="flex items-center gap-2 px-3 py-2 border-b border-subtle last:border-b-0">
+                        <span className="w-3 shrink-0" />
+                        <span className="font-mono text-[12px] text-ink-2 truncate">{sub}.{localDomain}</span>
+                        <DomainBadge text={`local · ${localTld}`} tone="local" />
+                        {copyOpen(url)}
+                        <button
+                          type="button"
+                          onClick={() => setExtraSubdomains((prev) => prev.filter((s) => s !== sub))}
+                          title="Remove"
+                          aria-label={`Remove ${sub}`}
+                          className="p-1.5 rounded text-ink-3 hover:text-bad transition-colors shrink-0"
+                        >
+                          <IconRemove />
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {/* Custom domain */}
+                  {customDomain.trim() && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle last:border-b-0">
+                      <span className="w-3 shrink-0" />
+                      <span className={`font-mono text-[12px] truncate ${customDomainValid ? "text-ink-2" : "text-bad"}`}>{customDomain.trim()}</span>
+                      <DomainBadge text="custom" tone="custom" />
+                      {customDomainValid && copyOpen(`${scheme}://${customDomain.trim()}`)}
+                      <button
+                        type="button"
+                        onClick={() => setCustomDomain("")}
+                        title="Remove custom domain"
+                        aria-label="Remove custom domain"
+                        className={`p-1.5 rounded text-ink-3 hover:text-bad transition-colors shrink-0 ${customDomainValid ? "" : "ml-auto"}`}
+                      >
+                        <IconRemove />
+                      </button>
                     </div>
                   )}
-                  {/* Add input */}
-                  <div className="flex gap-2">
-                    <input spellCheck={false}
-                      value={extraSubdomainInput}
-                      onChange={(e) => setExtraSubdomainInput(e.target.value.toLowerCase())}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addExtraSubdomain(); } }}
-                      className={`input-base flex-1 font-mono text-[12px] ${extraSubdomainInput && !extraSubdomainInputValid ? "border-red-500/50" : ""}`}
-                      placeholder="admin, platform, ..."
-                    />
-                    <button
-                      type="button"
-                      onClick={addExtraSubdomain}
-                      disabled={!extraSubdomainInput || !extraSubdomainInputValid}
-                      className="px-3 py-2 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors disabled:opacity-30 disabled:pointer-events-none shrink-0"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-ink-3 mt-1">
-                    Each subdomain routes to the same port. Press <kbd className="text-ink-3 font-sans">Enter</kbd> or comma to add.
-                  </p>
-                </Field>
 
-                {/* URL Preview */}
-                <div className="flex flex-col gap-1.5 pt-1">
-                  <p className="text-[12px] font-medium text-ink-2">URL Preview</p>
-                  <div className="flex flex-col gap-1 px-3 py-2.5 rounded-lg bg-surface-1 border border-subtle">
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 shrink-0" />
-                      <span className="text-[12px] font-mono text-ink-2 truncate">{previewPrimary}</span>
-                      <span className="text-[10px] text-ink-3 shrink-0">primary</span>
+                  {/* Public tunnel URL — read-only (managed on the Publish/Tunneling tab). */}
+                  {app.tunnel_active && app.tunnel_url && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle last:border-b-0">
+                      <span className="w-3 shrink-0" />
+                      <span className="font-mono text-[12px] text-ink-2 truncate">{app.tunnel_url.replace(/^https?:\/\//, "")}</span>
+                      <DomainBadge text="tunnel · public" tone="tunnel" />
+                      {copyOpen(app.tunnel_url)}
                     </div>
-                    {previewExtras.map((url) => (
-                      <div key={url} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-ink-3 shrink-0" />
-                        <span className="text-[12px] font-mono text-ink-3 truncate">{url}</span>
-                      </div>
-                    ))}
-                    {previewBindings.map((b) => (
-                      <div key={b.url} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                        <span className="text-[12px] font-mono text-ink-2 truncate">{b.url}</span>
-                        <span className="text-[10px] text-ink-3 shrink-0">:{b.port}</span>
-                      </div>
-                    ))}
-                  </div>
+                  )}
                 </div>
+
+                {!customDomainValid && customDomain.trim() && (
+                  <p className="text-[10px] text-bad">Custom domain must be a valid host (e.g. myapp.dev). Remove or fix it to save.</p>
+                )}
               </div>
 
+              {/* Advanced — port bindings + host auth, collapsed by default. */}
+              <button
+                type="button"
+                onClick={() => setShowAdvancedDomain((v) => !v)}
+                className="self-start inline-flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-ink transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className={`transition-transform ${showAdvancedDomain ? "rotate-90" : ""}`}>
+                  <path d="M4.5 2.5L8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Advanced
+              </button>
+
+              {showAdvancedDomain && (
+                <>
               {/* Port Bindings */}
               <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
                 <div className="flex items-center justify-between">
@@ -1409,7 +1755,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                         spellCheck={false}
                         value={binding.label}
                         onChange={(e) => updateBinding({ label: e.target.value })}
-                        className={`input-base flex-[2] min-w-0 ${!binding.label.trim() && binding.port ? "border-red-500/50" : ""}`}
+                        className={`input-base flex-[2] min-w-0 ${!binding.label.trim() && binding.port ? "border-[rgba(248,113,113,0.5)]" : ""}`}
                         placeholder="Label"
                         title="Label"
                       />
@@ -1420,7 +1766,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                         max={65535}
                         value={binding.port || ""}
                         onChange={(e) => updateBinding({ port: parseInt(e.target.value, 10) || 0 })}
-                        className={`input-base w-20 ${binding.port && !bPortOk ? "border-red-500/50" : ""}`}
+                        className={`input-base w-20 ${binding.port && !bPortOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
                         placeholder="Port"
                         title="Port"
                       />
@@ -1428,7 +1774,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                         spellCheck={false}
                         value={binding.subdomain ?? ""}
                         onChange={(e) => updateBinding({ subdomain: e.target.value.toLowerCase() || null })}
-                        className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.subdomain && !bSubOk ? "border-red-500/50" : ""}`}
+                        className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.subdomain && !bSubOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
                         placeholder={binding.label.trim().toLowerCase().replace(/\s+/g, "-") || "subdomain"}
                         title="Subdomain"
                       />
@@ -1436,14 +1782,14 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                         spellCheck={false}
                         value={binding.custom_domain ?? ""}
                         onChange={(e) => updateBinding({ custom_domain: e.target.value.toLowerCase() || null })}
-                        className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.custom_domain && !bDomOk ? "border-red-500/50" : ""}`}
+                        className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.custom_domain && !bDomOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
                         placeholder={workspace?.domain ?? "domain"}
                         title="Custom Domain"
                       />
                       <button
                         type="button"
                         onClick={() => setPortBindings((prev) => prev.filter((_, i) => i !== idx))}
-                        className="p-1.5 rounded-lg text-ink-3 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                        className="p-1.5 rounded-lg text-ink-3 hover:text-bad hover:bg-bad-bg transition-colors shrink-0"
                         title="Remove"
                       >
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -1587,6 +1933,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                   </div>
                 )}
               </div>
+                </>
+              )}
 
             </>
           )}
@@ -1598,124 +1946,119 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 <p className="text-[12px] text-ink-3 mt-1">Environment variables and startup behavior.</p>
               </div>
 
-              {/* Profile selector */}
+              {/* Profile tab bar (mockup 20) — pills for Default + named
+                  profiles. Switch (click), rename (double-click), delete and
+                  add all reuse the existing profile state + handlers. */}
               <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[11px] text-ink-2 shrink-0">Profile</span>
-                  {/* Compact dropdown pill for the active profile. Switching, new
-                      and delete all reuse the existing profile handlers. */}
-                  <div className="relative inline-flex items-center shrink-0">
-                    <select
-                      value={activeProfileId ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === "__new__") { setShowNewProfile(true); return; }
-                        selectProfile(v === "" ? null : v);
-                      }}
-                      className="appearance-none text-[12px] text-ink bg-transparent border border-strong rounded-control pl-2.5 pr-6 py-[3px] focus:outline-none focus:border-accent cursor-pointer"
-                    >
-                      <option value="">Default</option>
-                      {envProfiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>{profile.name}</option>
-                      ))}
-                      <option value="__new__">+ New profile…</option>
-                    </select>
-                    <svg className="absolute right-2 pointer-events-none text-ink-3" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                      <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </div>
-                  {/* Muted summary of the other available profiles. */}
-                  {envProfiles.some((p) => p.id !== activeProfileId) && (
-                    <span className="text-[11px] text-ink-3 truncate">
-                      · {envProfiles.filter((p) => p.id !== activeProfileId).map((p) => p.name).join(" · ")}
-                    </span>
-                  )}
-                  {/* Delete the currently-selected named profile. */}
-                  {activeProfileId && (
-                    deleteProfileConfirm === activeProfileId ? (
-                      <span className="inline-flex items-center gap-1 shrink-0">
-                        <button onClick={() => deleteProfile(activeProfileId)} className="px-1.5 py-0.5 text-[10px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded transition-colors hover:bg-red-500/20">Delete</button>
-                        <button onClick={() => setDeleteProfileConfirm(null)} className="px-1.5 py-0.5 text-[10px] text-ink-3 hover:text-ink-2 transition-colors">Cancel</button>
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => setDeleteProfileConfirm(activeProfileId)}
-                        title="Delete profile"
-                        className="text-ink-3 hover:text-red-400 transition-colors p-0.5 shrink-0"
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => selectProfile(null)}
+                    className={`px-3 py-1 rounded-control text-[12px] font-medium transition-colors ${activeProfileId === null ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"}`}
+                  >
+                    Default
+                  </button>
+                  {envProfiles.map((p) => {
+                    const active = p.id === activeProfileId;
+                    if (renamingProfileId === p.id) {
+                      return (
+                        <input
+                          key={p.id}
+                          spellCheck={false}
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+                            if (e.key === "Escape") { setRenamingProfileId(null); setRenameValue(""); }
+                          }}
+                          className="input-base text-[12px] w-28 py-1"
+                        />
+                      );
+                    }
+                    return (
+                      <span
+                        key={p.id}
+                        className={`inline-flex items-center rounded-control text-[12px] font-medium transition-colors ${active ? "bg-accent-bg text-accent-ink" : "text-ink-2 hover:bg-white/[0.05] hover:text-ink"}`}
                       >
-                        <svg width="9" height="9" viewBox="0 0 8 8" fill="none"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                      </button>
-                    )
+                        <button
+                          type="button"
+                          onClick={() => selectProfile(p.id)}
+                          onDoubleClick={() => { setRenamingProfileId(p.id); setRenameValue(p.name); }}
+                          title="Click to switch · double-click to rename"
+                          className={`pl-3 py-1 ${active ? "pr-1" : "pr-3"}`}
+                        >
+                          {p.name}
+                        </button>
+                        {active && (
+                          deleteProfileConfirm === p.id ? (
+                            <span className="inline-flex items-center gap-1 pr-1.5">
+                              <button type="button" onClick={() => deleteProfile(p.id)} className="px-1.5 py-0.5 text-[10px] font-medium text-bad bg-bad-bg rounded hover:brightness-110 transition">Delete</button>
+                              <button type="button" onClick={() => setDeleteProfileConfirm(null)} className="text-[10px] text-ink-3 hover:text-ink-2 transition-colors">Cancel</button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteProfileConfirm(p.id)}
+                              title="Delete profile"
+                              aria-label={`Delete ${p.name}`}
+                              className="pr-2 pl-0.5 py-1 text-accent-ink hover:text-bad transition-colors"
+                            >
+                              <IconRemove />
+                            </button>
+                          )
+                        )}
+                      </span>
+                    );
+                  })}
+                  {showNewProfile ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <input spellCheck={false} value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") createProfile(); if (e.key === "Escape") { setShowNewProfile(false); setNewProfileName(""); } }}
+                        className="input-base text-[12px] w-32 py-1" placeholder="staging" autoFocus />
+                      <button type="button" onClick={createProfile} disabled={!newProfileName.trim()} className="px-2.5 py-1 text-[12px] font-medium bg-accent hover:brightness-110 text-white rounded-control disabled:opacity-40 transition-colors shrink-0">Add</button>
+                      <button type="button" onClick={() => { setShowNewProfile(false); setNewProfileName(""); }} className="text-[12px] text-ink-3 hover:text-ink transition-colors shrink-0">Cancel</button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowNewProfile(true)}
+                      title="Add profile"
+                      aria-label="Add profile"
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-control text-ink-3 hover:bg-white/[0.05] hover:text-ink transition-colors"
+                    >
+                      <IconPlus />
+                    </button>
                   )}
                   {/* Top-right action: append a blank inline env var row. */}
                   <button
+                    type="button"
                     onClick={() => setEnvVars((prev) => [...prev, { key: "", value: "" }])}
                     className="ml-auto inline-flex items-center gap-1 text-[11px] text-accent hover:brightness-110 transition shrink-0"
                   >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
-                    Add variable
+                    <IconPlus /> Add variable
                   </button>
                 </div>
                 {activeProfileId && (
                   <p className="text-[10px] text-accent-ink">Active profile will be used when starting the app.</p>
                 )}
-                {showNewProfile && (
-                  <div className="flex gap-2 items-center">
-                    <input spellCheck={false} value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") createProfile(); if (e.key === "Escape") { setShowNewProfile(false); setNewProfileName(""); } }}
-                      className="input-base flex-1 text-[12px]" placeholder="Profile name (e.g. staging)" autoFocus />
-                    <button onClick={createProfile} disabled={!newProfileName.trim()} className="px-3 py-2 text-[12px] font-medium bg-accent hover:brightness-110 text-white rounded-lg disabled:opacity-40 transition-colors shrink-0">Create</button>
-                    <button onClick={() => { setShowNewProfile(false); setNewProfileName(""); }} className="px-2 py-2 text-[12px] text-ink-3 hover:text-ink transition-colors shrink-0">Cancel</button>
-                  </div>
-                )}
               </div>
 
+              {/* Key/value table for the active profile (mockup 20). */}
+              <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
+                <EnvVarTable
+                  vars={envVars}
+                  onChange={setEnvVars}
+                  port={portNum || app.port}
+                  envFile={envFile}
+                  onImportFile={browseEnvFile}
+                  onClearFile={() => setEnvFile("")}
+                />
+              </div>
+
+              {/* Startup behavior */}
               <div className="flex flex-col gap-5 p-5 rounded-card bg-surface-1 border border-subtle">
-                <div className="flex flex-col gap-2">
-                  <p className="text-[12px] font-medium text-ink-2">.env File</p>
-                  <p className="text-[11px] text-ink-3 leading-relaxed">
-                    Variables from this file are injected when the app starts.
-                    Relative paths (e.g. <code className="text-ink-2">.env</code>) resolve from the app's root directory.
-                    <code className="text-ink-2 ml-1">PORT</code> is always overridden by Porta's assigned port.
-                  </p>
-                  <div className="flex gap-2">
-                    <input spellCheck={false}
-                      value={envFile}
-                      onChange={(e) => setEnvFile(e.target.value)}
-                      className="input-base flex-1 font-mono text-[12px]"
-                      placeholder=".env"
-                    />
-                    <button
-                      onClick={browseEnvFile}
-                      className="px-3 py-2 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
-                    >
-                      Browse
-                    </button>
-                  </div>
-                  {envFile && (
-                    <button onClick={() => setEnvFile("")} className="self-start text-[10px] text-ink-3 hover:text-ink-2 transition-colors">
-                      Clear
-                    </button>
-                  )}
-                </div>
-
-                <div className="h-px bg-surface-2" />
-
-                {/* Inline env vars editor */}
-                <EnvVarEditor vars={envVars} onChange={setEnvVars} />
-
-                {/* Import/export hint (mockup 20 footer) */}
-                <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <path d="M8 1.5H3.5A1 1 0 0 0 2.5 2.5v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5L8 1.5Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-                    <path d="M8 1.5V5h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-                    <path d="M7 6.5V10M5.5 8.5L7 10l1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  Import from .env · export
-                </div>
-
-                <div className="h-px bg-surface-2" />
-
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[13px] font-medium text-ink">Auto-start on launch</p>
@@ -1865,7 +2208,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                       // zinc while we're still probing on first open.
                       const cfReady = cloudflaredInstalled === true;
                       const cfNeedsSetup = cloudflaredInstalled === false;
-                      const cfDot = cfReady ? "bg-emerald-400" : cfNeedsSetup ? "bg-amber-400" : "bg-ink-3";
+                      const cfDot = cfReady ? "bg-ok" : cfNeedsSetup ? "bg-warn" : "bg-ink-3";
                       const cfTip = cfReady
                         ? "Ready"
                         : cfNeedsSetup
@@ -1873,7 +2216,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                           : "Checking…";
                       const tsReady = !!(tsStatus?.installed && tsStatus.running && tsStatus.logged_in);
                       const tsKnown = !!tsStatus;
-                      const tsDot = tsReady ? "bg-emerald-400" : tsKnown ? "bg-amber-400" : "bg-ink-3";
+                      const tsDot = tsReady ? "bg-ok" : tsKnown ? "bg-warn" : "bg-ink-3";
                       const tsTip = !tsKnown
                         ? "Checking…"
                         : tsReady
@@ -1942,23 +2285,23 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 </div>
 
                 {selectedIsLive && !app.tunnel_url && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <svg className="animate-spin shrink-0 text-amber-400" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+                    <svg className="animate-spin shrink-0 text-warn" width="12" height="12" viewBox="0 0 12 12" fill="none">
                       <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                     </svg>
-                    <span className="text-[11px] text-amber-400">Establishing tunnel…</span>
+                    <span className="text-[11px] text-warn">Establishing tunnel…</span>
                   </div>
                 )}
 
                 {selectedIsLive && app.tunnel_url && (
                   <>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                      <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-emerald-400 shrink-0">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ok-bg border border-[rgba(52,211,153,0.25)]">
+                      <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-ok shrink-0">
                         <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.1"/>
                         <ellipse cx="5" cy="5" rx="2" ry="4" stroke="currentColor" strokeWidth="1.1"/>
                         <path d="M1 5h8" stroke="currentColor" strokeWidth="1.1"/>
                       </svg>
-                      <span className="text-[11px] font-mono text-emerald-300 truncate flex-1">
+                      <span className="text-[11px] font-mono text-ok truncate flex-1">
                         {app.tunnel_url}
                       </span>
                       <button
@@ -1976,9 +2319,9 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                     </div>
                     <TunnelPublicHostsPanel hosts={liveTunnelHosts} title="Accessible hosts" />
                     {tunnelReachable === false && (
-                      <div className="flex items-start gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <span className="w-1.5 h-1.5 mt-1 rounded-full bg-amber-400 shrink-0" />
-                        <span className="text-[11px] text-amber-300">
+                      <div className="flex items-start gap-2 px-3 py-1.5 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+                        <span className="w-1.5 h-1.5 mt-1 rounded-full bg-warn shrink-0" />
+                        <span className="text-[11px] text-warn">
                           Tunnel endpoint not reachable — the tunnel itself looks down, not your app
                           (an app that's up but erroring would still respond).{" "}
                           {app.tunnel_provider === "cloudflare"
@@ -1988,9 +2331,9 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                       </div>
                     )}
                     {tunnelReachable === true && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        <span className="text-[11px] text-emerald-400/80">Reachable</span>
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-ok-bg border border-[rgba(52,211,153,0.15)]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
+                        <span className="text-[11px] text-ok">Reachable</span>
                       </div>
                     )}
                   </>
@@ -2141,7 +2484,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                                   />
                                 )}
                                 {tunnelsError && (
-                                  <p className="text-[10px] text-amber-400 mt-1 font-mono whitespace-pre-wrap">{tunnelsError}</p>
+                                  <p className="text-[10px] text-warn mt-1 font-mono whitespace-pre-wrap">{tunnelsError}</p>
                                 )}
                               </div>
 
@@ -2263,7 +2606,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                                     type="checkbox"
                                     checked={tunnelAliasRewriteHost}
                                     onChange={(e) => setTunnelAliasRewriteHost(e.target.checked)}
-                                    className="mt-0.5 accent-[#60a5fa]"
+                                    className="mt-0.5 accent-accent"
                                   />
                                   <span className="text-[11px] text-ink-2 leading-snug">
                                     Rewrite <span className="font-mono">Host</span> header to local pattern.{" "}
@@ -2338,17 +2681,17 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                     : `https://${previewHost}:${previewPort}`;
                   return (
                     <div className="flex flex-col gap-3">
-                      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-ok-bg border border-[rgba(52,211,153,0.25)]">
                         <div className="flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          <span className="text-[11px] text-emerald-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-ok" />
+                          <span className="text-[11px] text-ok">
                             Tailscale connected as <span className="font-mono">{previewHost}</span>
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => refreshTailscale()}
-                          className="text-[10px] text-emerald-400/70 hover:text-emerald-300 transition-colors"
+                          className="text-[10px] text-ok hover:text-ok transition-colors"
                         >
                           ↻ Refresh
                         </button>
@@ -2381,7 +2724,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 })()}
 
                 {tunnelError && !selectedIsLive && (
-                  <div className="relative px-3 py-2 pr-14 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                  <div className="relative px-3 py-2 pr-14 rounded-lg bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                     {tunnelError}
                     <button
                       type="button"
@@ -2391,7 +2734,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                           setTimeout(() => setTunnelErrorCopied(false), 1500);
                         });
                       }}
-                      className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded bg-red-500/20 hover:bg-red-500/30 text-red-200 transition-colors"
+                      className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded bg-[rgba(248,113,113,0.22)] hover:bg-[rgba(248,113,113,0.32)] text-bad transition-colors"
                       style={{ color: tunnelErrorCopied ? "#a3e635" : undefined }}
                     >
                       {tunnelErrorCopied ? "Copied!" : "Copy"}
@@ -2435,9 +2778,9 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                 </label>
 
                 {otherProviderLive && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-amber-400 shrink-0" />
-                    <span className="text-[11px] text-amber-300">
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+                    <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-warn shrink-0" />
+                    <span className="text-[11px] text-warn">
                       {otherProviderLive === "tailscale" ? "Tailscale" : "Cloudflare"} is still connected.
                       Connecting {tunnelProvider === "tailscale" ? "Tailscale" : "Cloudflare"} here will
                       disconnect it first.
@@ -2458,7 +2801,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
                       className="px-4 py-2 text-[13px] font-medium text-ink-2 bg-surface-2 hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
                     >
                       {tunnelBusy === "disconnecting" && (
-                        <span className="inline-block h-3 w-3 rounded-full border-2 border-strong border-t-zinc-200 animate-spin" />
+                        <span className="inline-block h-3 w-3 rounded-full border-2 border-strong border-t-ink animate-spin" />
                       )}
                       {tunnelBusy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
                     </button>
@@ -2505,12 +2848,12 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
           Danger Zone since deletion has its own dedicated confirm flow. */}
       {section !== "danger" && section !== "health" && (
         <footer className="shrink-0 border-t border-subtle bg-surface-input px-8 py-3 flex items-center gap-2">
-          {saveError && <p className="text-[11px] text-red-400 flex-1 truncate" title={saveError}>{saveError}</p>}
+          {saveError && <p className="text-[11px] text-bad flex-1 truncate" title={saveError}>{saveError}</p>}
           {!saveError && isDirty && (
-            <p className="text-[11px] text-amber-400/70 flex-1">Unsaved changes</p>
+            <p className="text-[11px] text-warn flex-1">Unsaved changes</p>
           )}
           {!saveError && !isDirty && savedAt !== null && (
-            <p className="text-[11px] text-emerald-400/80 flex-1 flex items-center gap-1.5">
+            <p className="text-[11px] text-ok flex-1 flex items-center gap-1.5">
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                 <path d="M2.5 5.5l2.5 2.5L8.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>

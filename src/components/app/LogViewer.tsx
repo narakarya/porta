@@ -167,13 +167,20 @@ function highlightLine(line: string, query: string): React.ReactNode {
 // ── Level filter ──────────────────────────────────────────────────────────────
 type EnabledLevels = Set<NonNullable<LogLevel>>;
 
-// Segmented level filter (mockup): All | Info | Warn | Error. "All" maps to an
-// empty enabledLevels set (no filter); each level segment toggles that level in
-// the same additive set the filtering pipeline already consumes.
-const FILTER_SEGMENTS: { key: NonNullable<LogLevel>; label: string; cls: string }[] = [
-  { key: "info",  label: "Info",  cls: "text-ink-2" },
-  { key: "warn",  label: "Warn",  cls: "text-warn" },
-  { key: "error", label: "Error", cls: "text-bad" },
+// Level filter chips: All + a colored toggle per level. Multi-select — "All"
+// clears the set (show everything); each chip toggles its level in the additive
+// `enabledLevels` set. Each carries a dot color + an ON skin so an enabled chip
+// reads clearly (tinted fill + its level color) vs a dimmed OFF chip. Explicit
+// rgba on the fills/borders (opacity modifiers fail on var()-backed tokens).
+const FILTER_SEGMENTS: {
+  key: NonNullable<LogLevel>;
+  label: string;
+  dot: string;
+  on: string;
+}[] = [
+  { key: "info",  label: "Info",  dot: "bg-accent", on: "bg-[rgba(96,165,250,0.14)] text-accent-ink border-[rgba(96,165,250,0.35)]" },
+  { key: "warn",  label: "Warn",  dot: "bg-warn",   on: "bg-[rgba(251,191,36,0.14)] text-warn border-[rgba(251,191,36,0.38)]" },
+  { key: "error", label: "Error", dot: "bg-bad",    on: "bg-[rgba(248,113,113,0.14)] text-bad border-[rgba(248,113,113,0.38)]" },
 ];
 
 // ── Container name shortening ─────────────────────────────────────────────────
@@ -781,14 +788,15 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
       <div className="flex-1 flex flex-col min-h-0 m-3 rounded-card border border-subtle bg-surface-2 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle bg-surface-1 shrink-0 select-none flex-wrap">
+        {/* Live-source dot (app name is redundant — the workbench header already
+            shows it). Keep a compact crash/exit badge, it's a real signal here. */}
         <div className="flex items-center gap-2 shrink-0">
           <span className={`w-2 h-2 rounded-full ${
             crashed ? "bg-red-400" :
             isStarting ? "bg-amber-400 pulse-dot" :
             isRunning ? "bg-emerald-400 pulse-dot" :
             "bg-zinc-600"
-          }`} />
-          <span className="text-[13px] font-semibold text-zinc-200">{appName}</span>
+          }`} title={crashed ? "crashed" : isStarting ? "starting" : isRunning ? "running" : "stopped"} />
           {crashed && exitCode !== null && exitCode !== undefined && (
             <span className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-1.5 py-0.5">
               exit {exitCode}
@@ -838,27 +846,36 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           )}
         </div>
 
-        {/* Segmented level filter: All | Info | Warn | Error. */}
-        <div className="inline-flex shrink-0 rounded-control border border-subtle overflow-hidden text-[11px] select-none">
+        {/* Level filter: All + a colored toggle per level (multi-select). An
+            enabled chip is filled + colored; a disabled one is dimmed. */}
+        <div className="inline-flex items-center gap-1 shrink-0 text-[11px] select-none">
           <button
             onClick={resetLevels}
-            className={`px-2.5 py-1 transition-colors ${!filterActive ? "bg-surface-2 text-ink" : "text-ink-2 hover:text-ink"}`}
+            className={`px-2.5 py-[3px] rounded-full border transition-colors ${
+              !filterActive
+                ? "bg-surface-2 text-ink border-strong"
+                : "text-ink-3 border-subtle hover:text-ink-2 hover:border-strong"
+            }`}
             title="Show all levels"
           >
             All
           </button>
-          {FILTER_SEGMENTS.map(({ key, label, cls }) => {
+          {FILTER_SEGMENTS.map(({ key, label, dot, on }) => {
             const active = enabledLevels.has(key);
             return (
               <button
                 key={key}
                 onClick={() => toggleLevel(key)}
-                className={`px-2.5 py-1 border-l border-subtle transition-colors ${active ? "bg-surface-2 text-ink" : `${cls} hover:text-ink`}`}
-                title={active ? `Showing ${label}` : `Filter to ${label}`}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full border transition-colors ${
+                  active ? `${on} font-medium` : "text-ink-3 border-subtle hover:text-ink-2 hover:border-strong"
+                }`}
+                title={active ? `Showing ${label} — click to hide` : `Show only ${label}`}
+                aria-pressed={active}
               >
+                <span className={`w-1.5 h-1.5 rounded-full ${dot} ${active ? "" : "opacity-40"}`} />
                 {label}
                 {key === "error" && errorCount > 0 && (
-                  <span className="ml-1 text-bad tabular-nums">{errorCount}</span>
+                  <span className="tabular-nums opacity-80">{errorCount}</span>
                 )}
               </button>
             );

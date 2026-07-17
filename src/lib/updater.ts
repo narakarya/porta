@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 
 import { usePortaStore } from "../store";
 import type { UpdaterPhase } from "../store/slices/ui";
+import * as cmd from "./commands";
 
 // The updater plugin calls into the native runtime; in a plain browser (Vite
 // dev / design review) those `invoke` calls throw "Cannot read properties of
@@ -31,7 +32,15 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 // Set on first successful `check()` so we can call `downloadAndInstall` on it
 // later when the user confirms. Cleared on error so a retry re-fetches.
+// Only used by the STABLE channel (the JS plugin path). On the beta channel
+// there is no JS Update object — the download runs through Rust — so this
+// stays null and `pendingIsBeta` routes the download instead.
 let cachedUpdate: Update | null = null;
+
+// Which channel produced the currently-surfaced `available` update, so
+// `startUpdateDownload` knows whether to use the JS Update object (stable) or
+// the Rust `install_update_channel` command (beta). Set on every check.
+let pendingIsBeta = false;
 
 // Coalesces concurrent check calls — second caller awaits the same Promise.
 let activeCheck: Promise<void> | null = null;
@@ -123,6 +132,52 @@ async function runUpdateCheck(
 
   setPhase("checking", { updaterError: null });
 
+  // Beta channel: the JS plugin's `check()` can only read the stable endpoint
+  // baked into tauri.conf.json, so route the version check through Rust with
+  // the beta endpoint. Stable stays on the untouched JS path below.
+  if (usePortaStore.getState().betaUpdates) {
+    let meta: cmd.UpdateMeta | null;
+    try {
+      meta = await withTimeout(cmd.checkUpdateChannel(true), UPDATE_CHECK_TIMEOUT_MS);
+    } catch (e) {
+      if (!isCurrentCheck(generation)) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (silent && msg === "Update check timed out") {
+        setPhase("idle", { updaterError: null, updaterInfo: null });
+        return;
+      }
+      setPhase("error", { updaterError: msg, updaterInfo: null });
+      return;
+    }
+
+    if (!isCurrentCheck(generation)) return;
+
+    if (!meta) {
+      if (silent) {
+        setPhase("idle", { updaterInfo: null, updaterError: null });
+      } else {
+        setPhase("uptodate", { updaterInfo: null, updaterError: null });
+        window.setTimeout(() => {
+          if (usePortaStore.getState().updaterPhase === "uptodate") setPhase("idle");
+        }, 3200);
+      }
+      return;
+    }
+
+    cachedUpdate = null;
+    pendingIsBeta = true;
+    setPhase("available", {
+      updaterInfo: {
+        version: meta.version,
+        currentVersion: meta.currentVersion,
+        body: meta.body,
+        total: 0,
+        downloaded: 0,
+      },
+    });
+    return;
+  }
+
   let upd: Update | null;
   try {
     upd = await withTimeout(check(), UPDATE_CHECK_TIMEOUT_MS);
@@ -158,6 +213,7 @@ async function runUpdateCheck(
   }
 
   cachedUpdate = upd;
+  pendingIsBeta = false;
   setPhase("available", {
     updaterInfo: {
       version: upd.version,
@@ -176,6 +232,8 @@ async function runUpdateCheck(
  */
 export async function startUpdateDownload(): Promise<void> {
   if (downloadInFlight) return;
+  // Beta channel downloads run through Rust (no JS Update object exists).
+  if (pendingIsBeta) return startBetaDownload();
   if (!cachedUpdate) return;
   const upd = cachedUpdate;
   const info = usePortaStore.getState().updaterInfo;
@@ -216,6 +274,61 @@ export async function startUpdateDownload(): Promise<void> {
     // Allow a retry; the cached Update object is still valid for another
     // downloadAndInstall attempt.
     downloadInFlight = false;
+  }
+}
+
+/**
+ * Beta-channel download + install. The binary is fetched/swapped by the Rust
+ * `install_update_channel` command; progress arrives via `updater://*` events
+ * which we pump into the same `updaterInfo` shape the stable path uses, so the
+ * toast/Settings progress bar renders identically.
+ */
+async function startBetaDownload(): Promise<void> {
+  const info = usePortaStore.getState().updaterInfo;
+  if (!info) return;
+
+  downloadInFlight = true;
+  setPhase("downloading", { updaterInfo: { ...info, total: 0, downloaded: 0 } });
+
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten: Array<() => void> = [];
+
+  try {
+    unlisten.push(
+      await listen<{ contentLength: number | null }>("updater://started", (e) => {
+        const cur = usePortaStore.getState().updaterInfo;
+        if (!cur) return;
+        usePortaStore.setState({
+          updaterInfo: { ...cur, total: e.payload.contentLength ?? 0, downloaded: 0 },
+        });
+      }),
+    );
+    unlisten.push(
+      await listen<{ chunkLength: number }>("updater://progress", (e) => {
+        const cur = usePortaStore.getState().updaterInfo;
+        if (!cur) return;
+        usePortaStore.setState({
+          updaterInfo: { ...cur, downloaded: cur.downloaded + (e.payload.chunkLength ?? 0) },
+        });
+      }),
+    );
+    unlisten.push(
+      await listen("updater://finished", () => {
+        // Download done; Rust is swapping the .app on disk. Mirror the stable
+        // path's `installing` beat before we reach `ready` below.
+        setPhase("installing");
+      }),
+    );
+
+    await cmd.installUpdateChannel(true);
+    setPhase("ready");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    setPhase("error", { updaterError: msg });
+    // Allow a retry; a fresh check re-populates the available update.
+    downloadInFlight = false;
+  } finally {
+    unlisten.forEach((u) => u());
   }
 }
 

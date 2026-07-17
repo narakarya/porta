@@ -12,7 +12,10 @@ const LogViewer = lazy(() => import("../app/LogViewer"));
 const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
 const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
 const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
+const InstancesModal = lazy(() => import("../app/InstancesModal"));
 type ConfigSection = import("../app/AppSettingsModal").Section;
+type AppInstance = import("../../lib/commands").AppInstance;
+const EMPTY_INSTANCES: AppInstance[] = [];
 
 // Stable empty ref so the store selector never returns a fresh array (which
 // would make useShallow see a change every render → infinite update loop).
@@ -175,8 +178,15 @@ export default function AppWorkbench({ app }: Props) {
   // In-flight lifecycle action — drives the Start/Stop/Restart Button spinners
   // while the start/stop/restart round-trip is pending.
   const [busy, setBusy] = useState<null | "start" | "stop" | "restart">(null);
+  // Worktree instances (mockup 26) — the Overview "Instances" section lists the
+  // primary checkout + each branch instance; the "＋ New from branch" affordance
+  // opens this modal, which carries the run-on-branch picker.
+  const [instancesOpen, setInstancesOpen] = useState(false);
 
-  const { startApp, stopApp, restartApp, clearAppLogs, logs, health, branch } = usePortaStore(
+  const {
+    startApp, stopApp, restartApp, clearAppLogs, logs, health, branch,
+    instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
+  } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -185,11 +195,23 @@ export default function AppWorkbench({ app }: Props) {
       logs: s.appLogs[app.id] ?? EMPTY,
       health: s.healthStatuses[app.id],
       branch: s.appGit[app.id]?.branch,
+      instances: s.instances[app.id] ?? EMPTY_INSTANCES,
+      refreshInstances: s.refreshInstances,
+      runInstance: s.runInstance,
+      stopInstanceAction: s.stopInstanceAction,
+      removeInstanceAction: s.removeInstanceAction,
     }))
   );
+  useEffect(() => { void refreshInstances(app.id); }, [app.id, refreshInstances]);
 
   const running = app.status === "running";
   const st = toStatus(app.status);
+  // Instances section (mockup 26): the primary checkout counts as running when
+  // the app itself is up; branch instances count their own "running" status.
+  const runningCount = (running ? 1 : 0) + instances.filter((i) => i.status === "running").length;
+  // Host shown on the primary row — the app's .test subdomain if Caddy assigned
+  // one, otherwise its raw localhost host.
+  const primaryHost = app.subdomain ? `${app.subdomain}.test` : `localhost:${app.port}`;
   const url = app.tunnel_active && app.tunnel_url ? app.tunnel_url : `http://localhost:${app.port}`;
   // The default local address for this app — its .test subdomain if Caddy
   // assigned one, otherwise the raw localhost:port. Powers the split-button's
@@ -442,6 +464,86 @@ export default function AppWorkbench({ app }: Props) {
                 ))}
               </div>
             </section>
+
+            {/* Instances (mockup 26) — the primary checkout plus each git-worktree
+                branch instance, each with its own port/URL. The "＋ New from branch"
+                affordance opens the InstancesModal (run-on-branch picker) and stays
+                visible even at zero instances so it's discoverable. */}
+            <section>
+              <div className="flex items-center gap-2 mb-2 px-0.5">
+                <span className="text-accent inline-flex items-center" aria-hidden>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="12" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5.6v4.8M5.6 4h1.2c1.5 0 2.4.9 2.4 2.4v.4M5.6 12h1.2c1.5 0 2.4-.9 2.4-2.4v-.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                </span>
+                <span className="text-[13px] font-medium text-ink">Instances</span>
+                <span className="text-[11px] text-ink-3">· {runningCount} running</span>
+                <button
+                  onClick={() => setInstancesOpen(true)}
+                  className="ml-auto text-[11px] text-accent-ink inline-flex items-center gap-1 hover:brightness-110 transition-[filter]"
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                  New from branch
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                {/* Primary/main checkout row. */}
+                <div className="flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2">
+                  <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${running ? "bg-ok" : "bg-ink-3"}`} aria-hidden />
+                  <span className="text-[13px] text-ink">{branch || "main"}</span>
+                  <span className="text-[11px] text-ink-3 font-mono truncate">
+                    :{app.port} · {primaryHost}
+                  </span>
+                  <span className="ml-auto text-[11px] text-ink-2 shrink-0">primary</span>
+                </div>
+
+                {/* One row per worktree instance. */}
+                {instances.map((inst) => {
+                  const isRunning = inst.status === "running";
+                  const instUrl = inst.tunnel_active && inst.tunnel_url
+                    ? inst.tunnel_url
+                    : `https://${inst.subdomain}.test`;
+                  return (
+                    <div key={inst.id} className="flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2">
+                      <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${isRunning ? "bg-ok" : "bg-ink-3"}`} aria-hidden />
+                      <span className="text-[13px] text-ink inline-flex items-center gap-1.5 min-w-0">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="text-ink-3 shrink-0"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                        <span className="truncate">{inst.branch}</span>
+                      </span>
+                      <span className="text-[11px] text-ink-3 font-mono truncate">
+                        :{inst.port} · {isRunning ? `${inst.subdomain}.test` : "stopped"}
+                      </span>
+                      <span className="ml-auto flex items-center gap-1.5 text-ink-3 shrink-0">
+                        {isRunning ? (
+                          <>
+                            <button onClick={() => window.open(instUrl, "_blank")} title="Open instance" aria-label="Open instance" className="hover:text-accent transition-colors">
+                              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            </button>
+                            <button onClick={() => void stopInstanceAction(inst.id, app.id)} title="Stop instance" aria-label="Stop instance" className="hover:text-ink transition-colors">
+                              <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.3"/></svg>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => void runInstance(app.id, inst.worktree_path)} title="Run instance" aria-label="Run instance" className="hover:text-ok transition-colors">
+                              <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5l7 4.5-7 4.5z"/></svg>
+                            </button>
+                            <button onClick={() => void removeInstanceAction(inst.id, app.id)} title="Remove instance" aria-label="Remove instance" className="hover:text-bad transition-colors">
+                              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6.5 4.5V3.2A.7.7 0 0 1 7.2 2.5h1.6a.7.7 0 0 1 .7.7v1.3M5 4.5l.5 8a1 1 0 0 0 1 .9h3a1 1 0 0 0 1-.9l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {instances.length === 0 && (
+                  <div className="border border-subtle rounded-[9px] px-3 py-2.5 text-[12px] text-ink-3">
+                    No branch instances — run one from a branch.
+                  </div>
+                )}
+              </div>
+            </section>
           </div>
         </div>
 
@@ -508,6 +610,17 @@ export default function AppWorkbench({ app }: Props) {
             composePath={app.compose_file ?? null}
             currentPort={app.port}
             onClose={() => setOverlay(null)}
+          />
+        </Suspense>
+      )}
+
+      {instancesOpen && (
+        <Suspense fallback={null}>
+          <InstancesModal
+            app={app}
+            workspace={workspaces.find((w) => w.id === app.workspace_id) ?? null}
+            instances={instances}
+            onClose={() => setInstancesOpen(false)}
           />
         </Suspense>
       )}

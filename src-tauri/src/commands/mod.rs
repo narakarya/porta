@@ -110,3 +110,6 @@ pub use ssh::*;
 
 mod system_metrics;
 pub use system_metrics::*;
+
+mod updater_channel;
+pub use updater_channel::*;

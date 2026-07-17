@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { SshHost } from "../../lib/commands";
 import HostFormModal from "./HostFormModal";
-import { osGlyph } from "./osIcon";
+import { OsIcon } from "./OsIcon";
+import { SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
+
+type MenuState = { host: SshHost; x: number; y: number };
 
 export default function HostVault() {
   const hosts = usePortaStore((s) => s.sshHosts);
@@ -18,6 +21,7 @@ export default function HostVault() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [editing, setEditing] = useState<SshHost | null>(null);
   const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState<MenuState | null>(null); // right-click context menu
   const filterRef = useRef<HTMLDivElement | null>(null);
 
   const wsName = useMemo(() => new Map(workspaces.map((w) => [w.id, w.name])), [workspaces]);
@@ -44,6 +48,26 @@ export default function HostVault() {
     [hosts, query, wsFilter]
   );
 
+  // Group the filtered hosts by their free-text `group` field — mirrors how the
+  // Workspaces sidebar groups app rows under a workspace header. Ungrouped hosts
+  // fall under a default "Hosts" bucket. Named groups sort A→Z; the default
+  // bucket sorts last so explicit folders lead.
+  const DEFAULT_GROUP = "Hosts";
+  const groups = useMemo(() => {
+    const m = new Map<string, SshHost[]>();
+    for (const h of list) {
+      const key = h.group?.trim() || DEFAULT_GROUP;
+      const arr = m.get(key);
+      if (arr) arr.push(h);
+      else m.set(key, [h]);
+    }
+    return [...m.entries()].sort(([a], [b]) => {
+      if (a === DEFAULT_GROUP) return 1;
+      if (b === DEFAULT_GROUP) return -1;
+      return a.localeCompare(b);
+    });
+  }, [list]);
+
   async function onDelete(h: SshHost) {
     let ok = false;
     try {
@@ -55,6 +79,27 @@ export default function HostVault() {
     if (ok) deleteSshHost(h.id);
   }
 
+  // Open the row context menu, anchored at the cursor and clamped to viewport.
+  function openMenu(e: React.MouseEvent, host: SshHost) {
+    e.preventDefault();
+    e.stopPropagation();
+    const MENU_W = 184;
+    const MENU_H = 172;
+    const x = Math.max(8, Math.min(e.clientX, window.innerWidth - MENU_W - 8));
+    const y = Math.max(8, Math.min(e.clientY, window.innerHeight - MENU_H - 8));
+    setMenu({ host, x, y });
+  }
+
+  // Esc closes the context menu (outside-click handled by the backdrop below).
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu]);
+
   const activeFilterName = wsFilter ? wsName.get(wsFilter) : null;
 
   const activeHostId = useMemo(
@@ -64,37 +109,38 @@ export default function HostVault() {
 
   return (
     <div className="p-2">
-      <div className="px-1 mb-2 text-[11px] uppercase tracking-[0.04em] text-ink-3">Hosts</div>
+      {/* No standalone "Hosts" title — the grouped SidebarGroupHeaders below
+          already label the list (mirrors the Workspaces sidebar). */}
       <div className="flex items-center gap-1.5 mb-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search hosts…"
-          className="flex-1 min-w-0 px-2 py-1 text-[12px] bg-[#111113] border border-white/[0.08] rounded-lg text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+          className="flex-1 min-w-0 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
         />
         {workspaces.length > 0 && (
           <div className="relative shrink-0" ref={filterRef}>
             <button
               onClick={() => setFilterOpen((v) => !v)}
               title={activeFilterName ? `Filtered: ${activeFilterName}` : "Filter by workspace"}
-              className={`relative flex items-center justify-center w-7 h-7 rounded-lg border transition-colors ${
+              className={`relative flex items-center justify-center w-7 h-7 rounded-control border transition-colors ${
                 wsFilter
-                  ? "text-blue-300 bg-blue-500/15 border-blue-500/40"
-                  : "text-zinc-400 border-white/[0.08] hover:text-zinc-200 hover:border-white/[0.15]"
+                  ? "text-accent-ink bg-accent-bg border-[rgba(96,165,250,0.4)]"
+                  : "text-ink-3 border-subtle hover:text-ink-2 hover:border-strong"
               }`}
             >
               <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
                 <path d="M1 2h10L7 6.5V10L5 9V6.5L1 2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
               </svg>
-              {wsFilter && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-blue-400" />}
+              {wsFilter && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-accent" />}
             </button>
             {filterOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
-                <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto z-50 p-1 bg-[#1a1a1c] border border-white/[0.1] rounded-lg shadow-xl">
+                <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto z-50 p-1 bg-surface-2 border border-strong rounded-card shadow-xl">
                   <button
                     onClick={() => { setWsFilter(""); setFilterOpen(false); }}
-                    className={`w-full text-left px-2 py-1 text-[12px] rounded-md ${!wsFilter ? "text-blue-300 bg-blue-500/10" : "text-zinc-300 hover:bg-white/[0.05]"}`}
+                    className={`w-full text-left px-2 py-1 text-[12px] rounded-md ${!wsFilter ? "text-accent-ink bg-accent-bg" : "text-ink-2 hover:bg-white/[0.05]"}`}
                   >
                     All workspaces
                   </button>
@@ -102,7 +148,7 @@ export default function HostVault() {
                     <button
                       key={w.id}
                       onClick={() => { setWsFilter(w.id); setFilterOpen(false); }}
-                      className={`w-full text-left px-2 py-1 text-[12px] rounded-md truncate ${wsFilter === w.id ? "text-blue-300 bg-blue-500/10" : "text-zinc-300 hover:bg-white/[0.05]"}`}
+                      className={`w-full text-left px-2 py-1 text-[12px] rounded-md truncate ${wsFilter === w.id ? "text-accent-ink bg-accent-bg" : "text-ink-2 hover:bg-white/[0.05]"}`}
                     >
                       {w.name}
                     </button>
@@ -114,79 +160,189 @@ export default function HostVault() {
         )}
       </div>
 
+      {/* Grouped list — group headers + rows mirror the Workspaces sidebar shell
+          (uppercase group header with a muted count + "+" affordance; app-row
+          rhythm for the host rows). */}
       <div className="flex flex-col gap-0.5">
-        {list.map((h) => {
-          const live = liveCount.get(h.id) ?? 0;
-          const selected = h.id === activeHostId;
-          return (
-            <div
-              key={h.id}
-              className={`group flex items-center gap-1 px-2 py-1.5 rounded-lg transition-colors ${
-                selected ? "bg-accent-bg" : "hover:bg-white/[0.05]"
-              }`}
-            >
-              <button
-                className="flex-1 text-left min-w-0 flex items-center gap-2"
-                onClick={() => connectOrFocusSsh(h.id)}
-                title={live ? `Focus session · ${h.username}@${h.hostname}:${h.port}` : `Connect ${h.username}@${h.hostname}:${h.port}`}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    {live > 0 && (
-                      <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-400" title={`${live} active session${live > 1 ? "s" : ""}`} />
-                    )}
-                    <span className="text-[13px] text-zinc-200 truncate">{h.label}</span>
-                    {live > 1 && <span className="text-[10px] text-emerald-400/80 tabular-nums">×{live}</span>}
-                  </span>
-                  <span className="block text-[11px] text-zinc-500 truncate">
-                    {h.username}@{h.hostname}
-                  </span>
-                  {h.workspace_ids.length > 0 && (
-                    <span className="flex flex-wrap gap-1 mt-0.5">
-                      {h.workspace_ids.map((wid) => (
-                        <span key={wid} className="px-1.5 py-px text-[9px] rounded bg-blue-500/15 text-blue-300/90">
-                          {wsName.get(wid) ?? "?"}
-                        </span>
-                      ))}
+        {groups.map(([groupName, groupHosts]) => (
+          <div key={groupName}>
+            {/* Group header — shared shell with the Workspaces sidebar. */}
+            <SidebarGroupHeader
+              label={groupName}
+              count={groupHosts.length}
+              onAdd={() => setAdding(true)}
+              addTitle="Add host"
+              addLabel="Add host"
+            />
+
+            {groupHosts.map((h) => {
+              const live = liveCount.get(h.id) ?? 0;
+              const selected = h.id === activeHostId;
+              const menuHere = menu?.host.id === h.id;
+              return (
+                <div
+                  key={h.id}
+                  onContextMenu={(e) => openMenu(e, h)}
+                  className={`group flex items-center gap-2 pl-1.5 pr-2 py-1.5 rounded-[6px] text-[13px] transition-colors ${
+                    selected ? "bg-accent-bg text-ink" : menuHere ? "bg-white/[0.05]" : "text-ink hover:bg-white/[0.05]"
+                  }`}
+                >
+                  <button
+                    className="flex-1 min-w-0 text-left flex items-center gap-2.5"
+                    onClick={() => connectOrFocusSsh(h.id)}
+                    title={live ? `Focus session · ${h.username}@${h.hostname}:${h.port}` : `Connect ${h.username}@${h.hostname}:${h.port}`}
+                  >
+                    {/* Leading OS badge — fixed width, vertically centred against
+                        the two-line identity block so every row aligns. */}
+                    <span className="shrink-0 flex items-center justify-center w-5" title={h.detected_os ?? undefined}>
+                      <OsIcon os={h.detected_os} size={18} />
                     </span>
-                  )}
-                </span>
-                <span className="shrink-0 ml-auto w-4 text-center text-[13px]" title={h.detected_os ?? undefined}>
-                  {osGlyph(h.detected_os)}
-                </span>
-              </button>
-              <button
-                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-emerald-400 text-[13px] px-1 leading-none transition-colors"
-                onClick={() => connectSsh(h.id)}
-                title="New session"
-              >
-                ＋
-              </button>
-              <button
-                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-zinc-200 text-[11px] px-1 transition-colors"
-                onClick={() => setEditing(h)}
-              >
-                Edit
-              </button>
-              <button
-                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 text-[11px] px-1 transition-colors"
-                onClick={() => onDelete(h)}
-              >
-                ✕
-              </button>
-            </div>
-          );
-        })}
+                    {/* Two lines: label (full width) on top, user@host muted below —
+                        so the label is never truncated by the address (Termius-style). */}
+                    <span className="flex-1 min-w-0 flex flex-col leading-tight">
+                      <span className="flex items-center gap-1.5">
+                        {live > 0 && (
+                          <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-ok" title={`${live} active session${live > 1 ? "s" : ""}`} />
+                        )}
+                        <span className="flex-1 truncate text-[13px] text-ink">{h.label}</span>
+                        {live > 1 && <span className="shrink-0 text-[10px] text-ok tabular-nums">×{live}</span>}
+                      </span>
+                      <span className="truncate text-[11px] text-ink-3 mt-0.5">
+                        {h.username}@{h.hostname}
+                      </span>
+                    </span>
+                  </button>
+                  {/* Trailing ⋯ — discoverability handle for the context menu. */}
+                  <button
+                    className="shrink-0 opacity-0 group-hover:opacity-100 flex items-center justify-center w-6 h-6 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
+                    onClick={(e) => openMenu(e, h)}
+                    title="Host actions"
+                    aria-label="Host actions"
+                  >
+                    <DotsIcon />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
-      <button
-        onClick={() => setAdding(true)}
-        className="w-full mt-2 px-2 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 border border-dashed border-white/[0.1] rounded-lg transition-colors"
-      >
-        + Add host
-      </button>
+      {/* Add-host footer — shared shell with the Workspaces "Add App" button. */}
+      <SidebarAddButton label="Add host" onClick={() => setAdding(true)} className="mt-2" />
+
+      {/* Right-click / ⋯ context menu — single instance, cursor-anchored. */}
+      {menu && (
+        <>
+          <div
+            className="fixed inset-0 z-[60]"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
+          />
+          <div
+            className="fixed z-[61] min-w-[184px] py-1 bg-surface-2 border border-strong rounded-card shadow-xl shadow-black/40"
+            style={{ left: menu.x, top: menu.y }}
+            role="menu"
+          >
+            <MenuItem
+              icon={<TerminalIcon />}
+              label="Connect"
+              onClick={() => { connectOrFocusSsh(menu.host.id); setMenu(null); }}
+            />
+            <MenuItem
+              icon={<PlusIcon />}
+              label="New session"
+              onClick={() => { connectSsh(menu.host.id); setMenu(null); }}
+            />
+            <MenuItem
+              icon={<PencilIcon />}
+              label="Edit host"
+              onClick={() => { setEditing(menu.host); setMenu(null); }}
+            />
+            <div className="my-1 border-t border-subtle" />
+            <MenuItem
+              icon={<TrashIcon />}
+              label="Delete host"
+              danger
+              onClick={() => { const h = menu.host; setMenu(null); onDelete(h); }}
+            />
+          </div>
+        </>
+      )}
+
       {adding && <HostFormModal onClose={() => setAdding(false)} />}
       {editing && <HostFormModal host={editing} onClose={() => setEditing(null)} />}
     </div>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  danger,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors hover:bg-white/[0.05] ${
+        danger ? "text-red-400" : "text-ink-2 hover:text-ink"
+      }`}
+    >
+      <span className="shrink-0 flex items-center justify-center w-3.5">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+// ── Line icons (14px, currentColor) ──────────────────────────────────────────
+function TerminalIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 5.5 6.5 8 4 10.5" />
+      <path d="M8.5 10.5H12" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11.5 2.8a1.1 1.1 0 0 1 1.6 1.6L5.5 12 3 13l1-2.5z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 4.5h9" />
+      <path d="M6.5 4.5V3h3v1.5" />
+      <path d="M5 4.5l.6 8h4.8l.6-8" />
+    </svg>
+  );
+}
+
+function DotsIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <circle cx="4" cy="8" r="1.15" />
+      <circle cx="8" cy="8" r="1.15" />
+      <circle cx="12" cy="8" r="1.15" />
+    </svg>
   );
 }

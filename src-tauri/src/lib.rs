@@ -31,10 +31,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 
-/// Returns the Porta data directory: `~/.porta` for release, `~/.porta-dev` for debug builds.
+/// Returns the Porta data directory. A `beta` build (the `beta` cargo feature)
+/// uses its OWN `~/.porta-beta` so it can run side-by-side with the release app
+/// without touching its database, Caddy config, tunnels, or backups. Debug
+/// builds use `~/.porta-dev`; release uses `~/.porta`.
 pub fn porta_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    if cfg!(debug_assertions) {
+    if cfg!(feature = "beta") {
+        PathBuf::from(home).join(".porta-beta")
+    } else if cfg!(debug_assertions) {
         PathBuf::from(home).join(".porta-dev")
     } else {
         PathBuf::from(home).join(".porta")
@@ -458,6 +463,9 @@ pub fn run() {
             commands::read_extension_file,
             // System metrics (Activity domain)
             commands::system_metrics,
+            // Channel-aware updater (stable / beta)
+            commands::check_update_channel,
+            commands::install_update_channel,
         ])
         .on_window_event(|window, event| {
             use std::sync::OnceLock;

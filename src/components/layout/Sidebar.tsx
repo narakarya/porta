@@ -2,12 +2,14 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import { isTauri, openExternalUrl, openInTerminal } from "../../lib/commands";
+import type { AppInstance } from "../../lib/commands";
 import type { App, Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import AppContextMenu from "../app/AppContextMenu";
 import Tooltip from "../shared/Tooltip";
 import { Spinner } from "../ui";
 import { checkForUpdate, dismissUpdater } from "../../lib/updater";
+import { SidebarFrame, SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "./SidebarShell";
 
 // Sidebar modals — kept out of the initial bundle since they only show on
 // click. Without lazy() they'd be parsed up-front for every app launch.
@@ -34,10 +36,11 @@ type AppMenuItem = {
 };
 
 export default function Sidebar() {
-  const { workspaces, apps, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, startApp, stopApp, restartApp, deleteApp, activeDomain, setActiveDomain } = usePortaStore(
+  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, activeDomain, setActiveDomain } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
+      instances: s.instances,
       selectedWorkspaceId: s.selectedWorkspaceId,
       selectedAppId: s.selectedAppId,
       imageUpdateCache: s.imageUpdateCache,
@@ -45,10 +48,16 @@ export default function Sidebar() {
       selectWorkspace: s.selectWorkspace,
       selectApp: s.selectApp,
       reorderWorkspaces: s.reorderWorkspaces,
+      reorderApps: s.reorderApps,
+      moveAppToWorkspace: s.moveAppToWorkspace,
       startApp: s.startApp,
       stopApp: s.stopApp,
       restartApp: s.restartApp,
       deleteApp: s.deleteApp,
+      runInstance: s.runInstance,
+      stopInstanceAction: s.stopInstanceAction,
+      killInstanceAction: s.killInstanceAction,
+      removeInstanceAction: s.removeInstanceAction,
       activeDomain: s.activeDomain,
       setActiveDomain: s.setActiveDomain,
     }))
@@ -61,15 +70,30 @@ export default function Sidebar() {
   const [settingsApp, setSettingsApp] = useState<App | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [appMenu, setAppMenu] = useState<{ app: App; x: number; y: number } | null>(null);
+  // Instance-row overflow / right-click menu — mirrors appMenu but carries both
+  // the instance and its parent app (instance actions are keyed by app id too).
+  const [instMenu, setInstMenu] = useState<{ inst: AppInstance; app: App; x: number; y: number } | null>(null);
   // App ids with a start/stop round-trip in flight — drives the row toggle's
   // inline spinner so a click gives feedback before the status event lands.
   const [busyApps, setBusyApps] = useState<Set<string>>(new Set());
+  // Same idea for instance rows — instance ids with a start/stop in flight.
+  const [busyInstances, setBusyInstances] = useState<Set<string>>(new Set());
   const [wsExpanded] = useState(true);
   // Per-workspace collapse of the app sub-list (Shell C: apps live under each
   // workspace header in this column). Holds the ids that are collapsed.
   const [collapsedWs, setCollapsedWs] = useState<Set<string>>(new Set());
   const toggleWsCollapse = (id: string) =>
     setCollapsedWs((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  // Per-app collapse of its worktree-instance sub-tree (default expanded —
+  // holds the app ids whose instances are collapsed). Mirrors the workspace
+  // collapse convention above.
+  const [collapsedInstances, setCollapsedInstances] = useState<Set<string>>(new Set());
+  const toggleInstancesCollapse = (id: string) =>
+    setCollapsedInstances((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -85,9 +109,52 @@ export default function Sidebar() {
   // in WKWebView (Tauri/macOS) during a mouse-button-held drag.
   const wsListRef = useRef<HTMLDivElement>(null);
 
+  // ── App-row drag-reorder ────────────────────────────────────────────────
+  // Mirrors the workspace drag above but scoped to app rows, which are grouped
+  // per workspace and can also be dragged BETWEEN groups (→ moveAppToWorkspace).
+  // Indices here are insertion positions within a group's app list (0..len).
+  const appDragSrcRef = useRef<{ appId: string; wsId: string | null; index: number } | null>(null);
+  const appDragOverRef = useRef<{ wsId: string | null; index: number } | null>(null);
+  const isAppDraggingRef = useRef(false);
+  const [appDraggingId, setAppDraggingId] = useState<string | null>(null);
+  const [appDragOver, setAppDragOverState] = useState<{ wsId: string | null; index: number } | null>(null);
+
   function setDragOver(val: typeof dragOverIndex) {
     dragOverRef.current = val;
     setDragOverIndex(val);
+  }
+
+  function setAppDragOver(val: { wsId: string | null; index: number } | null) {
+    appDragOverRef.current = val;
+    setAppDragOverState(val);
+  }
+
+  function handleAppMouseDown(appId: string, wsId: string | null, index: number) {
+    appDragSrcRef.current = { appId, wsId, index };
+    isAppDraggingRef.current = true;
+    setAppDraggingId(appId);
+  }
+
+  // Derive the insertion index (0..rows.length) from the cursor Y over a group's
+  // app container. e.currentTarget is that group's list, so no per-group ref is
+  // needed. Suppresses the indicator for same-group no-op targets.
+  function handleAppListMouseMove(e: React.MouseEvent, wsId: string | null) {
+    const src = appDragSrcRef.current;
+    if (!isAppDraggingRef.current || !src) return;
+    const container = e.currentTarget as HTMLElement;
+    const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-approw]"));
+    let idx = rows.length;
+    for (let k = 0; k < rows.length; k++) {
+      const r = rows[k].getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { idx = k; break; }
+    }
+    // Within the source group, dropping just before/after the dragged row is a
+    // no-op — hide the indicator so it reads as "no change".
+    if (src.wsId === wsId && (idx === src.index || idx === src.index + 1)) {
+      setAppDragOver(null);
+      return;
+    }
+    setAppDragOver({ wsId, index: idx });
   }
 
   function handleMouseDown(type: "ws" | "svc", index: number) {
@@ -123,28 +190,52 @@ export default function Sidebar() {
   // Global mouseup: perform reorder using refs (avoids stale closure on state)
   useEffect(() => {
     function onGlobalMouseUp() {
-      if (!isDraggingRef.current) return;
-      const src = dragSrcRef.current;
-      const dst = dragOverRef.current;
-      if (src && dst && src.type === dst.type && src.index !== dst.index) {
-        if (src.type === "ws") reorderWorkspaces(src.index, dst.index);
+      // ── Workspace drag ──
+      if (isDraggingRef.current) {
+        const src = dragSrcRef.current;
+        const dst = dragOverRef.current;
+        if (src && dst && src.type === dst.type && src.index !== dst.index) {
+          if (src.type === "ws") reorderWorkspaces(src.index, dst.index);
+        }
+        dragSrcRef.current = null;
+        dragOverRef.current = null;
+        isDraggingRef.current = false;
+        setDragOverIndex(null);
+        setDraggingItem(null);
       }
-      dragSrcRef.current = null;
-      dragOverRef.current = null;
-      isDraggingRef.current = false;
-      setDragOverIndex(null);
-      setDraggingItem(null);
+      // ── App-row drag ──
+      if (isAppDraggingRef.current) {
+        const asrc = appDragSrcRef.current;
+        const adst = appDragOverRef.current;
+        if (asrc && adst) {
+          if (asrc.wsId === adst.wsId) {
+            // Same group: convert insertion index → post-removal target index.
+            let to = adst.index;
+            if (to > asrc.index) to -= 1;
+            if (to !== asrc.index) reorderApps(asrc.wsId, asrc.index, to);
+          } else {
+            // Dropped over another workspace group → move it there.
+            void moveAppToWorkspace(asrc.appId, adst.wsId);
+          }
+        }
+        appDragSrcRef.current = null;
+        appDragOverRef.current = null;
+        isAppDraggingRef.current = false;
+        setAppDragOverState(null);
+        setAppDraggingId(null);
+      }
       document.body.style.cursor = "";
     }
     window.addEventListener("mouseup", onGlobalMouseUp);
     return () => window.removeEventListener("mouseup", onGlobalMouseUp);
-  }, [reorderWorkspaces]);
+  }, [reorderWorkspaces, reorderApps, moveAppToWorkspace]);
 
   // Keep cursor grabbing globally so it doesn't flicker as mouse moves between items
   useEffect(() => {
-    document.body.style.cursor = draggingItem ? "grabbing" : "";
+    const dragging = draggingItem || appDraggingId;
+    document.body.style.cursor = dragging ? "grabbing" : "";
     return () => { document.body.style.cursor = ""; };
-  }, [draggingItem]);
+  }, [draggingItem, appDraggingId]);
 
   // One pass over apps instead of N×M nested scans in JSX.
   const activeByWs = useMemo(() => {
@@ -246,73 +337,233 @@ export default function Sidebar() {
     ];
   }
 
+  // Toggle a worktree instance's process, tracking the in-flight round-trip so
+  // the row button can show a spinner. Mirrors toggleApp for app rows.
+  async function toggleInstance(inst: AppInstance, app: App) {
+    if (busyInstances.has(inst.id)) return;
+    const running = inst.status === "running" || inst.status === "starting";
+    setBusyInstances((prev) => new Set(prev).add(inst.id));
+    try {
+      if (running) await stopInstanceAction(inst.id, app.id);
+      else await runInstance(app.id, inst.worktree_path);
+    } catch {
+      // Store reconciles status on failure; nothing to surface here.
+    } finally {
+      setBusyInstances((prev) => {
+        const next = new Set(prev);
+        next.delete(inst.id);
+        return next;
+      });
+    }
+  }
+
+  // Public URL for an instance row — its own subdomain when it has one, else the
+  // raw localhost port. Mirrors the workbench's instance "Open" target.
+  function instanceUrl(inst: AppInstance): string {
+    return inst.subdomain ? `https://${inst.subdomain}.test` : `http://localhost:${inst.port}`;
+  }
+
+  // Context-menu items for an instance sub-row (overflow button + right-click).
+  // Mirrors appMenuItems but maps to the instance store actions. Instance
+  // actions are keyed by (instanceId, appId), so the parent app is threaded in.
+  function instanceMenuItems(inst: AppInstance, app: App): (AppMenuItem | "separator")[] {
+    const running = inst.status === "running" || inst.status === "starting";
+    return [
+      running
+        ? { label: "Stop", icon: <StopMenuIcon />, onClick: () => { void toggleInstance(inst, app); } }
+        : { label: "Start", icon: <PlayMenuIcon />, onClick: () => { void toggleInstance(inst, app); } },
+      { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void (async () => { await killInstanceAction(inst.id, app.id); await runInstance(app.id, inst.worktree_path); })(); } },
+      { label: "Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openInTerminal(inst.worktree_path); } },
+      { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(instanceUrl(inst)); } },
+      "separator",
+      { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void removeInstanceAction(inst.id, app.id); } },
+    ];
+  }
+
   // App rows shown under a workspace header. Clicking one opens the app in the
   // workbench (content-forward main). Status/port are baked into the row.
   function renderApps(wsId: string | null) {
     const q = filterQuery.trim().toLowerCase();
     const list = (appsByWs.get(wsId) ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
-    if (list.length === 0) return null;
+    // Drag is only meaningful over the unfiltered group (indices must line up
+    // with the full group order the store reorders). While an app is being
+    // dragged, keep even empty groups mounted so they're valid drop targets.
+    const dragEnabled = !q;
+    const dragActive = appDraggingId !== null;
+    if (list.length === 0 && !dragActive) return null;
+    const overHere = dragActive && appDragOver?.wsId === wsId ? appDragOver.index : null;
     return (
-      <div className="flex flex-col gap-px mb-0.5">
-        {list.map((a) => {
+      <div
+        className={`flex flex-col gap-px mb-0.5 ${dragActive && list.length === 0 ? "min-h-[22px]" : "min-h-[2px]"}`}
+        onMouseMove={(e) => handleAppListMouseMove(e, wsId)}
+        onMouseLeave={() => { if (isAppDraggingRef.current) setAppDragOver(null); }}
+      >
+        {list.map((a, i) => {
           const on = selectedAppId === a.id;
           const running = a.status === "running" || a.status === "starting";
           const busy = busyApps.has(a.id);
           const menuOpen = appMenu?.app.id === a.id;
+          const isAppGhost = appDraggingId === a.id;
+          // Worktree instances discovered under this app (loaded globally at
+          // workspace load). Drives the disclosure chevron + indented sub-rows.
+          const appInstances = instances[a.id] ?? [];
+          const hasInstances = appInstances.length > 0;
+          const instancesExpanded = hasInstances && !collapsedInstances.has(a.id);
           const dot =
             a.status === "running" ? "bg-emerald-400 pulse-dot"
             : a.status === "starting" ? "bg-amber-400"
             : "bg-zinc-600";
           return (
-            <div
-              key={a.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectApp(a.id); setActiveDomain("workspaces"); } }}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setAppMenu({ app: a, x: e.clientX, y: e.clientY }); }}
-              title={`${a.name} · :${a.port}`}
-              className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left cursor-pointer select-none transition-colors ${
-                on ? "bg-accent-bg text-ink" : "text-ink hover:bg-white/[0.05]"
-              }`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
-              <span className="flex-1 truncate">{a.name}</span>
-              {/* Port at rest; start/stop toggle + overflow reveal on hover. */}
-              <span className={`text-[10px] text-zinc-600 font-mono tabular-nums group-hover:hidden ${menuOpen ? "hidden" : ""}`}>:{a.port}</span>
-              <span className={`items-center gap-1 shrink-0 ${menuOpen ? "flex" : "hidden group-hover:flex"}`}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); void toggleApp(a); }}
-                  disabled={busy}
-                  title={busy ? (running ? "Stopping…" : "Starting…") : running ? "Stop" : "Start"}
-                  className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${running ? "text-zinc-400 hover:text-zinc-100" : "text-emerald-400 hover:text-emerald-300"}`}
-                >
-                  {busy ? (
-                    <Spinner size={13} />
-                  ) : running ? (
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg>
-                  ) : (
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5-7-4.5Z" /></svg>
+            <div key={a.id} className="relative">
+              {overHere === i && (
+                <div className="absolute -top-px left-4 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+              )}
+              <div
+                role="button"
+                tabIndex={0}
+                data-approw={a.id}
+                onMouseDown={() => { if (dragEnabled) handleAppMouseDown(a.id, wsId, i); }}
+                onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectApp(a.id); setActiveDomain("workspaces"); } }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setAppMenu({ app: a, x: e.clientX, y: e.clientY }); }}
+                title={`${a.name} · :${a.port}`}
+                style={isAppGhost ? { opacity: 0.35 } : undefined}
+                className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none transition-colors ${
+                  dragEnabled ? "cursor-grab" : "cursor-pointer"
+                } ${on ? "bg-accent-bg text-ink" : "text-ink hover:bg-white/[0.05]"}`}
+              >
+                {/* Fixed disclosure column, present on EVERY app row so the
+                    status dot + name align whether or not the app has
+                    instances. Holds the expand chevron only when there are
+                    instances; otherwise an empty spacer of the same width. */}
+                <span className="-ml-3.5 shrink-0 w-3.5 flex items-center justify-center">
+                  {hasInstances && (
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); toggleInstancesCollapse(a.id); }}
+                      title={instancesExpanded ? "Hide instances" : "Show instances"}
+                      className="p-0.5 -m-0.5 text-ink-3 hover:text-ink-2 transition-colors"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className={`transition-transform duration-150 ${instancesExpanded ? "rotate-90" : ""}`}>
+                        <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
                   )}
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setAppMenu({ app: a, x: r.right, y: r.bottom + 4 }); }}
-                  title="More"
-                  className="p-0.5 rounded text-zinc-500 hover:text-zinc-200 transition-colors"
-                >
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
-                </button>
-              </span>
+                </span>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                <span className="flex-1 truncate">{a.name}</span>
+                {/* Instance count + port at rest; start/stop toggle + overflow reveal on hover. */}
+                <span className={`flex items-center gap-1.5 group-hover:hidden ${menuOpen ? "hidden" : ""}`}>
+                  {hasInstances && (
+                    <span className="flex items-center gap-1 text-[9.5px] text-ink-3 tabular-nums" title={`${appInstances.length} instance${appInstances.length > 1 ? "s" : ""}`}>
+                      <GitBranchIcon />
+                      {appInstances.length}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-zinc-600 font-mono tabular-nums">:{a.port}</span>
+                </span>
+                <span className={`items-center gap-1 shrink-0 ${menuOpen ? "flex" : "hidden group-hover:flex"}`}>
+                  <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); void toggleApp(a); }}
+                    disabled={busy}
+                    title={busy ? (running ? "Stopping…" : "Starting…") : running ? "Stop" : "Start"}
+                    className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${running ? "text-zinc-400 hover:text-zinc-100" : "text-emerald-400 hover:text-emerald-300"}`}
+                  >
+                    {busy ? (
+                      <Spinner size={13} />
+                    ) : running ? (
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg>
+                    ) : (
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5-7-4.5Z" /></svg>
+                    )}
+                  </button>
+                  <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setAppMenu({ app: a, x: r.right, y: r.bottom + 4 }); }}
+                    title="More"
+                    className="p-0.5 rounded text-zinc-500 hover:text-zinc-200 transition-colors"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
+                  </button>
+                </span>
+              </div>
+              {/* Worktree instances as an indented sub-tree. Clicking a sub-row
+                  selects the PARENT app and opens its workbench (where the
+                  Overview instances section lives) — no per-instance selection
+                  state exists. */}
+              {instancesExpanded && (
+                // Indented sub-tree. The container's left border is the tree
+                // connector — it lines up under the parent app's status dot so
+                // the children visibly hang off the app. ml sits the connector
+                // just left of the instance dots (one indent step deeper than
+                // the app dot); instance rows stay muted with no accent bg.
+                <div className="ml-[30px] border-l border-[rgba(255,255,255,0.07)] flex flex-col gap-px mt-px mb-0.5">
+                  {appInstances.map((inst) => {
+                    const instOn = inst.status === "running" || inst.status === "starting";
+                    const instBusy = busyInstances.has(inst.id);
+                    const instMenuOpen = instMenu?.inst.id === inst.id;
+                    return (
+                      <div
+                        key={inst.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectApp(a.id); setActiveDomain("workspaces"); } }}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setInstMenu({ inst, app: a, x: e.clientX, y: e.clientY }); }}
+                        title={`${inst.branch} · :${inst.port}`}
+                        className="group/inst flex items-center gap-2 pl-3 pr-2 py-1 rounded-control w-full text-left select-none cursor-pointer transition-colors hover:bg-white/[0.04]"
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${instOn ? "bg-ok" : "bg-ink-3"}`} />
+                        <span className="flex-1 truncate text-[12px] text-ink-2">{inst.branch}</span>
+                        {/* :port at rest; start/stop toggle + overflow reveal on hover. */}
+                        <span className={`text-[10px] text-ink-3 font-mono tabular-nums shrink-0 group-hover/inst:hidden ${instMenuOpen ? "hidden" : ""}`}>:{inst.port}</span>
+                        <span className={`items-center gap-1 shrink-0 ${instMenuOpen ? "flex" : "hidden group-hover/inst:flex"}`}>
+                          <button
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); void toggleInstance(inst, a); }}
+                            disabled={instBusy}
+                            title={instBusy ? (instOn ? "Stopping…" : "Starting…") : instOn ? "Stop" : "Start"}
+                            className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${instOn ? "text-ink-2 hover:text-ink" : "text-ok hover:text-ok"}`}
+                          >
+                            {instBusy ? (
+                              <Spinner size={12} />
+                            ) : instOn ? (
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg>
+                            ) : (
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5-7-4.5Z" /></svg>
+                            )}
+                          </button>
+                          <button
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setInstMenu({ inst, app: a, x: r.right, y: r.bottom + 4 }); }}
+                            title="More"
+                            className="p-0.5 rounded text-ink-3 hover:text-ink-2 transition-colors"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
+        {/* Insertion line after the last row (drop at end / into empty group). */}
+        {overHere === list.length && (
+          <div className="relative h-0.5">
+            <div className="absolute -top-px left-4 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <aside className="w-[216px] bg-[#0d0d0f] border-r border-white/[0.07] flex flex-col pb-2 shrink-0">
-      <div className="drag-region px-3.5 pt-3 pb-2 shrink-0 flex items-start gap-2">
+    <SidebarFrame>
+      <SidebarHeader>
         <div className="flex-1 min-w-0">
           <div className="no-drag text-[15px] font-semibold text-zinc-100 leading-tight">Workspaces</div>
           <div className="no-drag text-[11px] text-zinc-500 mt-0.5">
@@ -329,7 +580,7 @@ export default function Sidebar() {
             </svg>
           </button>
         </Tooltip>
-      </div>
+      </SidebarHeader>
       {/* Filter apps (mockup) — filters the app rows by name */}
       <div className="px-2.5 pb-2 shrink-0">
         <div className="flex items-center gap-1.5 border border-white/[0.08] rounded-[7px] px-2 py-1 focus-within:border-white/20 transition-colors">
@@ -348,7 +599,7 @@ export default function Sidebar() {
           )}
         </div>
       </div>
-      <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto overflow-x-hidden no-drag pt-1">
+      <SidebarBody className="flex flex-col gap-0.5 px-2 pt-1">
         {wsExpanded && (
           <div
             ref={wsListRef}
@@ -373,33 +624,35 @@ export default function Sidebar() {
                   {showLineBefore && (
                     <div className="absolute -top-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
                   )}
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    data-wsrow={i}
-                    onMouseDown={() => handleMouseDown("ws", i)}
-                    onClick={() => { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); } }}
-                    onContextMenu={(e) => handleRightClick(e, w)}
-                    style={isGhost ? { opacity: 0.35 } : undefined}
-                    className={`group/wsh flex items-center gap-1 px-1.5 py-1 mt-1.5 rounded-[6px] text-[10.5px] font-medium uppercase tracking-[0.05em] w-full text-left select-none cursor-grab transition-colors ${
+                  <SidebarGroupHeader
+                    label={w.name}
+                    collapsed={collapsed}
+                    onToggle={() => toggleWsCollapse(w.id)}
+                    count={totalCount}
+                    onAdd={() => { selectWorkspace(w.id); setShowAddApp(true); }}
+                    addTitle={`New app in ${w.name}`}
+                    className={`w-full text-left select-none cursor-grab ${
                       isSelected ? "text-zinc-300" : "text-zinc-500 hover:text-zinc-300"
                     }`}
-                  >
-                    <button
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); toggleWsCollapse(w.id); }}
-                      className="shrink-0 p-0.5 text-ink-3 hover:text-zinc-300"
-                      title={collapsed ? "Expand" : "Collapse"}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}>
-                        <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
-                    <span className="flex-1 truncate">{w.name}</span>
-                    {collapsed ? (
-                      // Collapsed rollup: running count (green dot) or an "idle"
-                      // label, plus any pending image updates.
+                    containerProps={{
+                      role: "button",
+                      tabIndex: 0,
+                      "data-wsrow": i,
+                      onMouseDown: () => handleMouseDown("ws", i),
+                      onClick: () => { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); },
+                      onKeyDown: (e) => { if (e.key === "Enter") { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); } },
+                      onContextMenu: (e) => handleRightClick(e, w),
+                      style: isGhost ? { opacity: 0.35 } : undefined,
+                    }}
+                    // Expanded: pending-update badge sits before the app count.
+                    beforeCount={updCount > 0 ? (
+                      <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
+                        <span className="text-[11px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
+                      </Tooltip>
+                    ) : undefined}
+                    // Collapsed: swap the whole right cluster for a running/idle
+                    // rollup plus any pending image updates.
+                    end={collapsed ? (
                       <span className="flex items-center gap-2 normal-case tracking-normal">
                         {count > 0 ? (
                           <span className="flex items-center gap-1 text-[10px] text-ink-2 tabular-nums">
@@ -415,27 +668,8 @@ export default function Sidebar() {
                           </Tooltip>
                         )}
                       </span>
-                    ) : (
-                      <>
-                        {updCount > 0 && (
-                          <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
-                            <span className="text-[11px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
-                          </Tooltip>
-                        )}
-                        {totalCount > 0 && (
-                          <span className="text-[10px] text-ink-3 tabular-nums normal-case tracking-normal">{totalCount}</span>
-                        )}
-                        <button
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => { e.stopPropagation(); selectWorkspace(w.id); setShowAddApp(true); }}
-                          title={`New app in ${w.name}`}
-                          className="shrink-0 -mr-0.5 p-0.5 rounded text-accent hover:text-accent-ink transition-colors"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                        </button>
-                      </>
-                    )}
-                  </div>
+                    ) : undefined}
+                  />
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
                   )}
@@ -446,17 +680,11 @@ export default function Sidebar() {
           </div>
         )}
 
-      </div>
+      </SidebarBody>
 
       {/* App-list foot — Add App / Import compose (mockup: bottom of the list) */}
-      <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-1">
-        <button
-          onClick={() => setShowAddApp(true)}
-          className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-zinc-300 border border-white/[0.08] hover:bg-white/[0.05] transition-colors"
-        >
-          <svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-          Add App
-        </button>
+      <SidebarFooter className="flex flex-col gap-1">
+        <SidebarAddButton label="Add App" onClick={() => setShowAddApp(true)} />
         <button
           onClick={() => setShowImportCompose(true)}
           title="Import from docker-compose.yml"
@@ -465,11 +693,11 @@ export default function Sidebar() {
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1.5v6M3.5 5L6 7.5 8.5 5M2 9.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Import compose
         </button>
-      </div>
+      </SidebarFooter>
 
-      <div className="px-2 pt-2 border-t border-white/[0.06] no-drag">
+      <SidebarFooter>
         <SidebarStatusRow />
-      </div>
+      </SidebarFooter>
 
       {contextMenu && (
         <WorkspaceContextMenu
@@ -514,6 +742,15 @@ export default function Sidebar() {
         />
       )}
 
+      {instMenu && (
+        <AppContextMenu
+          x={instMenu.x}
+          y={instMenu.y}
+          onClose={() => setInstMenu(null)}
+          items={instanceMenuItems(instMenu.inst, instMenu.app)}
+        />
+      )}
+
       <Suspense fallback={null}>
         {showAddWs && <AddWorkspaceModal onClose={() => setShowAddWs(false)} />}
         {showAddApp && <AddAppModal workspaceId={selectedWorkspaceId} onClose={() => setShowAddApp(false)} />}
@@ -527,7 +764,20 @@ export default function Sidebar() {
           />
         )}
       </Suspense>
-    </aside>
+    </SidebarFrame>
+  );
+}
+
+// Git-branch glyph — shared by the app-row instance count badge and the
+// indented instance sub-rows. Inherits color via currentColor.
+function GitBranchIcon({ className }: { className?: string }) {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4.5 5.1v5.8M4.5 8.5c5 0 7-1 7-2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
   );
 }
 

@@ -53,15 +53,11 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
   const activeDomain = usePortaStore((s) => s.activeDomain);
   const setActiveDomain = usePortaStore((s) => s.setActiveDomain);
   const updaterPhase = usePortaStore((s) => s.updaterPhase);
-  const updaterInfo = usePortaStore((s) => s.updaterInfo);
   const updateReady = updaterPhase === "available" || updaterPhase === "ready";
-  // `s.version` isn't a store field; the current app version in-store lives on
-  // updaterInfo.currentVersion (populated whenever an update check has run).
-  const version = updaterInfo?.currentVersion;
 
   return (
     <nav className="drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-11 pb-3 z-20">
-      {/* Logo + domain nav read as one tight top cluster (even ~18px rhythm) */}
+      {/* Porta logo + domain nav as one tight top cluster. */}
       <div className="no-drag flex flex-col items-center gap-1">
         <img src="/porta-logo.svg" alt="Porta" width={22} height={22} className="rounded-[6px] mb-1" />
         {DOMAINS.map((d) => {
@@ -92,26 +88,23 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
             settingsActive ? "bg-white/[0.10] text-zinc-100" : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
           }`}
         >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M8 1.5v1.7M8 12.8v1.7M14.5 8h-1.7M3.2 8H1.5M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2M12.6 12.6l-1.2-1.2M4.6 4.6L3.4 3.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          {/* A proper cog (rounded teeth) so it reads as Settings, not a
+              sun/theme toggle. */}
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 13a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
-        <div className="flex flex-col items-center gap-[3px]">
-          <button
-            title="Account"
-            aria-label="Account"
-            className="relative w-[26px] h-[26px] rounded-full bg-accent-bg text-[11px] font-medium text-accent-ink flex items-center justify-center transition-colors"
-          >
-            NG
-            {updateReady && (
-              <span className="absolute -top-px -right-px w-[9px] h-[9px] rounded-full bg-accent border-[1.5px] border-surface-1" title="Update available" />
-            )}
-          </button>
-          {version && (
-            <span className="text-[9px] leading-none text-ink-3">{version}</span>
+        <button
+          title="Account"
+          aria-label="Account"
+          className="relative w-[26px] h-[26px] rounded-full bg-accent-bg text-[11px] font-medium text-accent-ink flex items-center justify-center transition-colors"
+        >
+          NG
+          {updateReady && (
+            <span className="absolute -top-px -right-px w-[9px] h-[9px] rounded-full bg-accent border-[1.5px] border-surface-1" title="Update available" />
           )}
-        </div>
+        </button>
       </div>
     </nav>
   );

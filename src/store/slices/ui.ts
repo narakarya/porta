@@ -89,6 +89,12 @@ export interface UiSlice {
   updaterPhase: UpdaterPhase;
   updaterInfo: UpdaterInfo | null;
   updaterError: string | null;
+  /**
+   * Opt-in to the pre-release (beta) update channel. Persisted to
+   * localStorage so it survives restarts. When true, the updater checks the
+   * beta endpoint (a fixed `beta`-tagged latest.json) instead of stable.
+   */
+  betaUpdates: boolean;
   /** Who initiated the current check — lets the toast stay quiet for checks
    *  started from the sidebar popover (the popover shows progress itself). */
   updaterCheckSource: "popover" | "menu" | "background";
@@ -123,6 +129,7 @@ export interface UiSlice {
   getToastIndex: (id: string) => number;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
+  setBetaUpdates: (enabled: boolean) => void;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
   cacheAppExtensions: (appId: string, extensions: ExtensionInfo[]) => void;
@@ -141,11 +148,17 @@ let extensionFocusNonce = 0;
 
 const LS_PLACEMENT = "porta.terminal.placement";
 const LS_PANEL_HEIGHT = "porta.terminal.panelHeight";
+const LS_BETA_UPDATES = "porta.updater.betaUpdates";
 
 function loadPlacement(): TerminalPlacement {
   if (typeof localStorage === "undefined") return "modal";
   const v = localStorage.getItem(LS_PLACEMENT);
   return v === "panel" ? "panel" : "modal";
+}
+
+function loadBetaUpdates(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(LS_BETA_UPDATES) === "true";
 }
 
 function loadPanelHeight(): number {
@@ -167,6 +180,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterPhase: "idle",
   updaterInfo: null,
   updaterError: null,
+  betaUpdates: loadBetaUpdates(),
   updaterCheckSource: "background",
   terminalPlacement: loadPlacement(),
   terminalPanelHeight: loadPanelHeight(),
@@ -209,6 +223,13 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   setImageUpdateNotifyEnabled: async (enabled) => {
     await cmd.setImageUpdateNotifyEnabled(enabled);
     set({ imageUpdateNotifyEnabled: enabled });
+  },
+
+  setBetaUpdates: (enabled) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(LS_BETA_UPDATES, String(enabled));
+    }
+    set({ betaUpdates: enabled });
   },
 
   openExtensionSidebar: (appId, extensions, focusExtensionId) =>

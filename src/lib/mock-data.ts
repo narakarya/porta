@@ -3,6 +3,7 @@
  * Only used when `window.__TAURI_INTERNALS__` is absent.
  */
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
+import type { AppInstance, SshHost } from "./commands";
 
 export const mockWorkspaces: Workspace[] = [
   { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
@@ -399,7 +400,116 @@ export function stopMockTunnel(appId: string): void {
 
 // ── Mock services ─────────────────────────────────────────────────────────────
 
-export const mockServices: Service[] = [];
+export const mockServices: Service[] = [
+  {
+    id: "svc-1",
+    name: "postgres",
+    image: "postgres",
+    tag: "16",
+    port: 5432,
+    env_vars: { POSTGRES_PASSWORD: "postgres", POSTGRES_USER: "postgres", POSTGRES_DB: "app" },
+    volumes: ["pgdata:/var/lib/postgresql/data"],
+    scope: "global",
+    status: "running",
+    container_id: "c0ffee123456",
+  },
+  {
+    id: "svc-2",
+    name: "redis",
+    image: "redis",
+    tag: "7-alpine",
+    port: 6379,
+    env_vars: {},
+    volumes: ["redisdata:/data"],
+    scope: "ws-1",
+    status: "running",
+    container_id: "beef98765432",
+  },
+  {
+    id: "svc-3",
+    name: "mailhog",
+    image: "mailhog/mailhog",
+    tag: "latest",
+    port: 8025,
+    env_vars: {},
+    volumes: [],
+    scope: "global",
+    status: "stopped",
+    container_id: null,
+  },
+];
+
+// ── Mock worktree instances ───────────────────────────────────────────────────
+// app-1 (frontend) runs two branch instances so the child-instance UX is
+// demonstrable in browser dev.
+export const mockInstances: AppInstance[] = [
+  {
+    id: "app-1:feat-checkout",
+    app_id: "app-1",
+    worktree_path: "/Users/dev/narakarya/frontend-worktrees/feat-checkout",
+    branch: "feat/checkout",
+    subdomain: "app-feat-checkout",
+    port: 3010,
+    pid: 41201,
+    status: "running",
+  },
+  {
+    id: "app-1:fix-auth",
+    app_id: "app-1",
+    worktree_path: "/Users/dev/narakarya/frontend-worktrees/fix-auth",
+    branch: "fix/auth",
+    subdomain: "app-fix-auth",
+    port: 3011,
+    pid: null,
+    status: "stopped",
+  },
+];
+
+// ── Mock SSH hosts ────────────────────────────────────────────────────────────
+export const mockSshHosts: SshHost[] = [
+  {
+    id: "host-1",
+    label: "prod-web",
+    group: "Production",
+    hostname: "web.narakarya.id",
+    port: 22,
+    username: "deploy",
+    auth: { kind: "agent" },
+    jump_host_id: null,
+    created_at: 1_720_000_000,
+    last_used_at: 1_752_700_000,
+    workspace_ids: ["ws-1"],
+    detected_os: "Ubuntu 22.04",
+  },
+  {
+    id: "host-2",
+    label: "db-primary",
+    group: "Production",
+    hostname: "db.narakarya.id",
+    port: 22,
+    username: "root",
+    auth: { kind: "key_file", path: "~/.ssh/id_ed25519" },
+    jump_host_id: "host-1",
+    created_at: 1_720_000_000,
+    last_used_at: null,
+    workspace_ids: ["ws-1"],
+    detected_os: "Debian 12",
+  },
+  {
+    id: "host-3",
+    label: "staging",
+    group: null,
+    hostname: "staging.portal.test",
+    port: 2222,
+    username: "dev",
+    auth: { kind: "agent" },
+    jump_host_id: null,
+    created_at: 1_730_000_000,
+    last_used_at: 1_751_000_000,
+    workspace_ids: [],
+    detected_os: null,
+  },
+];
 
 export function startMockService(
   serviceId: string,

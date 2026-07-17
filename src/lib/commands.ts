@@ -24,6 +24,8 @@ import {
   mockDeleteWorkspace,
   mockNextPort,
   mockServices,
+  mockInstances,
+  mockSshHosts,
   startMockService,
   stopMockService,
 } from "./mock-data";
@@ -588,6 +590,32 @@ export const setImageUpdateNotifyEnabled = (enabled: boolean): Promise<void> =>
 
 export const notifyImageUpdatesFound = (appNames: string[]): Promise<void> =>
   isTauri ? invoke("notify_image_updates_found", { appNames }) : Promise.resolve();
+
+// ── Channel-aware updater (stable / beta) ────────────────────────────────────
+
+/** Metadata returned by the channel-aware check. Mirrors the JS updater
+ *  plugin's `Update` shape (camelCase) so `updater.ts` can reuse it. */
+export interface UpdateMeta {
+  version: string;
+  currentVersion: string;
+  body: string | null;
+}
+
+/**
+ * Check the given channel's endpoint for an update. `beta: false` hits the
+ * same stable endpoint the plugin uses; `beta: true` hits the beta channel.
+ * Resolves `null` when already up to date.
+ */
+export const checkUpdateChannel = (beta: boolean): Promise<UpdateMeta | null> =>
+  isTauri ? invoke("check_update_channel", { beta }) : Promise.resolve(null);
+
+/**
+ * Download + install the update from the given channel. Progress arrives via
+ * the `updater://started` / `updater://progress` / `updater://finished`
+ * events. Resolves once the binary is swapped on disk (caller relaunches).
+ */
+export const installUpdateChannel = (beta: boolean): Promise<void> =>
+  isTauri ? invoke("install_update_channel", { beta }) : Promise.resolve();
 
 // ── Backup ───────────────────────────────────────────────────────────────────
 
@@ -1736,7 +1764,9 @@ export const gitWorktreeAdd = (
     : Promise.reject(new Error("[mock] git_worktree_add"));
 
 export const listInstances = (appId: string): Promise<AppInstance[]> =>
-  isTauri ? invoke("list_instances", { appId }) : Promise.resolve([]);
+  isTauri
+    ? invoke("list_instances", { appId })
+    : Promise.resolve(mockInstances.filter((i) => i.app_id === appId));
 
 export const startInstance = (appId: string, worktreePath: string): Promise<AppInstance> =>
   isTauri
@@ -1777,7 +1807,7 @@ export interface SshHost {
 }
 
 export const sshListHosts = (): Promise<SshHost[]> =>
-  isTauri ? invoke("ssh_list_hosts") : Promise.resolve([]);
+  isTauri ? invoke("ssh_list_hosts") : Promise.resolve([...mockSshHosts]);
 
 export const sshAddHost = (host: SshHost): Promise<SshHost> =>
   isTauri ? invoke("ssh_add_host", { host }) : Promise.resolve(host);
