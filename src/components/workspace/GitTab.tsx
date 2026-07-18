@@ -23,13 +23,7 @@ import StashPanel from "./git/StashPanel";
 import TagsPanel from "./git/TagsPanel";
 import RebasePanel from "./git/RebasePanel";
 import DiffView from "./git/DiffView";
-// Explicit `.tsx` extension: this directory also has `fileTree.ts` (the pure
-// grouping util) — on a case-insensitive filesystem (default macOS), tsc's
-// extension-less resolution for "./git/FileTree" matches that file first and
-// misreports it as "FileTree.ts" (wrong casing, no default export). Spelling
-// the extension out sidesteps the probe order entirely; `allowImportingTsExtensions`
-// is already on in tsconfig.json.
-import FileTree from "./git/FileTree.tsx";
+import FileTree from "./git/FileTree";
 
 type Busy = "fetch" | "pull" | "push" | null;
 

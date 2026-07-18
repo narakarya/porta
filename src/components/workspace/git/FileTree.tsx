@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ChangedFile } from "../../../lib/commands";
-import { buildFileTree, type TreeNode } from "./fileTree";
+import { buildFileTree, type TreeNode } from "./file-tree";
 
 // ── Inline icons (12–14px) — mirrors GitTab's local icon set; no icon-font
 // dep, tokens-only colouring via currentColor. ──────────────────────────────
