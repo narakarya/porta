@@ -1768,6 +1768,11 @@ export const gitRebaseAbort = (rootDir: string): Promise<void> =>
 export const gitRebaseContinue = (rootDir: string): Promise<string> =>
   isTauri ? invoke("git_rebase_continue", { rootDir }) : Promise.resolve("");
 
+/** Apply a caller-supplied patch (one file header, one hunk) to the index for
+ *  per-hunk stage/unstage. `reverse=false` stages the hunk; `reverse=true` unstages it. */
+export const gitApplyHunk = (rootDir: string, patch: string, reverse: boolean): Promise<void> =>
+  isTauri ? invoke("git_apply_hunk", { rootDir, patch, reverse }) : Promise.resolve();
+
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 
 export interface SystemMetrics {

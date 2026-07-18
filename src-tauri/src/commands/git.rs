@@ -446,7 +446,6 @@ fn run_git_raw(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<Strin
 /// the patch and drop the handle (sending EOF) before spawning the drain
 /// threads, so a child that echoes large input back on stdout/stderr can't
 /// deadlock against us still holding stdin open.
-#[allow(dead_code)] // wired up by a later per-hunk-staging task
 fn run_git_stdin(
     root_dir: &str,
     args: &[&str],
@@ -1049,6 +1048,28 @@ pub async fn git_rebase_continue(root_dir: String) -> Result<String, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Apply a caller-supplied patch (one file header, one hunk) to the index —
+/// per-hunk stage/unstage for the changes panel. `reverse=false` stages the
+/// hunk (`apply --cached`); `reverse=true` unstages it (`apply --cached
+/// --reverse`). `--unidiff-zero` allows a zero-context hunk (a patch built
+/// from a single-line selection) to still apply. Split out from the
+/// `#[tauri::command]` so it's unit-testable without going through
+/// `spawn_blocking`.
+fn apply_hunk_core(root_dir: &str, patch: &str, reverse: bool) -> Result<(), String> {
+    let mut args = vec!["apply", "--cached", "--unidiff-zero"];
+    if reverse {
+        args.push("--reverse");
+    }
+    run_git_stdin(root_dir, &args, patch, LOCAL_TIMEOUT_SECS).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn git_apply_hunk(root_dir: String, patch: String, reverse: bool) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || apply_hunk_core(&root_dir, &patch, reverse))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// How many 15s status ticks between probes of a folder we already know isn't a
@@ -1846,6 +1867,38 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert!(log.contains("commit C"), "feature history should include commit C: {log}");
         assert!(log.contains("commit B"), "feature history should still include commit B: {log}");
         assert!(log.contains("commit A"), "feature history should still include commit A: {log}");
+    }
+
+    #[test]
+    fn apply_hunk_core_stages_and_unstages_a_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        // Modify one line in the working tree and capture the full-file patch.
+        std::fs::write(p.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+        let patch = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+
+        // Stage it via the core the command wraps.
+        apply_hunk_core(ps, &patch, false).expect("applying the patch to the index should succeed");
+        let staged = run_git_raw(ps, &["diff", "--cached", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        let unstaged = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(!staged.is_empty(), "change should now be staged");
+        assert!(unstaged.is_empty(), "no unstaged diff should remain once fully staged");
+
+        // Unstage it again with reverse=true.
+        apply_hunk_core(ps, &patch, true).expect("reversing the patch should succeed");
+        let staged_after = run_git_raw(ps, &["diff", "--cached", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        let unstaged_after = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(staged_after.is_empty(), "change should be unstaged again");
+        assert!(!unstaged_after.is_empty(), "the modification should be back in the working tree");
     }
 
     #[test]
