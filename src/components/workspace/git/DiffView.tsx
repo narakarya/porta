@@ -32,6 +32,7 @@ export default function DiffView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState<number | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function DiffView({
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [app.root_dir, path, staged]);
+  }, [app.root_dir, path, staged, refreshKey]);
 
   async function applyHunk(hunk: Hunk, index: number) {
     if (!parsed) return;
@@ -60,6 +61,7 @@ export default function DiffView({
       await gitApplyHunk(app.root_dir, patch, staged);
       if (!mounted.current) return;
       onChanged();
+      setRefreshKey(k => k + 1);
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
