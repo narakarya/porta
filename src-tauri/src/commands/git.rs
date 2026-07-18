@@ -979,9 +979,9 @@ pub async fn git_create_tag(
     message: Option<String>,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        // Guard against option-injection: reject a name that starts with '-'.
-        if name.starts_with('-') {
-            return Err("invalid tag name".into());
+        // Guard against option-injection: reject a name or message that starts with '-'.
+        if name.starts_with('-') || message.as_deref().map_or(false, |m| m.starts_with('-')) {
+            return Err("invalid tag name or message".into());
         }
         match message.as_deref() {
             Some(msg) if !msg.is_empty() => {
