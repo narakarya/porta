@@ -1007,6 +1007,50 @@ pub async fn git_delete_tag(root_dir: String, name: String) -> Result<(), String
     .map_err(|e| e.to_string())?
 }
 
+/// Rebase the current branch onto `branch`. No interactive editor involved —
+/// this is rebase-lite: start it, and on conflict the caller resolves files
+/// and calls `git_rebase_continue`/`git_rebase_abort`. Split out from the
+/// `#[tauri::command]` so the option-injection guard is unit-testable without
+/// going through `spawn_blocking`.
+fn rebase_onto_core(root_dir: &str, branch: &str) -> Result<String, String> {
+    // Guard against option-injection: reject a branch that starts with '-'.
+    if branch.starts_with('-') {
+        return Err("invalid branch".into());
+    }
+    run_git(root_dir, &["rebase", branch], LOCAL_TIMEOUT_SECS)
+}
+
+#[tauri::command]
+pub async fn git_rebase_onto(root_dir: String, branch: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || rebase_onto_core(&root_dir, &branch))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_rebase_abort(root_dir: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["rebase", "--abort"], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_rebase_continue(root_dir: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // `-c core.editor=true` avoids blocking on an interactive editor for
+        // the commit message when the rebase resumes cleanly after a conflict.
+        run_git(
+            &root_dir,
+            &["-c", "core.editor=true", "rebase", "--continue"],
+            LOCAL_TIMEOUT_SECS,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// How many 15s status ticks between probes of a folder we already know isn't a
 /// repo. Repos and errored folders are probed every tick; non-repos far less
 /// often, since a plain folder becoming a repo is rare and a couple of minutes
@@ -1767,5 +1811,58 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         )
         .unwrap();
         assert!(parse_tags(&raw_after).is_empty(), "tag should be gone after delete");
+    }
+
+    #[test]
+    fn rebase_onto_replays_feature_commits_on_top_of_main() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "commit A"]);
+
+        git(&["branch", "feature"]);
+
+        // Back on main, add commit C.
+        std::fs::write(p.join("c.txt"), "c\n").unwrap();
+        git(&["add", "c.txt"]);
+        git(&["commit", "-m", "commit C"]);
+
+        // On feature, add commit B (diverging from main at A).
+        git(&["checkout", "feature"]);
+        std::fs::write(p.join("b.txt"), "b\n").unwrap();
+        git(&["add", "b.txt"]);
+        git(&["commit", "-m", "commit B"]);
+
+        let result = rebase_onto_core(ps, "main");
+        assert!(result.is_ok(), "rebase should succeed: {result:?}");
+
+        let log = run_git_raw(ps, &["log", "--pretty=format:%s"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(log.contains("commit C"), "feature history should include commit C: {log}");
+        assert!(log.contains("commit B"), "feature history should still include commit B: {log}");
+        assert!(log.contains("commit A"), "feature history should still include commit A: {log}");
+    }
+
+    #[test]
+    fn rebase_onto_rejects_a_branch_starting_with_dash() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        let result = rebase_onto_core(ps, "--exec=touch /tmp/pwned");
+        assert!(result.is_err(), "a branch starting with '-' must be rejected");
+        assert_eq!(result.unwrap_err(), "invalid branch");
     }
 }

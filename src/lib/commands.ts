@@ -1754,6 +1754,20 @@ export const gitCreateTag = (rootDir: string, name: string, message?: string): P
 export const gitDeleteTag = (rootDir: string, name: string): Promise<void> =>
   isTauri ? invoke("git_delete_tag", { rootDir, name }) : Promise.resolve();
 
+/** Rebase the current branch onto `branch`. Rebase-lite: no interactive editor — on
+ *  conflict this REJECTS with the conflict text; resolve then call `gitRebaseContinue`
+ *  or bail with `gitRebaseAbort`. */
+export const gitRebaseOnto = (rootDir: string, branch: string): Promise<string> =>
+  isTauri ? invoke("git_rebase_onto", { rootDir, branch }) : Promise.resolve("");
+
+/** Abort an in-progress rebase, restoring the branch to its pre-rebase state. */
+export const gitRebaseAbort = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_rebase_abort", { rootDir }) : Promise.resolve();
+
+/** Resume a rebase after conflicts are resolved and staged. No interactive editor. */
+export const gitRebaseContinue = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_rebase_continue", { rootDir }) : Promise.resolve("");
+
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 
 export interface SystemMetrics {
