@@ -861,6 +861,79 @@ pub async fn git_show(root_dir: String, hash: String) -> Result<String, String> 
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StashEntry {
+    pub index: u32,
+    pub message: String,
+    pub branch: String,
+}
+
+/// Parse `git stash list --pretty=format:%gd\x1f%gs` output into stash entries.
+/// Each line is `stash@{N}\x1f<message>` — `N` becomes `index`, the remainder
+/// becomes `message`. `branch` isn't in this format string; left empty.
+fn parse_stash_list(raw: &str) -> Vec<StashEntry> {
+    raw.lines()
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            let (ref_part, message) = line.split_once('\x1f')?;
+            let index_str = ref_part.strip_prefix("stash@{")?.strip_suffix('}')?;
+            let index = index_str.parse::<u32>().ok()?;
+            Some(StashEntry { index, message: message.to_string(), branch: String::new() })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn git_stash_list(root_dir: String) -> Result<Vec<StashEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        let raw = run_git(
+            &root_dir,
+            &["stash", "list", "--pretty=format:%gd\x1f%gs"],
+            LOCAL_TIMEOUT_SECS,
+        )?;
+        Ok(parse_stash_list(&raw))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stash_push(root_dir: String, message: Option<String>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let mut args: Vec<&str> = vec!["stash", "push"];
+        if let Some(msg) = message.as_deref() {
+            if !msg.is_empty() {
+                args.push("-m");
+                args.push(msg);
+            }
+        }
+        run_git(&root_dir, &args, LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stash_pop(root_dir: String, index: u32) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let stash_ref = format!("stash@{{{index}}}");
+        run_git(&root_dir, &["stash", "pop", "--index", &stash_ref], LOCAL_TIMEOUT_SECS)
+            .map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stash_drop(root_dir: String, index: u32) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let stash_ref = format!("stash@{{{index}}}");
+        run_git(&root_dir, &["stash", "drop", &stash_ref], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// How many 15s status ticks between probes of a folder we already know isn't a
 /// repo. Repos and errored folders are probed every tick; non-repos far less
 /// often, since a plain folder becoming a repo is rare and a couple of minutes
@@ -1526,5 +1599,53 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].subject, "second commit");
         assert_eq!(entries[1].subject, "first commit");
+    }
+
+    #[test]
+    fn parse_stash_list_reads_entries() {
+        let raw = "stash@{0}\x1fWIP on main: abc123 fix\nstash@{1}\x1fOn feature: manual note";
+        let out = parse_stash_list(raw);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].index, 0);
+        assert_eq!(out[0].message, "WIP on main: abc123 fix");
+        assert_eq!(out[1].index, 1);
+    }
+
+    #[test]
+    fn stash_push_list_pop_round_trips_a_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        // Dirty the working tree, then stash it via the raw plumbing (mirrors
+        // what the async command does inside spawn_blocking).
+        std::fs::write(p.join("a.txt"), "one\ntwo\n").unwrap();
+        run_git(ps, &["stash", "push", "-m", "wip: two"], LOCAL_TIMEOUT_SECS).unwrap();
+
+        // Working tree is clean again post-stash.
+        let after_push = std::fs::read_to_string(p.join("a.txt")).unwrap();
+        assert_eq!(after_push, "one\n");
+
+        let raw = run_git(ps, &["stash", "list", "--pretty=format:%gd\x1f%gs"], LOCAL_TIMEOUT_SECS)
+            .unwrap();
+        let entries = parse_stash_list(&raw);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].index, 0);
+        assert!(entries[0].message.contains("wip: two"), "got: {}", entries[0].message);
+
+        run_git(ps, &["stash", "pop", "--index", "stash@{0}"], LOCAL_TIMEOUT_SECS).unwrap();
+        let after_pop = std::fs::read_to_string(p.join("a.txt")).unwrap();
+        assert_eq!(after_pop, "one\ntwo\n");
+
+        let raw_after = run_git(ps, &["stash", "list", "--pretty=format:%gd\x1f%gs"], LOCAL_TIMEOUT_SECS)
+            .unwrap();
+        assert!(parse_stash_list(&raw_after).is_empty(), "stash should be gone after pop");
     }
 }

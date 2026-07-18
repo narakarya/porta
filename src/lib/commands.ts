@@ -1715,6 +1715,28 @@ export const gitLog = (rootDir: string, limit: number, skip: number): Promise<Co
 export const gitShow = (rootDir: string, hash: string): Promise<string> =>
   isTauri ? invoke("git_show", { rootDir, hash }) : Promise.resolve("");
 
+export type StashEntry = {
+  index: number;
+  message: string;
+  branch: string;
+};
+
+/** Stash list, newest (index 0) first. `[]` when there are none. */
+export const gitStashList = (rootDir: string): Promise<StashEntry[]> =>
+  isTauri ? invoke("git_stash_list", { rootDir }) : Promise.resolve([]);
+
+/** Stash the working tree; `message` becomes `-m <message>` when non-empty. */
+export const gitStashPush = (rootDir: string, message?: string): Promise<void> =>
+  isTauri ? invoke("git_stash_push", { rootDir, message }) : Promise.resolve();
+
+/** Pop (apply + drop) the stash at `index`. REJECTS on conflict. */
+export const gitStashPop = (rootDir: string, index: number): Promise<void> =>
+  isTauri ? invoke("git_stash_pop", { rootDir, index }) : Promise.resolve();
+
+/** Drop the stash at `index` without applying it. */
+export const gitStashDrop = (rootDir: string, index: number): Promise<void> =>
+  isTauri ? invoke("git_stash_drop", { rootDir, index }) : Promise.resolve();
+
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 
 export interface SystemMetrics {
