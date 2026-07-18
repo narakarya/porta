@@ -1139,6 +1139,25 @@ pub async fn git_apply_hunk(root_dir: String, patch: String, reverse: bool) -> R
         .map_err(|e| e.to_string())?
 }
 
+/// Reverse-apply a caller-supplied patch (one file header, one hunk) to the
+/// WORKING TREE — not the index — discarding just that hunk while leaving the
+/// rest of the file's unstaged changes (and anything already staged) alone.
+/// No `--cached`, unlike [`apply_hunk_core`]: this is the working-tree sibling
+/// of the discard-hunk action in the changes panel. `--unidiff-zero` allows a
+/// zero-context hunk to still apply. Split out from the `#[tauri::command]` so
+/// it's unit-testable without going through `spawn_blocking`.
+fn discard_hunk_core(root_dir: &str, patch: &str) -> Result<(), String> {
+    run_git_stdin(root_dir, &["apply", "--reverse", "--unidiff-zero"], patch, LOCAL_TIMEOUT_SECS)
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub async fn git_discard_hunk(root_dir: String, patch: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || discard_hunk_core(&root_dir, &patch))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// How many 15s status ticks between probes of a folder we already know isn't a
 /// repo. Repos and errored folders are probed every tick; non-repos far less
 /// often, since a plain folder becoming a repo is rare and a couple of minutes
@@ -1966,6 +1985,32 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let unstaged_after = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
         assert!(staged_after.is_empty(), "change should be unstaged again");
         assert!(!unstaged_after.is_empty(), "the modification should be back in the working tree");
+    }
+
+    #[test]
+    fn discard_hunk_core_reverts_a_working_tree_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        // Modify one line in the working tree and capture the full-file patch.
+        std::fs::write(p.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+        let patch = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+
+        discard_hunk_core(ps, &patch).expect("reverting the hunk in the working tree should succeed");
+
+        let content = std::fs::read_to_string(p.join("a.txt")).unwrap();
+        assert_eq!(content, "one\ntwo\nthree\n", "working-tree file should be back to committed content");
+
+        let unstaged = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(unstaged.is_empty(), "no unstaged diff should remain once the hunk is discarded");
     }
 
     #[test]

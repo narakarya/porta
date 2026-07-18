@@ -284,6 +284,7 @@ pub fn run() {
             commands::git_rebase_abort,
             commands::git_rebase_continue,
             commands::git_apply_hunk,
+            commands::git_discard_hunk,
             commands::list_instances,
             commands::start_instance,
             commands::stop_instance,

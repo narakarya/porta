@@ -1782,6 +1782,11 @@ export const gitRebaseContinue = (rootDir: string): Promise<string> =>
 export const gitApplyHunk = (rootDir: string, patch: string, reverse: boolean): Promise<void> =>
   isTauri ? invoke("git_apply_hunk", { rootDir, patch, reverse }) : Promise.resolve();
 
+/** Reverse-apply a caller-supplied patch (one file header, one hunk) to the
+ *  WORKING TREE (not the index), discarding just that hunk. */
+export const gitDiscardHunk = (rootDir: string, patch: string): Promise<void> =>
+  isTauri ? invoke("git_discard_hunk", { rootDir, patch }) : Promise.resolve();
+
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 
 export interface SystemMetrics {
