@@ -6,6 +6,35 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.6]
+
+Backports the fixes from the 0.10.0 feedback round that the Shell C line hadn't
+already covered. Beta channel.
+
+### Fixed
+
+- **Per-app CPU % printed a garbage float** (e.g. `2.9000000953`). The value was
+  rounded as `f32` then serialized, which promoted to `f64` and exposed the
+  representation error; now cast to `f64` before rounding. (Complements the
+  beta.5 magnitude normalization — that fixed the range, this fixes the digits.)
+- **Shell extensions could hang or leak processes.** The extension shell runner
+  now disables interactive git prompts, runs commands in their own process group
+  with a group-kill on timeout, and drains stdout/stderr concurrently — matching
+  the hardening the core git runner already had. Prevents a fetch/push that hits
+  a credential prompt from hanging up to the timeout, and stops orphaned
+  git/ssh children on timeout.
+- **Reorder could silently diverge from disk.** Workspace and service reordering
+  now awaits the write and reloads the authoritative order on failure instead of
+  fire-and-forget.
+
+### Changed
+
+- **"Ready" now means serving, not just bound.** An app is marked ready (and its
+  Open affordances light up) only once it actually answers HTTP — via its
+  configured health path, or a `GET /` probe otherwise — rather than at the
+  first TCP accept; genuinely non-HTTP processes still fall back to the
+  port-open signal.
+
 ## [0.12.0-beta.5]
 
 ### Added
