@@ -23,6 +23,13 @@ import StashPanel from "./git/StashPanel";
 import TagsPanel from "./git/TagsPanel";
 import RebasePanel from "./git/RebasePanel";
 import DiffView from "./git/DiffView";
+// Explicit `.tsx` extension: this directory also has `fileTree.ts` (the pure
+// grouping util) — on a case-insensitive filesystem (default macOS), tsc's
+// extension-less resolution for "./git/FileTree" matches that file first and
+// misreports it as "FileTree.ts" (wrong casing, no default export). Spelling
+// the extension out sidesteps the probe order entirely; `allowImportingTsExtensions`
+// is already on in tsconfig.json.
+import FileTree from "./git/FileTree.tsx";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -69,20 +76,6 @@ function PlusIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-function MinusIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={className} aria-hidden="true">
-      <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-function TrashIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M3 4.5h10M6.5 4.5V3.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M5 4.5l.5 8c0 .4.3.7.7.7h3.6c.4 0 .7-.3.7-.7l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 function CheckboxIcon({ checked, className = "" }: { checked: boolean; className?: string }) {
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
@@ -90,24 +83,6 @@ function CheckboxIcon({ checked, className = "" }: { checked: boolean; className
       {checked && <path d="M5 8.2l2 2 4-4.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
     </svg>
   );
-}
-
-// XY status badge — colour by section + git status char.
-function statusBadge(f: ChangedFile, staged: boolean): { char: string; cls: string } {
-  if (staged) {
-    const c = f.staged_status && f.staged_status !== "." ? f.staged_status : "M";
-    return { char: c, cls: "text-ok" };
-  }
-  if (f.untracked) return { char: "?", cls: "text-accent" };
-  const c = f.unstaged_status && f.unstaged_status !== "." ? f.unstaged_status : "M";
-  if (c === "D") return { char: "D", cls: "text-bad" };
-  if (c === "U") return { char: "U", cls: "text-accent" };
-  return { char: c, cls: "text-warn" };
-}
-
-function splitPath(path: string): { dir: string; base: string } {
-  const i = path.lastIndexOf("/");
-  return i >= 0 ? { dir: path.slice(0, i + 1), base: path.slice(i + 1) } : { dir: "", base: path };
 }
 
 // Re-derive `selected` against a freshly-fetched `changed` list: keep it if
@@ -670,18 +645,15 @@ export default function GitTab({ app }: { app: App }) {
                     <div className="text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
                       Staged Changes · {stagedFiles.length}
                     </div>
-                    {stagedFiles.map((f) => (
-                      <FileRow
-                        key={`staged:${f.path}`}
-                        file={f}
-                        staged
-                        active={selected?.path === f.path && selected?.staged === true}
-                        busy={mutating === f.path}
-                        onSelect={() => setSelected({ path: f.path, staged: true })}
-                        onToggle={() => mutateFile(f.path, () => gitUnstage(app.root_dir, f.path))}
-                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path))}
-                      />
-                    ))}
+                    <FileTree
+                      files={stagedFiles}
+                      staged
+                      selected={selected}
+                      mutating={mutating}
+                      onSelect={(path) => setSelected({ path, staged: true })}
+                      onToggle={(path) => mutateFile(path, () => gitUnstage(app.root_dir, path))}
+                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path))}
+                    />
                   </>
                 )}
                 {unstagedFiles.length > 0 && (
@@ -689,18 +661,15 @@ export default function GitTab({ app }: { app: App }) {
                     <div className="text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
                       Changes · {unstagedFiles.length}
                     </div>
-                    {unstagedFiles.map((f) => (
-                      <FileRow
-                        key={`work:${f.path}`}
-                        file={f}
-                        staged={false}
-                        active={selected?.path === f.path && selected?.staged === false}
-                        busy={mutating === f.path}
-                        onSelect={() => setSelected({ path: f.path, staged: false })}
-                        onToggle={() => mutateFile(f.path, () => gitStage(app.root_dir, f.path))}
-                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path))}
-                      />
-                    ))}
+                    <FileTree
+                      files={unstagedFiles}
+                      staged={false}
+                      selected={selected}
+                      mutating={mutating}
+                      onSelect={(path) => setSelected({ path, staged: false })}
+                      onToggle={(path) => mutateFile(path, () => gitStage(app.root_dir, path))}
+                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path))}
+                    />
                   </>
                 )}
               </div>
@@ -773,87 +742,3 @@ export default function GitTab({ app }: { app: App }) {
   );
 }
 
-// ── One row in the changes list ─────────────────────────────────────────────
-function FileRow({
-  file,
-  staged,
-  active,
-  busy,
-  onSelect,
-  onToggle,
-  onDiscard,
-}: {
-  file: ChangedFile;
-  staged: boolean;
-  active: boolean;
-  busy: boolean;
-  onSelect: () => void;
-  onToggle: () => void;
-  onDiscard: () => void;
-}) {
-  const { char, cls } = statusBadge(file, staged);
-  const { dir, base } = splitPath(file.path);
-
-  // Inline "Discard?" confirm, mirroring StashPanel's Drop confirm — Tauri
-  // webview can't rely on window.confirm. Reset if the row is deselected
-  // (user moved on to another file) so a stale confirm bar doesn't linger.
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  useEffect(() => {
-    if (!active) setConfirmDiscard(false);
-  }, [active]);
-
-  return (
-    <div
-      onClick={onSelect}
-      className={`group flex items-center gap-2 mx-1 px-2 py-1 rounded-control cursor-pointer transition-colors duration-fast ${active ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
-    >
-      <span className={`w-3 shrink-0 text-center font-mono text-[11px] ${cls}`}>{char}</span>
-      <span className="flex-1 min-w-0 truncate font-mono text-[12px]" title={file.path}>
-        <span className="text-ink-3">{dir}</span>
-        <span className="text-ink">{base}</span>
-      </span>
-      {(file.insertions > 0 || file.deletions > 0) && (
-        <span className="shrink-0 flex items-center gap-1 text-[11px] font-mono">
-          {file.insertions > 0 && <span className="text-ok">+{file.insertions}</span>}
-          {file.deletions > 0 && <span className="text-bad">−{file.deletions}</span>}
-        </span>
-      )}
-      {confirmDiscard ? (
-        <div className="shrink-0 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <span className="text-[11px] text-bad">Discard?</span>
-          <button
-            onClick={() => { onDiscard(); setConfirmDiscard(false); }}
-            disabled={busy}
-            className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-30 transition-colors duration-fast"
-          >
-            Confirm
-          </button>
-          <button
-            onClick={() => setConfirmDiscard(false)}
-            disabled={busy}
-            className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-30 transition-colors duration-fast"
-          >
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); setConfirmDiscard(true); }}
-          disabled={busy}
-          title="Discard changes"
-          className="shrink-0 opacity-0 group-hover:opacity-100 text-ink-3 hover:text-bad disabled:opacity-30 transition-colors"
-        >
-          <TrashIcon />
-        </button>
-      )}
-      <button
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        disabled={busy}
-        title={staged ? "Unstage" : "Stage"}
-        className="shrink-0 text-ink-3 hover:text-ink disabled:opacity-30 transition-colors"
-      >
-        {staged ? <MinusIcon /> : <PlusIcon />}
-      </button>
-    </div>
-  );
-}
