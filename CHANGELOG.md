@@ -6,6 +6,26 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.3]
+
+### Added
+- **Git manager**: History, Stash, Tags, and Rebase (onto / abort / continue) tabs; per-hunk staging and a unified/split diff toggle. New backend commands: git_log/git_show, git_stash_*, git_tags/create/delete, git_rebase_*, git_apply_hunk.
+- **Advanced Git tools** setting (Settings → Git & defaults, default on) that shows/hides the History/Stash/Tags/Rebase tabs.
+- **Publish**: live streaming log pane of the tunnel's cloudflared output ("terminal publish").
+- Instances as first-class workbenches.
+
+### Changed
+- **App Config** tab refactored from the 2900-line settings modal into a thin shell + focused section components (General/Domain/Environment/Tunneling) over a shared draft context; polished to design tokens.
+- **Settings**: merged the Cloudflare "DNS Records" and "Zone" sub-tabs into one "DNS & Zones" tab.
+
+### Removed
+- Dead code: the unused SettingsModal component and the unreachable store-driven full-screen app-settings modal path.
+
+### Fixed
+- Git: option-injection guards on tag/stash messages; per-hunk diff view refreshes after staging; binary/mode-only diffs render instead of showing "No changes".
+- Publish: tunnel-log auto-scroll survives the ring-buffer cap; named-connector log channels reuse resolved members.
+- Config: the Save footer no longer sticks on "Unsaved changes" when only the tunnel provider/auto-start (which persist out-of-band) changed.
+
 ## [0.12.0-beta.2] — 2026-07-18
 
 Restores functionality the Shell-C redesign dropped from the app workbench and
