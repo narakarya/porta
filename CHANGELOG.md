@@ -6,6 +6,15 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.4]
+
+### Added
+- **Git manager**: folder-nested collapsible file tree in the Changes pane; per-file insertion/deletion counts; per-hunk Discard (with confirm) alongside per-hunk Stage/Unstage; Stage-all / Unstage-all section actions; a line-number gutter and word-level intra-line diff highlighting in the diff view; commit-box ⌘↵ hint + staged count.
+- Backend git commands: numstat counts on changed files, git_discard_hunk, git_stage_all / git_unstage_all, and a content diff for untracked (new) files.
+
+### Fixed
+- Git: discarding a file's changes now asks for confirmation (was a one-click data loss); the diff view resets its state on file switch (a stale per-hunk "Discard?" could target the wrong file); bulk stage/unstage now disables individual file actions while in flight; the commit "Amend" no longer fires as a no-op in a clean tree; untracked files show their content instead of "No changes".
+
 ## [0.12.0-beta.3]
 
 ### Added
