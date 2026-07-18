@@ -13,6 +13,8 @@ import {
   gitDiscard,
   gitCommit,
   gitCommitAmend,
+  gitStageAll,
+  gitUnstageAll,
   type BranchList,
   type ChangedFile,
 } from "../../lib/commands";
@@ -226,6 +228,21 @@ export default function GitTab({ app }: { app: App }) {
     setError(null);
     try {
       await fn();
+      await refreshAfterMutation();
+    } catch (e) {
+      if (mounted.current) setError(String(e));
+    } finally {
+      if (mounted.current) setMutating(null);
+    }
+  }
+
+  // stage all / unstage all files. Uses a sentinel marker to gate the disable.
+  async function mutateBulk(op: "stageAll" | "unstageAll") {
+    setMutating(op);
+    setError(null);
+    try {
+      if (op === "stageAll") await gitStageAll(app.root_dir);
+      else await gitUnstageAll(app.root_dir);
       await refreshAfterMutation();
     } catch (e) {
       if (mounted.current) setError(String(e));
@@ -640,8 +657,15 @@ export default function GitTab({ app }: { app: App }) {
               <div className="w-[240px] shrink-0 border-r border-subtle overflow-y-auto py-1">
                 {stagedFiles.length > 0 && (
                   <>
-                    <div className="text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                      Staged Changes · {stagedFiles.length}
+                    <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
+                      <span>Staged Changes · {stagedFiles.length}</span>
+                      <button
+                        onClick={() => mutateBulk("unstageAll")}
+                        disabled={mutating !== null}
+                        className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                      >
+                        {mutating === "unstageAll" ? "Unstaging…" : "Unstage all"}
+                      </button>
                     </div>
                     <FileTree
                       files={stagedFiles}
@@ -656,8 +680,15 @@ export default function GitTab({ app }: { app: App }) {
                 )}
                 {unstagedFiles.length > 0 && (
                   <>
-                    <div className="text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                      Changes · {unstagedFiles.length}
+                    <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
+                      <span>Changes · {unstagedFiles.length}</span>
+                      <button
+                        onClick={() => mutateBulk("stageAll")}
+                        disabled={mutating !== null}
+                        className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                      >
+                        {mutating === "stageAll" ? "Staging…" : "Stage all"}
+                      </button>
                     </div>
                     <FileTree
                       files={unstagedFiles}
