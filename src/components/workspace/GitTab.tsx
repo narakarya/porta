@@ -19,6 +19,10 @@ import {
 } from "../../lib/commands";
 import { Card, Input, EmptyState, Badge, Popover, Button, Spinner } from "../ui";
 import type { App } from "../../types";
+import HistoryPanel from "./git/HistoryPanel";
+import StashPanel from "./git/StashPanel";
+import TagsPanel from "./git/TagsPanel";
+import RebasePanel from "./git/RebasePanel";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -112,11 +116,11 @@ function splitPath(path: string): { dir: string; base: string } {
  * poller keeps `appGit[app.id]` fresh) and drives the same git commands.
  *
  * Layout mirrors docs/design-mockups/08_porta_git_tab_full.html: one unified
- * panel that fills the pane, a Changes/History/… sub-nav, a branch pill +
- * Sync/overflow header, and a body. Changes (two-pane diff/stage/commit) and
- * Branches (list + switch + create) are live tabs backed by real git commands.
- * History and Pull-requests stay disabled placeholders — git log/stash/rebase
- * belong to the separate git-manager extension, not this panel.
+ * panel that fills the pane, a Changes/Branches/Sync/History/Stash/Tags/Rebase
+ * sub-nav, a branch pill + Sync/overflow header, and a body. Changes (two-pane
+ * diff/stage/commit) and Branches (list + switch + create) are live tabs
+ * backed by real git commands; Sync is an inline fetch/pull/push panel; the
+ * remaining tabs render their (currently stub) panel components.
  */
 export default function GitTab({ app }: { app: App }) {
   const status = usePortaStore((s) => s.appGit[app.id]);
@@ -124,7 +128,7 @@ export default function GitTab({ app }: { app: App }) {
   const pollError = usePortaStore((s) => s.appGitError[app.id]);
   const setAppGitError = usePortaStore((s) => s.setAppGitError);
 
-  const [tab, setTab] = useState<"changes" | "branches">("changes");
+  const [tab, setTab] = useState<"changes" | "branches" | "sync" | "history" | "stash" | "tags" | "rebase">("changes");
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchList | null>(null);
@@ -351,23 +355,51 @@ export default function GitTab({ app }: { app: App }) {
   return (
     <div className="h-full p-3">
       <div className="h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden">
-        {/* Sub-nav — Changes and Branches are live tabs; History/Pull requests
-            are honest disabled placeholders (git-manager extension territory). */}
-        <div className="flex items-center gap-3.5 px-3.5 py-2 border-b border-subtle text-[12px]">
+        {/* Sub-nav — Changes/Branches/Sync are live; History/Stash/Tags/Rebase
+            render their (stub-for-now) panel components. */}
+        <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
           <button
             onClick={() => setTab("changes")}
-            className={`pb-2 -mb-2 transition-colors duration-fast ${tab === "changes" ? "text-ink border-b-[1.5px] border-accent" : "text-ink-3 hover:text-ink-2"}`}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "changes" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
           >
             Changes{dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
           </button>
           <button
             onClick={() => setTab("branches")}
-            className={`pb-2 -mb-2 transition-colors duration-fast ${tab === "branches" ? "text-ink border-b-[1.5px] border-accent" : "text-ink-3 hover:text-ink-2"}`}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "branches" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
           >
             Branches{branches && <span className="text-ink-3"> {branches.local.length}</span>}
           </button>
-          <span className="text-ink-3 cursor-default" title="Not available yet">History</span>
-          <span className="text-ink-3 cursor-default" title="Not available yet">Pull requests</span>
+          <button
+            onClick={() => setTab("sync")}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "sync" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+          >
+            Sync
+          </button>
+          <button
+            onClick={() => setTab("history")}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "history" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+          >
+            History
+          </button>
+          <button
+            onClick={() => setTab("stash")}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "stash" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+          >
+            Stash
+          </button>
+          <button
+            onClick={() => setTab("tags")}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "tags" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+          >
+            Tags
+          </button>
+          <button
+            onClick={() => setTab("rebase")}
+            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "rebase" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+          >
+            Rebase
+          </button>
           <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
             {upstream ? `↕ ${upstream}` : "no upstream"}
           </span>
@@ -501,8 +533,46 @@ export default function GitTab({ app }: { app: App }) {
           </div>
         </div>
 
-        {/* Body — Branches list, or the two-pane working surface. */}
-        {tab === "branches" ? (
+        {/* Body — Branches list, Sync panel, stub panels, or the two-pane
+            Changes working surface. */}
+        {tab === "sync" ? (
+          <div className="flex-1 min-h-0 flex flex-col gap-3 p-4">
+            {error && (
+              <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2">{error}</pre>
+            )}
+            <div className="flex items-center gap-2">
+              <Button size="sm" loading={busy === "fetch"} disabled={busy !== null} onClick={() => run("fetch")}>
+                Fetch
+              </Button>
+              <Button size="sm" loading={busy === "pull"} disabled={busy !== null || behind === 0} onClick={() => run("pull")}>
+                Pull
+              </Button>
+              <Button size="sm" loading={busy === "push"} disabled={busy !== null || ahead === 0} onClick={() => run("push")}>
+                Push
+              </Button>
+            </div>
+            <div className="text-[12px] text-ink-3">
+              {clean ? (
+                <>Up to date{upstream ? ` with ${upstream}` : ""}.</>
+              ) : (
+                <>
+                  {ahead > 0 && `${ahead} to push`}
+                  {ahead > 0 && behind > 0 && " · "}
+                  {behind > 0 && `${behind} to pull`}
+                  {upstream ? ` (${upstream})` : ""}
+                </>
+              )}
+            </div>
+          </div>
+        ) : tab === "history" ? (
+          <HistoryPanel app={app} />
+        ) : tab === "stash" ? (
+          <StashPanel app={app} />
+        ) : tab === "tags" ? (
+          <TagsPanel app={app} />
+        ) : tab === "rebase" ? (
+          <RebasePanel app={app} />
+        ) : tab === "branches" ? (
           <div className="flex-1 min-h-0 flex flex-col">
             {error && (
               <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
