@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangedFile } from "../../../lib/commands";
 import { buildFileTree, type TreeNode } from "./file-tree";
 
@@ -93,7 +93,7 @@ function FileRow({
   // webview can't rely on window.confirm. Reset if the row is deselected
   // (user moved on to another file) so a stale confirm bar doesn't linger.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  if (!active && confirmDiscard) setConfirmDiscard(false);
+  useEffect(() => { if (!active) setConfirmDiscard(false); }, [active]);
 
   return (
     <div
@@ -217,7 +217,7 @@ export default function FileTree({
         file={f}
         staged={staged}
         active={selected?.path === f.path && selected?.staged === staged}
-        busy={mutating === f.path}
+        busy={mutating !== null}
         indent={depth * INDENT_PX}
         showDir={false}
         onSelect={() => onSelect(f.path)}

@@ -712,6 +712,7 @@ export default function GitTab({ app }: { app: App }) {
                     </div>
                   ) : (
                     <DiffView
+                      key={`${selected.path}:${selected.staged}`}
                       app={app}
                       path={selected.path}
                       staged={selected.staged}
