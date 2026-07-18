@@ -23,6 +23,7 @@ import HistoryPanel from "./git/HistoryPanel";
 import StashPanel from "./git/StashPanel";
 import TagsPanel from "./git/TagsPanel";
 import RebasePanel from "./git/RebasePanel";
+import { DiffLines } from "./git/diffLines";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -723,19 +724,7 @@ export default function GitTab({ app }: { app: App }) {
                   ) : diff.trim() === "" ? (
                     <div className="text-ink-3">No textual diff to show.</div>
                   ) : (
-                    diff.split("\n").map((line, i) => {
-                      let cls = "text-ink-2";
-                      if (line.startsWith("@@")) cls = "text-accent";
-                      else if (line.startsWith("+++") || line.startsWith("---")) cls = "text-ink-3";
-                      else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "text-ink-3";
-                      else if (line.startsWith("+")) cls = "bg-ok-bg text-ok";
-                      else if (line.startsWith("-")) cls = "bg-bad-bg text-bad";
-                      return (
-                        <div key={i} className={`whitespace-pre ${cls}`}>
-                          {line === "" ? " " : line}
-                        </div>
-                      );
-                    })
+                    <DiffLines diff={diff} />
                   )}
                 </div>
 
