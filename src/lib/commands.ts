@@ -1724,7 +1724,6 @@ export const gitShow = (rootDir: string, hash: string): Promise<string> =>
 export type StashEntry = {
   index: number;
   message: string;
-  branch: string;
 };
 
 /** Stash list, newest (index 0) first. `[]` when there are none. */

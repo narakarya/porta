@@ -864,12 +864,12 @@ pub async fn git_show(root_dir: String, hash: String) -> Result<String, String> 
 pub struct StashEntry {
     pub index: u32,
     pub message: String,
-    pub branch: String,
 }
 
 /// Parse `git stash list --pretty=format:%gd\x1f%gs` output into stash entries.
 /// Each line is `stash@{N}\x1f<message>` — `N` becomes `index`, the remainder
-/// becomes `message`. `branch` isn't in this format string; left empty.
+/// becomes `message` (the `%gs` format bundles the branch name into the message
+/// text itself, e.g. "WIP on main: ...").
 fn parse_stash_list(raw: &str) -> Vec<StashEntry> {
     raw.lines()
         .filter(|line| !line.is_empty())
@@ -877,7 +877,7 @@ fn parse_stash_list(raw: &str) -> Vec<StashEntry> {
             let (ref_part, message) = line.split_once('\x1f')?;
             let index_str = ref_part.strip_prefix("stash@{")?.strip_suffix('}')?;
             let index = index_str.parse::<u32>().ok()?;
-            Some(StashEntry { index, message: message.to_string(), branch: String::new() })
+            Some(StashEntry { index, message: message.to_string() })
         })
         .collect()
 }
@@ -899,6 +899,10 @@ pub async fn git_stash_list(root_dir: String) -> Result<Vec<StashEntry>, String>
 #[tauri::command]
 pub async fn git_stash_push(root_dir: String, message: Option<String>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
+        // Guard against option-injection: reject a message that starts with '-'.
+        if message.as_deref().map_or(false, |m| m.starts_with('-')) {
+            return Err("invalid stash message".into());
+        }
         let mut args: Vec<&str> = vec!["stash", "push"];
         if let Some(msg) = message.as_deref() {
             if !msg.is_empty() {
