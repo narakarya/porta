@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import {
+  getGitAdvancedEnabled,
   getGitAutofetchEnabled,
   getGitAutofetchIntervalSecs,
+  setGitAdvancedEnabled,
   setGitAutofetchEnabled,
   setGitAutofetchIntervalSecs,
 } from "../../lib/commands";
+import { usePortaStore } from "../../store";
 
 // Rust clamps this to 60..=600 on both read and write
 // (src-tauri/src/commands/settings.rs) and never reports back what it
@@ -20,6 +23,7 @@ const INTERVALS = [
 export default function GitSection() {
   const [enabled, setEnabled] = useState(true);
   const [intervalSecs, setIntervalSecs] = useState(180);
+  const [advancedEnabled, setAdvancedEnabled] = useState(true);
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
@@ -28,6 +32,9 @@ export default function GitSection() {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     getGitAutofetchIntervalSecs()
       .then(setIntervalSecs)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    getGitAdvancedEnabled()
+      .then(setAdvancedEnabled)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
@@ -40,6 +47,20 @@ export default function GitSection() {
       await setGitAutofetchEnabled(next);
     } catch (e) {
       setEnabled(prev);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function toggleAdvanced() {
+    const prev = advancedEnabled;
+    const next = !advancedEnabled;
+    setAdvancedEnabled(next);
+    setError("");
+    try {
+      await setGitAdvancedEnabled(next);
+      usePortaStore.getState().setGitAdvancedEnabled(next);
+    } catch (e) {
+      setAdvancedEnabled(prev);
       setError(e instanceof Error ? e.message : String(e));
     }
   }
@@ -103,6 +124,21 @@ export default function GitSection() {
           ))}
         </div>
       </div>
+
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={advancedEnabled}
+          onChange={toggleAdvanced}
+          className="mt-0.5 accent-accent"
+        />
+        <span>
+          <span className="text-[12px] text-ink">Advanced Git tools</span>
+          <span className="block text-[11px] text-ink-3 mt-0.5">
+            Show History, Stash, Tags, and Rebase tabs in the Git tab.
+          </span>
+        </span>
+      </label>
 
       {error && <p className="text-[12px] text-bad">{error}</p>}
     </div>
