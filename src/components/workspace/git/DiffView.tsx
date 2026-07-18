@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { App } from "../../../types";
 import { gitDiffFile, gitApplyHunk, gitDiscardHunk } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
+import { tokenDiff, type Span } from "../../../lib/word-diff";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
 
@@ -10,6 +11,58 @@ function lineClass(kind: DiffLine["kind"]): string {
   if (kind === "del") return "bg-bad-bg text-bad";
   if (kind === "meta") return "text-ink-3";
   return "text-ink-2";
+}
+
+// Stronger background for the word-diff's changed run within a paired
+// del/add line — same "dim vs strong" contrast SplitHunk uses.
+function strongLineClass(kind: "add" | "del"): string {
+  return kind === "add" ? "bg-ok text-white" : "bg-bad text-white";
+}
+
+/** Maps each `del`/`add` line index to its 1:1 counterpart's index, for
+ *  word-level highlighting. Consecutive del-run then add-run lines are
+ *  paired by position (del[i] ↔ add[i]); a run-length mismatch leaves the
+ *  extra lines on the longer side unpaired (they keep the whole-line
+ *  background). Mirrors SplitHunk's `buildSplitRows` pairing, just indexed
+ *  into the flat unified line list instead of building rows. */
+function computeLinePairs(hunk: Hunk): Map<number, number> {
+  const pairs = new Map<number, number>();
+  let dels: number[] = [];
+  let adds: number[] = [];
+  function flush() {
+    const n = Math.min(dels.length, adds.length);
+    for (let i = 0; i < n; i++) {
+      pairs.set(dels[i], adds[i]);
+      pairs.set(adds[i], dels[i]);
+    }
+    dels = [];
+    adds = [];
+  }
+  hunk.lines.forEach((line, idx) => {
+    if (line.kind === "del") dels.push(idx);
+    else if (line.kind === "add") adds.push(idx);
+    else flush();
+  });
+  flush();
+  return pairs;
+}
+
+/** Runs `tokenDiff` once per paired del/add line and returns each line
+ *  index's spans (del → `.old`, add → `.new`) keyed by that line's own
+ *  index — computed once here rather than per-render-cell so a pair isn't
+ *  diffed twice. */
+function computeLineSpans(hunk: Hunk, linePairs: Map<number, number>): Map<number, Span[]> {
+  const spans = new Map<number, Span[]>();
+  linePairs.forEach((partnerIdx, li) => {
+    if (spans.has(li)) return;
+    const a = hunk.lines[li];
+    const delIdx = a.kind === "del" ? li : partnerIdx;
+    const addIdx = a.kind === "del" ? partnerIdx : li;
+    const diff = tokenDiff(hunk.lines[delIdx].text.slice(1), hunk.lines[addIdx].text.slice(1));
+    spans.set(delIdx, diff.old);
+    spans.set(addIdx, diff.new);
+  });
+  return spans;
 }
 
 const GUTTER_NUM_CLASS = "w-9 shrink-0 pr-1.5 text-right select-none text-ink-3 tabular-nums";
@@ -182,6 +235,7 @@ export default function DiffView({
       {parsed.hunks.map((hunk, hi) => {
         const confirming = confirmDiscard === hi;
         const nums = hunkLineNumbers(hunk);
+        const lineSpans = computeLineSpans(hunk, computeLinePairs(hunk));
         return (
         <div key={hi} className="mt-2 first:mt-0">
           <div className="flex items-center justify-between gap-2 whitespace-pre text-accent">
@@ -226,15 +280,30 @@ export default function DiffView({
             )}
           </div>
           {view === "unified" ? (
-            hunk.lines.map((line, li) => (
-              <div key={li} className="flex">
-                <span className={GUTTER_NUM_CLASS}>{nums[li].old ?? ""}</span>
-                <span className={GUTTER_NUM_CLASS}>{nums[li].new ?? ""}</span>
-                <span className={`whitespace-pre flex-1 ${lineClass(line.kind)}`}>
-                  {line.text === "" ? " " : line.text}
-                </span>
-              </div>
-            ))
+            hunk.lines.map((line, li) => {
+              const spans = line.kind === "del" || line.kind === "add" ? lineSpans.get(li) : undefined;
+              return (
+                <div key={li} className="flex">
+                  <span className={GUTTER_NUM_CLASS}>{nums[li].old ?? ""}</span>
+                  <span className={GUTTER_NUM_CLASS}>{nums[li].new ?? ""}</span>
+                  <span className={`whitespace-pre flex-1 ${lineClass(line.kind)}`}>
+                    {line.text === "" ? " " : spans ? (
+                      <>
+                        {line.text.charAt(0)}
+                        {spans.map((s, si) => (
+                          <span
+                            key={si}
+                            className={s.changed ? strongLineClass(line.kind as "add" | "del") : undefined}
+                          >
+                            {s.text}
+                          </span>
+                        ))}
+                      </>
+                    ) : line.text}
+                  </span>
+                </div>
+              );
+            })
           ) : (
             <SplitHunk hunk={hunk} />
           )}

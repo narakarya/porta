@@ -1,4 +1,5 @@
 import type { Hunk } from "../../../lib/git-diff";
+import { tokenDiff, type Span } from "../../../lib/word-diff";
 
 /**
  * Split (side-by-side) rendering for one hunk's `lines`. Pairs consecutive
@@ -70,16 +71,29 @@ function buildSplitRows(hunk: Hunk): SplitRow[] {
 
 const GUTTER_NUM_CLASS = "w-9 shrink-0 pr-1.5 text-right select-none text-ink-3 tabular-nums";
 
+// Whole-line ("dim") vs changed-run ("strong") backgrounds, per side. A
+// row with no word-level spans (unpaired del/add) uses `dimCls` across the
+// whole cell, matching the previous whole-line-background behavior.
+function sideClasses(side: "del" | "add"): { dim: string; strong: string } {
+  return side === "del"
+    ? { dim: "bg-bad-bg text-bad", strong: "bg-bad text-white" }
+    : { dim: "bg-ok-bg text-ok", strong: "bg-ok text-white" };
+}
+
 function Cell({
   content,
   num,
   side,
   bordered,
+  spans,
 }: {
   content: string | null;
   num: number | null;
   side: "del" | "add";
   bordered?: boolean;
+  /** Word-diff spans for this side, when paired with the other side of a
+   *  1:1 change row. Absent → render `content` with the whole-line color. */
+  spans?: Span[];
 }) {
   const wrap = `flex${bordered ? " border-r border-subtle" : ""}`;
   if (content === null) {
@@ -90,11 +104,17 @@ function Cell({
       </div>
     );
   }
-  const colorCls = side === "del" ? "bg-bad-bg text-bad" : "bg-ok-bg text-ok";
+  const { dim, strong } = sideClasses(side);
   return (
     <div className={wrap}>
       <span className={GUTTER_NUM_CLASS}>{num ?? ""}</span>
-      <span className={`whitespace-pre px-1 flex-1 ${colorCls}`}>{content}</span>
+      <span className={`whitespace-pre px-1 flex-1 ${dim}`}>
+        {spans
+          ? spans.map((s, si) => (
+              <span key={si} className={s.changed ? strong : undefined}>{s.text}</span>
+            ))
+          : content}
+      </span>
     </div>
   );
 }
@@ -125,10 +145,16 @@ export default function SplitHunk({ hunk }: { hunk: Hunk }) {
             </div>
           );
         }
+        // Only a 1:1 change (both sides present) gets word-level highlight —
+        // an unpaired del or add (the other side `null`) keeps the whole-line
+        // background, since there's nothing on the other side to diff against.
+        const diff = row.left !== null && row.right !== null
+          ? tokenDiff(row.left, row.right)
+          : null;
         return (
           <div key={i} className="grid grid-cols-2">
-            <Cell content={row.left} num={row.leftNum} side="del" bordered />
-            <Cell content={row.right} num={row.rightNum} side="add" />
+            <Cell content={row.left} num={row.leftNum} side="del" bordered spans={diff?.old} />
+            <Cell content={row.right} num={row.rightNum} side="add" spans={diff?.new} />
           </div>
         );
       })}
