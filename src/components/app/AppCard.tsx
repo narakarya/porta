@@ -59,7 +59,7 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearTunnelLog, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
@@ -69,6 +69,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       startTunnel: s.startTunnel,
       stopTunnel: s.stopTunnel,
       setTunnelConnecting: s.setTunnelConnecting,
+      clearTunnelLog: s.clearTunnelLog,
       clearAppLogs: s.clearAppLogs,
       dismissPortConflict: s.dismissPortConflict,
       registerToast: s.registerToast,
@@ -560,6 +561,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 // Instance path uses the raw IPC command, so flag the connect
                 // ourselves; the `instance:tunnel:{id}` event clears it.
                 setTunnelConnecting(instance.id, true);
+                clearTunnelLog(instance.id);
                 startInstanceTunnel(instance.id).catch(() => setTunnelConnecting(instance.id, false));
               }
             // Pass the provider explicitly: the card's connect must not depend

@@ -204,6 +204,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting,
     instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
     openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
+    clearTunnelLog,
   } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
@@ -223,6 +224,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       closeExtensionSidebar: s.closeExtensionSidebar,
       cacheAppExtensions: s.cacheAppExtensions,
       extSidebarActive: s.extensionSidebar?.appId === app.id,
+      clearTunnelLog: s.clearTunnelLog,
     }))
   );
   // Only the parent workbench tracks instances — an instance can't nest.
@@ -322,7 +324,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     setTunnelBusy(true);
     try {
       if (app.tunnel_active) await stopInstanceTunnel(instance.id);
-      else await startInstanceTunnel(instance.id);
+      else {
+        clearTunnelLog(instance.id);
+        await startInstanceTunnel(instance.id);
+      }
     } finally {
       setTunnelBusy(false);
     }
