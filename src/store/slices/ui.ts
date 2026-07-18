@@ -118,9 +118,6 @@ export interface UiSlice {
   /** App opened in the Workspaces workbench (null = app list). */
   selectedAppId: string | null;
   selectApp: (id: string | null) => void;
-  /** App whose settings modal is open (null = closed). */
-  settingsAppId: string | null;
-  openAppSettings: (id: string | null) => void;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -188,7 +185,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   extensionListVersion: 0,
   activeDomain: "workspaces",
   selectedAppId: null,
-  settingsAppId: null,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -260,5 +256,4 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   setActiveDomain: (v) => set({ activeDomain: v }),
   selectApp: (id) => set({ selectedAppId: id }),
-  openAppSettings: (id) => set({ settingsAppId: id }),
 });

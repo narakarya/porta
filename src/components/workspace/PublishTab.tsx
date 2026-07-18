@@ -60,23 +60,19 @@ export default function PublishTab({
   onOpenConfig,
 }: {
   app: App;
-  // Deep-link into the workbench Config tab (mockup 20). Falls back to the
-  // standalone settings modal when rendered outside the workbench.
-  onOpenConfig?: (section?: import("../app/AppSettingsModal").Section) => void;
+  // Deep-link into the workbench Config tab (mockup 20).
+  onOpenConfig: (section?: import("../app/AppSettingsModal").Section) => void;
 }) {
-  const { startTunnel, stopTunnel, openAppSettings, connecting, error, tunnelLogs } = usePortaStore(
+  const { startTunnel, stopTunnel, connecting, error, tunnelLogs } = usePortaStore(
     useShallow((s) => ({
       startTunnel: s.startTunnel,
       stopTunnel: s.stopTunnel,
-      openAppSettings: s.openAppSettings,
       connecting: s.tunnelConnecting[app.id] ?? false,
       error: s.appTunnelErrors[app.id] ?? null,
       tunnelLogs: s.appTunnelLogs[app.id] ?? EMPTY_LOGS,
     }))
   );
-  // Prefer the inline Config tab; fall back to the modal.
-  const openConfig = (section?: import("../app/AppSettingsModal").Section) =>
-    onOpenConfig ? onOpenConfig(section) : openAppSettings(app.id);
+  const openConfig = (section?: import("../app/AppSettingsModal").Section) => onOpenConfig(section);
   const [busy, setBusy] = useState(false);
 
   const active = app.tunnel_active && !!app.tunnel_url;

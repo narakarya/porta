@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "./store";
 import { startCaddy, listCloudflareTunnels, getCfApiToken, listTunnelDns } from "./lib/commands";
@@ -23,10 +23,6 @@ import HelpModal from "./components/layout/HelpModal";
 import { ExtensionHostProvider } from "./components/extension/ExtensionHostManager";
 import UiGallery from "./components/ui/UiGallery";
 
-// App-level so it shows over the workbench (WorkspaceView, which used to host it,
-// is hidden whenever an app is open — its modal would never appear).
-const AppSettingsModal = lazy(() => import("./components/app/AppSettingsModal"));
-
 type Page = "main" | "settings";
 
 export default function App() {
@@ -43,13 +39,9 @@ export default function App() {
   const activeDomain = usePortaStore((s) => s.activeDomain);
   const selectedAppId = usePortaStore((s) => s.selectedAppId);
   const apps = usePortaStore((s) => s.apps);
-  const workspaces = usePortaStore((s) => s.workspaces);
   const selectedWorkspaceId = usePortaStore((s) => s.selectedWorkspaceId);
   const selectApp = usePortaStore((s) => s.selectApp);
-  const openAppSettings = usePortaStore((s) => s.openAppSettings);
-  const settingsAppId = usePortaStore((s) => s.settingsAppId);
   const selectedApp = selectedAppId ? (apps.find((a) => a.id === selectedAppId) ?? null) : null;
-  const settingsApp = settingsAppId ? (apps.find((a) => a.id === settingsAppId) ?? null) : null;
 
   // Shell C is content-forward: the main area is always an app's workbench, not
   // a workspace overview. When landing in the Workspaces domain with nothing
@@ -300,15 +292,6 @@ export default function App() {
           a download started from Settings stays visible after the user
           switches back to Main. */}
       <UpdateToast />
-      {settingsApp && (
-        <Suspense fallback={null}>
-          <AppSettingsModal
-            app={settingsApp}
-            workspace={workspaces.find((w) => w.id === settingsApp.workspace_id) ?? null}
-            onClose={() => openAppSettings(null)}
-          />
-        </Suspense>
-      )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       </ExtensionHostProvider>
     </ErrorBoundary>
