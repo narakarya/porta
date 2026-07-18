@@ -113,6 +113,12 @@ pub struct ChangedFile {
     pub staged: bool,
     pub unstaged: bool,
     pub untracked: bool,
+    /// Lines added, summed across staged + unstaged `--numstat` (a partially
+    /// staged file has counts on both sides). `0` for a binary file (numstat
+    /// reports `-`) or a path `--numstat` didn't mention at all (e.g. untracked).
+    pub insertions: u32,
+    /// Lines removed — same sourcing and binary/untracked fallback as `insertions`.
+    pub deletions: u32,
 }
 
 /// Split a two-char porcelain-v2 `XY` field into its (index, worktree) chars.
@@ -182,6 +188,8 @@ fn parse_changed_files(out: &str) -> Vec<ChangedFile> {
                 staged: false,
                 unstaged: true,
                 untracked: true,
+                insertions: 0,
+                deletions: 0,
             });
         } else if let Some(rest) = line.strip_prefix("1 ") {
             if let Some((xy, path)) = split_header(rest, 7) {
@@ -194,6 +202,8 @@ fn parse_changed_files(out: &str) -> Vec<ChangedFile> {
                     staged: is_changed(x),
                     unstaged: is_changed(y),
                     untracked: false,
+                    insertions: 0,
+                    deletions: 0,
                 });
             }
         } else if let Some(rest) = line.strip_prefix("2 ") {
@@ -211,6 +221,8 @@ fn parse_changed_files(out: &str) -> Vec<ChangedFile> {
                     staged: is_changed(x),
                     unstaged: is_changed(y),
                     untracked: false,
+                    insertions: 0,
+                    deletions: 0,
                 });
             }
         } else if let Some(rest) = line.strip_prefix("u ") {
@@ -223,11 +235,33 @@ fn parse_changed_files(out: &str) -> Vec<ChangedFile> {
                     staged: false,
                     unstaged: true,
                     untracked: false,
+                    insertions: 0,
+                    deletions: 0,
                 });
             }
         }
     }
     files
+}
+
+/// Parse `git diff --numstat` output into per-path (insertions, deletions).
+///
+/// Each line is `<ins>\t<del>\t<path>`. A binary file reports `-\t-\t<path>`
+/// instead of numbers — treated as `(0, 0)` since there is no meaningful line
+/// count to show.
+fn parse_numstat(raw: &str) -> std::collections::HashMap<String, (u32, u32)> {
+    let mut map = std::collections::HashMap::new();
+    for line in raw.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(ins), Some(del), Some(path)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        let ins = ins.parse::<u32>().unwrap_or(0);
+        let del = del.parse::<u32>().unwrap_or(0);
+        map.insert(path.to_string(), (ins, del));
+    }
+    map
 }
 
 use std::io::Read;
@@ -394,7 +428,9 @@ fn changed_files_for(root_dir: &str) -> Result<Vec<ChangedFile>, String> {
 
     let out = changed_files_command(bin, root).output().map_err(|e| e.to_string())?;
     if out.status.success() {
-        return Ok(parse_changed_files(&String::from_utf8_lossy(&out.stdout)));
+        let mut files = parse_changed_files(&String::from_utf8_lossy(&out.stdout));
+        apply_numstat(root_dir, &mut files);
+        return Ok(files);
     }
 
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -404,6 +440,33 @@ fn changed_files_for(root_dir: &str) -> Result<Vec<ChangedFile>, String> {
         Err(format!("git status failed ({})", out.status))
     } else {
         Err(stderr)
+    }
+}
+
+/// Fill in `insertions`/`deletions` on each `ChangedFile` from `git diff
+/// --numstat` (unstaged) and `git diff --cached --numstat` (staged), summed per
+/// path — a partially staged file has a real count on both sides. A path with
+/// no numstat entry at all (untracked, or a rename `--numstat` reported under a
+/// different path than the one we matched on) is left at `0`/`0`, which is
+/// acceptable per the brief: best-effort, not exact for every rename shape.
+///
+/// Best-effort throughout: either `git diff` invocation failing (e.g. a
+/// detached-HEAD edge case) just leaves the counts at `0` rather than failing
+/// the whole changed-files read, since the status list itself is still valid
+/// and more useful to the caller than an error.
+fn apply_numstat(root_dir: &str, files: &mut [ChangedFile]) {
+    let unstaged = run_git_raw(root_dir, &["diff", "--numstat"], LOCAL_TIMEOUT_SECS)
+        .map(|raw| parse_numstat(&raw))
+        .unwrap_or_default();
+    let staged = run_git_raw(root_dir, &["diff", "--cached", "--numstat"], LOCAL_TIMEOUT_SECS)
+        .map(|raw| parse_numstat(&raw))
+        .unwrap_or_default();
+
+    for file in files.iter_mut() {
+        let (u_ins, u_del) = unstaged.get(&file.path).copied().unwrap_or((0, 0));
+        let (s_ins, s_del) = staged.get(&file.path).copied().unwrap_or((0, 0));
+        file.insertions = u_ins + s_ins;
+        file.deletions = u_del + s_del;
     }
 }
 
@@ -1921,5 +1984,34 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let result = rebase_onto_core(ps, "--exec=touch /tmp/pwned");
         assert!(result.is_err(), "a branch starting with '-' must be rejected");
         assert_eq!(result.unwrap_err(), "invalid branch");
+    }
+
+    #[test]
+    fn parse_numstat_reads_counts() {
+        let map = parse_numstat("40\t2\tapi/posts.ts\n-\t-\tlogo.png\n");
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("api/posts.ts"), Some(&(40, 2)));
+        assert_eq!(map.get("logo.png"), Some(&(0, 0)));
+    }
+
+    #[test]
+    fn changed_files_for_reports_insertions_for_a_modified_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        // Modify the tracked file, adding 3 lines.
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+
+        let files = changed_files_for(ps).expect("reading a valid repo must not error");
+        let f = files.iter().find(|f| f.path == "a.txt").expect("a.txt should be listed");
+        assert!(f.insertions >= 3, "expected at least 3 insertions, got {}", f.insertions);
     }
 }

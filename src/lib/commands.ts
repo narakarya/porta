@@ -1670,6 +1670,10 @@ export interface ChangedFile {
   staged: boolean;
   unstaged: boolean;
   untracked: boolean;
+  /** Lines added, summed across staged + unstaged `--numstat`. `0` for binary or untracked files. */
+  insertions: number;
+  /** Lines removed — same sourcing and binary/untracked fallback as `insertions`. */
+  deletions: number;
 }
 
 /** Changed / staged / untracked files for the changes panel. `[]` when not a repo. */
