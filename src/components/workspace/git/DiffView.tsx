@@ -12,6 +12,34 @@ function lineClass(kind: DiffLine["kind"]): string {
   return "text-ink-2";
 }
 
+const GUTTER_NUM_CLASS = "w-9 shrink-0 pr-1.5 text-right select-none text-ink-3 tabular-nums";
+
+/** Walks a hunk's lines from `oldStart`/`newStart`, returning the old/new
+ *  line number to show for each — `ctx` advances (and shows) both, `del`
+ *  only the old side, `add` only the new side, `meta` neither. */
+function hunkLineNumbers(hunk: Hunk): { old: number | null; new: number | null }[] {
+  let o = hunk.oldStart;
+  let n = hunk.newStart;
+  return hunk.lines.map((line) => {
+    if (line.kind === "ctx") {
+      const nums = { old: o, new: n };
+      o++; n++;
+      return nums;
+    }
+    if (line.kind === "del") {
+      const nums = { old: o, new: null };
+      o++;
+      return nums;
+    }
+    if (line.kind === "add") {
+      const nums = { old: null, new: n };
+      n++;
+      return nums;
+    }
+    return { old: null, new: null }; // meta — no line-number reality on either side
+  });
+}
+
 /**
  * Per-hunk diff viewer for the Changes pane — parses `gitDiffFile`'s raw
  * unified diff via `parseUnifiedDiff` and gives every hunk its own
@@ -153,6 +181,7 @@ export default function DiffView({
       </div>
       {parsed.hunks.map((hunk, hi) => {
         const confirming = confirmDiscard === hi;
+        const nums = hunkLineNumbers(hunk);
         return (
         <div key={hi} className="mt-2 first:mt-0">
           <div className="flex items-center justify-between gap-2 whitespace-pre text-accent">
@@ -198,8 +227,12 @@ export default function DiffView({
           </div>
           {view === "unified" ? (
             hunk.lines.map((line, li) => (
-              <div key={li} className={`whitespace-pre ${lineClass(line.kind)}`}>
-                {line.text === "" ? " " : line.text}
+              <div key={li} className="flex">
+                <span className={GUTTER_NUM_CLASS}>{nums[li].old ?? ""}</span>
+                <span className={GUTTER_NUM_CLASS}>{nums[li].new ?? ""}</span>
+                <span className={`whitespace-pre flex-1 ${lineClass(line.kind)}`}>
+                  {line.text === "" ? " " : line.text}
+                </span>
               </div>
             ))
           ) : (
