@@ -10,8 +10,13 @@ import { Button, Input, Spinner } from "../../ui";
  * Pop/Drop actions. Drop swaps the row into an inline confirm state rather
  * than `window.confirm` — Tauri webview dialogs are unreliable (project
  * convention, see AppCard's kill/remove confirm bars).
+ *
+ * `onChanged` is optional — GitTab passes its `refreshAfterMutation` so a
+ * stash push/pop/drop (which mutates the working tree) also refreshes the
+ * shared changed-file list / header dirty badge, not just this tab's own
+ * stash list.
  */
-export default function StashPanel({ app }: { app: App }) {
+export default function StashPanel({ app, onChanged }: { app: App; onChanged?: () => void }) {
   const [stashes, setStashes] = useState<StashEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +61,7 @@ export default function StashPanel({ app }: { app: App }) {
       await gitStashPush(app.root_dir, message.trim() === "" ? undefined : message.trim());
       if (mounted.current) setMessage("");
       load();
+      onChanged?.();
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
@@ -70,6 +76,7 @@ export default function StashPanel({ app }: { app: App }) {
     try {
       await gitStashPop(app.root_dir, index);
       load();
+      onChanged?.();
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
@@ -85,6 +92,7 @@ export default function StashPanel({ app }: { app: App }) {
     try {
       await gitStashDrop(app.root_dir, index);
       load();
+      onChanged?.();
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {

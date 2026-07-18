@@ -30,6 +30,11 @@ export default function DiffView({
   onChanged: () => void;
 }) {
   const [parsed, setParsed] = useState<ParsedDiff | null>(null);
+  // Raw fetched diff text — a binary-file diff ("Binary files a/x and b/x
+  // differ") or a mode-only change produces no `@@` hunks but IS a real,
+  // non-empty diff; gating "No changes." on this (rather than
+  // `parsed.hunks.length`) keeps those cases from reading as no diff at all.
+  const [rawDiff, setRawDiff] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState<number | null>(null);
@@ -48,7 +53,11 @@ export default function DiffView({
     setLoading(true);
     setError(null);
     gitDiffFile(app.root_dir, path, staged)
-      .then((raw) => { if (!cancelled) setParsed(parseUnifiedDiff(raw)); })
+      .then((raw) => {
+        if (cancelled) return;
+        setRawDiff(raw);
+        setParsed(parseUnifiedDiff(raw));
+      })
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -73,8 +82,21 @@ export default function DiffView({
 
   if (loading) return <div className="text-ink-3">Loading diff…</div>;
   if (error) return <div className="text-bad whitespace-pre-wrap break-words">{error}</div>;
-  if (!parsed || parsed.hunks.length === 0) {
+  // Only a truly empty fetched diff means "no changes" — a binary file or a
+  // mode-only change comes back non-empty but with zero `@@` hunks.
+  if (!parsed || rawDiff.trim() === "") {
     return <div className="text-ink-3">No changes.</div>;
+  }
+  if (parsed.hunks.length === 0) {
+    return (
+      <div className="overflow-x-auto">
+        {parsed.fileHeader.map((line, i) => (
+          <div key={`h${i}`} className="whitespace-pre text-ink-3">
+            {line === "" ? " " : line}
+          </div>
+        ))}
+      </div>
+    );
   }
 
   return (

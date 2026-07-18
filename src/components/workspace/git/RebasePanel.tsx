@@ -14,8 +14,13 @@ import { Button, Select, Spinner } from "../../ui";
  * REJECT (throw) with git's stderr on a non-zero exit — a rebase conflict is
  * surfaced that way, not as a resolved error value — so we catch it and hold
  * the text in `conflict` state alongside Abort/Continue controls.
+ *
+ * `onChanged` is optional — GitTab passes its `refreshAfterMutation` so a
+ * rebase onto/abort/continue (which mutates the working tree, whether it
+ * finishes cleanly or stops on a conflict) also refreshes the shared
+ * changed-file list / header dirty badge, not just this tab's own state.
  */
-export default function RebasePanel({ app }: { app: App }) {
+export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: () => void }) {
   const [local, setLocal] = useState<string[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,8 +71,12 @@ export default function RebasePanel({ app }: { app: App }) {
     try {
       await gitRebaseOnto(app.root_dir, branch);
       if (mounted.current) setDone(`Rebased onto ${branch}`);
+      onChanged?.();
     } catch (e) {
       if (mounted.current) setConflict(String(e));
+      // A rebase that stops on a conflict still mutated the working tree
+      // (index + files got conflict markers) — refresh the shared status too.
+      onChanged?.();
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -83,6 +92,7 @@ export default function RebasePanel({ app }: { app: App }) {
         setConflict(null);
         setDone(null);
       }
+      onChanged?.();
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
@@ -100,8 +110,10 @@ export default function RebasePanel({ app }: { app: App }) {
         setConflict(null);
         setDone(out || "Rebase complete");
       }
+      onChanged?.();
     } catch (e) {
       if (mounted.current) setConflict(String(e));
+      onChanged?.();
     } finally {
       if (mounted.current) setBusy(false);
     }

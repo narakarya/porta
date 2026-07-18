@@ -110,6 +110,26 @@ function splitPath(path: string): { dir: string; base: string } {
   return i >= 0 ? { dir: path.slice(0, i + 1), base: path.slice(i + 1) } : { dir: "", base: path };
 }
 
+// Re-derive `selected` against a freshly-fetched `changed` list: keep it if
+// the file still has content in its current `selected.staged` section, flip
+// to the other section if it moved there (e.g. the whole file — or its last
+// remaining hunk — just got staged/unstaged), or clear it if the file no
+// longer appears in either section. Shared by every mutation path that can
+// move a file between sections (whole-file stage/unstage/discard, per-hunk
+// staging, stash push/pop/drop, rebase) so none of them dead-end the diff
+// pane on a file that just left the Changes list.
+function deriveSelected(
+  files: ChangedFile[],
+  selected: { path: string; staged: boolean } | null,
+): { path: string; staged: boolean } | null {
+  if (!selected) return null;
+  const inSection = (staged: boolean) =>
+    files.some((f) => f.path === selected.path && (staged ? f.staged : f.unstaged || f.untracked));
+  if (inSection(selected.staged)) return selected;
+  if (inSection(!selected.staged)) return { path: selected.path, staged: !selected.staged };
+  return null;
+}
+
 /**
  * Full-panel Git view for the app workbench — the roomy counterpart to the
  * card's GitBadge popover. Reads the same store-backed GitStatus (the Rust
@@ -187,7 +207,11 @@ export default function GitTab({ app }: { app: App }) {
   }, [status, app.root_dir]);
 
   // Refresh both the changed-file list and the header GitStatus badge after any
-  // mutation, keeping the store-backed poller value in sync.
+  // mutation, keeping the store-backed poller value in sync — and re-derive
+  // `selected` (via `deriveSelected`) against the fresh list so the diff pane
+  // follows a file that moved sections instead of dead-ending. This is the
+  // shared refetch handed to DiffView (per-hunk staging), StashPanel and
+  // RebasePanel as `onChanged`, so all of those paths get the same treatment.
   async function refreshAfterMutation(): Promise<ChangedFile[]> {
     const [files, fresh] = await Promise.all([
       gitChangedFiles(app.root_dir),
@@ -196,30 +220,19 @@ export default function GitTab({ app }: { app: App }) {
     if (!mounted.current) return files;
     setChanged(files);
     if (fresh) setAppGit(app.id, fresh);
+    setSelected((sel) => deriveSelected(files, sel));
     return files;
   }
 
-  // stage(+) / unstage(−): nextStaged is the section the file should show in
-  // afterwards; discard passes null (selection is dropped if it was showing).
-  async function mutateFile(
-    path: string,
-    fn: () => Promise<void>,
-    nextStaged: boolean | null,
-  ) {
+  // stage(+) / unstage(−) / discard a whole file. `refreshAfterMutation`
+  // already re-derives `selected` (see above), so there's nothing left to do
+  // here once it resolves.
+  async function mutateFile(path: string, fn: () => Promise<void>) {
     setMutating(path);
     setError(null);
     try {
       await fn();
-      const files = await refreshAfterMutation();
-      if (!mounted.current) return;
-      setSelected((sel) => {
-        if (!sel || sel.path !== path) return sel;
-        if (nextStaged === null) return null;
-        const stillThere = files.some(
-          (f) => f.path === path && (nextStaged ? f.staged : f.unstaged || f.untracked),
-        );
-        return stillThere ? { path, staged: nextStaged } : null;
-      });
+      await refreshAfterMutation();
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
@@ -553,11 +566,11 @@ export default function GitTab({ app }: { app: App }) {
         ) : tab === "history" ? (
           <HistoryPanel app={app} />
         ) : tab === "stash" ? (
-          <StashPanel app={app} />
+          <StashPanel app={app} onChanged={refreshAfterMutation} />
         ) : tab === "tags" ? (
           <TagsPanel app={app} />
         ) : tab === "rebase" ? (
-          <RebasePanel app={app} />
+          <RebasePanel app={app} onChanged={refreshAfterMutation} />
         ) : tab === "branches" ? (
           <div className="flex-1 min-h-0 flex flex-col">
             {error && (
@@ -670,8 +683,8 @@ export default function GitTab({ app }: { app: App }) {
                         active={selected?.path === f.path && selected?.staged === true}
                         busy={mutating === f.path}
                         onSelect={() => setSelected({ path: f.path, staged: true })}
-                        onToggle={() => mutateFile(f.path, () => gitUnstage(app.root_dir, f.path), false)}
-                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path), null)}
+                        onToggle={() => mutateFile(f.path, () => gitUnstage(app.root_dir, f.path))}
+                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path))}
                       />
                     ))}
                   </>
@@ -689,8 +702,8 @@ export default function GitTab({ app }: { app: App }) {
                         active={selected?.path === f.path && selected?.staged === false}
                         busy={mutating === f.path}
                         onSelect={() => setSelected({ path: f.path, staged: false })}
-                        onToggle={() => mutateFile(f.path, () => gitStage(app.root_dir, f.path), true)}
-                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path), null)}
+                        onToggle={() => mutateFile(f.path, () => gitStage(app.root_dir, f.path))}
+                        onDiscard={() => mutateFile(f.path, () => gitDiscard(app.root_dir, f.path))}
                       />
                     ))}
                   </>
