@@ -14,9 +14,10 @@ function lineClass(kind: DiffLine["kind"]): string {
 }
 
 // Stronger background for the word-diff's changed run within a paired
-// del/add line — same "dim vs strong" contrast SplitHunk uses.
+// del/add line — same "dim vs strong" contrast SplitHunk uses. Dark text on
+// the bright bg-ok/bg-bad (white-on-mint is ~1.9 contrast — too low).
 function strongLineClass(kind: "add" | "del"): string {
-  return kind === "add" ? "bg-ok text-white" : "bg-bad text-white";
+  return kind === "add" ? "bg-ok text-surface-0" : "bg-bad text-surface-0";
 }
 
 /** Maps each `del`/`add` line index to its 1:1 counterpart's index, for

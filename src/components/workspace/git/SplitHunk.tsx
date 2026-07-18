@@ -75,9 +75,10 @@ const GUTTER_NUM_CLASS = "w-9 shrink-0 pr-1.5 text-right select-none text-ink-3 
 // row with no word-level spans (unpaired del/add) uses `dimCls` across the
 // whole cell, matching the previous whole-line-background behavior.
 function sideClasses(side: "del" | "add"): { dim: string; strong: string } {
+  // Strong run: dark text on the bright bg-ok/bg-bad (white-on-mint ~1.9 = too low).
   return side === "del"
-    ? { dim: "bg-bad-bg text-bad", strong: "bg-bad text-white" }
-    : { dim: "bg-ok-bg text-ok", strong: "bg-ok text-white" };
+    ? { dim: "bg-bad-bg text-bad", strong: "bg-bad text-surface-0" }
+    : { dim: "bg-ok-bg text-ok", strong: "bg-ok text-surface-0" };
 }
 
 function Cell({
