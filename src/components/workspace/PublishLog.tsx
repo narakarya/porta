@@ -13,7 +13,7 @@ export default function PublishLog({ lines }: { lines: string[] }) {
   useEffect(() => {
     const el = containerRef.current;
     if (el && stuckToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [lines.length]);
+  }, [lines]);
 
   function handleScroll() {
     const el = containerRef.current;
