@@ -55,9 +55,8 @@ export default function AboutSection() {
       <div className="flex flex-col gap-4 p-5 rounded-xl bg-white/[0.03] border border-white/[0.07]">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[13px] font-medium text-zinc-200">Porta</p>
-            <p className="text-[11px] text-zinc-500 mt-0.5">
-              Version <span className="font-mono text-zinc-400">{version || "…"}</span>
+            <p className="text-[13px] text-zinc-300">
+              Version <span className="font-mono text-zinc-100">{version || "…"}</span>
               {phase === "ready" && info && (
                 <span className="ml-2 text-emerald-400">→ {info.version} pending restart</span>
               )}

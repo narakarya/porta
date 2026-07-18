@@ -51,11 +51,39 @@ function resolvedHost(app: App, workspace: Workspace | null): string {
   return sub === "*" ? `*.${domain}` : `${sub}.${domain}`;
 }
 
-function allHosts(app: App, workspace: Workspace | null): string[] {
+// Frontend mirror of the backend `App::all_routes` (src-tauri/src/db/models.rs).
+// Kept in lockstep so the Open control lists exactly what Caddy serves — the old
+// `allHosts` only emitted [primary, ...extras] and drifted from the canonical
+// set (missing port bindings, the tunnel alias, and the live public hostname).
+// Returns bare hostnames, deduped in first-seen order.
+function resolvedTargets(app: App, workspace: Workspace | null): string[] {
   const domain = app.custom_domain || workspace?.domain || "narakarya.test";
-  const primary = resolvedHost(app, workspace);
-  const extras = (app.extra_subdomains ?? []).map((s) => `${s}.${domain}`);
-  return [primary, ...extras];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (host: string | null | undefined) => {
+    const h = host?.trim();
+    if (!h || h.includes("*") || seen.has(h)) return;
+    seen.add(h);
+    out.push(h);
+  };
+
+  // ── LOCAL — hosts Caddy serves directly ──
+  push(resolvedHost(app, workspace)); // primary
+  for (const s of app.extra_subdomains ?? []) push(`${s}.${domain}`);
+  // Each port binding routes to its own port but is reached via its own host.
+  for (const b of app.port_bindings ?? []) {
+    const bDomain = b.custom_domain?.trim() || domain;
+    const bSub = b.subdomain?.trim() || b.label.trim().toLowerCase().replace(/\s+/g, "-") || "binding";
+    push(`${bSub}.${bDomain}`);
+  }
+  push(app.tunnel_alias_domain); // multi-tenant alias hostname
+
+  // ── PUBLIC — only when a tunnel is live ──
+  if (app.tunnel_active) {
+    push(app.tunnel_custom_hostname || app.tunnel_url?.replace(/^https?:\/\//, "").replace(/\/$/, ""));
+  }
+
+  return out;
 }
 
 function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
@@ -117,7 +145,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   // Host computations read app fields that rarely change — memoize so they
   // don't re-run on unrelated parent state updates.
   const host = useMemo(() => resolvedHost(app, workspace), [app.custom_domain, app.subdomain, app.name, workspace?.domain]);
-  const hosts = useMemo(() => allHosts(app, workspace), [app.custom_domain, app.subdomain, app.name, app.extra_subdomains, workspace?.domain]);
+  const hosts = useMemo(() => resolvedTargets(app, workspace), [app.custom_domain, app.subdomain, app.name, app.extra_subdomains, app.port_bindings, app.tunnel_alias_domain, app.tunnel_active, app.tunnel_custom_hostname, app.tunnel_url, workspace?.domain]);
   const scheme = setupStatus?.certs_generated ? "https" : "http";
   const isStatic = app.kind === "static";
   const isDocker = app.kind === "docker";
@@ -130,7 +158,6 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   const isRunning = app.status === "running";
   const isActive = isRunning || isStarting; // process is alive
   const isWildcard = (app.subdomain ?? app.name) === "*";
-  const extraCount = (app.extra_subdomains ?? []).length;
   const logs = appLogs ?? [];
   const exitCode = appExitCode ?? null;
   const crashed = exitCode !== null && exitCode !== 0;
@@ -152,14 +179,21 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   }, [isRestarting, isRunning, app.status]);
 
   const [instancesModalOpen, setInstancesModalOpen] = useState(false);
-  const [instancesExpanded, setInstancesExpanded] = useState(true);
+  // Persisted per-app so the Instances region stays open/closed across reloads.
+  const instancesExpanded = usePortaStore((s) => s.appInstancesExpanded[app.id] ?? true);
+  const setInstancesExpanded = usePortaStore((s) => s.setAppInstancesExpanded);
   const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
   const [fileEditorInitialPath, setFileEditorInitialPath] = useState<string | undefined>(undefined);
   const [trafficOpen, setTrafficOpen] = useState(false);
-  const [appExtensions, setAppExtensions] = useState<ExtensionInfo[]>([]);
+  // Seed from the store cache so a workspace switch (which remounts every card)
+  // paints the already-known extensions immediately instead of flashing empty
+  // then re-detecting. `cacheAppExtensions` populates it on first detection.
+  const [appExtensions, setAppExtensions] = useState<ExtensionInfo[]>(
+    () => usePortaStore.getState().appExtensions[app.id] ?? [],
+  );
   const extSidebarActive = extensionSidebar?.appId === app.id;
   const [hostsMenuOpen, setHostsMenuOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -232,7 +266,15 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   }, [portCheckOpen]);
 
   // Load extensions that match this app on mount (and when app kind changes).
+  // A warm cache short-circuits the async detect — detectAppTags touches the
+  // filesystem, so re-running it for every card on each workspace switch was
+  // both the shimmer and a burst of parallel scans. Empty cache ⇒ detect.
   useEffect(() => {
+    const cached = usePortaStore.getState().appExtensions[app.id];
+    if (cached && cached.length > 0) {
+      setAppExtensions(cached);
+      return;
+    }
     async function load() {
       const tags = app.root_dir ? await detectAppTags(app.root_dir).catch(() => [] as string[]) : [];
       const exts = await getExtensionsForApp(app.kind, tags).catch(() => [] as ExtensionInfo[]);
@@ -446,10 +488,12 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             ) : (
               <p className="text-[11px] text-zinc-600">port {app.port}</p>
             )}
-            {/* Git badge — process apps only. Docker/compose/static/proxy don't
-                run the branch workflow, and showing just branch stats there
-                read as a feature that then couldn't deliver. */}
-            {app.kind === "process" && <GitBadge app={app} onOpenTerminal={onOpenTerminal} hideWorktreeLauncher={isInstance} />}
+            {/* Git badge — any app rooted in a repo (docker/compose/static
+                included; the poller computes their status too). Proxy apps have
+                no root_dir to track. GitBadge self-gates when there's no status,
+                and the branch/worktree workflow gates separately on process
+                apps via `branchOpsEligible`, so this only controls visibility. */}
+            {app.root_dir && !isProxy && <GitBadge app={app} onOpenTerminal={onOpenTerminal} hideWorktreeLauncher={isInstance} />}
             {isManaged && portCheck && !portCheck.available && (() => {
               // `ps -o comm=` returns the full command path for binaries
               // launched by version managers (mise/asdf/nvm) — strip to the
@@ -654,8 +698,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
         {/* Open browser — when running (or for static/proxy, always served by Caddy) and not wildcard */}
         {(isRunning || isStatic || isProxy) && !isWildcard && (
           <div className="relative">
-            {extraCount === 0 ? (
-              // Single subdomain — plain link
+            {hosts.length <= 1 ? (
+              // Single target — plain link
               <Tooltip label={`Open ${scheme}://${host}`}>
                 <a
                   href={`${scheme}://${host}`}
@@ -669,7 +713,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 </a>
               </Tooltip>
             ) : (
-              // Multiple subdomains — dropdown button (rendered via portal to escape ancestor clipping)
+              // Multiple targets — dropdown button (rendered via portal to escape ancestor clipping)
               <HostsDropdown
                 hostsMenuOpen={hostsMenuOpen}
                 setHostsMenuOpen={setHostsMenuOpen}
@@ -722,21 +766,22 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   setBannerDismissed(false);
                   doRestart();
                 }}
-                disabled={isRestarting || pendingRestart}
+                disabled={isRestarting || pendingRestart || isStarting}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
                   text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
                   disabled:text-amber-400/70 disabled:bg-amber-500/10"
-                title="Restart"
+                title={isStarting && !isRestarting && !pendingRestart ? "Starting…" : "Restart"}
               >
-                {isRestarting || pendingRestart ? (
+                {isRestarting || pendingRestart || isStarting ? (
                   <>
                     <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
                       <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                     </svg>
-                    Restarting
+                    {isStarting && !isRestarting && !pendingRestart ? "Starting…" : "Restarting"}
                   </>
                 ) : "Restart"}
               </button>
+              {/* Stop stays enabled during 'starting' so it acts as Cancel. */}
               <button
                 onClick={doStop}
                 className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
@@ -895,7 +940,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
         <div className="border-t border-white/10">
           <div className="px-3 py-2">
             <button
-              onClick={() => setInstancesExpanded((v) => !v)}
+              onClick={() => setInstancesExpanded(app.id, !instancesExpanded)}
               className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
               aria-expanded={instancesExpanded}
             >

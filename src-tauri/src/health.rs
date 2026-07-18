@@ -48,6 +48,55 @@ fn check_http(port: u16, path: &str) -> HealthStatus {
     }
 }
 
+/// Outcome of the startup HTTP readiness probe on `/` used to gate `app:ready`
+/// for apps that have no configured `health_check_path`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HttpProbe {
+    /// The server returned an HTTP response of any status (2xx…5xx) — it is
+    /// serving, so the app is ready.
+    Responded,
+    /// The port accepts a raw TCP connect but doesn't speak HTTP: a fresh
+    /// connection is refused/reset or the reply isn't parseable as HTTP. That
+    /// means a genuinely non-HTTP process — the caller can treat the earlier
+    /// TCP-open as ready.
+    NotHttp,
+    /// Connected but no usable HTTP response yet (timeout) — the server is
+    /// likely still booting; the caller should keep polling.
+    Pending,
+}
+
+/// Probe `http://localhost:{port}/` once with a short timeout to decide whether
+/// an app that already accepts TCP is actually serving HTTP. Gates the
+/// `app:ready` signal so the Open button / "is ready" notification don't fire
+/// before the server can answer a request. Any HTTP status counts as serving;
+/// redirects are not followed (a 3xx is itself proof the app responded).
+pub fn probe_http_root(port: u16) -> HttpProbe {
+    let url = format!("http://localhost:{}/", port);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::none())
+        .build();
+    let client = match client {
+        Ok(c) => c,
+        // Can't build a client — don't declare non-HTTP; let the caller retry.
+        Err(_) => return HttpProbe::Pending,
+    };
+    match client.get(&url).send() {
+        Ok(_) => HttpProbe::Responded,
+        Err(e) => {
+            if e.is_timeout() {
+                // Accepted the connection but hasn't replied in time — a
+                // still-booting HTTP server behaves like this. Retry.
+                HttpProbe::Pending
+            } else {
+                // Refused / reset / protocol error on a port that just accepted
+                // a raw TCP connect → not an HTTP server.
+                HttpProbe::NotHttp
+            }
+        }
+    }
+}
+
 fn check_tcp(port: u16) -> HealthStatus {
     let addr = format!("127.0.0.1:{}", port);
     match TcpStream::connect_timeout(

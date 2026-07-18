@@ -167,7 +167,13 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           appRestarting: { ...s.appRestarting, [app.id]: false },
           appStartedAt: { ...s.appStartedAt, [app.id]: Date.now() },
         }));
-        cmd.markAppReady(app.id).catch(() => {});
+        // Mark ready in the DB, then immediately refresh this app's health icon
+        // so it isn't stale until the next 30s bulk poll. Sequenced after
+        // markAppReady because check_app_health returns Unknown unless the DB
+        // status is already "running".
+        cmd.markAppReady(app.id)
+          .then(() => get().refreshAppHealth(app.id))
+          .catch(() => {});
         // Kick off the tunnel if the user opted into auto-start. Reads the
         // latest app snapshot so a just-toggled flag is honored.
         //

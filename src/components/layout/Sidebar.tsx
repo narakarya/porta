@@ -6,7 +6,7 @@ import type { Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import type { Service } from "../../types";
 import Tooltip from "../shared/Tooltip";
-import { checkForUpdate, dismissUpdater } from "../../lib/updater";
+import { checkForUpdate, dismissUpdater, restartForUpdate, startUpdateDownload } from "../../lib/updater";
 
 // Sidebar modals — kept out of the initial bundle since they only show on
 // click. Without lazy() they'd be parsed up-front for every app launch.
@@ -26,7 +26,11 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { workspaces, apps, services, selectedWorkspaceId, imageUpdateCache, selectWorkspace, reorderWorkspaces, reorderServices, mainView, setMainView } = usePortaStore(
+  const {
+    workspaces, apps, services, selectedWorkspaceId, imageUpdateCache,
+    selectWorkspace, reorderWorkspaces, reorderServices, mainView, setMainView,
+    wsExpanded, setWsExpanded, otherExpanded, setOtherExpanded, servicesCollapsed, setServicesCollapsed,
+  } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
@@ -38,6 +42,13 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       reorderServices: s.reorderServices,
       mainView: s.mainView,
       setMainView: s.setMainView,
+      // Section-collapse prefs live in the ui slice so they persist across reload.
+      wsExpanded: s.sidebarWsExpanded,
+      setWsExpanded: s.setSidebarWsExpanded,
+      otherExpanded: s.sidebarOtherExpanded,
+      setOtherExpanded: s.setSidebarOtherExpanded,
+      servicesCollapsed: s.sidebarServicesCollapsed,
+      setServicesCollapsed: s.setSidebarServicesCollapsed,
     }))
   );
   const [showAddWs, setShowAddWs] = useState(false);
@@ -45,9 +56,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [wsExpanded, setWsExpanded] = useState(true);
-  const [otherExpanded, setOtherExpanded] = useState(true);
-  const [servicesCollapsed, setServicesCollapsed] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   // Refs so global mouseup can read latest values without stale closures
@@ -392,6 +400,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       </div>
 
       <div className="px-2 pt-2 border-t border-white/[0.06] no-drag flex flex-col gap-0.5">
+        <SidebarUpdateButton />
         <button
           onClick={onOpenSettings}
           className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[13px] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.05] transition-all duration-100"
@@ -446,6 +455,65 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         {editingService && <ServiceSettingsModal service={editingService} onClose={() => setEditingService(null)} />}
       </Suspense>
     </aside>
+  );
+}
+
+/**
+ * Prominent update affordance in the sidebar footer. The passive version row
+ * (SidebarStatusRow) only shows an amber dot — too subtle to notice — so this
+ * surfaces a labelled Download/Restart button once an update is in play.
+ * Only meaningful inside the Tauri shell (the updater is a no-op in a browser).
+ */
+function SidebarUpdateButton() {
+  const { phase, info } = usePortaStore(
+    useShallow((s) => ({ phase: s.updaterPhase, info: s.updaterInfo })),
+  );
+
+  if (!isTauri) return null;
+  if (phase !== "available" && phase !== "downloading" && phase !== "installing" && phase !== "ready") {
+    return null;
+  }
+
+  const version = info?.version;
+
+  if (phase === "ready") {
+    return (
+      <button
+        onClick={() => void restartForUpdate()}
+        className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[13px] font-medium text-emerald-300 bg-emerald-500/[0.12] hover:bg-emerald-500/20 transition-colors"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
+          <path d="M10 6a4 4 0 1 1-1.2-2.86M10 1.5V4H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        <span className="flex-1 text-left truncate">Restart to update{version ? ` v${version}` : ""}</span>
+      </button>
+    );
+  }
+
+  const downloading = phase === "downloading" || phase === "installing";
+  const pct = info && info.total > 0
+    ? Math.min(100, Math.floor((info.downloaded / info.total) * 100))
+    : null;
+  const label =
+    phase === "installing" ? "Installing…" :
+    phase === "downloading" ? (pct !== null ? `Downloading… ${pct}%` : "Downloading…") :
+    `Update to v${version}`;
+
+  return (
+    <button
+      onClick={() => void startUpdateDownload()}
+      disabled={downloading}
+      className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[13px] font-medium text-blue-300 bg-blue-500/[0.12] hover:bg-blue-500/20 disabled:hover:bg-blue-500/[0.12] disabled:cursor-default transition-colors"
+    >
+      {downloading ? (
+        <span className="spinner text-blue-300 shrink-0" style={{ width: 12, height: 12 }} />
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
+          <path d="M6 1.5v6M3.5 5L6 7.5 8.5 5M2.5 10h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+      <span className="flex-1 text-left truncate">{label}</span>
+    </button>
   );
 }
 

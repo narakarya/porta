@@ -109,6 +109,15 @@ export interface UiSlice {
   resourceDrawerOpen: boolean;
   /** Which top-level surface the main content area renders. */
   mainView: "workspace" | "hosts";
+  /**
+   * Sidebar section collapse prefs — persisted to localStorage so they survive
+   * reload. Previously component-local useState that reset on every launch.
+   */
+  sidebarWsExpanded: boolean;
+  sidebarOtherExpanded: boolean;
+  sidebarServicesCollapsed: boolean;
+  /** Per-app "Instances" region expansion, keyed by app id (persisted). */
+  appInstancesExpanded: Record<string, boolean>;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -128,6 +137,10 @@ export interface UiSlice {
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
   bumpExtensionList: () => void;
   setMainView: (v: "workspace" | "hosts") => void;
+  setSidebarWsExpanded: (v: boolean) => void;
+  setSidebarOtherExpanded: (v: boolean) => void;
+  setSidebarServicesCollapsed: (v: boolean) => void;
+  setAppInstancesExpanded: (appId: string, v: boolean) => void;
 }
 
 // Monotonic counter feeding ExtensionSidebarState.focusNonce (see its docs).
@@ -135,6 +148,10 @@ let extensionFocusNonce = 0;
 
 const LS_PLACEMENT = "porta.terminal.placement";
 const LS_PANEL_HEIGHT = "porta.terminal.panelHeight";
+const LS_WS_EXPANDED = "porta.sidebar.wsExpanded";
+const LS_OTHER_EXPANDED = "porta.sidebar.otherExpanded";
+const LS_SERVICES_COLLAPSED = "porta.sidebar.servicesCollapsed";
+const LS_INSTANCES_EXPANDED = "porta.app.instancesExpanded";
 
 function loadPlacement(): TerminalPlacement {
   if (typeof localStorage === "undefined") return "modal";
@@ -146,6 +163,22 @@ function loadPanelHeight(): number {
   if (typeof localStorage === "undefined") return 0.4;
   const n = parseFloat(localStorage.getItem(LS_PANEL_HEIGHT) || "");
   return Number.isFinite(n) && n >= 0.15 && n <= 0.92 ? n : 0.4;
+}
+
+function loadBool(key: string, fallback: boolean): boolean {
+  if (typeof localStorage === "undefined") return fallback;
+  const v = localStorage.getItem(key);
+  return v === null ? fallback : v === "true";
+}
+
+function loadInstancesExpanded(): Record<string, boolean> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LS_INSTANCES_EXPANDED) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get) => ({
@@ -167,6 +200,10 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   extensionListVersion: 0,
   resourceDrawerOpen: false,
   mainView: "workspace",
+  sidebarWsExpanded: loadBool(LS_WS_EXPANDED, true),
+  sidebarOtherExpanded: loadBool(LS_OTHER_EXPANDED, true),
+  sidebarServicesCollapsed: loadBool(LS_SERVICES_COLLAPSED, false),
+  appInstancesExpanded: loadInstancesExpanded(),
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -228,4 +265,23 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   bumpExtensionList: () => set((s) => ({ extensionListVersion: s.extensionListVersion + 1 })),
 
   setMainView: (v) => set({ mainView: v }),
+
+  setSidebarWsExpanded: (v) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_WS_EXPANDED, String(v));
+    set({ sidebarWsExpanded: v });
+  },
+  setSidebarOtherExpanded: (v) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_OTHER_EXPANDED, String(v));
+    set({ sidebarOtherExpanded: v });
+  },
+  setSidebarServicesCollapsed: (v) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_SERVICES_COLLAPSED, String(v));
+    set({ sidebarServicesCollapsed: v });
+  },
+  setAppInstancesExpanded: (appId, v) =>
+    set((s) => {
+      const next = { ...s.appInstancesExpanded, [appId]: v };
+      if (typeof localStorage !== "undefined") localStorage.setItem(LS_INSTANCES_EXPANDED, JSON.stringify(next));
+      return { appInstancesExpanded: next };
+    }),
 });

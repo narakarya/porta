@@ -252,8 +252,18 @@ const LogLine = memo(function LogLine({
       ? continuationUsesSeverity && continuationLevel ? LEVEL_CLASS[continuationLevel] : blockTextCls
       : headerUsesSeverity && effectiveLevel ? LEVEL_CLASS[effectiveLevel] : blockTextCls;
   const badge = effectiveLevel ? LEVEL_BADGE[effectiveLevel] : null;
-  const railLevel = crashed ? "error" : ownerLevel;
-  const railCls = railLevel ? LEVEL_RAIL[railLevel] : "border-zinc-700/40";
+  // Severity rail spans the WHOLE block: a leveled header and its continuations
+  // (SQL body, `↳` caller, stacktrace) share one border-l tint so they read as a
+  // single bordered unit — no more "header railless, body bordered" split within
+  // an error/warn entry. The block level is the header's own level, or the level
+  // a continuation inherits from its owner (identical within a block, so header +
+  // body match). Only error/warn earn a rail; other levels and standalone
+  // level-less stdout stay rail-free so the border reads purely as a severity cue.
+  const blockLevel = crashed ? "error" : isContinuation ? ownerLevel : level;
+  const railCls =
+    blockLevel === "error" || blockLevel === "warn"
+      ? `border-l ${LEVEL_RAIL[blockLevel]} pl-2`
+      : "";
   const rowBg = isActiveMatch
     ? "bg-yellow-500/[0.08] ring-1 ring-yellow-500/20"
     : "bg-transparent";
@@ -262,16 +272,16 @@ const LogLine = memo(function LogLine({
     <div
       className={`flex gap-2 py-[2.5px] rounded px-1 group items-start ${rowBg} hover:bg-white/[0.025]`}
     >
-      <span className="text-[11px] text-zinc-600 w-8 shrink-0 text-right tabular-nums pt-[2px] group-hover:text-zinc-400 select-none">
+      <span className="text-[11px] text-zinc-600 min-w-[6ch] shrink-0 text-right tabular-nums pr-1 pt-[2px] group-hover:text-zinc-400 select-none">
         {seq + 1}
       </span>
-      <span className="w-8 shrink-0 pt-[1px] select-none">
+      <span className="flex justify-center w-10 shrink-0 pt-[1px] select-none">
         {badge && (
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onCopyBlock(originalIndex)}
             title="Copy this entry (with its body/stacktrace)"
-            className={`text-[9px] font-medium px-1 py-px rounded border transition-all cursor-pointer ${
+            className={`text-[9px] font-medium px-1 py-px rounded border text-center min-w-[2.5rem] transition-all cursor-pointer ${
               blockCopied
                 ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
                 : `${badge.cls} hover:brightness-125`
@@ -282,9 +292,7 @@ const LogLine = memo(function LogLine({
         )}
       </span>
       <span
-        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[13.5px] ${textCls} ${
-          isContinuation ? `border-l ${railCls} pl-2` : ""
-        }`}
+        className={`${wrap ? "terminal-log-line-wrap min-w-0" : "terminal-log-line min-w-max"} flex-1 text-[13.5px] ${textCls} ${railCls}`}
       >
         {highlightLine(text, query)}
       </span>

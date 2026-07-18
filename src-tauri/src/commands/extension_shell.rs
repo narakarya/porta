@@ -167,26 +167,48 @@ pub async fn extension_shell_run(
     // 4. Cap timeout
     let ms = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS).min(MAX_TIMEOUT_MS);
 
-    // 5. Spawn via login shell so user PATH (mix, node, etc.) is available
+    // 5. Spawn via login shell so user PATH (mix, node, etc.) is available.
+    //    Hardening mirrors git.rs `run_bin` so a network subprocess (git over
+    //    HTTPS/ssh) can't hang or leak descendants past the timeout:
+    //    - GIT_TERMINAL_PROMPT=0 + null stdin: Porta has no tty, so without
+    //      this an HTTPS git op blocks forever asking for credentials. Nulling
+    //      stdin makes the no-hang guarantee structural (covers ssh passphrase
+    //      and host-key prompts too) instead of leaning on the timeout.
+    //      NOTE: this means an extension command cannot read interactive stdin.
+    //    - process_group(0): own group so a timeout can kill the command's
+    //      descendants (git → ssh, credential helpers) too, not just the top
+    //      pid — killing the top pid alone leaks them.
     let mut child = shell_cmd(&cmd, &cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
+    let pid = child.id();
     let stdout_handle = child.stdout.take();
     let stderr_handle = child.stderr.take();
 
     let result = timeout(Duration::from_millis(ms), async {
-        let mut stdout_buf = String::new();
-        let mut stderr_buf = String::new();
-
-        if let Some(mut out) = stdout_handle {
-            let _ = out.read_to_string(&mut stdout_buf).await;
-        }
-        if let Some(mut err) = stderr_handle {
-            let _ = err.read_to_string(&mut stderr_buf).await;
-        }
+        // Drain both pipes concurrently — reading them serially would deadlock
+        // if the child fills one pipe buffer while we block on the other.
+        let stdout_fut = async {
+            let mut buf = String::new();
+            if let Some(mut out) = stdout_handle {
+                let _ = out.read_to_string(&mut buf).await;
+            }
+            buf
+        };
+        let stderr_fut = async {
+            let mut buf = String::new();
+            if let Some(mut err) = stderr_handle {
+                let _ = err.read_to_string(&mut buf).await;
+            }
+            buf
+        };
+        let (stdout_buf, stderr_buf) = tokio::join!(stdout_fut, stderr_fut);
 
         let status = child.wait().await.map_err(|e| e.to_string())?;
         Ok::<(String, String, i32), String>((
@@ -206,6 +228,16 @@ pub async fn extension_shell_run(
         }),
         Ok(Err(e)) => Err(e),
         Err(_) => {
+            // Kill the whole process group (negative pid) so leaked git/ssh
+            // grandchildren are reaped, not just the direct child. `/bin/kill`
+            // because tokio/std expose no group-kill and we take no libc dep —
+            // mirrors git.rs `run_bin`.
+            if let Some(pid) = pid {
+                let _ = std::process::Command::new("/bin/kill")
+                    .args(["-9", &format!("-{pid}")])
+                    .output();
+            }
+            // Reap our direct child so we don't leave a zombie.
             let _ = child.kill().await;
             Ok(ShellResult {
                 stdout: String::new(),

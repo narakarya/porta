@@ -48,7 +48,7 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
             for app_id in &docker_ids {
                 if let Some((cpu, mem)) = DockerManager::stats(app_id) {
                     let payload = serde_json::json!({
-                        "cpu": (cpu * 10.0).round() / 10.0,
+                        "cpu": ((cpu as f64) * 10.0).round() / 10.0,
                         "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,
                     });
                     app.emit(&format!("app:metrics:{}", app_id), payload).ok();
@@ -71,7 +71,7 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
 
                 if cpu > 0.0 || mem > 0 {
                     let payload = serde_json::json!({
-                        "cpu": (cpu * 10.0).round() / 10.0,  // 1 decimal place
+                        "cpu": ((cpu as f64) * 10.0).round() / 10.0,  // 1 decimal place
                         "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,
                     });
                     app.emit(&format!("app:metrics:{}", app_id), payload).ok();

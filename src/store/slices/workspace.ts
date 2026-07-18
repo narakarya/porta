@@ -11,7 +11,7 @@ export interface WorkspaceSlice {
   addWorkspace: (name: string, domain: string) => Promise<void>;
   updateWorkspace: (id: string, name: string, domain: string) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
-  reorderWorkspaces: (fromIndex: number, toIndex: number) => void;
+  reorderWorkspaces: (fromIndex: number, toIndex: number) => Promise<void>;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -72,12 +72,21 @@ export const createWorkspaceSlice: StateCreator<AllSlices, [], [], WorkspaceSlic
 
   selectWorkspace: (id) => set({ selectedWorkspaceId: id, extensionSidebar: null }),
 
-  reorderWorkspaces: (fromIndex, toIndex) => {
+  reorderWorkspaces: async (fromIndex, toIndex) => {
     const list = [...get().workspaces];
     const [moved] = list.splice(fromIndex, 1);
     list.splice(toIndex, 0, moved);
+    // Optimistic reorder for snappy UX; reconcile with the DB on failure.
     set({ workspaces: list });
-    cmd.reorderWorkspaces(list.map((w) => w.id));
+    try {
+      await cmd.reorderWorkspaces(list.map((w) => w.id));
+    } catch (e) {
+      // Persist failed — reload the authoritative order first so in-memory
+      // state can't diverge from the DB, then surface why the reorder didn't
+      // stick (load() resets `error` at its start, so set it afterwards).
+      await get().load();
+      set({ error: String(e) });
+    }
   },
 
   addWorkspace: async (name, domain) => {

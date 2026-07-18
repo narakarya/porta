@@ -52,6 +52,9 @@ export interface AppSlice {
   imageUpdateLastChecked: Record<string, number>;
 
   refreshHealth: () => Promise<void>;
+  /** Refresh a single app's health icon immediately (e.g. right after it goes
+   * ready) instead of waiting for the 30s bulk poll. */
+  refreshAppHealth: (id: string) => Promise<void>;
   refreshApp: (id: string) => Promise<void>;
   startAllInWorkspace: (workspaceId: string) => Promise<void>;
   stopAllInWorkspace: (workspaceId: string) => Promise<void>;
@@ -111,6 +114,13 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     try {
       const statuses = await cmd.checkAllHealth();
       set({ healthStatuses: statuses });
+    } catch {}
+  },
+
+  refreshAppHealth: async (id) => {
+    try {
+      const status = await cmd.checkAppHealth(id);
+      set((s) => ({ healthStatuses: { ...s.healthStatuses, [id]: status } }));
     } catch {}
   },
 
