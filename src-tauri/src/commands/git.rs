@@ -803,6 +803,64 @@ pub async fn git_commit_amend(root_dir: String, message: String) -> Result<Strin
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CommitEntry {
+    pub hash: String,
+    pub short_hash: String,
+    pub author: String,
+    pub date: String,
+    pub subject: String,
+    pub refs: String,
+}
+
+/// Parse `git log --pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s%x1e` output
+/// into commit entries. Records are separated by `\x1e` (RS); fields within a
+/// record by `\x1f` (US) — both control characters a commit subject can never
+/// contain, unlike a plain delimiter such as `|` or a tab.
+fn parse_log(raw: &str) -> Vec<CommitEntry> {
+    raw.split('\x1e')
+        .map(str::trim)
+        .filter(|record| !record.is_empty())
+        .filter_map(|record| {
+            let mut fields = record.split('\x1f');
+            let hash = fields.next()?.to_string();
+            let short_hash = fields.next()?.to_string();
+            let author = fields.next()?.to_string();
+            let date = fields.next()?.to_string();
+            let refs = fields.next()?.to_string();
+            let subject = fields.next()?.to_string();
+            Some(CommitEntry { hash, short_hash, author, date, subject, refs })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn git_log(root_dir: String, limit: u32, skip: u32) -> Result<Vec<CommitEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        let fmt = "--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s%x1e";
+        let limit_s = limit.to_string();
+        let skip_s = skip.to_string();
+        let args = ["log", fmt, "--max-count", &limit_s, "--skip", &skip_s];
+        let raw = run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)?;
+        Ok(parse_log(&raw))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_show(root_dir: String, hash: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // Guard against option-injection: reject a hash that starts with '-'.
+        if hash.starts_with('-') {
+            return Err("invalid revision".into());
+        }
+        run_git_raw(&root_dir, &["show", "--patch", "--stat", &hash], LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// How many 15s status ticks between probes of a folder we already know isn't a
 /// repo. Repos and errored folders are probed every tick; non-repos far less
 /// often, since a plain folder becoming a repo is rare and a couple of minutes
@@ -1427,5 +1485,46 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         // Now the change is staged: `diff --cached` is non-empty, `diff` (unstaged) is empty.
         let staged = run_git_raw(ps, &["diff", "--cached", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
         assert!(staged.contains("+one\n TWO") || staged.contains("+TWO"), "staged diff should show TWO");
+    }
+
+    #[test]
+    fn parse_log_reads_nul_delimited_records() {
+        // Format: %H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s  then records joined by \x1e
+        let raw = "abc123\x1fabc\x1fAda\x1f2026-01-01T00:00:00Z\x1fHEAD -> main\x1finit\x1e\
+                   def456\x1fdef\x1fLin\x1f2026-01-02T00:00:00Z\x1f\x1fsecond commit\x1e";
+        let out = parse_log(raw);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].hash, "abc123");
+        assert_eq!(out[0].short_hash, "abc");
+        assert_eq!(out[0].author, "Ada");
+        assert_eq!(out[0].subject, "init");
+        assert_eq!(out[0].refs, "HEAD -> main");
+        assert_eq!(out[1].subject, "second commit");
+        assert_eq!(out[1].refs, "");
+    }
+
+    #[test]
+    fn git_log_reads_a_real_repo_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "first commit"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "second commit"]);
+
+        let ps = p.to_str().unwrap();
+        let fmt = "--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s%x1e";
+        let raw = run_git_raw(ps, &["log", fmt, "--max-count", "50", "--skip", "0"], LOCAL_TIMEOUT_SECS)
+            .unwrap();
+        let entries = parse_log(&raw);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].subject, "second commit");
+        assert_eq!(entries[1].subject, "first commit");
     }
 }

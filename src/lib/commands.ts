@@ -1698,6 +1698,23 @@ export const gitCommit = (rootDir: string, message: string): Promise<string> =>
 export const gitCommitAmend = (rootDir: string, message: string): Promise<string> =>
   isTauri ? invoke("git_commit_amend", { rootDir, message }) : Promise.resolve("");
 
+export type CommitEntry = {
+  hash: string;
+  short_hash: string;
+  author: string;
+  date: string;
+  subject: string;
+  refs: string;
+};
+
+/** Commit history, newest first. `limit`/`skip` page through `git log`. */
+export const gitLog = (rootDir: string, limit: number, skip: number): Promise<CommitEntry[]> =>
+  isTauri ? invoke("git_log", { rootDir, limit, skip }) : Promise.resolve([]);
+
+/** `git show --patch --stat` for a single commit hash, verbatim. */
+export const gitShow = (rootDir: string, hash: string): Promise<string> =>
+  isTauri ? invoke("git_show", { rootDir, hash }) : Promise.resolve("");
+
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 
 export interface SystemMetrics {

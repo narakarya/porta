@@ -269,6 +269,8 @@ pub fn run() {
             commands::set_git_autofetch_interval_secs,
             commands::git_worktree_list,
             commands::git_worktree_add,
+            commands::git_log,
+            commands::git_show,
             commands::list_instances,
             commands::start_instance,
             commands::stop_instance,
