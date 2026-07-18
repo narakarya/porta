@@ -77,6 +77,8 @@ export interface UiSlice {
   openToasts: string[];
   notificationsEnabled: boolean;
   imageUpdateNotifyEnabled: boolean;
+  /** Advanced Git tools (stage/unstage/commit/branch ops) toggle; persisted in Rust config. */
+  gitAdvancedEnabled: boolean;
   extensionSidebar: ExtensionSidebarState | null;
   /**
    * Per-app cache of extensions matching each app's kind+tags, keyed by app id.
@@ -127,6 +129,7 @@ export interface UiSlice {
   getToastIndex: (id: string) => number;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
+  setGitAdvancedEnabled: (enabled: boolean) => void;
   setBetaUpdates: (enabled: boolean) => void;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
@@ -171,6 +174,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   openToasts: [],
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
+  gitAdvancedEnabled: true,
   extensionSidebar: null,
   appExtensions: {},
   settingsSection: null,
@@ -193,11 +197,12 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   loadSettings: async () => {
     try {
-      const [enabled, imageUpdateEnabled] = await Promise.all([
+      const [enabled, imageUpdateEnabled, gitAdvancedEnabled] = await Promise.all([
         cmd.getNotificationsEnabled(),
         cmd.getImageUpdateNotifyEnabled(),
+        cmd.getGitAdvancedEnabled(),
       ]);
-      set({ notificationsEnabled: enabled, imageUpdateNotifyEnabled: imageUpdateEnabled });
+      set({ notificationsEnabled: enabled, imageUpdateNotifyEnabled: imageUpdateEnabled, gitAdvancedEnabled });
     } catch {}
   },
 
@@ -220,6 +225,8 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     await cmd.setImageUpdateNotifyEnabled(enabled);
     set({ imageUpdateNotifyEnabled: enabled });
   },
+
+  setGitAdvancedEnabled: (enabled) => set({ gitAdvancedEnabled: enabled }),
 
   setBetaUpdates: (enabled) => {
     if (typeof localStorage !== "undefined") {

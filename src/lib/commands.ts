@@ -1651,6 +1651,12 @@ export const getGitAutofetchIntervalSecs = (): Promise<number> =>
 export const setGitAutofetchIntervalSecs = (secs: number): Promise<void> =>
   isTauri ? invoke("set_git_autofetch_interval_secs", { secs }) : Promise.resolve();
 
+export const getGitAdvancedEnabled = (): Promise<boolean> =>
+  isTauri ? invoke("get_git_advanced_enabled") : Promise.resolve(true);
+
+export const setGitAdvancedEnabled = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_git_advanced_enabled", { enabled }) : Promise.resolve();
+
 // ── Git changes panel ──────────────────────────────────────────────────────────
 
 export interface ChangedFile {
