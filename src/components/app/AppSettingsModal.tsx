@@ -141,7 +141,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
       {/* Content */}
       <main className="flex-1 flex flex-col no-drag overflow-hidden">
       <div className={`flex-1 overflow-auto px-8 pb-4 ${embedded ? "pt-5" : "pt-10"}`}>
-        <div className="w-full flex flex-col gap-5">
+        <div className="w-full max-w-2xl flex flex-col gap-5">
 
           {section === "general" && <GeneralSection />}
 
@@ -168,7 +168,8 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
       {/* Sticky footer — replaces the per-section Save/Cancel rows. Hidden on
           Danger Zone since deletion has its own dedicated confirm flow. */}
       {section !== "danger" && section !== "health" && (
-        <footer className="shrink-0 border-t border-subtle bg-surface-input px-8 py-3 flex items-center gap-2">
+        <footer className="shrink-0 border-t border-subtle bg-surface-input px-8 py-3">
+          <div className="max-w-2xl flex items-center gap-2">
           {saveError && <p className="text-[11px] text-bad flex-1 truncate" title={saveError}>{saveError}</p>}
           {!saveError && isDirty && (
             <p className="text-[11px] text-warn flex-1">Unsaved changes</p>
@@ -202,6 +203,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
               )}
               {saving ? "Saving..." : "Save Changes"}
             </button>
+          </div>
           </div>
         </footer>
       )}

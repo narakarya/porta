@@ -14,6 +14,16 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
     thread::spawn(move || {
         let mut sys = System::new();
 
+        // Logical core count — used to normalize CPU to 0-100% of the whole
+        // machine. sysinfo's per-process `cpu_usage()` (and docker's CPUPerc)
+        // are core-additive: a process pegging every core reads ~100 × cores.
+        // Dividing by the core count gives an intuitive, bounded "% of this
+        // Mac" that matches the host CPU tile in Activity.
+        let ncores = thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .max(1) as f32;
+
         loop {
             thread::sleep(Duration::from_secs(2));
 
@@ -47,6 +57,9 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
             // Docker apps — pull stats from `docker stats --no-stream`.
             for app_id in &docker_ids {
                 if let Some((cpu, mem)) = DockerManager::stats(app_id) {
+                    // Docker's CPUPerc is also core-additive (200% = two full
+                    // cores); normalize to % of the machine like the process path.
+                    let cpu = (cpu / ncores).min(100.0);
                     let payload = serde_json::json!({
                         "cpu": (cpu * 10.0).round() / 10.0,
                         "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,
@@ -70,6 +83,8 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
                 let (cpu, mem) = collect_tree_metrics(&sys, Pid::from_u32(*pid));
 
                 if cpu > 0.0 || mem > 0 {
+                    // Normalize the summed process-tree CPU to 0-100% of the machine.
+                    let cpu = (cpu / ncores).min(100.0);
                     let payload = serde_json::json!({
                         "cpu": (cpu * 10.0).round() / 10.0,  // 1 decimal place
                         "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,

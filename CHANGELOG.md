@@ -6,6 +6,20 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.5]
+
+### Added
+- **Workbench Overview → Docker image**: Docker/Compose apps now show an image panel (image, update status, and a Check-for-updates / apply control) right in the Overview. The image-update affordance previously lived only on the grid card, which is hidden once an app is opened — so there was no way to reach it from the workbench.
+
+### Fixed
+- **Updater**: a background (silent) update check that fails on a transient release/network hiccup no longer pops a blocking "Update failed" toast — only a user-initiated check reports errors now. This also stops that error card (anchored bottom-left) from covering the Settings/account buttons at the bottom of the rail.
+- **Per-app CPU %**: normalized to 0–100% of the machine (divided by logical core count) for both native process-tree apps and Docker containers. It previously summed per-core usage and could read far above 100% (up to ~100×cores on a busy multi-core app).
+
+### Changed
+- **Config tab**: content and footer are width-constrained so form fields don't stretch across the full workbench.
+- **Open menu**: unified the dropdown row styling — the "Local" row no longer reads as mis-highlighted against the others.
+- **Publish tab**: the "Tunnel output" block is hidden until the tunnel has actually run, instead of showing an empty log pane.
+
 ## [0.12.0-beta.4]
 
 ### Added

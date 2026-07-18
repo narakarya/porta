@@ -14,6 +14,10 @@ import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";
 
 interface Props {
   app: App;
+  // Prominent mode (workbench Overview): always visible, with an image label +
+  // status line + a labeled button. The default (card) mode is a tiny icon that
+  // hover-reveals — too easy to miss once the app is opened and the card is gone.
+  prominent?: boolean;
 }
 
 type CheckState =
@@ -51,7 +55,7 @@ function maxRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
   return RISK_RANK[a] >= RISK_RANK[b] ? a : b;
 }
 
-export default function DockerUpdateBadge({ app }: Props) {
+export default function DockerUpdateBadge({ app, prominent = false }: Props) {
   const [state, setState] = useState<CheckState>({ kind: "idle" });
   const [updating, setUpdating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -207,22 +211,88 @@ export default function DockerUpdateBadge({ app }: Props) {
   // The amber "↑ N updates" state and error/checking states stay visible.
   const isQuiet = !hasAny && state.kind !== "error" && state.kind !== "checking";
 
+  // Prominent (workbench Overview) copy: an image label, a status line, and a
+  // labeled button — reusing the same check/update/popover logic underneath.
+  const imageLabel =
+    app.docker_image || (app.kind === "compose" ? "docker compose" : "—");
+  const statusText =
+    state.kind === "checking" ? "Checking for updates…"
+    : state.kind === "error" ? "Couldn't check for updates"
+    : state.kind === "ready" && hasAny ? `${updates.length} update${updates.length > 1 ? "s" : ""} available`
+    : state.kind === "ready" ? "Up to date"
+    : "Update status unknown";
+  const checkLabel =
+    state.kind === "checking" ? "Checking…"
+    : state.kind === "error" ? "Retry"
+    : state.kind === "ready" ? "Re-check"
+    : "Check for updates";
+  const checkIcon =
+    state.kind === "checking" ? (
+      <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M6.5 2A4.5 4.5 0 1 1 2 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ) : state.kind === "ready" ? (
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M3 6.5l2.5 2.5L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ) : (
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path
+          d="M11 6.5A4.5 4.5 0 1 1 6.5 2c1.4 0 2.7.6 3.5 1.7M10 1.5v2.5h-2.5"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+
   return (
     <div
       ref={anchorRef}
-      className={`inline-flex ${isQuiet ? "opacity-0 group-hover:opacity-100 transition-opacity duration-150" : ""}`}
+      className={
+        prominent
+          ? "flex items-center gap-2 w-full"
+          : `inline-flex ${isQuiet ? "opacity-0 group-hover:opacity-100 transition-opacity duration-150" : ""}`
+      }
       onClick={(e) => e.stopPropagation()}
     >
+      {prominent && (
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] text-ink font-mono truncate" title={imageLabel}>{imageLabel}</div>
+          <div className={`text-[11px] ${state.kind === "error" ? "text-bad" : hasAny ? "text-warn" : "text-ink-3"}`}>{statusText}</div>
+        </div>
+      )}
       {state.kind === "ready" && hasAny ? (
         <button
           onClick={(e) => {
             e.stopPropagation();
             setOpen((v) => !v);
           }}
-          className="text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.5 rounded leading-none uppercase transition-colors"
+          className={
+            prominent
+              ? "shrink-0 inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1.5 rounded-control uppercase transition-colors"
+              : "text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.5 rounded leading-none uppercase transition-colors"
+          }
           title={`${updates.length} image${updates.length > 1 ? "s" : ""} can be updated`}
         >
           ↑ {updates.length} update{updates.length > 1 ? "s" : ""}
+        </button>
+      ) : prominent ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            runCheck();
+          }}
+          disabled={state.kind === "checking"}
+          className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] rounded-control border transition-colors disabled:opacity-50 ${
+            state.kind === "error"
+              ? "text-red-400 border-red-500/30 hover:bg-red-500/10"
+              : "text-ink-2 border-subtle hover:text-ink hover:border-strong hover:bg-white/[0.03]"
+          }`}
+        >
+          {checkIcon}
+          {checkLabel}
         </button>
       ) : (
         <Tooltip
@@ -250,25 +320,7 @@ export default function DockerUpdateBadge({ app }: Props) {
                 : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
             }`}
           >
-            {state.kind === "checking" ? (
-              <svg className="animate-spin" width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M6.5 2A4.5 4.5 0 1 1 2 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-              </svg>
-            ) : state.kind === "ready" ? (
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M3 6.5l2.5 2.5L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            ) : (
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path
-                  d="M11 6.5A4.5 4.5 0 1 1 6.5 2c1.4 0 2.7.6 3.5 1.7M10 1.5v2.5h-2.5"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
+            {checkIcon}
           </button>
         </Tooltip>
       )}

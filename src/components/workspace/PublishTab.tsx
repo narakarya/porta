@@ -353,11 +353,15 @@ export default function PublishTab({
             )}
 
             {/* tunnel output — read-only stream of cloudflared/tunnel stderr,
-                fed live by the appTunnelLogs subscription. */}
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.04em] text-ink-3 mb-1.5">Tunnel output</div>
-              <PublishLog lines={tunnelLogs} />
-            </div>
+                fed live by the appTunnelLogs subscription. Only shown once the
+                tunnel has actually run (or is running); an empty log block on a
+                never-started tunnel is just dead space. */}
+            {(active || connecting || tunnelLogs.length > 0) && (
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.04em] text-ink-3 mb-1.5">Tunnel output</div>
+                <PublishLog lines={tunnelLogs} />
+              </div>
+            )}
           </div>
         </div>
       </div>

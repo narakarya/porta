@@ -142,7 +142,11 @@ async function runUpdateCheck(
     } catch (e) {
       if (!isCurrentCheck(generation)) return;
       const msg = e instanceof Error ? e.message : String(e);
-      if (silent && msg === "Update check timed out") {
+      // Background (silent) checks must never interrupt with a blocking "Update
+      // failed" toast — a transient release gap (beta tag mid-publish), an
+      // offline window, or an endpoint hiccup all land here. Stay quiet and let
+      // the next auto-check retry. Only a user-initiated check surfaces errors.
+      if (silent) {
         setPhase("idle", { updaterError: null, updaterInfo: null });
         return;
       }
@@ -184,11 +188,14 @@ async function runUpdateCheck(
   } catch (e) {
     if (!isCurrentCheck(generation)) return;
     const msg = e instanceof Error ? e.message : String(e);
-    if (silent && msg === "Update check timed out") {
+    // Background (silent) checks stay quiet on any failure — offline, timeout,
+    // or a transient "valid release JSON" fetch error shouldn't pop a blocking
+    // toast the user never asked for. The next auto-check retries.
+    if (silent) {
       setPhase("idle", { updaterError: null, updaterInfo: null });
       return;
     }
-    // The error toast (UpdateToast) surfaces this with Retry/Dismiss — no
+    // Manual checks surface the failure in the toast with Retry/Dismiss — no
     // blocking native dialog.
     setPhase("error", { updaterError: msg, updaterInfo: null });
     return;

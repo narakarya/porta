@@ -8,6 +8,7 @@ import TerminalTab from "../terminal/TerminalTab";
 import GitTab from "./GitTab";
 import PublishTab from "./PublishTab";
 import GitBadge from "../app/GitBadge";
+import DockerUpdateBadge from "../app/DockerUpdateBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
 import RunOnBranchPicker from "./RunOnBranchPicker";
 import { deriveInstanceApp } from "../../lib/instance-app";
@@ -467,7 +468,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             <div className="text-[10px] uppercase tracking-[0.04em] text-ink-3 px-2 py-1">Open in browser</div>
 
             {/* Local URL — always present; the app's default .test host or localhost. */}
-            <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control bg-surface-1">
+            <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control hover:bg-white/[0.03] transition-colors">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-2 shrink-0"><path d="M2.5 7L8 2.5 13.5 7M4 6v6.5h8V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
               <span className="min-w-0">
                 <span className="block text-[13px] text-ink">
@@ -488,7 +489,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
 
             {/* Tunnel — only when a live Cloudflare tunnel URL exists. */}
             {app.tunnel_active && app.tunnel_url && (
-              <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control">
+              <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control hover:bg-white/[0.03] transition-colors">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ok shrink-0"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg>
                 <span className="min-w-0">
                   <span className="block text-[13px] text-ink">
@@ -509,7 +510,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
 
             {/* Custom domain — only when the app has one configured. */}
             {app.custom_domain && (
-              <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control">
+              <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control hover:bg-white/[0.03] transition-colors">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-2 shrink-0"><path d="M8 2l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.8 4.6 12.5l.7-3.8L2.5 6l3.8-.5L8 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
                 <span className="min-w-0">
                   <span className="block text-[13px] text-ink">Custom domain</span>
@@ -648,6 +649,19 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 </div>
               </Card>
             </section>
+
+            {/* Docker image + update affordance (mockup: image updates live on
+                the grid card; once an app is opened the card is hidden, so the
+                check/apply badge must live here too — otherwise there's no way
+                to reach it from the workbench). Docker/compose apps only. */}
+            {!isInstance && (app.kind === "docker" || app.kind === "compose") && (
+              <section>
+                <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Docker image</div>
+                <div className="rounded-lg border border-subtle bg-surface-1 px-3 py-2.5">
+                  <DockerUpdateBadge app={app} prominent />
+                </div>
+              </section>
+            )}
 
             <section>
               <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Live metrics</div>
