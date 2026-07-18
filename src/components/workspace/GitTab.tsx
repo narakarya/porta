@@ -8,7 +8,6 @@ import {
   gitBranches,
   gitSwitchBranch,
   gitChangedFiles,
-  gitDiffFile,
   gitStage,
   gitUnstage,
   gitDiscard,
@@ -23,7 +22,7 @@ import HistoryPanel from "./git/HistoryPanel";
 import StashPanel from "./git/StashPanel";
 import TagsPanel from "./git/TagsPanel";
 import RebasePanel from "./git/RebasePanel";
-import { DiffLines } from "./git/diffLines";
+import DiffView from "./git/DiffView";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -142,8 +141,6 @@ export default function GitTab({ app }: { app: App }) {
   // ── Working-surface state (changed files / diff / commit box) ──────────────
   const [changed, setChanged] = useState<ChangedFile[]>([]);
   const [selected, setSelected] = useState<{ path: string; staged: boolean } | null>(null);
-  const [diff, setDiff] = useState("");
-  const [diffLoading, setDiffLoading] = useState(false);
   const [commitMsg, setCommitMsg] = useState("");
   const [amend, setAmend] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -188,18 +185,6 @@ export default function GitTab({ app }: { app: App }) {
       .catch(() => { if (!cancelled) setChanged([]); });
     return () => { cancelled = true; };
   }, [status, app.root_dir]);
-
-  // Load the unified diff for the selected file.
-  useEffect(() => {
-    if (!selected || !app.root_dir) { setDiff(""); return; }
-    let cancelled = false;
-    setDiffLoading(true);
-    gitDiffFile(app.root_dir, selected.path, selected.staged)
-      .then((d) => { if (!cancelled) setDiff(d); })
-      .catch(() => { if (!cancelled) setDiff(""); })
-      .finally(() => { if (!cancelled) setDiffLoading(false); });
-    return () => { cancelled = true; };
-  }, [selected, app.root_dir]);
 
   // Refresh both the changed-file list and the header GitStatus badge after any
   // mutation, keeping the store-backed poller value in sync.
@@ -719,12 +704,13 @@ export default function GitTab({ app }: { app: App }) {
                     <div className="h-full flex items-center justify-center text-ink-3 text-[12px] font-sans">
                       Select a file to view its diff
                     </div>
-                  ) : diffLoading ? (
-                    <div className="text-ink-3">Loading diff…</div>
-                  ) : diff.trim() === "" ? (
-                    <div className="text-ink-3">No textual diff to show.</div>
                   ) : (
-                    <DiffLines diff={diff} />
+                    <DiffView
+                      app={app}
+                      path={selected.path}
+                      staged={selected.staged}
+                      onChanged={refreshAfterMutation}
+                    />
                   )}
                 </div>
 
