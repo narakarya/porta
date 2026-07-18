@@ -812,6 +812,12 @@ function FileRow({
         <span className="text-ink-3">{dir}</span>
         <span className="text-ink">{base}</span>
       </span>
+      {(file.insertions > 0 || file.deletions > 0) && (
+        <span className="shrink-0 flex items-center gap-1 text-[11px] font-mono">
+          {file.insertions > 0 && <span className="text-ok">+{file.insertions}</span>}
+          {file.deletions > 0 && <span className="text-bad">−{file.deletions}</span>}
+        </span>
+      )}
       {confirmDiscard ? (
         <div className="shrink-0 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <span className="text-[11px] text-bad">Discard?</span>
