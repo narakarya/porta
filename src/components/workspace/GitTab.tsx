@@ -130,6 +130,20 @@ function deriveSelected(
   return null;
 }
 
+// Tab registry — tiers which sub-nav entries need the "advanced" git tools
+// setting on. Core tabs (Changes/Branches/Sync) always show; advanced tabs
+// (History/Stash/Tags/Rebase) are gated by `gitAdvancedEnabled`.
+type GitTabId = "changes" | "branches" | "sync" | "history" | "stash" | "tags" | "rebase";
+const GIT_TABS: { id: GitTabId; label: string; tier: "core" | "advanced" }[] = [
+  { id: "changes", label: "Changes", tier: "core" },
+  { id: "branches", label: "Branches", tier: "core" },
+  { id: "sync", label: "Sync", tier: "core" },
+  { id: "history", label: "History", tier: "advanced" },
+  { id: "stash", label: "Stash", tier: "advanced" },
+  { id: "tags", label: "Tags", tier: "advanced" },
+  { id: "rebase", label: "Rebase", tier: "advanced" },
+];
+
 /**
  * Full-panel Git view for the app workbench — the roomy counterpart to the
  * card's GitBadge popover. Reads the same store-backed GitStatus (the Rust
@@ -140,15 +154,18 @@ function deriveSelected(
  * sub-nav, a branch pill + Sync/overflow header, and a body. Changes (two-pane
  * diff/stage/commit) and Branches (list + switch + create) are live tabs
  * backed by real git commands; Sync is an inline fetch/pull/push panel; the
- * remaining tabs render their (currently stub) panel components.
+ * remaining tabs render their (currently stub) panel components. The
+ * History/Stash/Tags/Rebase tabs are "advanced" — hidden from the sub-nav
+ * (see `GIT_TABS`) unless the user has opted into advanced git tools.
  */
 export default function GitTab({ app }: { app: App }) {
   const status = usePortaStore((s) => s.appGit[app.id]);
   const setAppGit = usePortaStore((s) => s.setAppGit);
   const pollError = usePortaStore((s) => s.appGitError[app.id]);
   const setAppGitError = usePortaStore((s) => s.setAppGitError);
+  const gitAdvancedEnabled = usePortaStore((s) => s.gitAdvancedEnabled);
 
-  const [tab, setTab] = useState<"changes" | "branches" | "sync" | "history" | "stash" | "tags" | "rebase">("changes");
+  const [tab, setTab] = useState<GitTabId>("changes");
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchList | null>(null);
@@ -175,6 +192,14 @@ export default function GitTab({ app }: { app: App }) {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => { probedNonRepo.current = false; }, [app.root_dir]);
+
+  // If advanced tools get disabled while an advanced tab is open, snap back
+  // to Changes so the active tab is never hidden from the sub-nav.
+  useEffect(() => {
+    if (!gitAdvancedEnabled && GIT_TABS.find((t) => t.id === tab)?.tier === "advanced") {
+      setTab("changes");
+    }
+  }, [gitAdvancedEnabled, tab]);
 
   // Seed status once if the poller hasn't written it yet.
   useEffect(() => {
@@ -346,6 +371,7 @@ export default function GitTab({ app }: { app: App }) {
 
   const syncBusy = busy === "fetch" || busy === "pull";
   const clean = ahead === 0 && behind === 0 && dirty === 0;
+  const visibleTabs = GIT_TABS.filter((t) => t.tier === "core" || gitAdvancedEnabled);
 
   const stagedFiles = changed.filter((f) => f.staged);
   const unstagedFiles = changed.filter((f) => f.unstaged || f.untracked);
@@ -357,48 +383,17 @@ export default function GitTab({ app }: { app: App }) {
         {/* Sub-nav — Changes/Branches/Sync are live; History/Stash/Tags/Rebase
             render their (stub-for-now) panel components. */}
         <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
-          <button
-            onClick={() => setTab("changes")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "changes" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            Changes{dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
-          </button>
-          <button
-            onClick={() => setTab("branches")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "branches" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            Branches{branches && <span className="text-ink-3"> {branches.local.length}</span>}
-          </button>
-          <button
-            onClick={() => setTab("sync")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "sync" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            Sync
-          </button>
-          <button
-            onClick={() => setTab("history")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "history" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            History
-          </button>
-          <button
-            onClick={() => setTab("stash")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "stash" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            Stash
-          </button>
-          <button
-            onClick={() => setTab("tags")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "tags" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            Tags
-          </button>
-          <button
-            onClick={() => setTab("rebase")}
-            className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === "rebase" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-          >
-            Rebase
-          </button>
+          {visibleTabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === t.id ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+            >
+              {t.label}
+              {t.id === "changes" && dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
+              {t.id === "branches" && branches && <span className="text-ink-3"> {branches.local.length}</span>}
+            </button>
+          ))}
           <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
             {upstream ? `↕ ${upstream}` : "no upstream"}
           </span>
