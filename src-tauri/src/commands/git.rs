@@ -437,6 +437,98 @@ fn run_git_raw(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<Strin
     run_bin(bin, root_dir, args, timeout_secs, false)
 }
 
+/// Like [`run_git_raw`] but feeds `stdin_data` to the child's stdin before
+/// draining its output — the variant `git apply --cached` needs, since a
+/// patch has to arrive on stdin rather than as an argv/file argument.
+///
+/// Mirrors [`run_bin`]'s contract (env, process group, timeout, two-thread
+/// drain) with one difference: stdin is piped instead of nulled, and we write
+/// the patch and drop the handle (sending EOF) before spawning the drain
+/// threads, so a child that echoes large input back on stdout/stderr can't
+/// deadlock against us still holding stdin open.
+#[allow(dead_code)] // wired up by a later per-hunk-staging task
+fn run_git_stdin(
+    root_dir: &str,
+    args: &[&str],
+    stdin_data: &str,
+    timeout_secs: u64,
+) -> Result<String, String> {
+    let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
+
+    let mut child = Command::new(bin)
+        .current_dir(root_dir)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let pid = child.id();
+
+    // Write the patch and drop the handle (closing stdin / sending EOF) before
+    // draining stdout/stderr. On its own thread: a child that starts writing
+    // output before it has finished reading a large patch could otherwise
+    // deadlock us here while its own stdout/stderr pipe fills up.
+    let mut child_stdin = child.stdin.take().expect("piped stdin");
+    let stdin_data = stdin_data.to_string();
+    let in_writer = thread::spawn(move || {
+        use std::io::Write;
+        let _ = child_stdin.write_all(stdin_data.as_bytes());
+        // child_stdin drops here, closing the pipe and sending EOF.
+    });
+
+    let mut child_stdout = child.stdout.take().expect("piped stdout");
+    let mut child_stderr = child.stderr.take().expect("piped stderr");
+    let out_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = child_stdout.read_to_end(&mut buf);
+        buf
+    });
+    let err_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = child_stderr.read_to_end(&mut buf);
+        buf
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let _ = in_writer.join();
+                let stdout = out_reader.join().unwrap_or_default();
+                let stderr = err_reader.join().unwrap_or_default();
+                if status.success() {
+                    return Ok(String::from_utf8_lossy(&stdout).into_owned());
+                }
+                let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
+                return Err(if stderr.is_empty() {
+                    format!("git {} failed", args.join(" "))
+                } else {
+                    stderr
+                });
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = Command::new("/bin/kill")
+                        .args(["-9", &format!("-{pid}")])
+                        .output();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "git {} timed out after {timeout_secs}s — it may be waiting for credentials. \
+                         Open a terminal in this folder and run it there once.",
+                        args.join(" ")
+                    ));
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
 /// Spawn `bin` with a wall-clock budget, returning stdout on success and the
 /// child's own stderr on failure.
 ///
@@ -1314,5 +1406,26 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
             thread::sleep(Duration::from_millis(20));
         }
         assert!(!alive, "process {pid} survived the timeout kill");
+    }
+
+    #[test]
+    fn run_git_stdin_applies_a_patch_to_the_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+        // Modify working tree, get the full-file diff, feed it back via apply --cached.
+        std::fs::write(p.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+        let patch = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        run_git_stdin(ps, &["apply", "--cached"], &patch, LOCAL_TIMEOUT_SECS).unwrap();
+        // Now the change is staged: `diff --cached` is non-empty, `diff` (unstaged) is empty.
+        let staged = run_git_raw(ps, &["diff", "--cached", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(staged.contains("+one\n TWO") || staged.contains("+TWO"), "staged diff should show TWO");
     }
 }
