@@ -3,6 +3,7 @@ import type { App } from "../../../types";
 import { gitDiffFile, gitApplyHunk } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { Spinner } from "../../ui";
+import SplitHunk from "./SplitHunk";
 
 function lineClass(kind: DiffLine["kind"]): string {
   if (kind === "add") return "bg-ok-bg text-ok";
@@ -33,6 +34,7 @@ export default function DiffView({
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [view, setView] = useState<"unified" | "split">("unified");
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -76,12 +78,34 @@ export default function DiffView({
   }
 
   return (
-    <div>
-      {parsed.fileHeader.map((line, i) => (
-        <div key={`h${i}`} className="whitespace-pre text-ink-3">
-          {line === "" ? " " : line}
+    <div className="overflow-x-auto">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          {parsed.fileHeader.map((line, i) => (
+            <div key={`h${i}`} className="whitespace-pre text-ink-3">
+              {line === "" ? " " : line}
+            </div>
+          ))}
         </div>
-      ))}
+        <div className="shrink-0 flex rounded-control border border-strong overflow-hidden font-sans text-[11px]">
+          <button
+            onClick={() => setView("unified")}
+            className={`px-2 py-0.5 transition-colors duration-fast ${
+              view === "unified" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-white/[0.05]"
+            }`}
+          >
+            Unified
+          </button>
+          <button
+            onClick={() => setView("split")}
+            className={`px-2 py-0.5 transition-colors duration-fast ${
+              view === "split" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-white/[0.05]"
+            }`}
+          >
+            Split
+          </button>
+        </div>
+      </div>
       {parsed.hunks.map((hunk, hi) => (
         <div key={hi} className="mt-2 first:mt-0">
           <div className="flex items-center justify-between gap-2 whitespace-pre text-accent">
@@ -94,11 +118,15 @@ export default function DiffView({
               {applying === hi ? <Spinner size={11} /> : staged ? "Unstage hunk" : "Stage hunk"}
             </button>
           </div>
-          {hunk.lines.map((line, li) => (
-            <div key={li} className={`whitespace-pre ${lineClass(line.kind)}`}>
-              {line.text === "" ? " " : line.text}
-            </div>
-          ))}
+          {view === "unified" ? (
+            hunk.lines.map((line, li) => (
+              <div key={li} className={`whitespace-pre ${lineClass(line.kind)}`}>
+                {line.text === "" ? " " : line.text}
+              </div>
+            ))
+          ) : (
+            <SplitHunk hunk={hunk} />
+          )}
         </div>
       ))}
     </div>
