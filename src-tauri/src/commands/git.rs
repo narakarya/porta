@@ -840,7 +840,8 @@ fn diff_file_for(root_dir: &str, path: &str, staged: bool) -> Result<String, Str
 
     match run_git_diff_no_index(root_dir, path, LOCAL_TIMEOUT_SECS) {
         Ok(no_index_diff) if !no_index_diff.is_empty() => Ok(no_index_diff),
-        _ => Ok(diff),
+        Ok(_) => Ok(diff),
+        Err(e) => Err(e),
     }
 }
 
