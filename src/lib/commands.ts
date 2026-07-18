@@ -1737,6 +1737,23 @@ export const gitStashPop = (rootDir: string, index: number): Promise<void> =>
 export const gitStashDrop = (rootDir: string, index: number): Promise<void> =>
   isTauri ? invoke("git_stash_drop", { rootDir, index }) : Promise.resolve();
 
+export type TagEntry = {
+  name: string;
+  subject: string;
+};
+
+/** Tags, newest (by creatordate) first. `[]` when there are none. */
+export const gitTags = (rootDir: string): Promise<TagEntry[]> =>
+  isTauri ? invoke("git_tags", { rootDir }) : Promise.resolve([]);
+
+/** Create a tag at HEAD. Annotated (`-a -m <message>`) when `message` is non-empty, else lightweight. */
+export const gitCreateTag = (rootDir: string, name: string, message?: string): Promise<void> =>
+  isTauri ? invoke("git_create_tag", { rootDir, name, message }) : Promise.resolve();
+
+/** Delete a tag by name. */
+export const gitDeleteTag = (rootDir: string, name: string): Promise<void> =>
+  isTauri ? invoke("git_delete_tag", { rootDir, name }) : Promise.resolve();
+
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 
 export interface SystemMetrics {

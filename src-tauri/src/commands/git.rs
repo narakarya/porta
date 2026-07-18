@@ -934,6 +934,79 @@ pub async fn git_stash_drop(root_dir: String, index: u32) -> Result<(), String> 
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TagEntry {
+    pub name: String,
+    pub subject: String,
+}
+
+/// Parse `for-each-ref --format=%(refname:short)\x1f%(subject) refs/tags` output
+/// into tag entries. Each line is `<name>\x1f<subject>` — `subject` may be empty
+/// for a lightweight tag.
+fn parse_tags(raw: &str) -> Vec<TagEntry> {
+    raw.lines()
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            let (name, subject) = line.split_once('\x1f')?;
+            Some(TagEntry { name: name.to_string(), subject: subject.to_string() })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn git_tags(root_dir: String) -> Result<Vec<TagEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        let raw = run_git(
+            &root_dir,
+            &[
+                "for-each-ref",
+                "--sort=-creatordate",
+                "--format=%(refname:short)\x1f%(subject)",
+                "refs/tags",
+            ],
+            LOCAL_TIMEOUT_SECS,
+        )?;
+        Ok(parse_tags(&raw))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_create_tag(
+    root_dir: String,
+    name: String,
+    message: Option<String>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        // Guard against option-injection: reject a name that starts with '-'.
+        if name.starts_with('-') {
+            return Err("invalid tag name".into());
+        }
+        match message.as_deref() {
+            Some(msg) if !msg.is_empty() => {
+                run_git(&root_dir, &["tag", "-a", &name, "-m", msg], LOCAL_TIMEOUT_SECS).map(|_| ())
+            }
+            _ => run_git(&root_dir, &["tag", &name], LOCAL_TIMEOUT_SECS).map(|_| ()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_delete_tag(root_dir: String, name: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        // Guard against option-injection: reject a name that starts with '-'.
+        if name.starts_with('-') {
+            return Err("invalid tag name".into());
+        }
+        run_git(&root_dir, &["tag", "-d", &name], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// How many 15s status ticks between probes of a folder we already know isn't a
 /// repo. Repos and errored folders are probed every tick; non-repos far less
 /// often, since a plain folder becoming a repo is rare and a couple of minutes
@@ -1647,5 +1720,52 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let raw_after = run_git(ps, &["stash", "list", "--pretty=format:%gd\x1f%gs"], LOCAL_TIMEOUT_SECS)
             .unwrap();
         assert!(parse_stash_list(&raw_after).is_empty(), "stash should be gone after pop");
+    }
+
+    #[test]
+    fn parse_tags_reads_name_and_subject() {
+        let raw = "v1.0\x1frelease one\nv0.9\x1f";
+        let out = parse_tags(raw);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].name, "v1.0");
+        assert_eq!(out[0].subject, "release one");
+        assert_eq!(out[1].name, "v0.9");
+        assert_eq!(out[1].subject, "");
+    }
+
+    #[test]
+    fn create_list_delete_tag_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        run_git(ps, &["tag", "-a", "v1", "-m", "first release"], LOCAL_TIMEOUT_SECS).unwrap();
+
+        let raw = run_git(
+            ps,
+            &["for-each-ref", "--sort=-creatordate", "--format=%(refname:short)\x1f%(subject)", "refs/tags"],
+            LOCAL_TIMEOUT_SECS,
+        )
+        .unwrap();
+        let tags = parse_tags(&raw);
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].name, "v1");
+        assert_eq!(tags[0].subject, "first release");
+
+        run_git(ps, &["tag", "-d", "v1"], LOCAL_TIMEOUT_SECS).unwrap();
+        let raw_after = run_git(
+            ps,
+            &["for-each-ref", "--sort=-creatordate", "--format=%(refname:short)\x1f%(subject)", "refs/tags"],
+            LOCAL_TIMEOUT_SECS,
+        )
+        .unwrap();
+        assert!(parse_tags(&raw_after).is_empty(), "tag should be gone after delete");
     }
 }
