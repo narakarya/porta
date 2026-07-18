@@ -12,6 +12,8 @@ const PROVIDER_LABEL: Record<string, string> = {
   remote: "VPS relay",
 };
 
+const EMPTY_LOGS: string[] = [];
+
 type Access = "public" | "password" | "cfaccess";
 
 /* ── inline icons (16px stroke set, matches the rest of the app) ───────── */
@@ -69,7 +71,7 @@ export default function PublishTab({
       openAppSettings: s.openAppSettings,
       connecting: s.tunnelConnecting[app.id] ?? false,
       error: s.appTunnelErrors[app.id] ?? null,
-      tunnelLogs: s.appTunnelLogs[app.id] ?? [],
+      tunnelLogs: s.appTunnelLogs[app.id] ?? EMPTY_LOGS,
     }))
   );
   // Prefer the inline Config tab; fall back to the modal.

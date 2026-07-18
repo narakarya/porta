@@ -590,9 +590,8 @@ fn spawn_named_connector(
             let name2 = name.clone();
             // Named connector serves the merged ingress of many members; the
             // shared connector log is broadcast to each member's log channel.
-            let log_channels: Vec<String> = resolve_tunnel(&handle2, &name2)
-                .0
-                .into_iter()
+            let log_channels: Vec<String> = infos
+                .iter()
                 .map(|m| m.channel.replacen("tunnel:", "tunnel:log:", 1))
                 .collect();
             Some(thread::spawn(move || {
