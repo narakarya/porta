@@ -344,7 +344,11 @@ export default function GitTab({ app }: { app: App }) {
 
   const stagedFiles = changed.filter((f) => f.staged);
   const unstagedFiles = changed.filter((f) => f.unstaged || f.untracked);
-  const canCommit = !committing && (amend || (stagedFiles.length > 0 && commitMsg.trim() !== ""));
+  const canCommit =
+    !committing &&
+    (amend
+      ? stagedFiles.length > 0 || commitMsg.trim() !== ""
+      : stagedFiles.length > 0 && commitMsg.trim() !== "");
 
   return (
     <div className="h-full p-3">
@@ -699,8 +703,12 @@ export default function GitTab({ app }: { app: App }) {
                     placeholder={amend ? "Amend message (blank keeps existing)…" : "Commit message…"}
                     rows={2}
                     spellCheck={false}
-                    className="w-full resize-none rounded-control border border-subtle bg-surface-input text-[12px] text-ink placeholder:text-ink-3 px-2.5 py-1.5 mb-2 focus:outline-none focus:border-strong"
+                    className="w-full resize-none rounded-control border border-subtle bg-surface-input text-[12px] text-ink placeholder:text-ink-3 px-2.5 py-1.5 mb-1.5 focus:outline-none focus:border-strong"
                   />
+                  <div className="flex items-center justify-between mb-1.5 px-0.5 text-[10px] text-ink-3">
+                    <span>⌘↵ to commit</span>
+                    {stagedFiles.length > 0 && <span>{stagedFiles.length} staged</span>}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => doCommit(false)}
