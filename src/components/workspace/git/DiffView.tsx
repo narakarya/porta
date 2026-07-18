@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { App } from "../../../types";
-import { gitDiffFile, gitApplyHunk } from "../../../lib/commands";
+import { gitDiffFile, gitApplyHunk, gitDiscardHunk } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
@@ -40,6 +40,9 @@ export default function DiffView({
   const [applying, setApplying] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [view, setView] = useState<"unified" | "split">("unified");
+  // Inline "Discard?" confirm, mirroring StashPanel's Drop confirm — Tauri
+  // webview can't rely on window.confirm. Keyed by hunk index.
+  const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -77,6 +80,26 @@ export default function DiffView({
       if (mounted.current) setError(String(e));
     } finally {
       if (mounted.current) setApplying(null);
+    }
+  }
+
+  async function discardHunk(hunk: Hunk, index: number) {
+    if (!parsed) return;
+    setApplying(index);
+    setError(null);
+    try {
+      const patch = hunkToPatch(parsed.fileHeader, hunk);
+      await gitDiscardHunk(app.root_dir, patch);
+      if (!mounted.current) return;
+      onChanged();
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      if (mounted.current) setError(String(e));
+    } finally {
+      if (mounted.current) {
+        setApplying(null);
+        setConfirmDiscard(null);
+      }
     }
   }
 
@@ -128,17 +151,50 @@ export default function DiffView({
           </button>
         </div>
       </div>
-      {parsed.hunks.map((hunk, hi) => (
+      {parsed.hunks.map((hunk, hi) => {
+        const confirming = confirmDiscard === hi;
+        return (
         <div key={hi} className="mt-2 first:mt-0">
           <div className="flex items-center justify-between gap-2 whitespace-pre text-accent">
             <span>{hunk.header}</span>
-            <button
-              onClick={() => applyHunk(hunk, hi)}
-              disabled={applying !== null}
-              className="shrink-0 font-sans text-[11px] text-ink-2 border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
-            >
-              {applying === hi ? <Spinner size={11} /> : staged ? "Unstage hunk" : "Stage hunk"}
-            </button>
+            {confirming ? (
+              <div className="shrink-0 flex items-center gap-1.5 font-sans">
+                <span className="text-[11px] text-bad">Discard?</span>
+                <button
+                  onClick={() => discardHunk(hunk, hi)}
+                  disabled={applying !== null}
+                  className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                >
+                  {applying === hi ? <Spinner size={11} /> : "Confirm"}
+                </button>
+                <button
+                  onClick={() => setConfirmDiscard(null)}
+                  disabled={applying !== null}
+                  className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="shrink-0 flex items-center gap-1.5 font-sans">
+                {!staged && (
+                  <button
+                    onClick={() => setConfirmDiscard(hi)}
+                    disabled={applying !== null}
+                    className="text-[11px] text-bad border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                  >
+                    Discard hunk
+                  </button>
+                )}
+                <button
+                  onClick={() => applyHunk(hunk, hi)}
+                  disabled={applying !== null}
+                  className="text-[11px] text-ink-2 border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                >
+                  {applying === hi ? <Spinner size={11} /> : staged ? "Unstage hunk" : "Stage hunk"}
+                </button>
+              </div>
+            )}
           </div>
           {view === "unified" ? (
             hunk.lines.map((line, li) => (
@@ -150,7 +206,8 @@ export default function DiffView({
             <SplitHunk hunk={hunk} />
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
