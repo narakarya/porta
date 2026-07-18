@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import QRCode from "qrcode";
 import { usePortaStore } from "../../store";
 import { Badge, Popover, Spinner } from "../ui";
+import PublishLog from "./PublishLog";
 import type { App } from "../../types";
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -61,13 +62,14 @@ export default function PublishTab({
   // standalone settings modal when rendered outside the workbench.
   onOpenConfig?: (section?: import("../app/AppSettingsModal").Section) => void;
 }) {
-  const { startTunnel, stopTunnel, openAppSettings, connecting, error } = usePortaStore(
+  const { startTunnel, stopTunnel, openAppSettings, connecting, error, tunnelLogs } = usePortaStore(
     useShallow((s) => ({
       startTunnel: s.startTunnel,
       stopTunnel: s.stopTunnel,
       openAppSettings: s.openAppSettings,
       connecting: s.tunnelConnecting[app.id] ?? false,
       error: s.appTunnelErrors[app.id] ?? null,
+      tunnelLogs: s.appTunnelLogs[app.id] ?? [],
     }))
   );
   // Prefer the inline Config tab; fall back to the modal.
@@ -351,6 +353,13 @@ export default function PublishTab({
             {error && (
               <pre className="text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-28 overflow-y-auto rounded bg-surface-1 p-2">{error}</pre>
             )}
+
+            {/* tunnel output — read-only stream of cloudflared/tunnel stderr,
+                fed live by the appTunnelLogs subscription. */}
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.04em] text-ink-3 mb-1.5">Tunnel output</div>
+              <PublishLog lines={tunnelLogs} />
+            </div>
           </div>
         </div>
       </div>
