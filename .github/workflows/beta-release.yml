@@ -233,3 +233,26 @@ jobs:
       - name: Publish the beta release (drop draft flag)
         run: |
           gh release edit beta --repo "$REPO" --draft=false --prerelease
+
+      - name: Publish a per-version archival release page
+        # In addition to the rolling `beta` release (which the updater reads via
+        # the fixed releases/download/beta/latest.json endpoint — left untouched),
+        # publish a versioned prerelease at the `beta-v<version>` trigger tag so
+        # each beta has its own human-readable release page + notes + installers.
+        # This is purely archival: the updater never reads this release.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Human-facing installers from the rolling beta release.
+          mkdir -p /tmp/dist
+          gh release download beta --repo "$REPO" --pattern '*.dmg' --dir /tmp/dist
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$REPO" --prerelease \
+              --title "Porta Beta $VERSION" --notes-file /tmp/release-notes.txt
+            gh release upload "$TAG" --repo "$REPO" /tmp/dist/*.dmg --clobber
+          else
+            gh release create "$TAG" --repo "$REPO" --prerelease \
+              --title "Porta Beta $VERSION" --notes-file /tmp/release-notes.txt \
+              /tmp/dist/*.dmg
+          fi
