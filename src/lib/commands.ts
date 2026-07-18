@@ -1700,6 +1700,14 @@ export const gitUnstage = (rootDir: string, path: string): Promise<void> =>
 export const gitDiscard = (rootDir: string, path: string): Promise<void> =>
   isTauri ? invoke("git_discard", { rootDir, path }) : Promise.resolve();
 
+/** Stage every change (modified, added, deleted) across the working tree. */
+export const gitStageAll = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_stage_all", { rootDir }) : Promise.resolve();
+
+/** Unstage everything. */
+export const gitUnstageAll = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_unstage_all", { rootDir }) : Promise.resolve();
+
 /** Commit the staged changes; resolves git's summary line. REJECTS on failure. */
 export const gitCommit = (rootDir: string, message: string): Promise<string> =>
   isTauri ? invoke("git_commit", { rootDir, message }) : Promise.resolve("");

@@ -831,6 +831,44 @@ pub async fn git_unstage(root_dir: String, path: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Stage every change (modified, added, deleted) across the working tree —
+/// the "Stage all" action. Split out from the `#[tauri::command]` so it's
+/// unit-testable without going through `spawn_blocking`.
+fn git_stage_all_core(root_dir: &str) -> Result<(), String> {
+    run_git(root_dir, &["add", "-A"], LOCAL_TIMEOUT_SECS).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn git_stage_all(root_dir: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || git_stage_all_core(&root_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Unstage everything — the "Unstage all" action. `reset` (no pathspec) is
+/// what unstages the whole index against HEAD; unlike [`git_unstage`]'s
+/// per-path `restore --staged`, a bare `reset` is already unborn-branch safe
+/// (a fresh repo with no HEAD yet just gets its index emptied), so it's tried
+/// first here. `restore --staged .` is kept as a fallback in case some git
+/// version's `reset` still balks, mirroring the existing `git_unstage`
+/// fallback style. Split out from the `#[tauri::command]` so it's
+/// unit-testable without going through `spawn_blocking`.
+fn git_unstage_all_core(root_dir: &str) -> Result<(), String> {
+    match run_git(root_dir, &["reset"], LOCAL_TIMEOUT_SECS) {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            run_git(root_dir, &["restore", "--staged", "."], LOCAL_TIMEOUT_SECS).map(|_| ())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn git_unstage_all(root_dir: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || git_unstage_all_core(&root_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn git_discard(root_dir: String, path: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
@@ -1985,6 +2023,34 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let unstaged_after = run_git_raw(ps, &["diff", "--", "a.txt"], LOCAL_TIMEOUT_SECS).unwrap();
         assert!(staged_after.is_empty(), "change should be unstaged again");
         assert!(!unstaged_after.is_empty(), "the modification should be back in the working tree");
+    }
+
+    #[test]
+    fn stage_all_and_unstage_all_core_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        // Two new/changed files, neither staged yet.
+        std::fs::write(p.join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(p.join("b.txt"), "brand new\n").unwrap();
+
+        git_stage_all_core(ps).expect("stage_all should succeed");
+        let staged = run_git(ps, &["diff", "--cached", "--name-only"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(staged.contains("a.txt"), "a.txt should be staged: {staged}");
+        assert!(staged.contains("b.txt"), "b.txt should be staged: {staged}");
+
+        git_unstage_all_core(ps).expect("unstage_all should succeed");
+        let staged_after =
+            run_git(ps, &["diff", "--cached", "--name-only"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(staged_after.is_empty(), "nothing should remain staged: {staged_after}");
     }
 
     #[test]
