@@ -588,6 +588,13 @@ fn spawn_named_connector(
             let handle2 = app_handle.clone();
             let buf = stderr_buf.clone();
             let name2 = name.clone();
+            // Named connector serves the merged ingress of many members; the
+            // shared connector log is broadcast to each member's log channel.
+            let log_channels: Vec<String> = resolve_tunnel(&handle2, &name2)
+                .0
+                .into_iter()
+                .map(|m| m.channel.replacen("tunnel:", "tunnel:log:", 1))
+                .collect();
             Some(thread::spawn(move || {
                 let mut connected = false;
                 for line in std::io::BufReader::new(stderr)
@@ -601,6 +608,9 @@ fn spawn_named_connector(
                             let drop = b.len() - 30;
                             b.drain(0..drop);
                         }
+                    }
+                    for ch in &log_channels {
+                        handle2.emit(ch, serde_json::json!({ "line": line.clone() })).ok();
                     }
                     if !connected && line.contains("Registered tunnel connection") {
                         connected = true;
@@ -1004,6 +1014,9 @@ fn start_tunnel_blocking(
                             b.drain(0..drop);
                         }
                     }
+                    handle2
+                        .emit(&format!("app:tunnel:log:{}", id3), serde_json::json!({ "line": line.clone() }))
+                        .ok();
                     // Quick tunnel — scrape trycloudflare URL. Emit at most
                     // once (the banner can repeat the URL) and only after the
                     // hostname resolves locally, so the surfaced link works.
@@ -1234,6 +1247,7 @@ fn spawn_quick_tunnel_for_instance(
             let handle2 = handle.clone();
             let buf = stderr_buf.clone();
             let channel3 = channel2.clone();
+            let log_channel3 = channel3.replacen("tunnel:", "tunnel:log:", 1);
             Some(thread::spawn(move || {
                 let mut url_emitted = false;
                 for line in std::io::BufReader::new(stderr)
@@ -1248,6 +1262,9 @@ fn spawn_quick_tunnel_for_instance(
                             b.drain(0..drop);
                         }
                     }
+                    handle2
+                        .emit(&log_channel3, serde_json::json!({ "line": line.clone() }))
+                        .ok();
                     // Quick tunnel — scrape trycloudflare URL (same detection
                     // as the app path's quick branch), emitted once and only
                     // after the hostname resolves locally.
