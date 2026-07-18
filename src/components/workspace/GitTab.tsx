@@ -793,6 +793,15 @@ function FileRow({
 }) {
   const { char, cls } = statusBadge(file, staged);
   const { dir, base } = splitPath(file.path);
+
+  // Inline "Discard?" confirm, mirroring StashPanel's Drop confirm — Tauri
+  // webview can't rely on window.confirm. Reset if the row is deselected
+  // (user moved on to another file) so a stale confirm bar doesn't linger.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  useEffect(() => {
+    if (!active) setConfirmDiscard(false);
+  }, [active]);
+
   return (
     <div
       onClick={onSelect}
@@ -803,14 +812,34 @@ function FileRow({
         <span className="text-ink-3">{dir}</span>
         <span className="text-ink">{base}</span>
       </span>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDiscard(); }}
-        disabled={busy}
-        title="Discard changes"
-        className="shrink-0 opacity-0 group-hover:opacity-100 text-ink-3 hover:text-bad disabled:opacity-30 transition-colors"
-      >
-        <TrashIcon />
-      </button>
+      {confirmDiscard ? (
+        <div className="shrink-0 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <span className="text-[11px] text-bad">Discard?</span>
+          <button
+            onClick={() => { onDiscard(); setConfirmDiscard(false); }}
+            disabled={busy}
+            className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-30 transition-colors duration-fast"
+          >
+            Confirm
+          </button>
+          <button
+            onClick={() => setConfirmDiscard(false)}
+            disabled={busy}
+            className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-30 transition-colors duration-fast"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={(e) => { e.stopPropagation(); setConfirmDiscard(true); }}
+          disabled={busy}
+          title="Discard changes"
+          className="shrink-0 opacity-0 group-hover:opacity-100 text-ink-3 hover:text-bad disabled:opacity-30 transition-colors"
+        >
+          <TrashIcon />
+        </button>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
         disabled={busy}
