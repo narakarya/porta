@@ -6,6 +6,7 @@ import * as cmd from "../../lib/commands";
 import { startMockProcess, stopMockProcess, killMockProcess } from "../../lib/mock-data";
 
 export const MAX_LOG_LINES = 10000;
+const MAX_TUNNEL_LOG_LINES = 500;
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -39,6 +40,10 @@ export interface AppSlice {
    * Set on `startTunnel`, cleared when the `app:tunnel:{id}` /
    * `instance:tunnel:{id}` event settles (active or error). */
   tunnelConnecting: Record<string, boolean>;
+  /** Tunnel connect log lines per app/instance id, fed by the
+   * `app:tunnel:log:{id}` / `instance:tunnel:log:{id}` events. Capped ring
+   * buffer (`MAX_TUNNEL_LOG_LINES`). */
+  appTunnelLogs: Record<string, string[]>;
   appMetrics: Record<string, { cpu: number; mem_mb: number }>;
   /** Git state per app, fed by the `app:git:{id}` event. Absent for non-repos. */
   appGit: Record<string, GitStatus>;
@@ -88,6 +93,8 @@ export interface AppSlice {
   /** Manually flag a connect in flight — used by the instance-tunnel path,
    * which calls the raw IPC command instead of `startTunnel`. */
   setTunnelConnecting: (id: string, connecting: boolean) => void;
+  appendTunnelLog: (id: string, line: string) => void;
+  clearTunnelLog: (id: string) => void;
   visibleApps: () => App[];
   setImageUpdateCache: (appId: string, info: ImageUpdateInfo[]) => void;
   setAppGit: (id: string, status: GitStatus) => void;
@@ -117,6 +124,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appRestarting: {},
   appTunnelErrors: {},
   tunnelConnecting: {},
+  appTunnelLogs: {},
   appMetrics: {},
   appGit: {},
   appGitError: {},
@@ -305,6 +313,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       appExitCode: Object.fromEntries(Object.entries(s.appExitCode).filter(([k]) => k !== id)),
       appRetryCount: Object.fromEntries(Object.entries(s.appRetryCount).filter(([k]) => k !== id)),
       portConflicts: Object.fromEntries(Object.entries(s.portConflicts).filter(([k]) => k !== id)),
+      appTunnelLogs: Object.fromEntries(Object.entries(s.appTunnelLogs).filter(([k]) => k !== id)),
     }));
   },
 
@@ -464,6 +473,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     // before the connection actually succeeds, hiding the loading state and
     // making transient failures look like the tunnel "reverted to Connect".
     // The backend emits `app:tunnel:{id}` with active:true once it's real.
+    get().clearTunnelLog(id);
     set((s) => ({
       apps: s.apps.map((a) =>
         a.id === id ? { ...a, tunnel_provider: provider } : a
@@ -530,6 +540,21 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   setTunnelConnecting: (id, connecting) =>
     set((s) => ({ tunnelConnecting: { ...s.tunnelConnecting, [id]: connecting } })),
+
+  appendTunnelLog: (id, line) =>
+    set((s) => {
+      const prev = s.appTunnelLogs[id] ?? [];
+      const next = [...prev, line];
+      return {
+        appTunnelLogs: {
+          ...s.appTunnelLogs,
+          [id]: next.length > MAX_TUNNEL_LOG_LINES ? next.slice(-MAX_TUNNEL_LOG_LINES) : next,
+        },
+      };
+    }),
+
+  clearTunnelLog: (id) =>
+    set((s) => ({ appTunnelLogs: { ...s.appTunnelLogs, [id]: [] } })),
 
   visibleApps: () => {
     const { apps, selectedWorkspaceId } = get();

@@ -272,6 +272,12 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           tunnelConnecting: { ...s.tunnelConnecting, [app.id]: false },
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+      // Tunnel connect log lines (cloudflared/tailscale stdout/stderr) for the
+      // Publish log stream panel.
+      listen<{ line: string }>(`app:tunnel:log:${app.id}`, (e) => {
+        get().appendTunnelLog(app.id, e.payload.line);
+      }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
     });
   };
 
@@ -342,6 +348,12 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           tunnelConnecting: { ...s.tunnelConnecting, [inst.id]: false },
         }));
       }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
+
+      // Tunnel connect log lines, keyed by instance id — mirrors the app
+      // listener above. Instances share the same appTunnelLogs map.
+      listen<{ line: string }>(`instance:tunnel:log:${inst.id}`, (e) => {
+        get().appendTunnelLog(inst.id, e.payload.line);
+      }).then((fn) => (cancelled ? fn() : instanceUnlisteners.push(fn)));
     });
   };
 
