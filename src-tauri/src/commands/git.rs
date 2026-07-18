@@ -792,18 +792,136 @@ pub async fn git_diff_file(
     path: String,
     staged: bool,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
-        // `--` so a path that looks like a flag or a revision can't be
-        // reinterpreted by git as anything but a pathspec.
-        let args: Vec<&str> = if staged {
-            vec!["diff", "--cached", "--", &path]
-        } else {
-            vec!["diff", "--", &path]
-        };
-        run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || diff_file_for(&root_dir, &path, staged))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Core of [`git_diff_file`], split out so it's unit-testable without going
+/// through `spawn_blocking`.
+///
+/// A plain `git diff -- <path>` is empty for a file that isn't in the index
+/// or HEAD at all — an untracked, brand-new file has nothing to diff
+/// against, even though it has real content. When that's the case (unstaged
+/// request, empty diff, and the path really is untracked) this falls back to
+/// an all-add diff against `/dev/null` via [`run_git_diff_no_index`] so the
+/// new file's content actually renders instead of a misleading "No changes."
+/// Tracked-file behavior (including a genuinely unchanged tracked file, which
+/// must stay empty) and the `staged` path are unchanged.
+fn diff_file_for(root_dir: &str, path: &str, staged: bool) -> Result<String, String> {
+    // Guard against option-injection: reject a path that starts with '-'.
+    if path.starts_with('-') {
+        return Err("invalid path".to_string());
+    }
+
+    // `--` so a path that looks like a flag or a revision can't be
+    // reinterpreted by git as anything but a pathspec.
+    let args: Vec<&str> = if staged {
+        vec!["diff", "--cached", "--", path]
+    } else {
+        vec!["diff", "--", path]
+    };
+    let diff = run_git_raw(root_dir, &args, LOCAL_TIMEOUT_SECS)?;
+
+    if staged || !diff.is_empty() {
+        return Ok(diff);
+    }
+
+    // Empty unstaged diff: either the file is tracked and genuinely
+    // unchanged (leave the empty result alone), or it's untracked, in which
+    // case a plain `git diff` never had anything to compare against.
+    // `ls-files --error-unmatch` is the standard way to ask "is this path in
+    // the index"; it exits non-zero for an untracked path.
+    let tracked =
+        run_git(root_dir, &["ls-files", "--error-unmatch", "--", path], LOCAL_TIMEOUT_SECS).is_ok();
+    if tracked {
+        return Ok(diff);
+    }
+
+    match run_git_diff_no_index(root_dir, path, LOCAL_TIMEOUT_SECS) {
+        Ok(no_index_diff) if !no_index_diff.is_empty() => Ok(no_index_diff),
+        _ => Ok(diff),
+    }
+}
+
+/// Run `git diff --no-index -- /dev/null <path>` and return stdout as long as
+/// the process actually ran to completion — regardless of exit status.
+///
+/// `git diff --no-index` is not a normal `git diff`: it compares two
+/// arbitrary paths outside any repository context, and it exits **1**
+/// whenever they differ, which is always true here since `/dev/null` is
+/// empty and the untracked file has content. Exit 1 is the expected,
+/// *successful* outcome for this call, not a failure — only an exit code
+/// outside `{0, 1}` (or a spawn failure) is a real error. That's why this
+/// can't go through [`run_git_raw`], which treats any non-zero exit as
+/// `Err`. Mirrors [`run_bin`]'s process setup (env, no stdin, process-group
+/// kill, concurrent drain threads, wall-clock timeout) with that one
+/// difference in what counts as success, and — like [`run_git_raw`] — does
+/// not trim, since trailing whitespace can be load-bearing in a diff.
+fn run_git_diff_no_index(root_dir: &str, path: &str, timeout_secs: u64) -> Result<String, String> {
+    let bin = git_bin().ok_or_else(|| "git not found".to_string())?;
+    let mut child = Command::new(bin)
+        .current_dir(root_dir)
+        .args(["diff", "--no-index", "--", "/dev/null", path])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let pid = child.id();
+    let mut child_stdout = child.stdout.take().expect("piped stdout");
+    let mut child_stderr = child.stderr.take().expect("piped stderr");
+    let out_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = child_stdout.read_to_end(&mut buf);
+        buf
+    });
+    let err_reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = child_stderr.read_to_end(&mut buf);
+        buf
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = out_reader.join().unwrap_or_default();
+                let stderr = err_reader.join().unwrap_or_default();
+                // 0 = no difference (shouldn't happen for /dev/null vs a real
+                // file, but harmless if it ever did), 1 = "inputs differ" —
+                // both are success for a diff read. Anything else is a real
+                // git failure (e.g. a bad path).
+                return match status.code() {
+                    Some(0) | Some(1) => Ok(String::from_utf8_lossy(&stdout).into_owned()),
+                    _ => {
+                        let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
+                        Err(if stderr.is_empty() {
+                            format!("git diff --no-index failed ({status})")
+                        } else {
+                            stderr
+                        })
+                    }
+                };
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = Command::new("/bin/kill")
+                        .args(["-9", &format!("-{pid}")])
+                        .output();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "git diff --no-index timed out after {timeout_secs}s"
+                    ));
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
 }
 
 #[tauri::command]
@@ -2124,5 +2242,87 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let files = changed_files_for(ps).expect("reading a valid repo must not error");
         let f = files.iter().find(|f| f.path == "a.txt").expect("a.txt should be listed");
         assert!(f.insertions >= 3, "expected at least 3 insertions, got {}", f.insertions);
+    }
+
+    #[test]
+    fn diff_file_for_shows_content_for_an_untracked_file() {
+        // The bug: a plain `git diff -- <path>` is empty for a file that
+        // isn't in the index or HEAD at all, so the UI showed "No changes."
+        // for a brand-new file. `diff_file_for` must fall back to an all-add
+        // diff so the new content actually renders.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        // Brand-new, never-added file.
+        std::fs::write(p.join("new.txt"), "hello\nworld\n").unwrap();
+
+        let diff = diff_file_for(ps, "new.txt", false)
+            .expect("diffing an untracked file must not error");
+        assert!(!diff.is_empty(), "untracked file diff must not be empty");
+        assert!(diff.contains("+hello"), "diff should contain the added lines: {diff}");
+        assert!(diff.contains("+world"), "diff should contain the added lines: {diff}");
+    }
+
+    #[test]
+    fn diff_file_for_still_diffs_a_tracked_modified_file() {
+        // No-regression check: a normal tracked, modified file must keep
+        // going through the plain `git diff` path, not the --no-index
+        // fallback.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        std::fs::write(p.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+
+        let diff = diff_file_for(ps, "a.txt", false)
+            .expect("diffing a tracked modified file must not error");
+        assert!(!diff.is_empty(), "modified tracked file must show a diff");
+        assert!(diff.contains("-two"), "diff should show the removed line: {diff}");
+        assert!(diff.contains("+TWO"), "diff should show the added line: {diff}");
+    }
+
+    #[test]
+    fn diff_file_for_tracked_unchanged_file_stays_empty() {
+        // No-regression check: a tracked file with genuinely no changes must
+        // NOT trigger the untracked --no-index fallback (which would show
+        // its whole committed content as "added").
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        let diff = diff_file_for(ps, "a.txt", false)
+            .expect("diffing an unchanged tracked file must not error");
+        assert!(diff.is_empty(), "unchanged tracked file must stay empty, got: {diff}");
+    }
+
+    #[test]
+    fn diff_file_for_rejects_a_path_starting_with_dash() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().to_str().unwrap();
+        let result = diff_file_for(ps, "--upload-pack=touch /tmp/pwned", false);
+        assert!(result.is_err(), "a path starting with '-' must be rejected");
+        assert_eq!(result.unwrap_err(), "invalid path");
     }
 }
