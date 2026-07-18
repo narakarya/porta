@@ -671,10 +671,8 @@ export function useAppConfigDraft(
       JSON.stringify(dependsOn) !== JSON.stringify(app.depends_on ?? []) ||
       JSON.stringify(envProfiles) !== JSON.stringify(app.env_profiles ?? []) ||
       activeProfileId !== (app.active_profile_id ?? null) ||
-      tunnelProvider !== (app.tunnel_provider ?? "cloudflare") ||
       (tunnelMode === "named" ? (tunnelName.trim() || null) : null) !== (app.tunnel_name ?? null) ||
       (tunnelMode === "named" ? (tunnelHostname.trim() || null) : null) !== (app.tunnel_custom_hostname ?? null) ||
-      tunnelAutoStart !== (app.tunnel_auto_start ?? false) ||
       (tunnelAliasDomain.trim() || null) !== (app.tunnel_alias_domain ?? null) ||
       tunnelAliasRewriteHost !== (app.tunnel_alias_rewrite_host ?? true) ||
       autoSleepEnabled !== (app.auto_sleep_enabled ?? false) ||
@@ -688,7 +686,7 @@ export function useAppConfigDraft(
     composeMode, composeFile, composeYaml, composeYamlInitial, networkShare,
     envFile, autoStart, envVars, restartPolicy, maxRetries, healthCheckPath,
     dependsOn, envProfiles, activeProfileId,
-    tunnelProvider, tunnelMode, tunnelName, tunnelHostname, tunnelAutoStart,
+    tunnelMode, tunnelName, tunnelHostname,
     tunnelAliasDomain, tunnelAliasRewriteHost,
     autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
   ]);
