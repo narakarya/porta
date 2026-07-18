@@ -6,6 +6,65 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-19
+
+Workspace-app UI polish batch answering a round of feedback: lifecycle and
+link-surface fixes plus a few small view-preference and updater improvements.
+(Larger redesign items — sidebar app tree, Open/Publish popover, Inspect
+tabs, bundled git-manager, config re-skin — are tracked for a later release.)
+
+### Fixed
+
+- **CPU reading showed a garbage float** (e.g. `0.0000000953`). The metric was
+  rounded as `f32` then serialized, which promoted to `f64` and exposed the
+  representation error. Now cast to `f64` before rounding so a clean value is
+  emitted, for both process and Docker apps.
+- **Open button linked to the wrong/incomplete host.** The card's link list had
+  drifted from the routes the backend actually serves — it omitted port
+  bindings, the tunnel alias domain, and the public tunnel URL, and only showed
+  a picker when extra subdomains existed. A single resolver now mirrors the
+  backend route set (Local and Public groups) and shows a popover whenever there
+  is more than one target.
+- **Start button gave no loading feedback.** During an initial start the Restart
+  and Stop buttons appeared live with no spinner; the primary control now shows
+  a disabled "Starting…" spinner, while Stop stays enabled to act as Cancel.
+- **Git badge was hidden on Docker/Compose repos** even though status was already
+  being computed for them; the badge now shows for any app with a working
+  directory.
+- **Log view layout.** Severity badges (ERR/WARN/…) are now fixed-width and
+  centered so they align in a tidy column, and the line-number gutter widens for
+  large line counts instead of overflowing into the badge.
+- **Shell extensions could hang or leak processes.** The extension shell runner
+  now disables interactive git prompts, runs commands in their own process group
+  with a group-kill on timeout, and drains stdout/stderr concurrently — matching
+  the hardening the core git runner already had.
+- **Reorder could silently diverge from disk.** Workspace/service reordering now
+  awaits the write and reloads authoritative order on failure.
+- **Switching workspaces re-scanned every app card** (a visible shimmer); cards
+  now paint cached extension state and only re-detect when the cache is empty.
+
+### Added
+
+- **Persisted view preferences.** Sidebar section collapse/expand state and each
+  card's instances-expanded state now survive a reload (stored locally, not in
+  the backed-up database).
+- **Update button in the sidebar.** When an update is available or ready, a
+  labelled Update button appears above the settings gear showing the target
+  version, so updating no longer requires digging into About.
+
+### Changed
+
+- **Log severity rail** now spans the whole error/warn block (header plus
+  continuation lines) instead of only the continuations, so a severity block
+  reads as one consistently marked unit.
+- **"Ready" now means serving, not just bound.** An app is marked ready (and the
+  Open button appears) only once it actually answers HTTP — via its configured
+  health path, or a `GET /` probe otherwise — rather than at the first TCP
+  accept; the health indicator also refreshes immediately on ready. Genuinely
+  non-HTTP processes still fall back to the port-open signal.
+- Dropped the redundant app-name label in the About card (the version line
+  stands on its own).
+
 ## [0.10.0] — 2026-07-17
 
 ### Added
