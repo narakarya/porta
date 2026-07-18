@@ -8,13 +8,12 @@ import CloudflareCertificatesSection from "./CloudflareCertificatesSection";
 import CloudflareZoneSection from "./CloudflareZoneSection";
 import CloudflareEmailSection from "./CloudflareEmailSection";
 
-type Tab = "tunnels" | "dns" | "access" | "zone" | "email" | "certs";
+type Tab = "tunnels" | "dns" | "access" | "email" | "certs";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "tunnels", label: "Tunnels" },
-  { id: "dns", label: "DNS Records" },
+  { id: "dns", label: "DNS & Zones" },
   { id: "access", label: "Access" },
-  { id: "zone", label: "Zone" },
   { id: "email", label: "Email" },
   { id: "certs", label: "Certificates" },
 ];
@@ -146,17 +145,15 @@ export default function CloudflareSection() {
         )}
         {visited.has("dns") && (
           <div hidden={tab !== "dns"}>
-            <DnsSection tokenVersion={tokenVersion} />
+            <CloudflareZoneSection tokenVersion={tokenVersion} />
+            <div className="mt-6 border-t border-subtle pt-6">
+              <DnsSection tokenVersion={tokenVersion} />
+            </div>
           </div>
         )}
         {visited.has("access") && (
           <div hidden={tab !== "access"}>
             <CloudflareAccessSection tokenVersion={tokenVersion} />
-          </div>
-        )}
-        {visited.has("zone") && (
-          <div hidden={tab !== "zone"}>
-            <CloudflareZoneSection tokenVersion={tokenVersion} />
           </div>
         )}
         {visited.has("email") && (
