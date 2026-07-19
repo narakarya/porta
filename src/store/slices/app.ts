@@ -72,7 +72,7 @@ export interface AppSlice {
    * NOT persisted — it resets to the DB/insertion order on reload. When a
    * backend command lands, call it here mirroring `reorderWorkspaces`.
    */
-  reorderApps: (workspaceId: string | null, fromIndex: number, toIndex: number) => void;
+  reorderApps: (workspaceId: string | null, fromIndex: number, toIndex: number) => Promise<void>;
   setAppAutoSleep: (id: string, enabled: boolean, idleTimeoutSecs: number) => Promise<void>;
   setAppMaxUploadBytes: (id: string, maxBytes: number | null) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
@@ -242,25 +242,31 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
     }));
   },
 
-  reorderApps: (workspaceId, fromIndex, toIndex) => {
-    set((s) => {
-      // Positions of this workspace's apps within the flat `apps` array — we
-      // reorder the group in place and leave every other app untouched.
-      const slots: number[] = [];
-      s.apps.forEach((a, i) => { if (a.workspace_id === workspaceId) slots.push(i); });
-      if (
-        fromIndex < 0 || toIndex < 0 ||
-        fromIndex >= slots.length || toIndex >= slots.length ||
-        fromIndex === toIndex
-      ) return {};
-      const group = slots.map((i) => s.apps[i]);
-      const [moved] = group.splice(fromIndex, 1);
-      group.splice(toIndex, 0, moved);
-      const next = s.apps.slice();
-      slots.forEach((slot, gi) => { next[slot] = group[gi]; });
-      return { apps: next };
-    });
-    // No `reorder_apps` IPC exists — client-only for now (see interface note).
+  reorderApps: async (workspaceId, fromIndex, toIndex) => {
+    // Positions of this workspace's apps within the flat `apps` array — we
+    // reorder the group in place and leave every other app untouched.
+    const prev = get().apps;
+    const slots: number[] = [];
+    prev.forEach((a, i) => { if (a.workspace_id === workspaceId) slots.push(i); });
+    if (
+      fromIndex < 0 || toIndex < 0 ||
+      fromIndex >= slots.length || toIndex >= slots.length ||
+      fromIndex === toIndex
+    ) return;
+    const group = slots.map((i) => prev[i]);
+    const [moved] = group.splice(fromIndex, 1);
+    group.splice(toIndex, 0, moved);
+    const next = prev.slice();
+    slots.forEach((slot, gi) => { next[slot] = group[gi]; });
+    // Optimistic reorder for snappy UX; persist the new global order and
+    // reconcile with the DB on failure.
+    set({ apps: next });
+    try {
+      await cmd.reorderApps(next.map((a) => a.id));
+    } catch (e) {
+      await get().load().catch(() => {});
+      set({ error: String(e) });
+    }
   },
 
   setAppAutoSleep: async (id, enabled, idleTimeoutSecs) => {

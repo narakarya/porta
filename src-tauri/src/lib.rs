@@ -233,6 +233,7 @@ pub fn run() {
             commands::update_workspace,
             commands::delete_workspace,
             commands::reorder_workspaces,
+            commands::reorder_apps,
             commands::list_apps,
             commands::detect_start_command,
             commands::next_available_port,

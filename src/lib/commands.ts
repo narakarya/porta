@@ -79,6 +79,9 @@ export const deleteWorkspace = (id: string): Promise<void> =>
 export const reorderWorkspaces = (ids: string[]): Promise<void> =>
   isTauri ? invoke("reorder_workspaces", { ids }) : Promise.resolve();
 
+export const reorderApps = (ids: string[]): Promise<void> =>
+  isTauri ? invoke("reorder_apps", { ids }) : Promise.resolve();
+
 // ── Apps ─────────────────────────────────────────────────────────────────────
 
 export const listApps = (): Promise<App[]> =>

@@ -90,6 +90,19 @@ impl Database {
         Ok(())
     }
 
+    /// Persist a new app ordering. Positions are assigned by list index and
+    /// `list_apps` sorts on them, so reordering survives a reload. Mirrors
+    /// `reorder_workspaces`.
+    pub fn reorder_apps(&self, ids: &[String]) -> Result<()> {
+        for (i, id) in ids.iter().enumerate() {
+            self.conn.execute(
+                "UPDATE apps SET position = ?1 WHERE id = ?2",
+                params![i as i64, id],
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn list_apps(&self) -> Result<Vec<App>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, workspace_id, name, root_dir, port, subdomain,
@@ -117,7 +130,7 @@ impl Database {
                     COALESCE(idle_timeout_secs, 1800),
                     COALESCE(auto_slept, 0),
                     max_upload_bytes
-             FROM apps ORDER BY rowid"
+             FROM apps ORDER BY position, rowid"
         )?;
         let rows = stmt.query_map([], |row| {
             let env_vars_str: String = row.get::<_, Option<String>>(12)?.unwrap_or_else(|| "{}".into());

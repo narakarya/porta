@@ -35,7 +35,7 @@ type AppMenuItem = {
 };
 
 export default function Sidebar() {
-  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, activeDomain, setActiveDomain } = usePortaStore(
+  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
@@ -59,6 +59,10 @@ export default function Sidebar() {
       removeInstanceAction: s.removeInstanceAction,
       activeDomain: s.activeDomain,
       setActiveDomain: s.setActiveDomain,
+      collapsedWorkspaces: s.collapsedWorkspaces,
+      collapsedInstances: s.collapsedInstances,
+      toggleWorkspaceCollapse: s.toggleWorkspaceCollapse,
+      toggleInstancesCollapse: s.toggleInstancesCollapse,
     }))
   );
   const [showAddWs, setShowAddWs] = useState(false);
@@ -78,25 +82,9 @@ export default function Sidebar() {
   // Same idea for instance rows — instance ids with a start/stop in flight.
   const [busyInstances, setBusyInstances] = useState<Set<string>>(new Set());
   const [wsExpanded] = useState(true);
-  // Per-workspace collapse of the app sub-list (Shell C: apps live under each
-  // workspace header in this column). Holds the ids that are collapsed.
-  const [collapsedWs, setCollapsedWs] = useState<Set<string>>(new Set());
-  const toggleWsCollapse = (id: string) =>
-    setCollapsedWs((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  // Per-app collapse of its worktree-instance sub-tree (default expanded —
-  // holds the app ids whose instances are collapsed). Mirrors the workspace
-  // collapse convention above.
-  const [collapsedInstances, setCollapsedInstances] = useState<Set<string>>(new Set());
-  const toggleInstancesCollapse = (id: string) =>
-    setCollapsedInstances((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  // Sidebar collapse state (workspace headers + per-app instance sub-trees) now
+  // lives in the ui slice (collapsedWorkspaces / collapsedInstances + their
+  // toggles, pulled from the store above) so it persists across reloads — #2.
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   // Refs so global mouseup can read latest values without stale closures
@@ -609,7 +597,7 @@ export default function Sidebar() {
             {workspaces.map((w, i) => {
               const count = activeCount(w.id);
               const updCount = updateCount(w.id);
-              const collapsed = collapsedWs.has(w.id);
+              const collapsed = collapsedWorkspaces.has(w.id);
               const totalCount = (appsByWs.get(w.id) ?? []).length;
               const isSelected = activeDomain === "workspaces" && selectedWorkspaceId === w.id;
               const isGhost = draggingItem?.type === "ws" && draggingItem.index === i;
@@ -626,7 +614,7 @@ export default function Sidebar() {
                   <SidebarGroupHeader
                     label={w.name}
                     collapsed={collapsed}
-                    onToggle={() => toggleWsCollapse(w.id)}
+                    onToggle={() => toggleWorkspaceCollapse(w.id)}
                     count={totalCount}
                     onAdd={() => { selectWorkspace(w.id); setShowAddApp(true); }}
                     addTitle={`New app in ${w.name}`}
@@ -672,7 +660,7 @@ export default function Sidebar() {
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
                   )}
-                  {!collapsedWs.has(w.id) && renderApps(w.id)}
+                  {!collapsedWorkspaces.has(w.id) && renderApps(w.id)}
                 </div>
               );
             })}
