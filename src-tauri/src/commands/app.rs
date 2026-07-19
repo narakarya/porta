@@ -418,3 +418,8 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
     crate::backup::auto_backup(&state.db_path).ok();
     Ok(())
 }
+
+#[tauri::command]
+pub fn reorder_apps(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
+    state.db.lock().unwrap().reorder_apps(&ids).map_err(|e| e.to_string())
+}

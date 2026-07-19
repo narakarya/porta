@@ -1,8 +1,16 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
-import { isTauri, openExternalUrl, openInTerminal } from "../../lib/commands";
+import {
+  detectAppTags,
+  getExtensionsForApp,
+  isTauri,
+  openExternalUrl,
+  openInEditor,
+  openInTerminal,
+} from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
+import { deriveInstanceApp } from "../../lib/instance-app";
 import type { App, Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import AppContextMenu from "../app/AppContextMenu";
@@ -35,17 +43,19 @@ type AppMenuItem = {
 };
 
 export default function Sidebar() {
-  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, activeDomain, setActiveDomain } = usePortaStore(
+  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, selectedInstanceId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, selectInstance, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
       instances: s.instances,
       selectedWorkspaceId: s.selectedWorkspaceId,
       selectedAppId: s.selectedAppId,
+      selectedInstanceId: s.selectedInstanceId,
       imageUpdateCache: s.imageUpdateCache,
       setupStatus: s.setupStatus,
       selectWorkspace: s.selectWorkspace,
       selectApp: s.selectApp,
+      selectInstance: s.selectInstance,
       reorderWorkspaces: s.reorderWorkspaces,
       reorderApps: s.reorderApps,
       moveAppToWorkspace: s.moveAppToWorkspace,
@@ -57,8 +67,14 @@ export default function Sidebar() {
       stopInstanceAction: s.stopInstanceAction,
       killInstanceAction: s.killInstanceAction,
       removeInstanceAction: s.removeInstanceAction,
+      openExtensionSidebar: s.openExtensionSidebar,
+      cacheAppExtensions: s.cacheAppExtensions,
       activeDomain: s.activeDomain,
       setActiveDomain: s.setActiveDomain,
+      collapsedWorkspaces: s.collapsedWorkspaces,
+      collapsedInstances: s.collapsedInstances,
+      toggleWorkspaceCollapse: s.toggleWorkspaceCollapse,
+      toggleInstancesCollapse: s.toggleInstancesCollapse,
     }))
   );
   const [showAddWs, setShowAddWs] = useState(false);
@@ -78,25 +94,9 @@ export default function Sidebar() {
   // Same idea for instance rows — instance ids with a start/stop in flight.
   const [busyInstances, setBusyInstances] = useState<Set<string>>(new Set());
   const [wsExpanded] = useState(true);
-  // Per-workspace collapse of the app sub-list (Shell C: apps live under each
-  // workspace header in this column). Holds the ids that are collapsed.
-  const [collapsedWs, setCollapsedWs] = useState<Set<string>>(new Set());
-  const toggleWsCollapse = (id: string) =>
-    setCollapsedWs((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  // Per-app collapse of its worktree-instance sub-tree (default expanded —
-  // holds the app ids whose instances are collapsed). Mirrors the workspace
-  // collapse convention above.
-  const [collapsedInstances, setCollapsedInstances] = useState<Set<string>>(new Set());
-  const toggleInstancesCollapse = (id: string) =>
-    setCollapsedInstances((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  // Sidebar collapse state (workspace headers + per-app instance sub-trees) now
+  // lives in the ui slice (collapsedWorkspaces / collapsedInstances + their
+  // toggles, pulled from the store above) so it persists across reloads — #2.
   const [dragOverIndex, setDragOverIndex] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   const [draggingItem, setDraggingItem] = useState<{ type: "ws" | "svc"; index: number } | null>(null);
   // Refs so global mouseup can read latest values without stale closures
@@ -332,6 +332,19 @@ export default function Sidebar() {
   // Context-menu items for an app row (overflow button + right-click). Wired to
   // the same store/lib actions the workbench uses — no new actions invented.
   // Icons match the app's inline line-icon style (mockup 03's iconed menu).
+  async function openExtensionsFor(target: App) {
+    const tags = target.root_dir
+      ? await detectAppTags(target.root_dir).catch(() => [] as string[])
+      : [];
+    const extensions = await getExtensionsForApp(target.kind, tags).catch(() => []);
+    cacheAppExtensions(target.id, extensions);
+    openExtensionSidebar(
+      target.id,
+      extensions,
+      extensions.length === 1 ? extensions[0].id : undefined,
+    );
+  }
+
   function appMenuItems(a: App): (AppMenuItem | "separator")[] {
     const running = a.status === "running" || a.status === "starting";
     return [
@@ -339,8 +352,10 @@ export default function Sidebar() {
         ? { label: "Stop", icon: <StopMenuIcon />, onClick: () => { void toggleApp(a); } }
         : { label: "Start", icon: <PlayMenuIcon />, onClick: () => { void toggleApp(a); } },
       { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void restartApp(a.id); } },
-      { label: "Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInTerminal(a.root_dir); } },
+      { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInTerminal(a.root_dir); } },
+      { label: "Open in Editor", icon: <EditorMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInEditor(a.root_dir); } },
       { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(a)); } },
+      { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(a); } },
       { label: "Settings", icon: <GearMenuIcon />, onClick: () => setSettingsApp(a) },
       "separator",
       { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void deleteApp(a.id); } },
@@ -367,24 +382,24 @@ export default function Sidebar() {
     }
   }
 
-  // Public URL for an instance row — its own subdomain when it has one, else the
-  // raw localhost port. Mirrors the workbench's instance "Open" target.
-  function instanceUrl(inst: AppInstance): string {
-    return inst.subdomain ? `https://${inst.subdomain}.test` : `http://localhost:${inst.port}`;
-  }
-
   // Context-menu items for an instance sub-row (overflow button + right-click).
   // Mirrors appMenuItems but maps to the instance store actions. Instance
   // actions are keyed by (instanceId, appId), so the parent app is threaded in.
   function instanceMenuItems(inst: AppInstance, app: App): (AppMenuItem | "separator")[] {
     const running = inst.status === "running" || inst.status === "starting";
+    // Use the synthetic instance app for every path/URL/extension action.
+    // Lifecycle commands still need the real parent id, but user-facing actions
+    // must never fall back to the parent's checkout or host.
+    const target = deriveInstanceApp(app, inst);
     return [
       running
         ? { label: "Stop", icon: <StopMenuIcon />, onClick: () => { void toggleInstance(inst, app); } }
         : { label: "Start", icon: <PlayMenuIcon />, onClick: () => { void toggleInstance(inst, app); } },
       { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void (async () => { await killInstanceAction(inst.id, app.id); await runInstance(app.id, inst.worktree_path); })(); } },
-      { label: "Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openInTerminal(inst.worktree_path); } },
-      { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(instanceUrl(inst)); } },
+      { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri || !target.root_dir, onClick: () => { if (isTauri && target.root_dir) void openInTerminal(target.root_dir); } },
+      { label: "Open in Editor", icon: <EditorMenuIcon />, disabled: !isTauri || !target.root_dir, onClick: () => { if (isTauri && target.root_dir) void openInEditor(target.root_dir); } },
+      { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(target)); } },
+      { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(target); } },
       "separator",
       { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void removeInstanceAction(inst.id, app.id); } },
     ];
@@ -409,7 +424,7 @@ export default function Sidebar() {
         onMouseLeave={() => { if (isAppDraggingRef.current) setAppDragOver(null); }}
       >
         {list.map((a, i) => {
-          const on = selectedAppId === a.id;
+          const on = selectedAppId === a.id && selectedInstanceId === null;
           const running = a.status === "running" || a.status === "starting";
           const busy = busyApps.has(a.id);
           const menuOpen = appMenu?.app.id === a.id;
@@ -515,10 +530,9 @@ export default function Sidebar() {
                   </button>
                 </span>
               </div>
-              {/* Worktree instances as an indented sub-tree. Clicking a sub-row
-                  selects the PARENT app and opens its workbench (where the
-                  Overview instances section lives) — no per-instance selection
-                  state exists. */}
+              {/* Worktree instances as an indented sub-tree. Each row opens the
+                  instance's own workbench while preserving the parent app as
+                  the breadcrumb/back target. */}
               {instancesExpanded && (
                 // Indented sub-tree. The container's left border is the tree
                 // connector — it lines up under the parent app's status dot so
@@ -530,16 +544,17 @@ export default function Sidebar() {
                     const instOn = inst.status === "running" || inst.status === "starting";
                     const instBusy = busyInstances.has(inst.id);
                     const instMenuOpen = instMenu?.inst.id === inst.id;
+                    const instanceSelected = selectedInstanceId === inst.id;
                     return (
                       <div
                         key={inst.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectApp(a.id); setActiveDomain("workspaces"); } }}
+                        onClick={() => { selectInstance(a.id, inst.id); setActiveDomain("workspaces"); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectInstance(a.id, inst.id); setActiveDomain("workspaces"); } }}
                         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setInstMenu({ inst, app: a, x: e.clientX, y: e.clientY }); }}
                         title={`${inst.branch} · :${inst.port}`}
-                        className="group/inst flex items-center gap-2 pl-3 pr-2 py-1 rounded-control w-full text-left select-none cursor-pointer transition-colors hover:bg-white/[0.04]"
+                        className={`group/inst flex items-center gap-2 pl-3 pr-2 py-1 rounded-control w-full text-left select-none cursor-pointer transition-colors ${instanceSelected ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${instOn ? "bg-ok" : "bg-ink-3"}`} />
                         <span className="flex-1 truncate text-[12px] text-ink-2">{inst.branch}</span>
@@ -637,7 +652,7 @@ export default function Sidebar() {
             {workspaces.map((w, i) => {
               const count = activeCount(w.id);
               const updCount = updateCount(w.id);
-              const collapsed = collapsedWs.has(w.id);
+              const collapsed = collapsedWorkspaces.has(w.id);
               const totalCount = (appsByWs.get(w.id) ?? []).length;
               const isSelected = activeDomain === "workspaces" && selectedWorkspaceId === w.id;
               const isGhost = draggingItem?.type === "ws" && draggingItem.index === i;
@@ -654,7 +669,7 @@ export default function Sidebar() {
                   <SidebarGroupHeader
                     label={w.name}
                     collapsed={collapsed}
-                    onToggle={() => toggleWsCollapse(w.id)}
+                    onToggle={() => toggleWorkspaceCollapse(w.id)}
                     count={totalCount}
                     onAdd={() => { selectWorkspace(w.id); setShowAddApp(true); }}
                     addTitle={`New app in ${w.name}`}
@@ -700,7 +715,7 @@ export default function Sidebar() {
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
                   )}
-                  {!collapsedWs.has(w.id) && renderApps(w.id)}
+                  {!collapsedWorkspaces.has(w.id) && renderApps(w.id)}
                 </div>
               );
             })}
@@ -831,11 +846,26 @@ function TerminalMenuIcon() {
     </svg>
   );
 }
+function EditorMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <path d="M2 8.8l.4-2 5-5a1 1 0 0 1 1.4 1.4l-5 5-1.8.6z" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.8 2.5l1.7 1.7M1.5 9.5h8" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+    </svg>
+  );
+}
 function ExternalMenuIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
       <path d="M4.5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M6.5 1.5h3v3M9.5 1.5l-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function ExtensionsMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+      <path d="M4.2 1.5a.8.8 0 0 1 1.6 0v.7H7c.3 0 .5.2.5.5V4h.7a.8.8 0 0 1 0 1.6h-.7v1.7a.5.5 0 0 1-.5.5H5.8v-.7a.8.8 0 0 0-1.6 0v.7H3a.5.5 0 0 1-.5-.5V5.6h-.7a.8.8 0 0 1 0-1.6h.7V2.7c0-.3.2-.5.5-.5h1.2v-.7z" stroke="currentColor" strokeWidth="1.05" strokeLinejoin="round" />
     </svg>
   );
 }

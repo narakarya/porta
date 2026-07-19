@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
@@ -162,7 +162,7 @@ pub(crate) fn start_single(
             .update_app_status(id, "starting", None)
             .map_err(|e| e.to_string())?;
         handle.emit(&format!("app:starting:{}", id), ()).ok();
-        spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+        spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone(), app_data.health_check_path.clone());
 
         let id_owned = id.clone();
         let handle_owned = handle.clone();
@@ -223,7 +223,7 @@ pub(crate) fn start_single(
             .update_app_status(id, "starting", None)
             .map_err(|e| e.to_string())?;
         handle.emit(&format!("app:starting:{}", id), ()).ok();
-        spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+        spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone(), app_data.health_check_path.clone());
 
         let id_owned = id.clone();
         let handle_owned = handle.clone();
@@ -286,19 +286,39 @@ pub(crate) fn start_single(
         .update_app_status(id, "starting", Some(pid))
         .map_err(|e| e.to_string())?;
 
-    spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone());
+    spawn_port_watcher(handle.clone(), id.clone(), app_data.port, app_data.name.clone(), app_data.health_check_path.clone());
 
     Ok(())
 }
 
-/// Spawns a background thread that polls `port` via TCP until it accepts a connection,
-/// then emits `app:ready:{id}` and sends a macOS notification if enabled.
+/// Spawns a background thread that waits until `port` is not just TCP-bound but
+/// actually serving HTTP, then emits `app:ready:{id}` and sends a macOS
+/// notification if enabled.
+///
+/// Readiness definition (a raw TCP accept is necessary but not sufficient — the
+/// socket binds before most servers can serve a request, so gating on TCP alone
+/// flips the card to "running" and lights the Open button too early):
+///   1. Wait for the port to accept a TCP connection.
+///   2. If `health_check_path` is configured, the app is ready once that path
+///      returns 2xx/3xx (reusing `health::check_health`).
+///   3. Otherwise probe `GET /`: any HTTP response means ready; a
+///      connection-refused / reset / non-HTTP reply means a genuinely non-HTTP
+///      process, so the TCP-open is accepted as ready; a timeout means it's
+///      still booting, so keep polling.
+/// A ~60s overall deadline bounds the retries so a never-serving app can't hang
+/// the watcher forever.
 ///
 /// Aborts silently if the app's DB status is no longer `"starting"` — that
 /// means the user stopped (or restarted differently) the app while we were
 /// polling, and emitting `ready` now would resurrect the dot to "running"
 /// against their intent.
-pub(crate) fn spawn_port_watcher(handle: tauri::AppHandle, id: String, port: u16, app_name: String) {
+pub(crate) fn spawn_port_watcher(
+    handle: tauri::AppHandle,
+    id: String,
+    port: u16,
+    app_name: String,
+    health_check_path: Option<String>,
+) {
     thread::spawn(move || {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
@@ -314,15 +334,51 @@ pub(crate) fn spawn_port_watcher(handle: tauri::AppHandle, id: String, port: u16
                 .unwrap_or(false)
         };
 
-        for _ in 0..120 {
+        let emit_ready = |handle: &tauri::AppHandle| {
+            handle.emit(&format!("app:ready:{}", id), ()).ok();
+            notify(handle, &format!("{} is ready", app_name), &format!("Running on :{port}"));
+        };
+
+        // Deadline-based (not iteration-count-based) so the extra HTTP probe
+        // time per loop can't stretch the overall wait far past ~60s.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < deadline {
             thread::sleep(Duration::from_millis(500));
             if !still_starting(&handle) {
                 return;
             }
-            if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
-                handle.emit(&format!("app:ready:{}", id), ()).ok();
-                notify(&handle, &format!("{} is ready", app_name), &format!("Running on :{port}"));
-                return;
+            // Step 1: is the socket up at all?
+            if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_err() {
+                continue;
+            }
+            // Step 2/3: TCP is open — confirm it can actually serve before we
+            // flip the card to "running".
+            match health_check_path.as_deref() {
+                Some(path) => {
+                    // Configured health path: only a real 2xx/3xx counts.
+                    if crate::health::check_health(port, Some(path))
+                        == crate::health::HealthStatus::Healthy
+                    {
+                        emit_ready(&handle);
+                        return;
+                    }
+                    // else still booting → keep polling until it serves.
+                }
+                None => match crate::health::probe_http_root(port) {
+                    // Got an HTTP response → serving.
+                    crate::health::HttpProbe::Responded => {
+                        emit_ready(&handle);
+                        return;
+                    }
+                    // Port answers TCP but isn't HTTP → non-HTTP process; accept
+                    // the TCP-open so e.g. a raw socket server still goes ready.
+                    crate::health::HttpProbe::NotHttp => {
+                        emit_ready(&handle);
+                        return;
+                    }
+                    // Accepted the connection but hasn't replied yet → retry.
+                    crate::health::HttpProbe::Pending => {}
+                },
             }
         }
         // Timeout fallback — only nudge the UI to "ready" if the user is

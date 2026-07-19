@@ -15,6 +15,75 @@ All notable changes to Porta are documented in this file. Format follows
 - **Docker image update visibility**: the workspace rollup now marks the exact app row that has a pending image update (including the affected Compose service/image in its tooltip), instead of showing only an ambiguous workspace-level count.
 - **Empty domain header strip**: Hosts, Services, Activity, Extensions, and app workbenches now begin at the top of their content area instead of sitting below a blank 44px drag bar.
 
+## [0.12.0-beta.8]
+
+### Added
+
+- **First-class instance navigation:** clicking a worktree instance in the
+  sidebar, app card, or parent Overview now opens its own workbench with
+  Overview, Logs, Git, and Terminal, plus a breadcrumb back to the parent.
+
+### Changed
+
+- **Git manager is worktree-aware:** branches checked out in another worktree
+  are disabled before switching, clearly labeled, and show the checkout path
+  instead of failing only after the Git command runs.
+- Instance selection is shared across the sidebar and workbench and safely
+  falls back to the parent when the selected instance is removed.
+
+### Fixed
+
+- **Switching to `beta` looked broken.** Porta now explains when Git has locked
+  a branch because another worktree already has it checked out.
+
+## [0.12.0-beta.7]
+
+### Added
+
+- **Instance context actions:** worktree instances now expose the same
+  right-click actions as their parent app, including **Open in Editor** and
+  **Extensions**.
+- **Open in Editor:** the app context menu now opens the selected app checkout
+  directly in the configured editor.
+
+### Fixed
+
+- **Instance actions targeted the parent checkout.** Browser, terminal, editor,
+  and extension actions now consistently use the instance's own host, port,
+  and worktree path.
+- **Extensions could not open or run shell commands for instances.** The
+  extension sidebar now resolves synthetic instance apps, and extension shell
+  commands securely scope their working directory to the instance worktree.
+
+## [0.12.0-beta.6]
+
+Backports the fixes from the 0.10.0 feedback round that the Shell C line hadn't
+already covered. Beta channel.
+
+### Fixed
+
+- **Per-app CPU % printed a garbage float** (e.g. `2.9000000953`). The value was
+  rounded as `f32` then serialized, which promoted to `f64` and exposed the
+  representation error; now cast to `f64` before rounding. (Complements the
+  beta.5 magnitude normalization — that fixed the range, this fixes the digits.)
+- **Shell extensions could hang or leak processes.** The extension shell runner
+  now disables interactive git prompts, runs commands in their own process group
+  with a group-kill on timeout, and drains stdout/stderr concurrently — matching
+  the hardening the core git runner already had. Prevents a fetch/push that hits
+  a credential prompt from hanging up to the timeout, and stops orphaned
+  git/ssh children on timeout.
+- **Reorder could silently diverge from disk.** Workspace and service reordering
+  now awaits the write and reloads the authoritative order on failure instead of
+  fire-and-forget.
+
+### Changed
+
+- **"Ready" now means serving, not just bound.** An app is marked ready (and its
+  Open affordances light up) only once it actually answers HTTP — via its
+  configured health path, or a `GET /` probe otherwise — rather than at the
+  first TCP accept; genuinely non-HTTP processes still fall back to the
+  port-open signal.
+
 ## [0.12.0-beta.5]
 
 ### Added

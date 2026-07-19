@@ -7,6 +7,7 @@ import {
   gitPush,
   gitBranches,
   gitSwitchBranch,
+  gitWorktreeList,
   gitChangedFiles,
   gitStage,
   gitUnstage,
@@ -18,6 +19,7 @@ import {
   gitUnstageAll,
   type BranchList,
   type ChangedFile,
+  type WorktreeEntry,
 } from "../../lib/commands";
 import { Card, Input, EmptyState, Badge, Popover } from "../ui";
 import type { App } from "../../types";
@@ -136,6 +138,7 @@ export default function GitTab({ app }: { app: App }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchList | null>(null);
+  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [branchQuery, setBranchQuery] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
   const [branchOpen, setBranchOpen] = useState(false);
@@ -182,10 +185,13 @@ export default function GitTab({ app }: { app: App }) {
     return () => { cancelled = true; };
   }, [app.id, app.root_dir, status, setAppGit, setAppGitError]);
 
-  // Load branch list once we know it's a repo.
+  // Load branch + worktree lists together. Git refuses to switch a branch
+  // already checked out by another worktree, so the UI needs both datasets to
+  // explain and disable that action before it reaches the backend.
   useEffect(() => {
     if (!status || !app.root_dir) return;
     gitBranches(app.root_dir).then(setBranches).catch(() => setBranches(null));
+    gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
   }, [status, app.root_dir]);
 
   // Load changed files once we know it's a repo (mirrors the branches effect).
@@ -294,7 +300,10 @@ export default function GitTab({ app }: { app: App }) {
       const fresh = await gitStatus(app.root_dir);
       if (!mounted.current) return;
       if (fresh) setAppGit(app.id, fresh);
-      await gitBranches(app.root_dir).then(setBranches).catch(() => {});
+      await Promise.all([
+        gitBranches(app.root_dir).then(setBranches).catch(() => {}),
+        gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => {}),
+      ]);
       setBranchQuery("");
       setBranchOpen(false);
     } catch (e) {
@@ -344,6 +353,11 @@ export default function GitTab({ app }: { app: App }) {
   const filtered = rows.filter((r) => q === "" || r.name.toLowerCase().includes(q.toLowerCase()));
   const exactMatch = rows.some((r) => r.name === q);
   const showCreate = q !== "" && !exactMatch;
+  const branchWorktrees = new Map(
+    worktrees
+      .filter((worktree) => worktree.path !== app.root_dir && worktree.branch)
+      .map((worktree) => [worktree.branch as string, worktree.path]),
+  );
 
   const syncBusy = busy === "fetch" || busy === "pull";
   const clean = ahead === 0 && behind === 0 && dirty === 0;
@@ -411,12 +425,14 @@ export default function GitTab({ app }: { app: App }) {
               )}
               {filtered.map((r) => {
                 const isCurrent = branches?.current === r.name;
-                const disabled = isCurrent || switching !== null;
+                const worktreePath = branchWorktrees.get(r.name);
+                const disabled = isCurrent || !!worktreePath || switching !== null;
                 return (
                   <button
                     key={`${r.kind}:${r.name}`}
                     disabled={disabled}
                     onClick={() => switchTo(r.name, false)}
+                    title={worktreePath ? `Checked out in ${worktreePath}` : r.name}
                     className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-white/[0.05] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
                   >
                     <span className="font-mono text-ink flex-1 truncate">
@@ -426,6 +442,8 @@ export default function GitTab({ app }: { app: App }) {
                     </span>
                     {isCurrent ? (
                       <span className="text-[10px] text-ink-3">current</span>
+                    ) : worktreePath ? (
+                      <span className="text-[10px] text-warn shrink-0">in worktree</span>
                     ) : switching === r.name ? (
                       <span className="text-[10px] text-ink-3">…</span>
                     ) : null}

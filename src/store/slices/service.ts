@@ -18,7 +18,7 @@ export interface ServiceSlice {
   stopService: (id: string) => Promise<void>;
   restartService: (id: string) => Promise<void>;
   clearServiceLogs: (id: string) => void;
-  reorderServices: (fromIndex: number, toIndex: number) => void;
+  reorderServices: (fromIndex: number, toIndex: number) => Promise<void>;
 
   loadServiceTemplates: () => Promise<void>;
   saveServiceTemplate: (template: ServiceTemplate) => Promise<void>;
@@ -121,11 +121,19 @@ export const createServiceSlice: StateCreator<AllSlices, [], [], ServiceSlice> =
   clearServiceLogs: (id) =>
     set((s) => ({ serviceLogs: { ...s.serviceLogs, [id]: [] } })),
 
-  reorderServices: (fromIndex, toIndex) => {
+  reorderServices: async (fromIndex, toIndex) => {
     const list = [...get().services];
     const [moved] = list.splice(fromIndex, 1);
     list.splice(toIndex, 0, moved);
+    // Optimistic reorder for snappy UX; reconcile with the DB on failure.
     set({ services: list });
-    cmd.reorderServices(list.map((s) => s.id));
+    try {
+      await cmd.reorderServices(list.map((s) => s.id));
+    } catch (e) {
+      // Persist failed — reload the authoritative order so in-memory state
+      // can't diverge from the DB, then surface why the reorder didn't stick.
+      await get().loadServices().catch(() => {});
+      set({ error: String(e) });
+    }
   },
 });

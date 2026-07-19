@@ -104,6 +104,10 @@ export interface UiSlice {
   terminalPlacement: TerminalPlacement;
   /** Panel-mode height as a fraction of the viewport (0.15 – 0.92). */
   terminalPanelHeight: number;
+  /** Sidebar workspace headers currently collapsed. Persisted to localStorage. */
+  collapsedWorkspaces: Set<string>;
+  /** App ids whose worktree-instance sub-tree is collapsed. Persisted. */
+  collapsedInstances: Set<string>;
   /**
    * Monotonic counter bumped whenever an extension's on-disk state may
    * have changed (install / update / uninstall / toggle from anywhere).
@@ -117,7 +121,10 @@ export interface UiSlice {
   activeDomain: "workspaces" | "hosts" | "services" | "activity" | "extensions";
   /** App opened in the Workspaces workbench (null = app list). */
   selectedAppId: string | null;
+  /** Worktree instance opened inside the selected app's workbench. */
+  selectedInstanceId: string | null;
   selectApp: (id: string | null) => void;
+  selectInstance: (appId: string, instanceId: string) => void;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -138,6 +145,8 @@ export interface UiSlice {
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
   bumpExtensionList: () => void;
   setActiveDomain: (v: "workspaces" | "hosts" | "services" | "activity" | "extensions") => void;
+  toggleWorkspaceCollapse: (id: string) => void;
+  toggleInstancesCollapse: (id: string) => void;
 }
 
 // Monotonic counter feeding ExtensionSidebarState.focusNonce (see its docs).
@@ -164,6 +173,23 @@ function loadPanelHeight(): number {
   return Number.isFinite(n) && n >= 0.15 && n <= 0.92 ? n : 0.4;
 }
 
+const LS_COLLAPSED_WS = "porta.sidebar.collapsedWorkspaces";
+const LS_COLLAPSED_INST = "porta.sidebar.collapsedInstances";
+
+function loadStringSet(key: string): Set<string> {
+  if (typeof localStorage === "undefined") return new Set();
+  try {
+    const arr: unknown = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(arr) ? new Set(arr.filter((x): x is string => typeof x === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveStringSet(key: string, value: Set<string>): void {
+  if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify([...value]));
+}
+
 export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get) => ({
   setupStatus: null,
   loading: false,
@@ -182,9 +208,12 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterCheckSource: "background",
   terminalPlacement: loadPlacement(),
   terminalPanelHeight: loadPanelHeight(),
+  collapsedWorkspaces: loadStringSet(LS_COLLAPSED_WS),
+  collapsedInstances: loadStringSet(LS_COLLAPSED_INST),
   extensionListVersion: 0,
   activeDomain: "workspaces",
   selectedAppId: null,
+  selectedInstanceId: null,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -255,5 +284,24 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   bumpExtensionList: () => set((s) => ({ extensionListVersion: s.extensionListVersion + 1 })),
 
   setActiveDomain: (v) => set({ activeDomain: v }),
-  selectApp: (id) => set({ selectedAppId: id }),
+  // Selecting a parent app always exits any instance detail that was open.
+  selectApp: (id) => set({ selectedAppId: id, selectedInstanceId: null }),
+  selectInstance: (appId, instanceId) =>
+    set({ selectedAppId: appId, selectedInstanceId: instanceId }),
+
+  toggleWorkspaceCollapse: (id) =>
+    set((s) => {
+      const next = new Set(s.collapsedWorkspaces);
+      next.has(id) ? next.delete(id) : next.add(id);
+      saveStringSet(LS_COLLAPSED_WS, next);
+      return { collapsedWorkspaces: next };
+    }),
+
+  toggleInstancesCollapse: (id) =>
+    set((s) => {
+      const next = new Set(s.collapsedInstances);
+      next.has(id) ? next.delete(id) : next.add(id);
+      saveStringSet(LS_COLLAPSED_INST, next);
+      return { collapsedInstances: next };
+    }),
 });

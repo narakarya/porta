@@ -7,6 +7,7 @@ import {
   rescanExtensions,
   updateExtension,
 } from "../../lib/commands";
+import { deriveInstanceApp } from "../../lib/instance-app";
 import type { ExtensionInfo } from "../../types/extension";
 import { ExtensionIcon } from "./ExtensionIcon";
 
@@ -17,10 +18,11 @@ type SidebarToast = { message: string; kind: "success" | "error" } | null;
 const SEARCH_THRESHOLD = 6;
 
 export default function ExtensionSidebar() {
-  const { sidebar, apps, open, close, openSettingsSection, bumpExtensionList } = usePortaStore(
+  const { sidebar, apps, instances, open, close, openSettingsSection, bumpExtensionList } = usePortaStore(
     useShallow((s) => ({
       sidebar: s.extensionSidebar,
       apps: s.apps,
+      instances: s.instances,
       open: s.openExtensionSidebar,
       close: s.closeExtensionSidebar,
       openSettingsSection: s.openSettingsSection,
@@ -84,7 +86,18 @@ export default function ExtensionSidebar() {
   if (!sidebar) return null;
   const currentSidebar = sidebar;
 
-  const app = apps.find((a) => a.id === sidebar.appId);
+  const app = (() => {
+    const primary = apps.find((candidate) => candidate.id === sidebar.appId);
+    if (primary) return primary;
+
+    for (const [parentId, appInstances] of Object.entries(instances)) {
+      const instance = appInstances.find((candidate) => candidate.id === sidebar.appId);
+      if (!instance) continue;
+      const parent = apps.find((candidate) => candidate.id === parentId);
+      if (parent) return deriveInstanceApp(parent, instance);
+    }
+    return undefined;
+  })();
   if (!app) return null;
   const currentApp = app;
 

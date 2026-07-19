@@ -106,6 +106,7 @@ impl Database {
         let _ = self.conn.execute("ALTER TABLE services ADD COLUMN volumes TEXT NOT NULL DEFAULT '[]'", []);
         let _ = self.conn.execute("ALTER TABLE workspaces ADD COLUMN position INTEGER NOT NULL DEFAULT 0", []);
         let _ = self.conn.execute("ALTER TABLE services ADD COLUMN position INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN position INTEGER NOT NULL DEFAULT 0", []);
 
         // Non-destructive additions for existing databases (errors = column already exists)
         let _ = self.conn.execute("ALTER TABLE apps ADD COLUMN env_file TEXT", []);

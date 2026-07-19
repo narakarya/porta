@@ -8,7 +8,9 @@ import {
   gitDeleteRemoteBranch,
   gitSwitchBranch,
   gitTrackRemoteBranch,
+  gitWorktreeList,
   type BranchList,
+  type WorktreeEntry,
 } from "../../../lib/commands";
 import { Button, Input, Select, Spinner } from "../../ui";
 import { DiffLines } from "./diffLines";
@@ -29,6 +31,7 @@ export default function BranchesPanel({
   onRepositoryChanged?: () => void;
 }) {
   const [branches, setBranches] = useState<BranchList | null>(null);
+  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [query, setQuery] = useState("");
   const [newBranch, setNewBranch] = useState("");
   const [startPoint, setStartPoint] = useState("");
@@ -49,10 +52,14 @@ export default function BranchesPanel({
   function load() {
     if (!app.root_dir) return;
     setError(null);
-    gitBranches(app.root_dir)
-      .then((list) => {
+    Promise.all([
+      gitBranches(app.root_dir),
+      gitWorktreeList(app.root_dir).catch(() => [] as WorktreeEntry[]),
+    ])
+      .then(([list, entries]) => {
         if (!mounted.current) return;
         setBranches(list);
+        setWorktrees(entries);
         const defaultBase = list.local.includes("main")
           ? "main"
           : list.local.includes("master")
@@ -61,7 +68,11 @@ export default function BranchesPanel({
         setCompareBase((prev) => prev && list.local.includes(prev) ? prev : defaultBase);
         setStartPoint((prev) => prev || list.current || defaultBase);
       })
-      .catch((e) => { if (mounted.current) setError(String(e)); });
+      .catch((e) => {
+        if (!mounted.current) return;
+        setWorktrees([]);
+        setError(String(e));
+      });
   }
 
   useEffect(() => {
@@ -81,6 +92,15 @@ export default function BranchesPanel({
     ];
     return q === "" ? all : all.filter((row) => row.label.toLowerCase().includes(q));
   }, [branches, query]);
+
+  const branchWorktrees = useMemo(
+    () => new Map(
+      worktrees
+        .filter((worktree) => worktree.branch && worktree.path !== app.root_dir)
+        .map((worktree) => [worktree.branch!, worktree.path] as const),
+    ),
+    [app.root_dir, worktrees],
+  );
 
   function preview(row: Row, base = compareBase) {
     if (!app.root_dir || !base || row.name === base) {
@@ -214,10 +234,12 @@ export default function BranchesPanel({
                   </div>
                   {section.map((row) => {
                     const current = row.kind === "local" && branches.current === row.name;
+                    const worktreePath = row.kind === "local" ? branchWorktrees.get(row.name) : undefined;
                     const deleting = confirmDelete?.kind === row.kind && confirmDelete.name === row.name;
                     return (
                       <div
                         key={`${row.kind}:${row.name}`}
+                        title={worktreePath ? `Checked out in ${worktreePath}` : row.name}
                         onClick={() => preview(row)}
                         className={`group mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer ${selected?.kind === row.kind && selected.name === row.name ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
                       >
@@ -232,7 +254,14 @@ export default function BranchesPanel({
                           </div>
                         ) : (
                           <div className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            {!current && row.kind === "local" && (
+                            {worktreePath ? (
+                              <span
+                                className="max-w-[150px] truncate px-2 py-1 text-[10px] text-warn"
+                                title={worktreePath}
+                              >
+                                in {worktreePath}
+                              </span>
+                            ) : !current && row.kind === "local" && (
                               <button
                                 onClick={() => mutate(`switch:${row.name}`, () => gitSwitchBranch(app.root_dir, row.name, false))}
                                 disabled={busy !== null}
@@ -250,7 +279,7 @@ export default function BranchesPanel({
                                 Track
                               </button>
                             )}
-                            {!current && (
+                            {!current && !worktreePath && (
                               <button
                                 onClick={() => setConfirmDelete(row)}
                                 disabled={busy !== null}
