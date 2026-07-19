@@ -22,6 +22,7 @@ import ErrorBoundary from "./components/layout/ErrorBoundary";
 import HelpModal from "./components/layout/HelpModal";
 import { ExtensionHostProvider } from "./components/extension/ExtensionHostManager";
 import UiGallery from "./components/ui/UiGallery";
+import { deriveInstanceApp } from "./lib/instance-app";
 
 type Page = "main" | "settings";
 
@@ -38,10 +39,24 @@ export default function App() {
   const setupStatus = usePortaStore((s) => s.setupStatus);
   const activeDomain = usePortaStore((s) => s.activeDomain);
   const selectedAppId = usePortaStore((s) => s.selectedAppId);
+  const selectedInstanceId = usePortaStore((s) => s.selectedInstanceId);
   const apps = usePortaStore((s) => s.apps);
+  const instances = usePortaStore((s) => s.instances);
   const selectedWorkspaceId = usePortaStore((s) => s.selectedWorkspaceId);
   const selectApp = usePortaStore((s) => s.selectApp);
   const selectedApp = selectedAppId ? (apps.find((a) => a.id === selectedAppId) ?? null) : null;
+  const selectedInstance = selectedApp && selectedInstanceId
+    ? (instances[selectedApp.id] ?? []).find((instance) => instance.id === selectedInstanceId) ?? null
+    : null;
+
+  // An instance can disappear from another surface (sidebar context menu,
+  // process cleanup, etc.). Fall back to its parent instead of leaving a stale
+  // instance selection that highlights neither row.
+  useEffect(() => {
+    if (selectedApp && selectedInstanceId && !selectedInstance) {
+      selectApp(selectedApp.id);
+    }
+  }, [selectedApp, selectedInstanceId, selectedInstance, selectApp]);
 
   // Shell C is content-forward: the main area is always an app's workbench, not
   // a workspace overview. When landing in the Workspaces domain with nothing
@@ -265,7 +280,16 @@ export default function App() {
             )}
                 <WorkspaceView />
                 </div>
-                {selectedApp && <AppWorkbench app={selectedApp} />}
+                {selectedApp && selectedInstance ? (
+                  <AppWorkbench
+                    app={deriveInstanceApp(selectedApp, selectedInstance)}
+                    instance={selectedInstance}
+                    parentApp={selectedApp}
+                    onExitInstance={() => selectApp(selectedApp.id)}
+                  />
+                ) : selectedApp ? (
+                  <AppWorkbench app={selectedApp} />
+                ) : null}
               </div>
               <div hidden={activeDomain !== "hosts"}>
                 <HostsView />

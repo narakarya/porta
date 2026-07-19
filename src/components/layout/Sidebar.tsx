@@ -43,17 +43,19 @@ type AppMenuItem = {
 };
 
 export default function Sidebar() {
-  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse } = usePortaStore(
+  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, selectedInstanceId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, selectInstance, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
       instances: s.instances,
       selectedWorkspaceId: s.selectedWorkspaceId,
       selectedAppId: s.selectedAppId,
+      selectedInstanceId: s.selectedInstanceId,
       imageUpdateCache: s.imageUpdateCache,
       setupStatus: s.setupStatus,
       selectWorkspace: s.selectWorkspace,
       selectApp: s.selectApp,
+      selectInstance: s.selectInstance,
       reorderWorkspaces: s.reorderWorkspaces,
       reorderApps: s.reorderApps,
       moveAppToWorkspace: s.moveAppToWorkspace,
@@ -411,7 +413,7 @@ export default function Sidebar() {
         onMouseLeave={() => { if (isAppDraggingRef.current) setAppDragOver(null); }}
       >
         {list.map((a, i) => {
-          const on = selectedAppId === a.id;
+          const on = selectedAppId === a.id && selectedInstanceId === null;
           const running = a.status === "running" || a.status === "starting";
           const busy = busyApps.has(a.id);
           const menuOpen = appMenu?.app.id === a.id;
@@ -500,10 +502,9 @@ export default function Sidebar() {
                   </button>
                 </span>
               </div>
-              {/* Worktree instances as an indented sub-tree. Clicking a sub-row
-                  selects the PARENT app and opens its workbench (where the
-                  Overview instances section lives) — no per-instance selection
-                  state exists. */}
+              {/* Worktree instances as an indented sub-tree. Each row opens the
+                  instance's own workbench while preserving the parent app as
+                  the breadcrumb/back target. */}
               {instancesExpanded && (
                 // Indented sub-tree. The container's left border is the tree
                 // connector — it lines up under the parent app's status dot so
@@ -515,16 +516,17 @@ export default function Sidebar() {
                     const instOn = inst.status === "running" || inst.status === "starting";
                     const instBusy = busyInstances.has(inst.id);
                     const instMenuOpen = instMenu?.inst.id === inst.id;
+                    const instanceSelected = selectedInstanceId === inst.id;
                     return (
                       <div
                         key={inst.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => { selectApp(a.id); setActiveDomain("workspaces"); }}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectApp(a.id); setActiveDomain("workspaces"); } }}
+                        onClick={() => { selectInstance(a.id, inst.id); setActiveDomain("workspaces"); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectInstance(a.id, inst.id); setActiveDomain("workspaces"); } }}
                         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setInstMenu({ inst, app: a, x: e.clientX, y: e.clientY }); }}
                         title={`${inst.branch} · :${inst.port}`}
-                        className="group/inst flex items-center gap-2 pl-3 pr-2 py-1 rounded-control w-full text-left select-none cursor-pointer transition-colors hover:bg-white/[0.04]"
+                        className={`group/inst flex items-center gap-2 pl-3 pr-2 py-1 rounded-control w-full text-left select-none cursor-pointer transition-colors ${instanceSelected ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${instOn ? "bg-ok" : "bg-ink-3"}`} />
                         <span className="flex-1 truncate text-[12px] text-ink-2">{inst.branch}</span>

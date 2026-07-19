@@ -121,7 +121,10 @@ export interface UiSlice {
   activeDomain: "workspaces" | "hosts" | "services" | "activity" | "extensions";
   /** App opened in the Workspaces workbench (null = app list). */
   selectedAppId: string | null;
+  /** Worktree instance opened inside the selected app's workbench. */
+  selectedInstanceId: string | null;
   selectApp: (id: string | null) => void;
+  selectInstance: (appId: string, instanceId: string) => void;
 
   checkSetup: () => Promise<void>;
   loadSettings: () => Promise<void>;
@@ -210,6 +213,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   extensionListVersion: 0,
   activeDomain: "workspaces",
   selectedAppId: null,
+  selectedInstanceId: null,
 
   checkSetup: async () => {
     const setupStatus = await cmd.checkSetup();
@@ -280,7 +284,10 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   bumpExtensionList: () => set((s) => ({ extensionListVersion: s.extensionListVersion + 1 })),
 
   setActiveDomain: (v) => set({ activeDomain: v }),
-  selectApp: (id) => set({ selectedAppId: id }),
+  // Selecting a parent app always exits any instance detail that was open.
+  selectApp: (id) => set({ selectedAppId: id, selectedInstanceId: null }),
+  selectInstance: (appId, instanceId) =>
+    set({ selectedAppId: appId, selectedInstanceId: instanceId }),
 
   toggleWorkspaceCollapse: (id) =>
     set((s) => {

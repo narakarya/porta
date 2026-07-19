@@ -11,7 +11,6 @@ import GitBadge from "../app/GitBadge";
 import DockerUpdateBadge from "../app/DockerUpdateBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
 import RunOnBranchPicker from "./RunOnBranchPicker";
-import { deriveInstanceApp } from "../../lib/instance-app";
 import type { ExtensionInfo } from "../../types/extension";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
@@ -194,10 +193,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const [busy, setBusy] = useState<null | "start" | "stop" | "restart">(null);
   // Worktree instances (mockup 26) — the Overview "Instances" section lists the
   // primary checkout + each branch instance. "＋ New from branch" reveals the
-  // inline RunOnBranchPicker; clicking an instance opens it as its own workbench
-  // (openInstanceId), giving it the full parent tab/action set.
+  // inline RunOnBranchPicker; selecting an instance is stored globally so the
+  // sidebar and workbench stay in sync.
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [openInstanceId, setOpenInstanceId] = useState<string | null>(null);
   // Instance-mode tunnel toggle (start/stop the worktree instance's tunnel).
   const [tunnelBusy, setTunnelBusy] = useState(false);
 
@@ -205,7 +203,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting,
     instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
     openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
-    clearTunnelLog,
+    clearTunnelLog, selectInstance,
   } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
@@ -226,17 +224,11 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       cacheAppExtensions: s.cacheAppExtensions,
       extSidebarActive: s.extensionSidebar?.appId === app.id,
       clearTunnelLog: s.clearTunnelLog,
+      selectInstance: s.selectInstance,
     }))
   );
   // Only the parent workbench tracks instances — an instance can't nest.
   useEffect(() => { if (!isInstance) void refreshInstances(app.id); }, [app.id, refreshInstances, isInstance]);
-
-  // The instance currently opened as its own workbench (looked up live from the
-  // store list so its status/tunnel stay fresh). Reset if it's removed.
-  const openInst = openInstanceId ? instances.find((i) => i.id === openInstanceId) ?? null : null;
-  useEffect(() => {
-    if (openInstanceId && !instances.some((i) => i.id === openInstanceId)) setOpenInstanceId(null);
-  }, [openInstanceId, instances]);
 
   // Extensions matching this app (mockup: the workbench is the app's home, so
   // the card's extension affordances must live here too — otherwise opening an
@@ -362,20 +354,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // Instance mode hides the parent-only tabs: Config (an instance inherits the
   // parent's config) and Publish (the instance tunnel toggle lives in the header).
   const visibleTabs = isInstance ? TABS.filter((t) => t.id !== "config" && t.id !== "publish") : TABS;
-
-  // An instance opened from the Instances section renders as its own workbench —
-  // the same component, so it inherits every tab/action, with lifecycle/tunnel
-  // routed to the instance backend and a breadcrumb back to the parent.
-  if (openInst) {
-    return (
-      <AppWorkbench
-        app={deriveInstanceApp(app, openInst)}
-        instance={openInst}
-        parentApp={app}
-        onExitInstance={() => setOpenInstanceId(null)}
-      />
-    );
-  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
@@ -754,7 +732,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                     <div key={inst.id} className="group flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2 hover:border-strong hover:bg-white/[0.02] transition-colors">
                       <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${isRunning ? "bg-ok" : "bg-ink-3"}`} aria-hidden />
                       <button
-                        onClick={() => setOpenInstanceId(inst.id)}
+                        onClick={() => selectInstance(app.id, inst.id)}
                         title="Open instance workbench"
                         className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
                       >
@@ -788,7 +766,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                         )}
                         {/* Open-workbench chevron — the row's primary navigation. */}
                         <span className="w-px h-4 bg-[var(--border-subtle)]" aria-hidden />
-                        <button onClick={() => setOpenInstanceId(inst.id)} title="Open instance workbench" aria-label="Open instance workbench" className="text-ink-3 group-hover:text-ink transition-colors">
+                        <button onClick={() => selectInstance(app.id, inst.id)} title="Open instance workbench" aria-label="Open instance workbench" className="text-ink-3 group-hover:text-ink transition-colors">
                           <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </button>
                       </span>

@@ -156,6 +156,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   // Instances now live in the app workbench (Overview → Instances). Opening the
   // app selects it so the workbench takes over — replaces the old modal.
   const selectApp = usePortaStore((s) => s.selectApp);
+  const selectInstance = usePortaStore((s) => s.selectInstance);
 
   const [logViewerOpen, setLogViewerOpen] = useState(false);
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
@@ -357,9 +358,15 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
         }`} />
 
         <div
-          className={`flex-1 min-w-0 ${!isInstance && onOpenSettings ? "cursor-pointer" : ""}`}
-          onClick={!isInstance && onOpenSettings ? () => onOpenSettings(app) : undefined}
-          title={!isInstance && onOpenSettings ? "Open settings" : undefined}
+          className={`flex-1 min-w-0 ${(!isInstance && onOpenSettings) || (isInstance && instance) ? "cursor-pointer" : ""}`}
+          onClick={
+            isInstance && instance
+              ? () => selectInstance(instance.app_id, instance.id)
+              : onOpenSettings
+                ? () => onOpenSettings(app)
+                : undefined
+          }
+          title={isInstance && instance ? "Open instance details" : onOpenSettings ? "Open app details" : undefined}
         >
           <div className="flex items-center gap-1.5">
             <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
