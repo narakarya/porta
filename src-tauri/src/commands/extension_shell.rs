@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::time::timeout;
 
 use crate::app_state::AppState;
+use crate::db::Database;
 use crate::extensions::loader::extensions_dir;
 
 /// Build an augmented PATH that includes shim directories from common version
@@ -99,6 +100,27 @@ pub struct ShellResult {
     pub timed_out: bool,
 }
 
+/// Resolve an extension target to the checkout it is allowed to operate in.
+/// The frontend uses a synthetic app id for worktree instances, so extension
+/// commands must accept both primary app ids and instance ids. Returning the
+/// instance worktree here also keeps cwd validation scoped to that checkout
+/// instead of accidentally granting access to the parent's root.
+fn extension_target_root(db: &Database, target_id: &str) -> Result<String, String> {
+    let apps = db.list_apps().map_err(|e| format!("DB error: {}", e))?;
+    if let Some(app) = apps.into_iter().find(|app| app.id == target_id) {
+        return Ok(app.root_dir);
+    }
+
+    let instances = db
+        .list_instances()
+        .map_err(|e| format!("DB error: {}", e))?;
+    instances
+        .into_iter()
+        .find(|instance| instance.id == target_id)
+        .map(|instance| instance.worktree_path)
+        .ok_or_else(|| format!("App or instance '{}' not found", target_id))
+}
+
 /// Run a shell command on behalf of an extension.
 ///
 /// Security constraints:
@@ -117,11 +139,7 @@ pub async fn extension_shell_run(
     // 1. Look up the app to get root_dir
     let root_dir: String = {
         let db = state.db.lock().unwrap();
-        let apps = db.list_apps().map_err(|e| format!("DB error: {}", e))?;
-        apps.into_iter()
-            .find(|a| a.id == app_id)
-            .ok_or_else(|| format!("App '{}' not found", app_id))?
-            .root_dir
+        extension_target_root(&db, &app_id)?
     };
 
     // 2. Check extension permission
@@ -266,11 +284,7 @@ pub async fn extension_shell_spawn(
 ) -> Result<(), String> {
     let root_dir: String = {
         let db = state.db.lock().unwrap();
-        let apps = db.list_apps().map_err(|e| format!("DB error: {}", e))?;
-        apps.into_iter()
-            .find(|a| a.id == app_id)
-            .ok_or_else(|| format!("App '{}' not found", app_id))?
-            .root_dir
+        extension_target_root(&db, &app_id)?
     };
 
     {
@@ -344,4 +358,41 @@ pub async fn extension_shell_spawn(
 
     let _ = on_event.send(SpawnEvent::Done { code, timed_out });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::models::AppInstance;
+    use rusqlite::params;
+
+    #[test]
+    fn extension_target_root_resolves_primary_app_and_instance_worktree() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO apps (id, name, root_dir, port) VALUES (?1, 'porta', ?2, 4001)",
+                params!["app-1", "/repo/porta"],
+            )
+            .unwrap();
+        db.insert_instance(&AppInstance {
+            id: "app-1:feature-editor".into(),
+            app_id: "app-1".into(),
+            worktree_path: "/repo/porta-feature-editor".into(),
+            branch: "feature/editor".into(),
+            subdomain: "porta-feature-editor".into(),
+            port: 5001,
+            pid: None,
+            status: "stopped".into(),
+        })
+        .unwrap();
+
+        assert_eq!(extension_target_root(&db, "app-1").unwrap(), "/repo/porta");
+        assert_eq!(
+            extension_target_root(&db, "app-1:feature-editor").unwrap(),
+            "/repo/porta-feature-editor"
+        );
+        assert!(extension_target_root(&db, "missing").is_err());
+    }
 }
