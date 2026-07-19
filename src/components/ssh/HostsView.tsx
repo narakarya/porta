@@ -56,7 +56,7 @@ export default function HostsView() {
   const showSkeleton = loading && hosts.length === 0;
 
   return (
-    <div className="flex h-screen -mx-6 -mt-14 pt-14 -mb-6 bg-surface-0">
+    <div className="flex h-screen -mx-6 -mt-6 -mb-6 bg-surface-0">
       {/* Reuse the same shell the Workspaces sidebar uses (216px, #0d0d0f,
           shared border) instead of a hand-rolled 256px column. */}
       <SidebarFrame>

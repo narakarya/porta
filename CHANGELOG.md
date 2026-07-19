@@ -13,6 +13,7 @@ All notable changes to Porta are documented in this file. Format follows
 ### Fixed
 - **Git discard semantics**: discarding now works for untracked files and directories, staged new files, and staged tracked edits. Status also has a confirmed “Discard all” action instead of requiring one file at a time.
 - **Docker image update visibility**: the workspace rollup now marks the exact app row that has a pending image update (including the affected Compose service/image in its tooltip), instead of showing only an ambiguous workspace-level count.
+- **Empty domain header strip**: Hosts, Services, Activity, Extensions, and app workbenches now begin at the top of their content area instead of sitting below a blank 44px drag bar.
 
 ## [0.12.0-beta.5]
 

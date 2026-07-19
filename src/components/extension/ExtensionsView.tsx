@@ -10,7 +10,7 @@ const ExtensionsSection = lazy(() => import("../settings/ExtensionsSection"));
 export default function ExtensionsView() {
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-6 py-6">
+      <div className="max-w-3xl mx-auto">
         <Suspense
           fallback={
             <div className="space-y-2">

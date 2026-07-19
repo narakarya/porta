@@ -383,7 +383,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
+    <div className="flex flex-col h-screen -mx-6 -mt-6 -mb-6">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-subtle">
         <span className="w-[26px] h-[26px] rounded-[7px] bg-surface-2 text-accent flex items-center justify-center shrink-0">
           {isInstance ? (

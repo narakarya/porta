@@ -176,7 +176,7 @@ export default function ExtensionSidebar() {
 
   return (
     <>
-      <div className="fixed top-11 right-0 bottom-0 w-[260px] flex flex-col bg-[#111113] border-l border-white/[0.06] z-40 shadow-[-8px_0_24px_rgba(0,0,0,0.35)]">
+      <div className="fixed top-0 right-0 bottom-0 w-[260px] flex flex-col bg-[#111113] border-l border-white/[0.06] z-40 shadow-[-8px_0_24px_rgba(0,0,0,0.35)]">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.06] shrink-0">
           <ExtensionIcon extension={{ id: "extensions", name: "Extensions" }} size="sm" />
