@@ -6,6 +6,27 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.8]
+
+### Added
+
+- **First-class instance navigation:** clicking a worktree instance in the
+  sidebar, app card, or parent Overview now opens its own workbench with
+  Overview, Logs, Git, and Terminal, plus a breadcrumb back to the parent.
+
+### Changed
+
+- **Git manager is worktree-aware:** branches checked out in another worktree
+  are disabled before switching, clearly labeled, and show the checkout path
+  instead of failing only after the Git command runs.
+- Instance selection is shared across the sidebar and workbench and safely
+  falls back to the parent when the selected instance is removed.
+
+### Fixed
+
+- **Switching to `beta` looked broken.** Porta now explains when Git has locked
+  a branch because another worktree already has it checked out.
+
 ## [0.12.0-beta.7]
 
 ### Added
