@@ -1,10 +1,86 @@
 import { useEffect, useRef, useState } from "react";
 import type { App } from "../../../types";
-import { gitDiffFile, gitApplyHunk, gitDiscardHunk } from "../../../lib/commands";
+import {
+  gitDiffFile,
+  gitApplyHunk,
+  gitDiscardHunk,
+  gitFilePreview,
+  type GitFilePreview,
+} from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { tokenDiff, type Span } from "../../../lib/word-diff";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
+
+function previewTable(preview: GitFilePreview) {
+  const separator = preview.kind === "tsv" ? "\t" : ",";
+  const rows = preview.data
+    .split(/\r?\n/)
+    .filter((line) => line !== "")
+    .slice(0, 200)
+    .map((line) => line.split(separator));
+  return (
+    <div className="overflow-auto p-3 font-sans">
+      <table className="min-w-full border-collapse text-[11px]">
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className={rowIndex === 0 ? "bg-surface-1 text-ink" : "text-ink-2"}>
+              {row.map((cell, cellIndex) => {
+                const Cell = rowIndex === 0 ? "th" : "td";
+                return (
+                  <Cell
+                    key={cellIndex}
+                    className="max-w-[320px] truncate border border-subtle px-2 py-1 text-left font-normal"
+                    title={cell}
+                  >
+                    {cell}
+                  </Cell>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: string }) {
+  if (preview.kind === "image") {
+    return (
+      <div className="flex min-h-full items-center justify-center bg-[linear-gradient(45deg,var(--color-surface-1)_25%,transparent_25%),linear-gradient(-45deg,var(--color-surface-1)_25%,transparent_25%),linear-gradient(45deg,transparent_75%,var(--color-surface-1)_75%),linear-gradient(-45deg,transparent_75%,var(--color-surface-1)_75%)] bg-[length:20px_20px] p-5">
+        <img
+          src={`data:${preview.mime};base64,${preview.data}`}
+          alt={path}
+          className="max-h-[70vh] max-w-full rounded-control object-contain shadow-xl"
+        />
+      </div>
+    );
+  }
+  if (preview.kind === "html") {
+    const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">`;
+    return (
+      <iframe
+        title={`Preview ${path}`}
+        sandbox=""
+        srcDoc={`${policy}${preview.data}`}
+        className="h-full min-h-[360px] w-full border-0 bg-white"
+      />
+    );
+  }
+  if (preview.kind === "csv" || preview.kind === "tsv") return previewTable(preview);
+  return (
+    <div className="mx-auto max-w-4xl p-5 font-sans text-[13px] leading-relaxed text-ink-2">
+      {preview.data.split(/\r?\n/).map((line, index) => {
+        if (line.startsWith("### ")) return <h3 key={index} className="mb-1 mt-4 text-[14px] font-semibold text-ink">{line.slice(4)}</h3>;
+        if (line.startsWith("## ")) return <h2 key={index} className="mb-1 mt-5 text-[16px] font-semibold text-ink">{line.slice(3)}</h2>;
+        if (line.startsWith("# ")) return <h1 key={index} className="mb-2 mt-2 text-[20px] font-semibold text-ink">{line.slice(2)}</h1>;
+        if (line.startsWith("- ") || line.startsWith("* ")) return <div key={index} className="pl-3">• {line.slice(2)}</div>;
+        return <div key={index} className={line === "" ? "h-3" : "whitespace-pre-wrap"}>{line}</div>;
+      })}
+    </div>
+  );
+}
 
 function lineClass(kind: DiffLine["kind"]): string {
   if (kind === "add") return "bg-ok-bg text-ok";
@@ -117,6 +193,8 @@ export default function DiffView({
   // non-empty diff; gating "No changes." on this (rather than
   // `parsed.hunks.length`) keeps those cases from reading as no diff at all.
   const [rawDiff, setRawDiff] = useState("");
+  const [preview, setPreview] = useState<GitFilePreview | null>(null);
+  const [surface, setSurface] = useState<"diff" | "preview">("diff");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState<number | null>(null);
@@ -137,11 +215,16 @@ export default function DiffView({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    gitDiffFile(app.root_dir, path, staged)
-      .then((raw) => {
+    Promise.all([
+      gitDiffFile(app.root_dir, path, staged),
+      gitFilePreview(app.root_dir, path).catch(() => null),
+    ])
+      .then(([raw, nextPreview]) => {
         if (cancelled) return;
         setRawDiff(raw);
         setParsed(parseUnifiedDiff(raw));
+        setPreview(nextPreview);
+        setSurface(nextPreview?.kind === "image" ? "preview" : "diff");
       })
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -187,10 +270,37 @@ export default function DiffView({
 
   if (loading) return <div className="text-ink-3">Loading diff…</div>;
   if (error) return <div className="text-bad whitespace-pre-wrap break-words">{error}</div>;
+  if (preview && surface === "preview") {
+    return (
+      <div className="flex h-full min-h-[280px] flex-col font-sans">
+        <div className="flex shrink-0 items-center gap-2 border-b border-subtle bg-surface-1 px-2.5 py-1.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">{path}</span>
+          {preview.truncated && <span className="text-[10px] text-warn">Preview limited to 512 KB</span>}
+          {staged && <span className="text-[10px] text-ink-3">working tree preview</span>}
+          <div className="flex overflow-hidden rounded-control border border-strong text-[10px]">
+            <button onClick={() => setSurface("preview")} className="bg-accent-bg px-2 py-0.5 text-ink">Preview</button>
+            <button onClick={() => setSurface("diff")} className="px-2 py-0.5 text-ink-3 hover:text-ink">Diff</button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <PreviewSurface preview={preview} path={path} />
+        </div>
+      </div>
+    );
+  }
   // Only a truly empty fetched diff means "no changes" — a binary file or a
   // mode-only change comes back non-empty but with zero `@@` hunks.
   if (!parsed || rawDiff.trim() === "") {
-    return <div className="text-ink-3">No changes.</div>;
+    return (
+      <div className="flex items-center justify-between gap-2 text-ink-3">
+        <span>No changes.</span>
+        {preview && (
+          <button onClick={() => setSurface("preview")} className="rounded-control border border-strong px-2 py-0.5 font-sans text-[11px] text-ink-2">
+            Preview
+          </button>
+        )}
+      </div>
+    );
   }
   if (parsed.hunks.length === 0) {
     return (
@@ -215,6 +325,14 @@ export default function DiffView({
           ))}
         </div>
         <div className="shrink-0 flex rounded-control border border-strong overflow-hidden font-sans text-[11px]">
+          {preview && (
+            <button
+              onClick={() => setSurface("preview")}
+              className="border-r border-strong px-2 py-0.5 text-ink-2 hover:bg-white/[0.05]"
+            >
+              Preview
+            </button>
+          )}
           <button
             onClick={() => setView("unified")}
             className={`px-2 py-0.5 transition-colors duration-fast ${

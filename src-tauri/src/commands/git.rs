@@ -12,6 +12,32 @@ pub struct BranchList {
     pub current: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BranchInfo {
+    pub name: String,
+    pub remote: bool,
+    pub current: bool,
+    pub upstream: Option<String>,
+    pub tracking: String,
+    pub short_hash: String,
+    pub relative_date: String,
+    pub subject: String,
+    pub merged: bool,
+    pub identical: bool,
+    pub has_remote: bool,
+    pub ahead: u32,
+    pub behind: u32,
+    pub unique_commits: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BranchInfoList {
+    pub local: Vec<BranchInfo>,
+    pub remote: Vec<BranchInfo>,
+    pub current: Option<String>,
+    pub compare_base: String,
+}
+
 /// Split `git branch --format=%(refname:short)` output into names, dropping
 /// blank lines and git's `origin/HEAD` symref (and any `->` alias line, a
 /// defensive guard in case a caller uses a format that includes it).
@@ -266,7 +292,7 @@ fn parse_numstat(raw: &str) -> std::collections::HashMap<String, (u32, u32)> {
 
 use std::io::Read;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -301,6 +327,30 @@ fn find_git_cli() -> Option<String> {
         "/opt/homebrew/bin/git",   // Homebrew (Apple Silicon)
         "/usr/local/bin/git",      // Homebrew (Intel)
     ] {
+        if Path::new(path).exists() {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
+/// Locate GitHub CLI for the native PR panel. Like git, `gh` installed through
+/// Homebrew is commonly absent from a GUI app's inherited PATH.
+fn gh_bin() -> Option<&'static str> {
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED.get_or_init(find_gh_cli).as_deref()
+}
+
+fn find_gh_cli() -> Option<String> {
+    if Command::new("gh")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return Some("gh".into());
+    }
+    for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] {
         if Path::new(path).exists() {
             return Some(path.to_string());
         }
@@ -500,6 +550,20 @@ fn run_git_raw(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<Strin
     run_bin(bin, root_dir, args, timeout_secs, false)
 }
 
+fn run_gh(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
+    let bin = gh_bin().ok_or_else(|| {
+        "GitHub CLI is not installed. Install `gh`, then run `gh auth login`.".to_string()
+    })?;
+    run_bin(bin, root_dir, args, timeout_secs, true)
+}
+
+fn run_gh_raw(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
+    let bin = gh_bin().ok_or_else(|| {
+        "GitHub CLI is not installed. Install `gh`, then run `gh auth login`.".to_string()
+    })?;
+    run_bin(bin, root_dir, args, timeout_secs, false)
+}
+
 /// Like [`run_git_raw`] but feeds `stdin_data` to the child's stdin before
 /// draining its output — the variant `git apply --cached` needs, since a
 /// patch has to arrive on stdin rather than as an argv/file argument.
@@ -610,6 +674,10 @@ fn run_bin(
     timeout_secs: u64,
     trim: bool,
 ) -> Result<String, String> {
+    let program = Path::new(bin)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(bin);
     let mut child = Command::new(bin)
         .current_dir(root_dir)
         .args(args)
@@ -663,7 +731,7 @@ fn run_bin(
                 }
                 let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
                 return Err(if stderr.is_empty() {
-                    format!("git {} failed", args.join(" "))
+                    format!("{program} {} failed", args.join(" "))
                 } else {
                     stderr
                 });
@@ -680,7 +748,7 @@ fn run_bin(
                     // kill still holding a pipe, read_to_end would block forever.
                     let _ = child.wait();
                     return Err(format!(
-                        "git {} timed out after {timeout_secs}s — it may be waiting for credentials. \
+                        "{program} {} timed out after {timeout_secs}s — it may be waiting for credentials. \
                          Open a terminal in this folder and run it there once.",
                         args.join(" ")
                     ));
@@ -733,6 +801,43 @@ pub async fn git_pull_rebase(root_dir: String) -> Result<String, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_rebase_main(root_dir: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // Refresh origin first when it exists, then prefer its default branch
+        // refs. A repository without origin still gets the local main/master
+        // fallback instead of an opaque fetch failure.
+        let has_origin = run_git(
+            &root_dir,
+            &["remote", "get-url", "origin"],
+            LOCAL_TIMEOUT_SECS,
+        )
+        .is_ok();
+        if has_origin {
+            run_git(
+                &root_dir,
+                &["fetch", "origin", "--prune"],
+                NET_TIMEOUT_SECS,
+            )?;
+        }
+        let candidates = ["origin/main", "origin/master", "main", "master"];
+        let target = candidates
+            .iter()
+            .find(|candidate| {
+                run_git(
+                    &root_dir,
+                    &["rev-parse", "--verify", "--quiet", candidate],
+                    LOCAL_TIMEOUT_SECS,
+                )
+                .is_ok()
+            })
+            .ok_or_else(|| "No main or master branch found locally or on origin.".to_string())?;
+        run_git(&root_dir, &["rebase", target], LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -826,6 +931,218 @@ fn branches_for(root_dir: &str) -> Result<BranchList, String> {
 #[tauri::command]
 pub async fn git_branches(root_dir: String) -> Result<BranchList, String> {
     tokio::task::spawn_blocking(move || branches_for(&root_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn tracking_counts(value: &str) -> (u32, u32) {
+    let mut ahead = 0;
+    let mut behind = 0;
+    let cleaned = value.trim_matches(['[', ']']);
+    for part in cleaned.split(',').map(str::trim) {
+        if let Some(value) = part.strip_prefix("ahead ") {
+            ahead = value.parse().unwrap_or(0);
+        } else if let Some(value) = part.strip_prefix("behind ") {
+            behind = value.parse().unwrap_or(0);
+        }
+    }
+    (ahead, behind)
+}
+
+fn preferred_compare_base(
+    requested: &str,
+    local: &[String],
+    remote: &[String],
+    current: Option<&str>,
+) -> String {
+    let exists = |name: &str| local.iter().chain(remote).any(|item| item == name);
+    if !requested.trim().is_empty() && !requested.starts_with('-') && exists(requested) {
+        return requested.to_string();
+    }
+    for candidate in ["main", "master", "origin/main", "origin/master"] {
+        if exists(candidate) {
+            return candidate.to_string();
+        }
+    }
+    current
+        .filter(|name| exists(name))
+        .map(str::to_string)
+        .or_else(|| local.first().cloned())
+        .or_else(|| remote.first().cloned())
+        .unwrap_or_else(|| "HEAD".into())
+}
+
+fn branch_info_for(root_dir: &str, requested_base: &str) -> Result<BranchInfoList, String> {
+    if requested_base.starts_with('-') {
+        return Err("invalid compare base".into());
+    }
+    let format =
+        "--format=%(refname)\x1f%(refname:short)\x1f%(upstream:short)\x1f%(upstream:track)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(contents:subject)";
+    let raw = run_git_raw(
+        root_dir,
+        &["for-each-ref", format, "refs/heads", "refs/remotes"],
+        LOCAL_TIMEOUT_SECS,
+    )?;
+    let current_raw = run_git(root_dir, &["branch", "--show-current"], LOCAL_TIMEOUT_SECS)?;
+    let current = (!current_raw.trim().is_empty()).then(|| current_raw.trim().to_string());
+    let merged: std::collections::HashSet<String> = run_git(
+        root_dir,
+        &[
+            "for-each-ref",
+            "--merged=HEAD",
+            "--format=%(refname:short)",
+            "refs/heads",
+        ],
+        LOCAL_TIMEOUT_SECS,
+    )
+    .unwrap_or_default()
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .map(str::to_string)
+    .collect();
+
+    #[derive(Clone)]
+    struct RawBranch {
+        name: String,
+        remote: bool,
+        upstream: Option<String>,
+        tracking: String,
+        short_hash: String,
+        relative_date: String,
+        subject: String,
+    }
+
+    let mut entries = Vec::new();
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let mut fields = line.split('\x1f');
+        let full = fields.next().unwrap_or_default();
+        let name = fields.next().unwrap_or_default().trim().to_string();
+        if name.is_empty() || name.ends_with("/HEAD") {
+            continue;
+        }
+        let remote = full.starts_with("refs/remotes/");
+        if remote && !name.contains('/') {
+            continue;
+        }
+        let upstream = fields
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        entries.push(RawBranch {
+            name,
+            remote,
+            upstream,
+            tracking: fields.next().unwrap_or_default().trim().to_string(),
+            short_hash: fields.next().unwrap_or_default().trim().to_string(),
+            relative_date: fields.next().unwrap_or_default().trim().to_string(),
+            subject: fields.next().unwrap_or_default().trim().to_string(),
+        });
+    }
+
+    let local_names: Vec<String> = entries
+        .iter()
+        .filter(|entry| !entry.remote)
+        .map(|entry| entry.name.clone())
+        .collect();
+    let remote_names: Vec<String> = entries
+        .iter()
+        .filter(|entry| entry.remote)
+        .map(|entry| entry.name.clone())
+        .collect();
+    let compare_base = preferred_compare_base(
+        requested_base,
+        &local_names,
+        &remote_names,
+        current.as_deref(),
+    );
+    let head_tree = run_git(root_dir, &["rev-parse", "HEAD^{tree}"], LOCAL_TIMEOUT_SECS)
+        .unwrap_or_default();
+
+    let mut local = Vec::new();
+    let mut remote = Vec::new();
+    for entry in entries {
+        let (ahead, behind) = tracking_counts(&entry.tracking);
+        let unique_commits = if entry.name == compare_base {
+            0
+        } else {
+            let range = format!("{compare_base}...{}", entry.name);
+            run_git(
+                root_dir,
+                &["rev-list", "--left-right", "--count", &range],
+                LOCAL_TIMEOUT_SECS,
+            )
+            .ok()
+            .and_then(|counts| {
+                counts
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|value| value.parse().ok())
+            })
+            .unwrap_or(0)
+        };
+        let tree_ref = format!("{}^{{tree}}", entry.name);
+        let identical = !head_tree.is_empty()
+            && run_git(root_dir, &["rev-parse", &tree_ref], LOCAL_TIMEOUT_SECS)
+                .map(|tree| tree == head_tree)
+                .unwrap_or(false);
+        let has_remote = if entry.remote {
+            true
+        } else {
+            entry.upstream.is_some()
+                || remote_names
+                    .iter()
+                    .any(|name| name.split_once('/').is_some_and(|(_, branch)| branch == entry.name))
+        };
+        let info = BranchInfo {
+            current: !entry.remote && current.as_deref() == Some(entry.name.as_str()),
+            merged: !entry.remote && merged.contains(&entry.name),
+            identical,
+            has_remote,
+            ahead,
+            behind,
+            unique_commits,
+            name: entry.name,
+            remote: entry.remote,
+            upstream: entry.upstream,
+            tracking: entry.tracking,
+            short_hash: entry.short_hash,
+            relative_date: entry.relative_date,
+            subject: entry.subject,
+        };
+        if info.remote {
+            remote.push(info);
+        } else {
+            local.push(info);
+        }
+    }
+    local.sort_by(|a, b| {
+        let rank = |entry: &BranchInfo| {
+            if entry.current {
+                0
+            } else if entry.name == "main" {
+                1
+            } else if entry.name == "master" {
+                2
+            } else {
+                3
+            }
+        };
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    remote.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(BranchInfoList { local, remote, current, compare_base })
+}
+
+#[tauri::command]
+pub async fn git_branch_info(
+    root_dir: String,
+    compare_base: String,
+) -> Result<BranchInfoList, String> {
+    tokio::task::spawn_blocking(move || branch_info_for(&root_dir, &compare_base))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -945,6 +1262,168 @@ pub async fn git_branch_diff(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_branch_diff_options(
+    root_dir: String,
+    base: String,
+    branch: String,
+    context: u32,
+    ignore_whitespace: bool,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        if base.starts_with('-') || branch.starts_with('-') {
+            return Err("invalid branch".into());
+        }
+        let range = format!("{base}...{branch}");
+        let unified = format!("--unified={}", context.min(100_000));
+        let mut args = vec!["diff", "--stat", "--patch", unified.as_str()];
+        if ignore_whitespace {
+            args.push("--ignore-all-space");
+        }
+        args.push(range.as_str());
+        run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn safe_repo_path(root_dir: &str, relative: &str) -> Result<PathBuf, String> {
+    let relative_path = Path::new(relative);
+    if relative_path.is_absolute()
+        || relative_path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("invalid repository path".into());
+    }
+    let root = Path::new(root_dir)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let target = root.join(relative_path);
+    let parent = target
+        .parent()
+        .ok_or_else(|| "invalid repository path".to_string())?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !parent.starts_with(&root) {
+        return Err("path escapes repository root".into());
+    }
+    Ok(target)
+}
+
+#[tauri::command]
+pub async fn git_rename_path(
+    root_dir: String,
+    path: String,
+    new_name: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        if new_name.trim().is_empty()
+            || new_name == "."
+            || new_name == ".."
+            || Path::new(&new_name).components().count() != 1
+        {
+            return Err("enter a file name, not a path".into());
+        }
+        let source = safe_repo_path(&root_dir, &path)?;
+        let parent = source.parent().ok_or_else(|| "invalid source path".to_string())?;
+        let destination = parent.join(&new_name);
+        if destination.exists() {
+            return Err(format!("{new_name} already exists"));
+        }
+        let relative_destination = Path::new(&path)
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(&new_name)
+            .to_string_lossy()
+            .to_string();
+        let tracked = run_git(
+            &root_dir,
+            &["ls-files", "--error-unmatch", "--", &path],
+            LOCAL_TIMEOUT_SECS,
+        )
+        .is_ok();
+        if tracked {
+            run_git(
+                &root_dir,
+                &["mv", "--", &path, &relative_destination],
+                LOCAL_TIMEOUT_SECS,
+            )?;
+        } else {
+            std::fs::rename(&source, &destination).map_err(|error| error.to_string())?;
+        }
+        Ok(relative_destination)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GitFilePreview {
+    pub kind: String,
+    pub mime: String,
+    pub data: String,
+    pub truncated: bool,
+}
+
+#[tauri::command]
+pub async fn git_file_preview(
+    root_dir: String,
+    path: String,
+) -> Result<Option<GitFilePreview>, String> {
+    tokio::task::spawn_blocking(move || {
+        use base64::Engine;
+        let target = safe_repo_path(&root_dir, &path)?;
+        if !target.is_file() {
+            return Ok(None);
+        }
+        let extension = target
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        let image_mime = match extension.as_str() {
+            "png" => Some("image/png"),
+            "jpg" | "jpeg" => Some("image/jpeg"),
+            "gif" => Some("image/gif"),
+            "webp" => Some("image/webp"),
+            "svg" => Some("image/svg+xml"),
+            "bmp" => Some("image/bmp"),
+            "ico" => Some("image/x-icon"),
+            "avif" => Some("image/avif"),
+            "tif" | "tiff" => Some("image/tiff"),
+            _ => None,
+        };
+        const MAX_PREVIEW_BYTES: usize = 512 * 1024;
+        let bytes = std::fs::read(&target).map_err(|error| error.to_string())?;
+        let truncated = bytes.len() > MAX_PREVIEW_BYTES;
+        let clipped = &bytes[..bytes.len().min(MAX_PREVIEW_BYTES)];
+        if let Some(mime) = image_mime {
+            return Ok(Some(GitFilePreview {
+                kind: "image".into(),
+                mime: mime.into(),
+                data: base64::engine::general_purpose::STANDARD.encode(clipped),
+                truncated,
+            }));
+        }
+        let kind = match extension.as_str() {
+            "md" | "markdown" => "markdown",
+            "html" | "htm" => "html",
+            "csv" => "csv",
+            "tsv" => "tsv",
+            _ => return Ok(None),
+        };
+        Ok(Some(GitFilePreview {
+            kind: kind.into(),
+            mime: "text/plain".into(),
+            data: String::from_utf8_lossy(clipped).into_owned(),
+            truncated,
+        }))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Wall-clock budget for the changes-panel ops below. They only touch the
@@ -1419,6 +1898,29 @@ pub async fn git_show(root_dir: String, hash: String) -> Result<String, String> 
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn git_show_options(
+    root_dir: String,
+    hash: String,
+    context: u32,
+    ignore_whitespace: bool,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        if hash.starts_with('-') {
+            return Err("invalid revision".into());
+        }
+        let unified = format!("--unified={}", context.min(100_000));
+        let mut args = vec!["show", "--patch", "--stat", unified.as_str()];
+        if ignore_whitespace {
+            args.push("--ignore-all-space");
+        }
+        args.push(hash.as_str());
+        run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StashEntry {
     pub index: u32,
@@ -1494,6 +1996,34 @@ pub async fn git_stash_show(root_dir: String, index: u32) -> Result<String, Stri
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stash_show_options(
+    root_dir: String,
+    index: u32,
+    context: u32,
+    ignore_whitespace: bool,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let stash_ref = format!("stash@{{{index}}}");
+        let unified = format!("--unified={}", context.min(100_000));
+        let mut args = vec![
+            "stash",
+            "show",
+            "--stat",
+            "--patch",
+            "--include-untracked",
+            unified.as_str(),
+        ];
+        if ignore_whitespace {
+            args.push("--ignore-all-space");
+        }
+        args.push(stash_ref.as_str());
+        run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1630,6 +2160,179 @@ pub async fn git_delete_remote_tag(root_dir: String, name: String) -> Result<(),
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RebasePlanEntry {
+    pub hash: String,
+    pub short_hash: String,
+    pub subject: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RebaseTodoItem {
+    pub hash: String,
+    pub action: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GitOperationState {
+    pub rebase: bool,
+    pub cherry_pick: bool,
+}
+
+fn rebase_plan_for(root_dir: &str, target: &str) -> Result<Vec<RebasePlanEntry>, String> {
+    if target.starts_with('-') || target.trim().is_empty() {
+        return Err("invalid rebase target".into());
+    }
+    let range = format!("{target}..HEAD");
+    let raw = run_git_raw(
+        root_dir,
+        &[
+            "log",
+            "--reverse",
+            "--pretty=format:%H\x1f%h\x1f%s\x1f%b%x1e",
+            &range,
+        ],
+        LOCAL_TIMEOUT_SECS,
+    )?;
+    Ok(raw
+        .split('\x1e')
+        .map(str::trim)
+        .filter(|record| !record.is_empty())
+        .filter_map(|record| {
+            let mut fields = record.split('\x1f');
+            Some(RebasePlanEntry {
+                hash: fields.next()?.to_string(),
+                short_hash: fields.next()?.to_string(),
+                subject: fields.next()?.to_string(),
+                body: fields.next().unwrap_or_default().to_string(),
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn git_rebase_plan(
+    root_dir: String,
+    target: String,
+) -> Result<Vec<RebasePlanEntry>, String> {
+    tokio::task::spawn_blocking(move || rebase_plan_for(&root_dir, &target))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn build_rebase_todo(
+    root_dir: &str,
+    target: &str,
+    items: &[RebaseTodoItem],
+) -> Result<String, String> {
+    let plan = rebase_plan_for(root_dir, target)?;
+    let allowed: std::collections::HashMap<&str, &RebasePlanEntry> =
+        plan.iter().map(|entry| (entry.hash.as_str(), entry)).collect();
+    if items.len() != plan.len() {
+        return Err("rebase plan changed; refresh it before starting".into());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut lines = Vec::new();
+    for item in items {
+        let entry = allowed
+            .get(item.hash.as_str())
+            .ok_or_else(|| "rebase plan contains an unknown commit".to_string())?;
+        if !seen.insert(item.hash.as_str()) {
+            return Err("rebase plan contains a duplicate commit".into());
+        }
+        match item.action.as_str() {
+            "pick" | "edit" | "squash" | "fixup" | "drop" => {
+                lines.push(format!("{} {} {}", item.action, item.hash, entry.subject));
+            }
+            "reword" => {
+                let message = item
+                    .message
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|message| !message.is_empty())
+                    .ok_or_else(|| "reword requires a commit message".to_string())?;
+                lines.push(format!("pick {} {}", item.hash, entry.subject));
+                lines.push(format!(
+                    "exec git commit --amend -m {}",
+                    shell_single_quote(message)
+                ));
+            }
+            _ => return Err("invalid rebase action".into()),
+        }
+    }
+    let first_kept = items
+        .iter()
+        .position(|item| item.action != "drop")
+        .ok_or_else(|| "a rebase cannot drop every commit".to_string())?;
+    if matches!(items[first_kept].action.as_str(), "squash" | "fixup") {
+        return Err("the first kept commit cannot be squash or fixup".into());
+    }
+    Ok(lines.join("\n") + "\n")
+}
+
+#[tauri::command]
+pub async fn git_rebase_start(
+    root_dir: String,
+    target: String,
+    items: Vec<RebaseTodoItem>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::Write as _;
+        if target.starts_with('-') || target.trim().is_empty() {
+            return Err("invalid rebase target".into());
+        }
+        let todo = build_rebase_todo(&root_dir, &target, &items)?;
+        let mut file = tempfile::NamedTempFile::new().map_err(|error| error.to_string())?;
+        file.write_all(todo.as_bytes()).map_err(|error| error.to_string())?;
+        file.flush().map_err(|error| error.to_string())?;
+        let editor = format!("sequence.editor=cp {}", file.path().to_string_lossy());
+        run_git(
+            &root_dir,
+            &[
+                "-c",
+                "core.editor=true",
+                "-c",
+                &editor,
+                "rebase",
+                "-i",
+                &target,
+            ],
+            120,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn operation_state_for(root_dir: &str) -> GitOperationState {
+    let git_dir = run_git(
+        root_dir,
+        &["rev-parse", "--absolute-git-dir"],
+        LOCAL_TIMEOUT_SECS,
+    )
+    .ok()
+    .map(PathBuf::from);
+    let rebase = git_dir.as_ref().is_some_and(|dir| {
+        dir.join("rebase-merge").exists() || dir.join("rebase-apply").exists()
+    });
+    let cherry_pick =
+        git_dir.as_ref().is_some_and(|dir| dir.join("CHERRY_PICK_HEAD").exists());
+    GitOperationState { rebase, cherry_pick }
+}
+
+#[tauri::command]
+pub async fn git_operation_state(root_dir: String) -> Result<GitOperationState, String> {
+    tokio::task::spawn_blocking(move || Ok(operation_state_for(&root_dir)))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Rebase the current branch onto `branch`. No interactive editor involved —
 /// this is rebase-lite: start it, and on conflict the caller resolves files
 /// and calls `git_rebase_continue`/`git_rebase_abort`. Split out from the
@@ -1713,6 +2416,250 @@ pub async fn git_discard_hunk(root_dir: String, patch: String) -> Result<(), Str
     tokio::task::spawn_blocking(move || discard_hunk_core(&root_dir, &patch))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestActor {
+    #[serde(default)]
+    pub login: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestLabel {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestCheck {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub conclusion: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub details_url: String,
+    #[serde(default)]
+    pub target_url: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestEntry {
+    pub number: u32,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub is_draft: bool,
+    #[serde(default)]
+    pub head_ref_name: String,
+    #[serde(default)]
+    pub base_ref_name: String,
+    #[serde(default)]
+    pub author: PullRequestActor,
+    #[serde(default)]
+    pub review_decision: String,
+    #[serde(default)]
+    pub status_check_rollup: Vec<PullRequestCheck>,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub additions: u32,
+    #[serde(default)]
+    pub deletions: u32,
+    #[serde(default)]
+    pub mergeable: String,
+    #[serde(default)]
+    pub labels: Vec<PullRequestLabel>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PullRequestCapability {
+    pub installed: bool,
+    pub authenticated: bool,
+    pub default_branch: String,
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn git_pr_capability(root_dir: String) -> Result<PullRequestCapability, String> {
+    tokio::task::spawn_blocking(move || {
+        if gh_bin().is_none() {
+            return Ok(PullRequestCapability {
+                installed: false,
+                authenticated: false,
+                default_branch: String::new(),
+                message: "GitHub CLI is not installed.".into(),
+            });
+        }
+        if let Err(error) = run_gh(&root_dir, &["auth", "status"], LOCAL_TIMEOUT_SECS) {
+            return Ok(PullRequestCapability {
+                installed: true,
+                authenticated: false,
+                default_branch: String::new(),
+                message: error,
+            });
+        }
+        let default_branch = run_gh(
+            &root_dir,
+            &[
+                "repo",
+                "view",
+                "--json",
+                "defaultBranchRef",
+                "-q",
+                ".defaultBranchRef.name",
+            ],
+            NET_TIMEOUT_SECS,
+        )
+        .unwrap_or_else(|_| "main".into());
+        Ok(PullRequestCapability {
+            installed: true,
+            authenticated: true,
+            default_branch: if default_branch.trim().is_empty() {
+                "main".into()
+            } else {
+                default_branch
+            },
+            message: String::new(),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+const PR_LIST_FIELDS: &str = "number,title,headRefName,baseRefName,author,isDraft,reviewDecision,statusCheckRollup,url,updatedAt,additions,deletions";
+const PR_DETAIL_FIELDS: &str = "number,title,body,state,isDraft,headRefName,baseRefName,author,reviewDecision,statusCheckRollup,url,updatedAt,additions,deletions,mergeable,labels";
+
+#[tauri::command]
+pub async fn git_pr_list(root_dir: String) -> Result<Vec<PullRequestEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        let raw = run_gh(
+            &root_dir,
+            &[
+                "pr",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                "50",
+                "--json",
+                PR_LIST_FIELDS,
+            ],
+            NET_TIMEOUT_SECS,
+        )?;
+        serde_json::from_str(&raw).map_err(|error| format!("Could not parse gh output: {error}"))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pr_view(root_dir: String, number: u32) -> Result<PullRequestEntry, String> {
+    tokio::task::spawn_blocking(move || {
+        let number = number.to_string();
+        let raw = run_gh(
+            &root_dir,
+            &["pr", "view", &number, "--json", PR_DETAIL_FIELDS],
+            NET_TIMEOUT_SECS,
+        )?;
+        serde_json::from_str(&raw).map_err(|error| format!("Could not parse gh output: {error}"))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pr_diff(root_dir: String, number: u32) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let number = number.to_string();
+        run_gh_raw(
+            &root_dir,
+            &["pr", "diff", &number, "--color", "never"],
+            NET_TIMEOUT_SECS,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pr_checkout(root_dir: String, number: u32) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let number = number.to_string();
+        run_gh(&root_dir, &["pr", "checkout", &number], 90)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pr_create(
+    root_dir: String,
+    base: String,
+    head: String,
+    title: String,
+    body: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        if base.starts_with('-') || head.starts_with('-') || base.is_empty() || head.is_empty() {
+            return Err("invalid pull request branch".into());
+        }
+        let mut owned = vec![
+            "pr".to_string(),
+            "create".to_string(),
+            "--base".to_string(),
+            base,
+            "--head".to_string(),
+            head,
+        ];
+        if title.trim().is_empty() {
+            owned.push("--fill".into());
+        } else {
+            owned.extend([
+                "--title".into(),
+                title,
+                "--body".into(),
+                body,
+            ]);
+        }
+        let args: Vec<&str> = owned.iter().map(String::as_str).collect();
+        run_gh(&root_dir, &args, 90)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pr_merge(root_dir: String, number: u32) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let number = number.to_string();
+        run_gh(
+            &root_dir,
+            &["pr", "merge", &number, "--squash", "--delete-branch"],
+            90,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// How many 15s status ticks between probes of a folder we already know isn't a
@@ -2764,5 +3711,89 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         let result = diff_file_for(ps, "--upload-pack=touch /tmp/pwned", false);
         assert!(result.is_err(), "a path starting with '-' must be rejected");
         assert_eq!(result.unwrap_err(), "invalid path");
+    }
+
+    #[test]
+    fn branch_tracking_counts_parse_ahead_and_behind() {
+        assert_eq!(tracking_counts("[ahead 3, behind 2]"), (3, 2));
+        assert_eq!(tracking_counts("[behind 7]"), (0, 7));
+        assert_eq!(tracking_counts(""), (0, 0));
+    }
+
+    #[test]
+    fn preferred_compare_base_uses_requested_then_main() {
+        let local = vec!["feature".to_string(), "main".to_string()];
+        let remote = vec!["origin/develop".to_string()];
+        assert_eq!(preferred_compare_base("feature", &local, &remote, Some("main")), "feature");
+        assert_eq!(preferred_compare_base("missing", &local, &remote, Some("main")), "main");
+    }
+
+    #[test]
+    fn interactive_rebase_todo_preserves_order_and_reword_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("base.txt"), "base\n").unwrap();
+        git(&["add", "base.txt"]);
+        git(&["commit", "-m", "base"]);
+        git(&["switch", "-c", "feature"]);
+        std::fs::write(p.join("one.txt"), "one\n").unwrap();
+        git(&["add", "one.txt"]);
+        git(&["commit", "-m", "first"]);
+        std::fs::write(p.join("two.txt"), "two\n").unwrap();
+        git(&["add", "two.txt"]);
+        git(&["commit", "-m", "second"]);
+
+        let plan = rebase_plan_for(ps, "main").unwrap();
+        assert_eq!(plan.len(), 2);
+        let items = vec![
+            RebaseTodoItem {
+                hash: plan[1].hash.clone(),
+                action: "reword".into(),
+                message: Some("second's improved title".into()),
+            },
+            RebaseTodoItem {
+                hash: plan[0].hash.clone(),
+                action: "pick".into(),
+                message: None,
+            },
+        ];
+        let todo = build_rebase_todo(ps, "main", &items).unwrap();
+        assert!(todo.starts_with(&format!("pick {}", plan[1].hash)));
+        assert!(todo.contains("exec git commit --amend -m 'second'\\''s improved title'"));
+        assert!(todo.ends_with(&format!("pick {} first\n", plan[0].hash)));
+    }
+
+    #[test]
+    fn interactive_rebase_rejects_duplicate_or_all_drop_plans() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("base.txt"), "base\n").unwrap();
+        git(&["add", "base.txt"]);
+        git(&["commit", "-m", "base"]);
+        git(&["switch", "-c", "feature"]);
+        std::fs::write(p.join("one.txt"), "one\n").unwrap();
+        git(&["add", "one.txt"]);
+        git(&["commit", "-m", "first"]);
+
+        let plan = rebase_plan_for(ps, "main").unwrap();
+        let dropped = vec![RebaseTodoItem {
+            hash: plan[0].hash.clone(),
+            action: "drop".into(),
+            message: None,
+        }];
+        assert_eq!(
+            build_rebase_todo(ps, "main", &dropped).unwrap_err(),
+            "a rebase cannot drop every commit",
+        );
     }
 }

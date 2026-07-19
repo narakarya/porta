@@ -2,117 +2,161 @@ import { useEffect, useRef, useState } from "react";
 import type { App } from "../../../types";
 import {
   gitBranches,
-  gitRebaseOnto,
+  gitOperationState,
   gitRebaseAbort,
   gitRebaseContinue,
+  gitRebasePlan,
+  gitRebaseStart,
+  type RebaseAction,
+  type RebasePlanEntry,
+  type RebaseTodoItem,
 } from "../../../lib/commands";
 import { Button, Select, Spinner } from "../../ui";
 
-/**
- * Rebase tab — rebase-lite: pick a branch to rebase the current branch onto,
- * plus Abort/Continue for the conflict case. `gitRebaseOnto`/`gitRebaseContinue`
- * REJECT (throw) with git's stderr on a non-zero exit — a rebase conflict is
- * surfaced that way, not as a resolved error value — so we catch it and hold
- * the text in `conflict` state alongside Abort/Continue controls.
- *
- * `onChanged` is optional — GitTab passes its `refreshAfterMutation` so a
- * rebase onto/abort/continue (which mutates the working tree, whether it
- * finishes cleanly or stops on a conflict) also refreshes the shared
- * changed-file list / header dirty badge, not just this tab's own state.
- */
+type PlannedCommit = RebasePlanEntry & {
+  action: RebaseAction;
+  message?: string;
+};
+
+const ACTIONS: RebaseAction[] = ["pick", "edit", "reword", "squash", "fixup", "drop"];
+
 export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: () => void }) {
-  const [local, setLocal] = useState<string[]>([]);
+  const [refs, setRefs] = useState<string[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
+  const [target, setTarget] = useState("");
+  const [plan, setPlan] = useState<PlannedCommit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [branch, setBranch] = useState("");
   const [busy, setBusy] = useState(false);
-  const [conflict, setConflict] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-
+  const [inProgress, setInProgress] = useState(false);
+  const [pausedMessage, setPausedMessage] = useState("");
+  const [done, setDone] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
 
-  function load() {
+  useEffect(() => {
     if (!app.root_dir) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    gitBranches(app.root_dir)
-      .then((list) => {
-        if (!mounted.current) return;
-        setLocal(list.local);
-        setCurrent(list.current);
-        const others = list.local.filter((b) => b !== list.current);
-        setBranch((prev) => (prev && others.includes(prev) ? prev : others[0] ?? ""));
+    Promise.all([
+      gitBranches(app.root_dir),
+      gitOperationState(app.root_dir),
+    ])
+      .then(([branches, operation]) => {
+        if (cancelled) return;
+        const available = [...branches.local, ...branches.remote].filter(
+          (ref) => ref !== branches.current,
+        );
+        const preferred =
+          ["main", "master", "origin/main", "origin/master"].find((ref) => available.includes(ref)) ??
+          available[0] ??
+          "";
+        setRefs(available);
+        setCurrent(branches.current);
+        setTarget((previous) => previous && available.includes(previous) ? previous : preferred);
+        setInProgress(operation.rebase);
+        if (operation.rebase) {
+          setPausedMessage("A rebase is already in progress. Resolve or amend the current commit, then continue.");
+        }
       })
-      .catch((e) => { if (mounted.current) setError(String(e)); })
-      .finally(() => { if (mounted.current) setLoading(false); });
-  }
-
-  // Reset + reload whenever the app's repo root changes.
-  useEffect(() => {
-    setConflict(null);
-    setDone(null);
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch((cause) => { if (!cancelled) setError(String(cause)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [app.root_dir]);
 
-  const others = local.filter((b) => b !== current);
+  useEffect(() => {
+    if (!app.root_dir || !target || inProgress) {
+      if (!inProgress) setPlan([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    gitRebasePlan(app.root_dir, target)
+      .then((entries) => {
+        if (cancelled) return;
+        setPlan(entries.map((entry) => ({ ...entry, action: "pick" })));
+      })
+      .catch((cause) => { if (!cancelled) setError(String(cause)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [app.root_dir, target, inProgress]);
 
-  async function doRebase() {
-    if (!app.root_dir || busy || !branch) return;
+  function updateAction(index: number, action: RebaseAction) {
+    setPlan((previous) => previous.map((entry, currentIndex) =>
+      currentIndex === index
+        ? {
+            ...entry,
+            action,
+            message: action === "reword" ? entry.message ?? entry.subject : undefined,
+          }
+        : entry,
+    ));
+  }
+
+  function move(index: number, direction: -1 | 1) {
+    setPlan((previous) => {
+      const destination = index + direction;
+      if (destination < 0 || destination >= previous.length) return previous;
+      const next = [...previous];
+      [next[index], next[destination]] = [next[destination], next[index]];
+      return next;
+    });
+  }
+
+  async function refreshOperation(message = "") {
+    const state = await gitOperationState(app.root_dir);
+    if (!mounted.current) return state.rebase;
+    setInProgress(state.rebase);
+    setPausedMessage(state.rebase ? message || "Rebase paused. Resolve the current step, then continue." : "");
+    return state.rebase;
+  }
+
+  async function start() {
+    if (!app.root_dir || !target || plan.length === 0 || busy) return;
     setBusy(true);
     setError(null);
-    setDone(null);
+    setDone("");
+    const items: RebaseTodoItem[] = plan.map(({ hash, action, message }) => ({ hash, action, message }));
     try {
-      await gitRebaseOnto(app.root_dir, branch);
-      if (mounted.current) setDone(`Rebased onto ${branch}`);
+      const output = await gitRebaseStart(app.root_dir, target, items);
+      const active = await refreshOperation(
+        "Rebase stopped for an edit step. Amend the commit if needed, then continue.",
+      );
+      if (mounted.current && !active) {
+        setDone(output || `Rebased ${current ?? "HEAD"} onto ${target}`);
+      }
       onChanged?.();
-    } catch (e) {
-      if (mounted.current) setConflict(String(e));
-      // A rebase that stops on a conflict still mutated the working tree
-      // (index + files got conflict markers) — refresh the shared status too.
+    } catch (cause) {
+      if (mounted.current) setError(String(cause));
+      await refreshOperation("Rebase paused because a step needs attention. Resolve and stage conflicts, then continue.");
       onChanged?.();
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
 
-  async function doAbort() {
+  async function finish(kind: "continue" | "abort") {
     if (!app.root_dir || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await gitRebaseAbort(app.root_dir);
-      if (mounted.current) {
-        setConflict(null);
-        setDone(null);
-      }
+      const output =
+        kind === "continue"
+          ? await gitRebaseContinue(app.root_dir)
+          : (await gitRebaseAbort(app.root_dir), "");
+      await refreshOperation();
+      if (mounted.current && kind === "continue") setDone(output || "Rebase complete");
+      if (mounted.current && kind === "abort") setDone("Rebase aborted");
       onChanged?.();
-    } catch (e) {
-      if (mounted.current) setError(String(e));
-    } finally {
-      if (mounted.current) setBusy(false);
-    }
-  }
-
-  async function doContinue() {
-    if (!app.root_dir || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const out = await gitRebaseContinue(app.root_dir);
-      if (mounted.current) {
-        setConflict(null);
-        setDone(out || "Rebase complete");
-      }
-      onChanged?.();
-    } catch (e) {
-      if (mounted.current) setConflict(String(e));
+    } catch (cause) {
+      if (mounted.current) setError(String(cause));
+      await refreshOperation("Rebase is still paused. Resolve and stage conflicts, then continue.");
       onChanged?.();
     } finally {
       if (mounted.current) setBusy(false);
@@ -120,71 +164,135 @@ export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: 
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
-      {error && (
-        <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2">{error}</pre>
-      )}
-
-      {loading ? (
-        <div className="inline-flex items-center gap-2 px-1 py-2 text-[12px] text-ink-3">
-          <Spinner size={12} /> Loading branches…
-        </div>
-      ) : conflict !== null ? (
-        <div className="flex flex-col gap-2">
-          <div className="text-[12px] text-bad font-medium">Rebase stopped — conflicts need resolving.</div>
-          <pre className="text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-64 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2">{conflict}</pre>
-          <div className="text-[11px] text-ink-3">Resolve the conflicting files in the Status tab, stage them, then Continue.</div>
-          <div className="flex items-center gap-2">
-            <Button variant="danger" size="sm" disabled={busy} onClick={doAbort}>
-              Abort
-            </Button>
-            <Button variant="primary" size="sm" loading={busy} onClick={doContinue}>
-              Continue
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="text-[12px] text-ink">
-            Rebasing <span className="font-medium text-ink">{current ?? "HEAD"}</span> onto…
-          </div>
-          <Select
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            disabled={busy || others.length === 0}
-            className="select-base !text-[12px] !py-1.5"
-          >
-            {others.length === 0 ? (
-              <option value="">No other local branches</option>
-            ) : (
-              others.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))
-            )}
-          </Select>
-
-          <div className="text-[11px] text-ink-3 leading-relaxed">
-            Replays this branch's commits on top of the selected branch. If conflicts arise,
-            resolve them in the Status tab, then Continue.
-          </div>
-
-          {done && (
-            <div className="text-[12px] text-ok">{done}</div>
-          )}
-
-          <div>
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-subtle bg-surface-1 px-3 py-2.5">
+        <span className="text-[12px] text-ink-2">
+          Rebase <span className="font-mono text-ink">{current ?? "HEAD"}</span> onto
+        </span>
+        <Select
+          value={target}
+          onChange={(event) => setTarget(event.target.value)}
+          disabled={busy || inProgress}
+          className="select-base !text-[11px] !py-1 max-w-[240px]"
+        >
+          {refs.length === 0
+            ? <option value="">No other branches</option>
+            : refs.map((ref) => <option key={ref} value={ref}>{ref}</option>)}
+        </Select>
+        {!inProgress && plan.length > 0 && (
+          <span className="text-[11px] text-ink-3">
+            {plan.filter((entry) => entry.action !== "drop").length} of {plan.length} commits kept
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {inProgress ? (
+            <>
+              <Button variant="danger" size="sm" disabled={busy} onClick={() => finish("abort")}>
+                Abort
+              </Button>
+              <Button size="sm" loading={busy} onClick={() => finish("continue")}>
+                Continue
+              </Button>
+            </>
+          ) : (
             <Button
-              variant="primary"
               size="sm"
               loading={busy}
-              disabled={!branch || others.length === 0}
-              onClick={doRebase}
+              disabled={!target || plan.length === 0}
+              onClick={start}
             >
-              Rebase onto {branch || "…"}
+              Start rebase
             </Button>
-          </div>
-        </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <pre className="shrink-0 m-2 mb-0 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-control border border-subtle bg-surface-code px-2.5 py-2 font-mono text-[11px] text-bad">{error}</pre>
       )}
+      {pausedMessage && (
+        <div className="shrink-0 mx-2 mt-2 rounded-control border border-warn/30 bg-warn-bg px-3 py-2 text-[11px] text-warn">
+          {pausedMessage}
+        </div>
+      )}
+      {done && !inProgress && (
+        <div className="shrink-0 mx-2 mt-2 rounded-control border border-ok/30 bg-ok-bg px-3 py-2 text-[11px] text-ok">
+          {done}
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-2">
+        {loading ? (
+          <div className="inline-flex items-center gap-2 px-2 py-3 text-[12px] text-ink-3">
+            <Spinner size={12} /> Loading rebase plan…
+          </div>
+        ) : inProgress ? (
+          <div className="h-full flex items-center justify-center text-center">
+            <div>
+              <div className="text-[13px] text-ink">Interactive rebase in progress</div>
+              <div className="mt-1 max-w-md text-[11px] leading-relaxed text-ink-3">
+                Resolve conflicts in Status or amend an edit step in Terminal, stage the result, then Continue.
+              </div>
+            </div>
+          </div>
+        ) : plan.length === 0 ? (
+          <div className="px-2 py-3 text-[12px] text-ink-3">
+            No commits need replaying onto {target || "the selected branch"}.
+          </div>
+        ) : (
+          <div className="mx-auto max-w-4xl overflow-hidden rounded-card border border-subtle bg-surface-1">
+            {plan.map((entry, index) => (
+              <div key={entry.hash} className="border-b border-subtle last:border-b-0">
+                <div className={`flex items-center gap-2 px-2.5 py-2 ${entry.action === "drop" ? "opacity-50" : ""}`}>
+                  <span className="w-5 shrink-0 text-right text-[10px] tabular-nums text-ink-3">{index + 1}</span>
+                  <Select
+                    value={entry.action}
+                    onChange={(event) => updateAction(index, event.target.value as RebaseAction)}
+                    disabled={busy}
+                    className="select-base !w-[92px] !text-[10px] !py-1"
+                  >
+                    {ACTIONS.map((action) => <option key={action} value={action}>{action}</option>)}
+                  </Select>
+                  <span className="shrink-0 font-mono text-[10px] text-accent">{entry.short_hash}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] text-ink" title={entry.subject}>{entry.subject}</div>
+                    {entry.body && <div className="truncate text-[10px] text-ink-3">{entry.body}</div>}
+                  </div>
+                  <button
+                    onClick={() => move(index, -1)}
+                    disabled={index === 0 || busy}
+                    className="rounded-control px-1.5 py-1 text-[11px] text-ink-3 hover:bg-white/[0.05] hover:text-ink disabled:opacity-25"
+                    title="Move up"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => move(index, 1)}
+                    disabled={index === plan.length - 1 || busy}
+                    className="rounded-control px-1.5 py-1 text-[11px] text-ink-3 hover:bg-white/[0.05] hover:text-ink disabled:opacity-25"
+                    title="Move down"
+                  >
+                    ↓
+                  </button>
+                </div>
+                {entry.action === "reword" && (
+                  <div className="px-10 pb-2">
+                    <textarea
+                      value={entry.message ?? entry.subject}
+                      onChange={(event) => setPlan((previous) => previous.map((item, currentIndex) =>
+                        currentIndex === index ? { ...item, message: event.target.value } : item,
+                      ))}
+                      rows={3}
+                      className="input-base w-full resize-y font-mono text-[11px]"
+                      placeholder="New commit message…"
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

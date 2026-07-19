@@ -7,6 +7,7 @@ import {
   gitPullRebase,
   gitPush,
   gitPushForceWithLease,
+  gitRebaseMain,
   gitRemotes,
   gitRemoveRemote,
   type GitRemote,
@@ -14,7 +15,7 @@ import {
 } from "../../../lib/commands";
 import { Button, Input, Spinner } from "../../ui";
 
-type Action = "fetch" | "pull" | "pull-rebase" | "push" | "force-push";
+type Action = "fetch" | "pull" | "pull-rebase" | "rebase-main" | "push" | "force-push";
 
 const ACTIONS: Array<{
   id: Action;
@@ -25,6 +26,7 @@ const ACTIONS: Array<{
   { id: "fetch", title: "Fetch + prune", description: "Refresh remote refs and remove stale tracking branches." },
   { id: "pull", title: "Pull (fast-forward)", description: "Update safely without creating an automatic merge commit." },
   { id: "pull-rebase", title: "Pull with rebase", description: "Rebase local commits onto upstream; autostashes local edits." },
+  { id: "rebase-main", title: "Rebase from main", description: "Fetch origin, resolve main/master, and replay the current branch on top." },
   { id: "push", title: "Push", description: "Publish local commits to the configured upstream." },
   {
     id: "force-push",
@@ -88,6 +90,7 @@ export default function SyncPanel({
       if (action === "fetch") await gitFetch(app.root_dir);
       else if (action === "pull") output = await gitPull(app.root_dir);
       else if (action === "pull-rebase") output = await gitPullRebase(app.root_dir);
+      else if (action === "rebase-main") output = await gitRebaseMain(app.root_dir);
       else if (action === "push") output = await gitPush(app.root_dir);
       else output = await gitPushForceWithLease(app.root_dir);
       if (!mounted.current) return;

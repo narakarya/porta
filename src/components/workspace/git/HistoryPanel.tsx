@@ -7,11 +7,11 @@ import {
   gitCherryPickContinue,
   gitLogRef,
   gitResetTo,
-  gitShow,
+  gitShowOptions,
   type CommitEntry,
 } from "../../../lib/commands";
 import { Button, Input, Select, Spinner } from "../../ui";
-import { DiffLines } from "./diffLines";
+import ReadOnlyDiff, { type ReadOnlyDiffOptions } from "./ReadOnlyDiff";
 
 const PAGE_SIZE = 50;
 
@@ -51,11 +51,16 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
   const [branches, setBranches] = useState<string[]>([]);
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [cherryPaused, setCherryPaused] = useState(false);
   const [mainline, setMainline] = useState(1);
   const [confirmReset, setConfirmReset] = useState<"soft" | "mixed" | "hard" | null>(null);
+  const [diffOptions, setDiffOptions] = useState<ReadOnlyDiffOptions>({
+    context: 8,
+    ignoreWhitespace: false,
+  });
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -86,6 +91,7 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
       setSelected(null);
       setPatch("");
       setPatchError(null);
+      setChecked(new Set());
       gitLogRef(app.root_dir, source, query.trim(), PAGE_SIZE, 0)
         .then((rows) => {
           if (cancelled) return;
@@ -124,17 +130,27 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
   }
 
   function selectCommit(hash: string) {
-    if (!app.root_dir) return;
     setSelected(hash);
+    setMainline(1);
+  }
+
+  useEffect(() => {
+    if (!app.root_dir || !selected) return;
+    let cancelled = false;
     setPatchLoading(true);
     setPatch("");
     setPatchError(null);
-    setMainline(1);
-    gitShow(app.root_dir, hash)
-      .then((p) => { if (mounted.current) setPatch(p); })
-      .catch((e) => { if (mounted.current) setPatchError(String(e)); })
-      .finally(() => { if (mounted.current) setPatchLoading(false); });
-  }
+    gitShowOptions(
+      app.root_dir,
+      selected,
+      diffOptions.context,
+      diffOptions.ignoreWhitespace,
+    )
+      .then((p) => { if (!cancelled && mounted.current) setPatch(p); })
+      .catch((e) => { if (!cancelled && mounted.current) setPatchError(String(e)); })
+      .finally(() => { if (!cancelled && mounted.current) setPatchLoading(false); });
+    return () => { cancelled = true; };
+  }, [app.root_dir, selected, diffOptions]);
 
   const selectedCommit = commits.find((c) => c.hash === selected) ?? null;
 
@@ -159,6 +175,44 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
     } finally {
       if (mounted.current) setActionBusy(false);
     }
+  }
+
+  async function cherryPickSelected() {
+    if (!app.root_dir || checked.size === 0 || actionBusy) return;
+    const ordered = commits.filter((commit) => checked.has(commit.hash)).reverse();
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      for (const commit of ordered) {
+        await gitCherryPick(
+          app.root_dir,
+          commit.hash,
+          commit.parent_count > 1 ? 1 : undefined,
+        );
+      }
+      if (mounted.current) {
+        setChecked(new Set());
+        setCherryPaused(false);
+      }
+      onChanged?.();
+    } catch (cause) {
+      if (mounted.current) {
+        setActionError(String(cause));
+        setCherryPaused(true);
+      }
+      onChanged?.();
+    } finally {
+      if (mounted.current) setActionBusy(false);
+    }
+  }
+
+  function toggleChecked(hash: string) {
+    setChecked((previous) => {
+      const next = new Set(previous);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      return next;
+    });
   }
 
   async function finishCherryPick(kind: "continue" | "abort") {
@@ -211,6 +265,21 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
             placeholder="Search commit messages…"
             className="!py-1"
           />
+          {checked.size > 0 && (
+            <div className="flex items-center gap-2 pt-0.5">
+              <span className="mr-auto text-[10px] text-ink-3">{checked.size} selected</span>
+              <Button size="sm" loading={actionBusy} onClick={cherryPickSelected}>
+                Cherry-pick selected
+              </Button>
+              <button
+                onClick={() => setChecked(new Set())}
+                disabled={actionBusy}
+                className="text-[10px] text-ink-3 hover:text-ink disabled:opacity-40"
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
         {error && (
           <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-2">{error}</pre>
@@ -224,11 +293,24 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
         ) : (
           <>
             {commits.map((c) => (
-              <button
+              <div
                 key={c.hash}
                 onClick={() => selectCommit(c.hash)}
-                className={`w-full text-left mx-1 mb-0.5 px-2 py-1.5 rounded-control transition-colors duration-fast ${selected === c.hash ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") selectCommit(c.hash);
+                }}
+                className={`group relative w-[calc(100%_-_8px)] cursor-pointer text-left mx-1 mb-0.5 pl-7 pr-2 py-1.5 rounded-control transition-colors duration-fast ${selected === c.hash ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
               >
+                <input
+                  type="checkbox"
+                  checked={checked.has(c.hash)}
+                  onChange={() => toggleChecked(c.hash)}
+                  onClick={(event) => event.stopPropagation()}
+                  className="absolute left-2 top-2.5 h-3 w-3 accent-[var(--color-accent)]"
+                  aria-label={`Select commit ${c.short_hash}`}
+                />
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <span className="font-mono text-[11px] text-ink-3">{c.short_hash}</span>
                   {c.refs !== "" && (
@@ -244,7 +326,7 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
                 <div className="text-[11px] text-ink-3 truncate">
                   {c.author} · {relativeDate(c.date)}
                 </div>
-              </button>
+              </div>
             ))}
             {hasMore && (
               <button
@@ -344,15 +426,16 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
                 </div>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-auto font-mono text-[11px] leading-[1.7] px-3 py-2.5">
-              {patchLoading ? (
-                <div className="text-ink-3">Loading diff…</div>
-              ) : patchError ? (
-                <div className="text-bad whitespace-pre-wrap break-words">{patchError}</div>
-              ) : patch.trim() === "" ? (
-                <div className="text-ink-3">No textual diff to show.</div>
+            <div className="flex-1 min-h-0">
+              {patchError ? (
+                <div className="px-3 py-2.5 text-[11px] text-bad whitespace-pre-wrap break-words">{patchError}</div>
               ) : (
-                <DiffLines diff={patch} />
+                <ReadOnlyDiff
+                  diff={patch}
+                  loading={patchLoading}
+                  options={diffOptions}
+                  onOptionsChange={setDiffOptions}
+                />
               )}
             </div>
           </>

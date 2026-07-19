@@ -13,6 +13,7 @@ import {
   gitUnstage,
   gitDiscard,
   gitDiscardAll,
+  gitRenamePath,
   gitCommit,
   gitCommitAmend,
   gitStageAll,
@@ -31,6 +32,7 @@ import DiffView from "./git/DiffView";
 import FileTree from "./git/FileTree";
 import BranchesPanel from "./git/BranchesPanel";
 import SyncPanel from "./git/SyncPanel";
+import PullRequestsPanel from "./git/PullRequestsPanel";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -102,10 +104,11 @@ function deriveSelected(
 // Tab registry — tiers which sub-nav entries need the "advanced" git tools
 // setting on. Core tabs (Changes/Branches/Sync) always show; advanced tabs
 // (History/Stash/Tags/Rebase) are gated by `gitAdvancedEnabled`.
-type GitTabId = "changes" | "branches" | "sync" | "history" | "stash" | "tags" | "rebase";
+type GitTabId = "changes" | "branches" | "sync" | "history" | "pull-requests" | "stash" | "tags" | "rebase";
 const GIT_TABS: { id: GitTabId; label: string; tier: "core" | "advanced" }[] = [
   { id: "changes", label: "Status", tier: "core" },
   { id: "history", label: "History", tier: "advanced" },
+  { id: "pull-requests", label: "Pull Requests", tier: "advanced" },
   { id: "sync", label: "Sync", tier: "core" },
   { id: "branches", label: "Branches", tier: "core" },
   { id: "rebase", label: "Rebase", tier: "advanced" },
@@ -123,8 +126,8 @@ const GIT_TABS: { id: GitTabId; label: string; tier: "core" | "advanced" }[] = [
  * sub-nav, a branch pill + Sync/overflow header, and a body. Changes (two-pane
  * diff/stage/commit) and Branches (list + switch + create) are live tabs
  * backed by real git commands; Sync is an inline fetch/pull/push panel; the
- * remaining tabs render their (currently stub) panel components. The
- * History/Stash/Tags/Rebase tabs are "advanced" — hidden from the sub-nav
+ * remaining tabs render their full workflow panels. The History/PR/Stash/Tags/Rebase
+ * tabs are "advanced" — hidden from the sub-nav
  * (see `GIT_TABS`) unless the user has opted into advanced git tools.
  */
 export default function GitTab({ app }: { app: App }) {
@@ -152,6 +155,11 @@ export default function GitTab({ app }: { app: App }) {
   const [committing, setCommitting] = useState(false);
   const [mutating, setMutating] = useState<string | null>(null);
   const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
+  const [checkedStaged, setCheckedStaged] = useState<Set<string>>(new Set());
+  const [checkedUnstaged, setCheckedUnstaged] = useState<Set<string>>(new Set());
+  const [confirmDiscardSelected, setConfirmDiscardSelected] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{ path: string; staged: boolean } | null>(null);
+  const [renameName, setRenameName] = useState("");
   // Local "probed, not a repo" bookkeeping — the store only holds GitStatus, so
   // a non-repo can't be recorded there; this stops the seeding effect refiring.
   const probedNonRepo = useRef(false);
@@ -219,7 +227,87 @@ export default function GitTab({ app }: { app: App }) {
     setChanged(files);
     if (fresh) setAppGit(app.id, fresh);
     setSelected((sel) => deriveSelected(files, sel));
+    const stagedPaths = new Set(files.filter((file) => file.staged).map((file) => file.path));
+    const unstagedPaths = new Set(files.filter((file) => file.unstaged || file.untracked).map((file) => file.path));
+    setCheckedStaged((previous) => new Set([...previous].filter((path) => stagedPaths.has(path))));
+    setCheckedUnstaged((previous) => new Set([...previous].filter((path) => unstagedPaths.has(path))));
     return files;
+  }
+
+  function toggleChecked(stagedSection: boolean, path: string) {
+    const setter = stagedSection ? setCheckedStaged : setCheckedUnstaged;
+    setter((previous) => {
+      const next = new Set(previous);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    setConfirmDiscardSelected(false);
+  }
+
+  function setManyChecked(stagedSection: boolean, paths: string[], nextChecked: boolean) {
+    const setter = stagedSection ? setCheckedStaged : setCheckedUnstaged;
+    setter((previous) => {
+      const next = new Set(previous);
+      for (const path of paths) {
+        if (nextChecked) next.add(path);
+        else next.delete(path);
+      }
+      return next;
+    });
+    setConfirmDiscardSelected(false);
+  }
+
+  async function mutateSelected(kind: "stage" | "unstage" | "discard") {
+    setMutating(`selected:${kind}`);
+    setError(null);
+    try {
+      if (kind === "stage") {
+        for (const path of checkedUnstaged) await gitStage(app.root_dir, path);
+      } else if (kind === "unstage") {
+        for (const path of checkedStaged) await gitUnstage(app.root_dir, path);
+      } else {
+        const selectedPaths = new Map<string, boolean>();
+        for (const path of checkedUnstaged) selectedPaths.set(path, false);
+        for (const path of checkedStaged) selectedPaths.set(path, true);
+        for (const [path, stagedSection] of selectedPaths) {
+          await gitDiscard(app.root_dir, path, stagedSection);
+        }
+      }
+      await refreshAfterMutation();
+      if (!mounted.current) return;
+      setCheckedStaged(new Set());
+      setCheckedUnstaged(new Set());
+      setConfirmDiscardSelected(false);
+    } catch (cause) {
+      if (mounted.current) setError(String(cause));
+    } finally {
+      if (mounted.current) setMutating(null);
+    }
+  }
+
+  function beginRename(path: string, stagedSection: boolean) {
+    setRenameTarget({ path, staged: stagedSection });
+    setRenameName(path.slice(path.lastIndexOf("/") + 1));
+    setSelected({ path, staged: stagedSection });
+  }
+
+  async function renameSelected() {
+    if (!renameTarget || !renameName.trim() || mutating) return;
+    setMutating(`rename:${renameTarget.path}`);
+    setError(null);
+    try {
+      const destination = await gitRenamePath(app.root_dir, renameTarget.path, renameName.trim());
+      await refreshAfterMutation();
+      if (!mounted.current) return;
+      setSelected({ path: destination, staged: false });
+      setRenameTarget(null);
+      setRenameName("");
+    } catch (cause) {
+      if (mounted.current) setError(String(cause));
+    } finally {
+      if (mounted.current) setMutating(null);
+    }
   }
 
   // stage(+) / unstage(−) / discard a whole file. `refreshAfterMutation`
@@ -374,8 +462,7 @@ export default function GitTab({ app }: { app: App }) {
   return (
     <div className="h-full p-3">
       <div className="h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden">
-        {/* Sub-nav — Changes/Branches/Sync are live; History/Stash/Tags/Rebase
-            render their (stub-for-now) panel components. */}
+        {/* Sub-nav — core and advanced native Git workflows. */}
         <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
           {visibleTabs.map((t) => (
             <button
@@ -530,6 +617,12 @@ export default function GitTab({ app }: { app: App }) {
           <SyncPanel app={app} status={status} onChanged={refreshAfterMutation} />
         ) : tab === "history" ? (
           <HistoryPanel app={app} onChanged={refreshAfterMutation} />
+        ) : tab === "pull-requests" ? (
+          <PullRequestsPanel
+            app={app}
+            currentBranch={branch}
+            onRepositoryChanged={async () => { await refreshAfterMutation(); }}
+          />
         ) : tab === "stash" ? (
           <StashPanel app={app} onChanged={refreshAfterMutation} />
         ) : tab === "tags" ? (
@@ -574,6 +667,57 @@ export default function GitTab({ app }: { app: App }) {
             <div className="flex-1 min-h-0 flex">
               {/* Left pane — Staged / Changes sections. */}
               <div className="w-[240px] shrink-0 border-r border-subtle overflow-y-auto py-1">
+                {(checkedStaged.size > 0 || checkedUnstaged.size > 0) && (
+                  <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-2 py-1.5">
+                    <span className="mr-auto text-[10px] text-ink-3">
+                      {new Set([...checkedStaged, ...checkedUnstaged]).size} selected
+                    </span>
+                    {checkedUnstaged.size > 0 && (
+                      <button
+                        onClick={() => mutateSelected("stage")}
+                        disabled={mutating !== null}
+                        className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
+                      >
+                        Stage
+                      </button>
+                    )}
+                    {checkedStaged.size > 0 && (
+                      <button
+                        onClick={() => mutateSelected("unstage")}
+                        disabled={mutating !== null}
+                        className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
+                      >
+                        Unstage
+                      </button>
+                    )}
+                    {confirmDiscardSelected ? (
+                      <>
+                        <button
+                          onClick={() => mutateSelected("discard")}
+                          disabled={mutating !== null}
+                          className="text-[10px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => setConfirmDiscardSelected(false)}
+                          disabled={mutating !== null}
+                          className="text-[10px] text-ink-3 hover:text-ink"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDiscardSelected(true)}
+                        disabled={mutating !== null}
+                        className="text-[10px] text-bad hover:brightness-125 disabled:opacity-40"
+                      >
+                        Discard
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center justify-end gap-1.5 px-2 py-1 border-b border-subtle">
                   {confirmDiscardAll ? (
                     <>
@@ -620,9 +764,14 @@ export default function GitTab({ app }: { app: App }) {
                       staged
                       selected={selected}
                       mutating={mutating}
+                      checked={checkedStaged}
+                      onCheck={(path) => toggleChecked(true, path)}
+                      onCheckMany={(paths, value) => setManyChecked(true, paths, value)}
                       onSelect={(path) => setSelected({ path, staged: true })}
                       onToggle={(path) => mutateFile(path, () => gitUnstage(app.root_dir, path))}
                       onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, true))}
+                      onRename={(path) => beginRename(path, true)}
+                      onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
                     />
                   </>
                 )}
@@ -643,9 +792,14 @@ export default function GitTab({ app }: { app: App }) {
                       staged={false}
                       selected={selected}
                       mutating={mutating}
+                      checked={checkedUnstaged}
+                      onCheck={(path) => toggleChecked(false, path)}
+                      onCheckMany={(paths, value) => setManyChecked(false, paths, value)}
                       onSelect={(path) => setSelected({ path, staged: false })}
                       onToggle={(path) => mutateFile(path, () => gitStage(app.root_dir, path))}
                       onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, false))}
+                      onRename={(path) => beginRename(path, false)}
+                      onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
                     />
                   </>
                 )}
@@ -653,6 +807,38 @@ export default function GitTab({ app }: { app: App }) {
 
               {/* Right pane — unified diff + commit box. */}
               <div className="flex-1 min-w-0 flex flex-col">
+                {renameTarget && (
+                  <div className="flex shrink-0 items-center gap-2 border-b border-subtle bg-surface-1 px-3 py-2">
+                    <span className="shrink-0 text-[11px] text-ink-3">Rename</span>
+                    <span className="max-w-[35%] truncate font-mono text-[11px] text-ink-2" title={renameTarget.path}>
+                      {renameTarget.path}
+                    </span>
+                    <Input
+                      value={renameName}
+                      onChange={(event) => setRenameName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void renameSelected();
+                        if (event.key === "Escape") setRenameTarget(null);
+                      }}
+                      autoFocus
+                      className="max-w-sm !py-1 font-mono"
+                    />
+                    <button
+                      onClick={renameSelected}
+                      disabled={!renameName.trim() || mutating !== null}
+                      className="text-[11px] font-medium text-accent disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setRenameTarget(null)}
+                      disabled={mutating !== null}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
                 <div className="flex-1 min-h-0 overflow-auto bg-surface-code font-mono text-[11px] leading-[1.7] px-3 py-2.5">
                   {!selected ? (
                     <div className="h-full flex items-center justify-center text-ink-3 text-[12px] font-sans">

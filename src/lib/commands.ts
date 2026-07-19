@@ -1623,6 +1623,9 @@ export const gitPush = (rootDir: string): Promise<string> =>
 export const gitPullRebase = (rootDir: string): Promise<string> =>
   isTauri ? invoke("git_pull_rebase", { rootDir }) : Promise.resolve("");
 
+export const gitRebaseMain = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_rebase_main", { rootDir }) : Promise.resolve("");
+
 export const gitPushForceWithLease = (rootDir: string): Promise<string> =>
   isTauri ? invoke("git_push_force_with_lease", { rootDir }) : Promise.resolve("");
 
@@ -1648,11 +1651,40 @@ export interface BranchList {
   current: string | null;
 }
 
+export interface BranchInfo {
+  name: string;
+  remote: boolean;
+  current: boolean;
+  upstream: string | null;
+  tracking: string;
+  short_hash: string;
+  relative_date: string;
+  subject: string;
+  merged: boolean;
+  identical: boolean;
+  has_remote: boolean;
+  ahead: number;
+  behind: number;
+  unique_commits: number;
+}
+
+export interface BranchInfoList {
+  local: BranchInfo[];
+  remote: BranchInfo[];
+  current: string | null;
+  compare_base: string;
+}
+
 /** Local + remote-tracking branch names for a repo. REJECTS with git's stderr. */
 export const gitBranches = (rootDir: string): Promise<BranchList> =>
   isTauri
     ? invoke("git_branches", { rootDir })
     : Promise.resolve({ local: [], remote: [], current: null });
+
+export const gitBranchInfo = (rootDir: string, compareBase = ""): Promise<BranchInfoList> =>
+  isTauri
+    ? invoke("git_branch_info", { rootDir, compareBase })
+    : Promise.resolve({ local: [], remote: [], current: null, compare_base: "" });
 
 /**
  * Switch the primary checkout to `branch`. Pass the short name (`foo`, not
@@ -1693,6 +1725,17 @@ export const gitBranchDiff = (
   branch: string,
 ): Promise<string> =>
   isTauri ? invoke("git_branch_diff", { rootDir, base, branch }) : Promise.resolve("");
+
+export const gitBranchDiffOptions = (
+  rootDir: string,
+  base: string,
+  branch: string,
+  context: number,
+  ignoreWhitespace: boolean,
+): Promise<string> =>
+  isTauri
+    ? invoke("git_branch_diff_options", { rootDir, base, branch, context, ignoreWhitespace })
+    : Promise.resolve("");
 
 export const getGitAutofetchEnabled = (): Promise<boolean> =>
   isTauri ? invoke("get_git_autofetch_enabled") : Promise.resolve(true);
@@ -1745,6 +1788,23 @@ export const gitDiffFile = (
   staged: boolean,
 ): Promise<string> =>
   isTauri ? invoke("git_diff_file", { rootDir, path, staged }) : Promise.resolve("");
+
+export interface GitFilePreview {
+  kind: "image" | "markdown" | "html" | "csv" | "tsv";
+  mime: string;
+  data: string;
+  truncated: boolean;
+}
+
+export const gitFilePreview = (rootDir: string, path: string): Promise<GitFilePreview | null> =>
+  isTauri ? invoke("git_file_preview", { rootDir, path }) : Promise.resolve(null);
+
+export const gitRenamePath = (
+  rootDir: string,
+  path: string,
+  newName: string,
+): Promise<string> =>
+  isTauri ? invoke("git_rename_path", { rootDir, path, newName }) : Promise.resolve(path);
 
 export const gitStage = (rootDir: string, path: string): Promise<void> =>
   isTauri ? invoke("git_stage", { rootDir, path }) : Promise.resolve();
@@ -1804,6 +1864,16 @@ export const gitLogRef = (
 export const gitShow = (rootDir: string, hash: string): Promise<string> =>
   isTauri ? invoke("git_show", { rootDir, hash }) : Promise.resolve("");
 
+export const gitShowOptions = (
+  rootDir: string,
+  hash: string,
+  context: number,
+  ignoreWhitespace: boolean,
+): Promise<string> =>
+  isTauri
+    ? invoke("git_show_options", { rootDir, hash, context, ignoreWhitespace })
+    : Promise.resolve("");
+
 export const gitCherryPick = (
   rootDir: string,
   hash: string,
@@ -1846,6 +1916,16 @@ export const gitStashPush = (
 export const gitStashShow = (rootDir: string, index: number): Promise<string> =>
   isTauri ? invoke("git_stash_show", { rootDir, index }) : Promise.resolve("");
 
+export const gitStashShowOptions = (
+  rootDir: string,
+  index: number,
+  context: number,
+  ignoreWhitespace: boolean,
+): Promise<string> =>
+  isTauri
+    ? invoke("git_stash_show_options", { rootDir, index, context, ignoreWhitespace })
+    : Promise.resolve("");
+
 export const gitStashApply = (rootDir: string, index: number): Promise<void> =>
   isTauri ? invoke("git_stash_apply", { rootDir, index }) : Promise.resolve();
 
@@ -1880,6 +1960,41 @@ export const gitPushTag = (rootDir: string, name: string): Promise<void> =>
 export const gitDeleteRemoteTag = (rootDir: string, name: string): Promise<void> =>
   isTauri ? invoke("git_delete_remote_tag", { rootDir, name }) : Promise.resolve();
 
+export interface RebasePlanEntry {
+  hash: string;
+  short_hash: string;
+  subject: string;
+  body: string;
+}
+
+export type RebaseAction = "pick" | "edit" | "reword" | "squash" | "fixup" | "drop";
+
+export interface RebaseTodoItem {
+  hash: string;
+  action: RebaseAction;
+  message?: string;
+}
+
+export interface GitOperationState {
+  rebase: boolean;
+  cherry_pick: boolean;
+}
+
+export const gitRebasePlan = (rootDir: string, target: string): Promise<RebasePlanEntry[]> =>
+  isTauri ? invoke("git_rebase_plan", { rootDir, target }) : Promise.resolve([]);
+
+export const gitRebaseStart = (
+  rootDir: string,
+  target: string,
+  items: RebaseTodoItem[],
+): Promise<string> =>
+  isTauri ? invoke("git_rebase_start", { rootDir, target, items }) : Promise.resolve("");
+
+export const gitOperationState = (rootDir: string): Promise<GitOperationState> =>
+  isTauri
+    ? invoke("git_operation_state", { rootDir })
+    : Promise.resolve({ rebase: false, cherry_pick: false });
+
 /** Rebase the current branch onto `branch`. Rebase-lite: no interactive editor — on
  *  conflict this REJECTS with the conflict text; resolve then call `gitRebaseContinue`
  *  or bail with `gitRebaseAbort`. */
@@ -1903,6 +2018,83 @@ export const gitApplyHunk = (rootDir: string, patch: string, reverse: boolean): 
  *  WORKING TREE (not the index), discarding just that hunk. */
 export const gitDiscardHunk = (rootDir: string, patch: string): Promise<void> =>
   isTauri ? invoke("git_discard_hunk", { rootDir, patch }) : Promise.resolve();
+
+export interface PullRequestActor {
+  login: string;
+  name: string;
+}
+
+export interface PullRequestLabel {
+  name: string;
+  color: string;
+}
+
+export interface PullRequestCheck {
+  name: string;
+  context: string;
+  conclusion: string;
+  state: string;
+  status: string;
+  detailsUrl: string;
+  targetUrl: string;
+}
+
+export interface PullRequestEntry {
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: PullRequestActor;
+  reviewDecision: string;
+  statusCheckRollup: PullRequestCheck[];
+  url: string;
+  updatedAt: string;
+  additions: number;
+  deletions: number;
+  mergeable: string;
+  labels: PullRequestLabel[];
+}
+
+export interface PullRequestCapability {
+  installed: boolean;
+  authenticated: boolean;
+  default_branch: string;
+  message: string;
+}
+
+export const gitPrCapability = (rootDir: string): Promise<PullRequestCapability> =>
+  isTauri
+    ? invoke("git_pr_capability", { rootDir })
+    : Promise.resolve({ installed: false, authenticated: false, default_branch: "", message: "" });
+
+export const gitPrList = (rootDir: string): Promise<PullRequestEntry[]> =>
+  isTauri ? invoke("git_pr_list", { rootDir }) : Promise.resolve([]);
+
+export const gitPrView = (rootDir: string, number: number): Promise<PullRequestEntry> =>
+  isTauri ? invoke("git_pr_view", { rootDir, number }) : Promise.reject(new Error("Unavailable"));
+
+export const gitPrDiff = (rootDir: string, number: number): Promise<string> =>
+  isTauri ? invoke("git_pr_diff", { rootDir, number }) : Promise.resolve("");
+
+export const gitPrCheckout = (rootDir: string, number: number): Promise<string> =>
+  isTauri ? invoke("git_pr_checkout", { rootDir, number }) : Promise.resolve("");
+
+export const gitPrCreate = (
+  rootDir: string,
+  base: string,
+  head: string,
+  title: string,
+  body: string,
+): Promise<string> =>
+  isTauri
+    ? invoke("git_pr_create", { rootDir, base, head, title, body })
+    : Promise.resolve("");
+
+export const gitPrMerge = (rootDir: string, number: number): Promise<string> =>
+  isTauri ? invoke("git_pr_merge", { rootDir, number }) : Promise.resolve("");
 
 // ── System metrics (Activity domain) ────────────────────────────────────────────
 

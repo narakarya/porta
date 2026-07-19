@@ -8,7 +8,7 @@ import {
   gitTags,
   type TagEntry,
 } from "../../../lib/commands";
-import { Button, Input, Spinner } from "../../ui";
+import { Button, Input, Select, Spinner } from "../../ui";
 
 /**
  * Tags tab — a "Create tag" control (name + optional message) on top of the
@@ -24,6 +24,7 @@ export default function TagsPanel({ app }: { app: App }) {
 
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
+  const [annotated, setAnnotated] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -61,7 +62,11 @@ export default function TagsPanel({ app }: { app: App }) {
     setCreating(true);
     setError(null);
     try {
-      await gitCreateTag(app.root_dir, name.trim(), message.trim() === "" ? undefined : message.trim());
+      await gitCreateTag(
+        app.root_dir,
+        name.trim(),
+        annotated ? message.trim() : undefined,
+      );
       if (mounted.current) {
         setName("");
         setMessage("");
@@ -115,15 +120,31 @@ export default function TagsPanel({ app }: { app: App }) {
           spellCheck={false}
           className="!py-1 font-mono"
         />
-        <Input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !creating) doCreate(); }}
-          placeholder="Message (optional)…"
-          spellCheck={false}
-          className="!py-1"
-        />
-        <Button size="sm" loading={creating} disabled={!app.root_dir || name.trim() === ""} onClick={doCreate} className="shrink-0">
+        <Select
+          value={annotated ? "annotated" : "lightweight"}
+          onChange={(event) => setAnnotated(event.target.value === "annotated")}
+          className="select-base !w-28 !py-1 !text-[11px]"
+        >
+          <option value="lightweight">Lightweight</option>
+          <option value="annotated">Annotated</option>
+        </Select>
+        {annotated && (
+          <Input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !creating) doCreate(); }}
+            placeholder="Annotation message…"
+            spellCheck={false}
+            className="!py-1"
+          />
+        )}
+        <Button
+          size="sm"
+          loading={creating}
+          disabled={!app.root_dir || name.trim() === "" || (annotated && message.trim() === "")}
+          onClick={doCreate}
+          className="shrink-0"
+        >
           Create tag
         </Button>
       </div>

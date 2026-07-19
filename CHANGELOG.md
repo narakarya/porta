@@ -6,6 +6,22 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.10]
+
+### Added
+- **Native Git pull requests**: list and search open PRs, inspect descriptions and checks, browse file-tree diffs, create or checkout a PR, open it on GitHub, and squash-merge with confirmation. The panel detects GitHub CLI installation and authentication before enabling the workflow.
+- **Interactive rebase editor**: reorder commits and mark each as pick, edit, reword, squash, fixup, or drop, with multiline reword messages plus clear continue/abort handling when a rebase pauses.
+- **Visual file previews in Status** for images, Markdown, sandboxed HTML, CSV, and TSV files, with an explicit Preview/Diff switch.
+
+### Changed
+- **Branches reaches Git Manager parity** with compare-base selection, create-from-ref, All/Identical/Merged/Unmerged/Local-only/On-remote facets, commit metadata, unique-commit and ahead/behind counts, explicit Compare/Commits actions, copy, tracking, worktree-safe switching, and confirmed local/remote/bulk removal.
+- **History, diffs, stashes, and tags are richer**: cross-branch message search, bulk cherry-pick, commit bodies, selectable diff context and whitespace handling, tree-based unified/split viewers, bulk stash drop, and explicit lightweight/annotated tag creation.
+- **Status supports multi-file workflows**: file and folder selection, bulk stage/unstage/discard, rename, and copy-path actions while retaining per-file and per-hunk controls.
+- **Sync adds Rebase from main/master** alongside fetch/prune, pull, pull-with-rebase, push, force-with-lease, and remote management.
+
+### Fixed
+- Git panels now preserve selection and refresh repository state after mutations, and branch actions refuse unsafe switches/removals for refs checked out in another worktree.
+
 ## [0.12.0-beta.9]
 
 ### Added

@@ -70,9 +70,13 @@ function FileRow({
   busy,
   indent = 0,
   showDir = true,
+  checked,
   onSelect,
+  onCheck,
   onToggle,
   onDiscard,
+  onRename,
+  onCopy,
 }: {
   file: ChangedFile;
   staged: boolean;
@@ -82,9 +86,13 @@ function FileRow({
   indent?: number;
   /** Render the greyed parent-dir prefix before the filename (flat-list default). Tree leaves pass `false` since nesting already conveys the folder. */
   showDir?: boolean;
+  checked?: boolean;
   onSelect: () => void;
+  onCheck?: () => void;
   onToggle: () => void;
   onDiscard: () => void;
+  onRename?: () => void;
+  onCopy?: () => void;
 }) {
   const { char, cls } = statusBadge(file, staged);
   const { dir, base } = showDir ? splitPath(file.path) : { dir: "", base: file.path.slice(file.path.lastIndexOf("/") + 1) };
@@ -93,14 +101,25 @@ function FileRow({
   // webview can't rely on window.confirm. Reset if the row is deselected
   // (user moved on to another file) so a stale confirm bar doesn't linger.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { if (!active) setConfirmDiscard(false); }, [active]);
 
   return (
     <div
       onClick={onSelect}
       style={indent ? { paddingLeft: indent } : undefined}
-      className={`group flex items-center gap-2 mx-1 px-2 py-1 rounded-control cursor-pointer transition-colors duration-fast ${active ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+      className={`group relative flex items-center gap-2 mx-1 px-2 py-1 rounded-control cursor-pointer transition-colors duration-fast ${active ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
     >
+      {onCheck && (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onCheck}
+          onClick={(event) => event.stopPropagation()}
+          className="h-3 w-3 shrink-0 accent-[var(--color-accent)]"
+          aria-label={`Select ${file.path}`}
+        />
+      )}
       <span className={`w-3 shrink-0 text-center font-mono text-[11px] ${cls}`}>{char}</span>
       <span className="flex-1 min-w-0 truncate font-mono text-[12px]" title={file.path}>
         {showDir && <span className="text-ink-3">{dir}</span>}
@@ -131,14 +150,29 @@ function FileRow({
           </button>
         </div>
       ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); setConfirmDiscard(true); }}
-          disabled={busy}
-          title="Discard changes"
-          className="shrink-0 opacity-0 group-hover:opacity-100 text-ink-3 hover:text-bad disabled:opacity-30 transition-colors"
-        >
-          <TrashIcon />
-        </button>
+        <>
+          {(onRename || onCopy) && (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuOpen((previous) => !previous);
+              }}
+              disabled={busy}
+              title="More file actions"
+              className="shrink-0 opacity-0 group-hover:opacity-100 text-[12px] leading-none text-ink-3 hover:text-ink disabled:opacity-30"
+            >
+              •••
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirmDiscard(true); }}
+            disabled={busy}
+            title="Discard changes"
+            className="shrink-0 opacity-0 group-hover:opacity-100 text-ink-3 hover:text-bad disabled:opacity-30 transition-colors"
+          >
+            <TrashIcon />
+          </button>
+        </>
       )}
       <button
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
@@ -148,6 +182,29 @@ function FileRow({
       >
         {staged ? <MinusIcon /> : <PlusIcon />}
       </button>
+      {menuOpen && (
+        <div
+          onClick={(event) => event.stopPropagation()}
+          className="absolute right-7 top-7 z-30 w-28 rounded-control border border-strong bg-surface-2 p-1 shadow-xl"
+        >
+          {onRename && (
+            <button
+              onClick={() => { setMenuOpen(false); onRename(); }}
+              className="w-full rounded-control px-2 py-1 text-left text-[11px] text-ink-2 hover:bg-white/[0.05]"
+            >
+              Rename…
+            </button>
+          )}
+          {onCopy && (
+            <button
+              onClick={() => { setMenuOpen(false); onCopy(); }}
+              className="w-full rounded-control px-2 py-1 text-left text-[11px] text-ink-2 hover:bg-white/[0.05]"
+            >
+              Copy path
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -168,8 +225,13 @@ export default function FileTree({
   selected,
   mutating,
   onSelect,
+  checked,
+  onCheck,
+  onCheckMany,
   onToggle,
   onDiscard,
+  onRename,
+  onCopy,
 }: {
   files: ChangedFile[];
   /** Which section this tree renders — staged files vs. the working tree. */
@@ -178,8 +240,13 @@ export default function FileTree({
   /** Path of the file currently mid-mutation (stage/unstage/discard), or `null`. */
   mutating: string | null;
   onSelect: (path: string) => void;
+  checked?: Set<string>;
+  onCheck?: (path: string) => void;
+  onCheckMany?: (paths: string[], checked: boolean) => void;
   onToggle: (path: string) => void;
   onDiscard: (path: string) => void;
+  onRename?: (path: string) => void;
+  onCopy?: (path: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -192,20 +259,41 @@ export default function FileTree({
     });
   }
 
+  function leafPaths(node: TreeNode): string[] {
+    return node.kind === "file"
+      ? [node.file.path]
+      : node.children.flatMap(leafPaths);
+  }
+
   function renderNode(node: TreeNode, depth: number) {
     if (node.kind === "dir") {
       const isCollapsed = collapsed.has(node.path);
+      const nestedPaths = leafPaths(node);
+      const allChecked = nestedPaths.length > 0 && nestedPaths.every((path) => checked?.has(path));
       return (
         <div key={`dir:${node.path}`}>
-          <button
-            onClick={() => toggleDir(node.path)}
+          <div
             style={{ paddingLeft: depth * INDENT_PX }}
-            className="w-full flex items-center gap-1.5 mx-1 px-2 py-1 rounded-control text-ink-2 hover:bg-surface-1 transition-colors duration-fast"
+            className="mx-1 flex w-[calc(100%_-_8px)] items-center gap-1.5 rounded-control px-2 py-1 text-ink-2 hover:bg-surface-1 transition-colors duration-fast"
           >
-            <ChevronRightIcon className={`shrink-0 transition-transform duration-fast ${isCollapsed ? "" : "rotate-90"}`} />
-            <FolderIcon className="shrink-0" />
-            <span className="flex-1 min-w-0 truncate font-mono text-[11px] text-left" title={node.path}>{node.name}</span>
-          </button>
+            {onCheckMany && (
+              <input
+                type="checkbox"
+                checked={allChecked}
+                onChange={() => onCheckMany(nestedPaths, !allChecked)}
+                className="h-3 w-3 shrink-0 accent-[var(--color-accent)]"
+                aria-label={`Select files in ${node.path}`}
+              />
+            )}
+            <button
+              onClick={() => toggleDir(node.path)}
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            >
+              <ChevronRightIcon className={`shrink-0 transition-transform duration-fast ${isCollapsed ? "" : "rotate-90"}`} />
+              <FolderIcon className="shrink-0" />
+              <span className="flex-1 min-w-0 truncate font-mono text-[11px]" title={node.path}>{node.name}</span>
+            </button>
+          </div>
           {!isCollapsed && node.children.map((child) => renderNode(child, depth + 1))}
         </div>
       );
@@ -220,9 +308,13 @@ export default function FileTree({
         busy={mutating !== null}
         indent={depth * INDENT_PX}
         showDir={false}
+        checked={checked?.has(f.path)}
         onSelect={() => onSelect(f.path)}
+        onCheck={onCheck ? () => onCheck(f.path) : undefined}
         onToggle={() => onToggle(f.path)}
         onDiscard={() => onDiscard(f.path)}
+        onRename={onRename ? () => onRename(f.path) : undefined}
+        onCopy={onCopy ? () => onCopy(f.path) : undefined}
       />
     );
   }
