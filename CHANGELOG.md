@@ -6,6 +6,25 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [0.12.0-beta.7]
+
+### Added
+
+- **Instance context actions:** worktree instances now expose the same
+  right-click actions as their parent app, including **Open in Editor** and
+  **Extensions**.
+- **Open in Editor:** the app context menu now opens the selected app checkout
+  directly in the configured editor.
+
+### Fixed
+
+- **Instance actions targeted the parent checkout.** Browser, terminal, editor,
+  and extension actions now consistently use the instance's own host, port,
+  and worktree path.
+- **Extensions could not open or run shell commands for instances.** The
+  extension sidebar now resolves synthetic instance apps, and extension shell
+  commands securely scope their working directory to the instance worktree.
+
 ## [0.12.0-beta.6]
 
 Backports the fixes from the 0.10.0 feedback round that the Shell C line hadn't
