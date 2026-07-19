@@ -6,6 +6,9 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Docker image update visibility**: the workspace rollup now marks the exact app row that has a pending image update (including the affected Compose service/image in its tooltip), instead of showing only an ambiguous workspace-level count.
+
 ## [0.12.0-beta.5]
 
 ### Added

@@ -261,19 +261,30 @@ export default function Sidebar() {
     return m;
   }, [apps]);
 
+  // Keep the actionable rows, not only the workspace totals: the aggregate
+  // badge is useful for discovery, but each app row also needs to identify
+  // which app (and, for Compose, how many images) actually has an update.
+  const updatesByApp = useMemo(() => {
+    const updates = new Map<string, NonNullable<typeof imageUpdateCache[string]>>();
+    for (const a of apps) {
+      if (a.kind !== "docker" && a.kind !== "compose") continue;
+      const actionable = (imageUpdateCache[a.id] ?? []).filter(
+        (i) => i.status === "ok" && (i.has_digest_update || !!i.suggested_tag)
+      );
+      if (actionable.length > 0) updates.set(a.id, actionable);
+    }
+    return updates;
+  }, [apps, imageUpdateCache]);
+
   const updatesByWs = useMemo(() => {
     const counts = new Map<string | null, number>();
     for (const a of apps) {
-      if (a.kind !== "docker" && a.kind !== "compose") continue;
-      const info = imageUpdateCache[a.id];
-      if (!info) continue;
-      const hasUpdate = info.some(
-        (i) => i.status === "ok" && (i.has_digest_update || !!i.suggested_tag)
-      );
-      if (hasUpdate) counts.set(a.workspace_id, (counts.get(a.workspace_id) ?? 0) + 1);
+      if (updatesByApp.has(a.id)) {
+        counts.set(a.workspace_id, (counts.get(a.workspace_id) ?? 0) + 1);
+      }
     }
     return counts;
-  }, [apps, imageUpdateCache]);
+  }, [apps, updatesByApp]);
   const updateCount = (wsId: string | null) => updatesByWs.get(wsId) ?? 0;
   const runningTotal = useMemo(() => apps.filter((a) => a.status === "running").length, [apps]);
   const updatesTotal = useMemo(() => [...updatesByWs.values()].reduce((sum, n) => sum + n, 0), [updatesByWs]);
@@ -403,6 +414,12 @@ export default function Sidebar() {
           const busy = busyApps.has(a.id);
           const menuOpen = appMenu?.app.id === a.id;
           const isAppGhost = appDraggingId === a.id;
+          const pendingImageUpdates = updatesByApp.get(a.id) ?? [];
+          const imageUpdateLabel = pendingImageUpdates.length > 0
+            ? `${pendingImageUpdates.length} image update${pendingImageUpdates.length > 1 ? "s" : ""} available · ${pendingImageUpdates
+                .map((info) => info.service_name ? `${info.service_name} (${info.image})` : info.image)
+                .join(", ")}`
+            : "";
           // Worktree instances discovered under this app (loaded globally at
           // workspace load). Drives the disclosure chevron + indented sub-rows.
           const appInstances = instances[a.id] ?? [];
@@ -451,6 +468,17 @@ export default function Sidebar() {
                 </span>
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
                 <span className="flex-1 truncate">{a.name}</span>
+                {pendingImageUpdates.length > 0 && (
+                  <Tooltip label={imageUpdateLabel} side="right" className="shrink-0 flex items-center">
+                    <span
+                      role="status"
+                      aria-label={imageUpdateLabel}
+                      className="text-[10px] text-amber-400 font-medium tabular-nums"
+                    >
+                      {pendingImageUpdates.length}↑
+                    </span>
+                  </Tooltip>
+                )}
                 {/* Instance count + port at rest; start/stop toggle + overflow reveal on hover. */}
                 <span className={`flex items-center gap-1.5 group-hover:hidden ${menuOpen ? "hidden" : ""}`}>
                   {hasInstances && (
