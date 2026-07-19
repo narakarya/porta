@@ -389,7 +389,13 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           {isInstance ? (
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
           ) : (
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 8l1.6 1.6L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            // Neutral app-window mark. Status is already communicated by the
+            // badge below, so a checkmark here was redundant and misleading.
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M3 5.5h10M5 8.5h3.5M5 11h5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <circle cx="4.6" cy="4.1" r=".55" fill="currentColor"/>
+            </svg>
           )}
         </span>
         <div className="min-w-0 flex-1">
