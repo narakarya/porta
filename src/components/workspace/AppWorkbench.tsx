@@ -272,7 +272,12 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     const sub = app.subdomain ?? app.name;
     return sub === "*" ? `*.${hostDomain}` : `${sub}.${hostDomain}`;
   })();
-  const allHosts = [primaryDomainHost, ...(app.extra_subdomains ?? []).map((s) => `${s}.${hostDomain}`)];
+  // A worktree instance owns one generated host. Keep this guard at the
+  // presentation boundary too, so a stale synthetic App can never show parent
+  // aliases as domains belonging to the child.
+  const allHosts = isInstance
+    ? [primaryDomainHost]
+    : [primaryDomainHost, ...(app.extra_subdomains ?? []).map((s) => `${s}.${hostDomain}`)];
   // Instances section (mockup 26): the primary checkout counts as running when
   // the app itself is up; branch instances count their own "running" status.
   const runningCount = (running ? 1 : 0) + instances.filter((i) => i.status === "running").length;
@@ -379,19 +384,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -mx-6 -mt-14 pt-14">
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-subtle">
-        {isInstance && (
-          // Breadcrumb back to the parent app's workbench.
-          <button
-            onClick={onExitInstance}
-            title={`Back to ${parentApp?.name ?? "app"}`}
-            className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink shrink-0 -ml-1 pr-1 transition-colors"
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span className="truncate max-w-[10rem]">{parentApp?.name}</span>
-            <span className="text-ink-3">/</span>
-          </button>
-        )}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-subtle">
         <span className="w-[26px] h-[26px] rounded-[7px] bg-surface-2 text-accent flex items-center justify-center shrink-0">
           {isInstance ? (
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
@@ -399,28 +392,52 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2.4" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 8l1.6 1.6L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
           )}
         </span>
-        <span className="text-[16px] font-semibold text-ink">{isInstance ? instance!.branch : app.name}</span>
-        <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
-        {running && health === "healthy" && (
-          <Badge tone="ok"><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="inline-block -mt-px mr-0.5"><path d="M8 14s-5.5-3.5-5.5-7.2A3 3 0 018 5.2 3 3 0 0113.5 6.8C13.5 10.5 8 14 8 14z"/></svg>healthy</Badge>
-        )}
-        {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
-        {domainHost && (
-          <button
-            onClick={() => openExternalUrl(`https://${domainHost}`)}
-            title={`Open https://${domainHost}`}
-            className="text-[11px] text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors"
-          >
-            {domainHost}
-            <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
-        )}
-        <span className="text-[11px] text-ink-3 font-mono">port {app.port}</span>
-        {/* Interactive git control (restored from the card's GitBadge): branch
-            indicator + switch-branch + fetch/pull/push. Self-hides for non-repos.
-            The full-panel Git tab remains for richer history/diff work. */}
-        <GitBadge app={app} onOpenTerminal={() => select("terminal")} />
-        <div className="ml-auto flex gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            {isInstance && (
+              // Compact breadcrumb: parent context stays available without
+              // competing with the (often long) branch name.
+              <button
+                onClick={onExitInstance}
+                title={`Back to ${parentApp?.name ?? "app"}`}
+                className="inline-flex items-center gap-1 text-[11px] text-ink-3 hover:text-ink shrink-0 transition-colors"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <span className="truncate max-w-[8rem]">{parentApp?.name}</span>
+                <span aria-hidden>/</span>
+              </button>
+            )}
+            <h1
+              className="min-w-0 truncate text-[15px] font-semibold leading-5 text-ink"
+              title={isInstance ? instance!.branch : app.name}
+            >
+              {isInstance ? instance!.branch : app.name}
+            </h1>
+          </div>
+          <div className="mt-1 flex items-center gap-2 min-w-0 text-[11px] text-ink-3">
+            <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
+            {running && health === "healthy" && (
+              <Badge tone="ok"><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="inline-block -mt-px mr-0.5"><path d="M8 14s-5.5-3.5-5.5-7.2A3 3 0 018 5.2 3 3 0 0113.5 6.8C13.5 10.5 8 14 8 14z"/></svg>healthy</Badge>
+            )}
+            {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
+            {domainHost && (
+              <button
+                onClick={() => openExternalUrl(`https://${domainHost}`)}
+                title={`Open https://${domainHost}`}
+                className="min-w-0 truncate text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors"
+              >
+                <span className="truncate">{domainHost}</span>
+                <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="shrink-0"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+            )}
+            <span className="text-ink-3/60" aria-hidden>·</span>
+            <span className="font-mono shrink-0">:{app.port}</span>
+            {/* The instance title already is its branch. Keeping GitBadge here
+                duplicated the same long label and made the header unreadable. */}
+            {!isInstance && <GitBadge app={app} onOpenTerminal={() => select("terminal")} />}
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
           {active ? (
             <>
               {/* Lifecycle actions: Stop is the more prominent neutral (border-strong),

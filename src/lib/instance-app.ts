@@ -13,6 +13,11 @@ export function deriveInstanceApp(parent: App, inst: AppInstance): App {
     id: inst.id,
     root_dir: inst.worktree_path,
     subdomain: inst.subdomain,
+    // Domain configuration belongs to the parent checkout. A worktree
+    // instance only owns its generated subdomain, so do not leak the parent's
+    // aliases/custom host into child surfaces such as Details and Open.
+    extra_subdomains: [],
+    custom_domain: null,
     port: inst.port,
     status: inst.status as App["status"],
     name: `${parent.name} · ${inst.branch}`,
