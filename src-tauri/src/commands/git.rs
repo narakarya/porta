@@ -726,6 +726,87 @@ pub async fn git_push(root_dir: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn git_pull_rebase(root_dir: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["pull", "--rebase", "--autostash"], NET_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_push_force_with_lease(root_dir: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["push", "--force-with-lease"], NET_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GitRemote {
+    pub name: String,
+    pub fetch_url: String,
+    pub push_url: String,
+}
+
+fn parse_remotes(raw: &str) -> Vec<GitRemote> {
+    let mut remotes = std::collections::BTreeMap::<String, GitRemote>::new();
+    for line in raw.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(name), Some(url), Some(kind)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let entry = remotes.entry(name.to_string()).or_insert_with(|| GitRemote {
+            name: name.to_string(),
+            fetch_url: String::new(),
+            push_url: String::new(),
+        });
+        if kind == "(fetch)" {
+            entry.fetch_url = url.to_string();
+        } else if kind == "(push)" {
+            entry.push_url = url.to_string();
+        }
+    }
+    remotes.into_values().collect()
+}
+
+#[tauri::command]
+pub async fn git_remotes(root_dir: String) -> Result<Vec<GitRemote>, String> {
+    tokio::task::spawn_blocking(move || {
+        let raw = run_git(&root_dir, &["remote", "-v"], LOCAL_TIMEOUT_SECS)?;
+        Ok(parse_remotes(&raw))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_add_remote(root_dir: String, name: String, url: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if name.starts_with('-') || url.starts_with('-') || name.trim().is_empty() || url.trim().is_empty() {
+            return Err("invalid remote name or URL".into());
+        }
+        run_git(&root_dir, &["remote", "add", &name, &url], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_remove_remote(root_dir: String, name: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if name.starts_with('-') || name.trim().is_empty() {
+            return Err("invalid remote name".into());
+        }
+        run_git(&root_dir, &["remote", "remove", &name], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn branches_for(root_dir: &str) -> Result<BranchList, String> {
     let local = parse_branch_lines(&run_git(
         root_dir,
@@ -768,6 +849,99 @@ pub async fn git_switch_branch(
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         run_git(&root_dir, &switch_args(&branch, create), NET_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_create_branch(
+    root_dir: String,
+    branch: String,
+    start_point: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if branch.starts_with('-') || start_point.starts_with('-') {
+            return Err("invalid branch or start point".into());
+        }
+        let args = if start_point.trim().is_empty() {
+            vec!["switch", "-c", branch.as_str()]
+        } else {
+            vec!["switch", "-c", branch.as_str(), start_point.as_str()]
+        };
+        run_git(&root_dir, &args, LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_track_remote_branch(root_dir: String, remote_branch: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if remote_branch.starts_with('-') || !remote_branch.contains('/') {
+            return Err("invalid remote branch".into());
+        }
+        run_git(
+            &root_dir,
+            &["switch", "--track", &remote_branch],
+            LOCAL_TIMEOUT_SECS,
+        )
+        .map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_delete_branch(root_dir: String, branch: String, force: bool) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if branch.starts_with('-') {
+            return Err("invalid branch".into());
+        }
+        let flag = if force { "-D" } else { "-d" };
+        run_git(&root_dir, &["branch", flag, &branch], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_delete_remote_branch(
+    root_dir: String,
+    remote: String,
+    branch: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if remote.starts_with('-') || branch.starts_with('-') {
+            return Err("invalid remote or branch".into());
+        }
+        run_git(
+            &root_dir,
+            &["push", &remote, "--delete", &branch],
+            NET_TIMEOUT_SECS,
+        )
+        .map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_branch_diff(
+    root_dir: String,
+    base: String,
+    branch: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        if base.starts_with('-') || branch.starts_with('-') {
+            return Err("invalid branch".into());
+        }
+        let range = format!("{base}...{branch}");
+        run_git_raw(
+            &root_dir,
+            &["diff", "--stat", "--patch", &range],
+            LOCAL_TIMEOUT_SECS,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -988,10 +1162,58 @@ pub async fn git_unstage_all(root_dir: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+fn discard_file_core(root_dir: &str, path: &str, staged: bool) -> Result<(), String> {
+    if path.starts_with('-') {
+        return Err("invalid path".into());
+    }
+    let in_head = run_git(
+        root_dir,
+        &["ls-tree", "-r", "--name-only", "HEAD", "--", path],
+        LOCAL_TIMEOUT_SECS,
+    )
+    .map(|out| !out.trim().is_empty())
+    .unwrap_or(false);
+
+    if staged {
+        if in_head {
+            return run_git(
+                root_dir,
+                &["restore", "--source=HEAD", "--staged", "--worktree", "--", path],
+                LOCAL_TIMEOUT_SECS,
+            )
+            .map(|_| ());
+        }
+        run_git(root_dir, &["rm", "-r", "--cached", "--", path], LOCAL_TIMEOUT_SECS)?;
+        return run_git(root_dir, &["clean", "-fd", "--", path], LOCAL_TIMEOUT_SECS).map(|_| ());
+    }
+
+    let in_index = run_git(
+        root_dir,
+        &["ls-files", "--error-unmatch", "--", path],
+        LOCAL_TIMEOUT_SECS,
+    )
+    .is_ok();
+    if in_index {
+        run_git(root_dir, &["restore", "--worktree", "--", path], LOCAL_TIMEOUT_SECS).map(|_| ())
+    } else {
+        run_git(root_dir, &["clean", "-fd", "--", path], LOCAL_TIMEOUT_SECS).map(|_| ())
+    }
+}
+
 #[tauri::command]
-pub async fn git_discard(root_dir: String, path: String) -> Result<(), String> {
+pub async fn git_discard(root_dir: String, path: String, staged: bool) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || discard_file_core(&root_dir, &path, staged))
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_discard_all(root_dir: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        run_git(&root_dir, &["restore", "--", &path], LOCAL_TIMEOUT_SECS).map(|_| ())
+        for file in changed_files_for(&root_dir)? {
+            discard_file_core(&root_dir, &file.path, file.staged)?;
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1029,7 +1251,9 @@ pub struct CommitEntry {
     pub author: String,
     pub date: String,
     pub subject: String,
+    pub body: String,
     pub refs: String,
+    pub parent_count: u32,
 }
 
 /// Parse `git log --pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s%x1e` output
@@ -1048,7 +1272,18 @@ fn parse_log(raw: &str) -> Vec<CommitEntry> {
             let date = fields.next()?.to_string();
             let refs = fields.next()?.to_string();
             let subject = fields.next()?.to_string();
-            Some(CommitEntry { hash, short_hash, author, date, subject, refs })
+            let body = fields.next().unwrap_or_default().to_string();
+            let parent_count = fields.next().unwrap_or_default().split_whitespace().count() as u32;
+            Some(CommitEntry {
+                hash,
+                short_hash,
+                author,
+                date,
+                subject,
+                body,
+                refs,
+                parent_count,
+            })
         })
         .collect()
 }
@@ -1056,12 +1291,116 @@ fn parse_log(raw: &str) -> Vec<CommitEntry> {
 #[tauri::command]
 pub async fn git_log(root_dir: String, limit: u32, skip: u32) -> Result<Vec<CommitEntry>, String> {
     tokio::task::spawn_blocking(move || {
-        let fmt = "--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s%x1e";
+        let fmt = "--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s\x1f%b\x1f%P%x1e";
         let limit_s = limit.to_string();
         let skip_s = skip.to_string();
         let args = ["log", fmt, "--max-count", &limit_s, "--skip", &skip_s];
         let raw = run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)?;
         Ok(parse_log(&raw))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_log_ref(
+    root_dir: String,
+    revision: String,
+    query: String,
+    limit: u32,
+    skip: u32,
+) -> Result<Vec<CommitEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        if revision.starts_with('-') {
+            return Err("invalid revision".into());
+        }
+        let fmt = "--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%D\x1f%s\x1f%b\x1f%P%x1e";
+        let limit_s = limit.to_string();
+        let skip_s = skip.to_string();
+        let mut args = vec![
+            "log",
+            fmt,
+            "--max-count",
+            limit_s.as_str(),
+            "--skip",
+            skip_s.as_str(),
+        ];
+        if !revision.trim().is_empty() {
+            args.push(revision.as_str());
+        }
+        let grep;
+        if !query.trim().is_empty() {
+            grep = format!("--grep={query}");
+            args.push(grep.as_str());
+            args.push("--regexp-ignore-case");
+        }
+        let raw = run_git_raw(&root_dir, &args, LOCAL_TIMEOUT_SECS)?;
+        Ok(parse_log(&raw))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_cherry_pick(
+    root_dir: String,
+    hash: String,
+    mainline: Option<u32>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        if hash.starts_with('-') {
+            return Err("invalid revision".into());
+        }
+        if let Some(parent) = mainline.filter(|parent| *parent > 0) {
+            let parent = parent.to_string();
+            run_git(
+                &root_dir,
+                &["cherry-pick", "-m", &parent, &hash],
+                LOCAL_TIMEOUT_SECS,
+            )
+        } else {
+            run_git(&root_dir, &["cherry-pick", &hash], LOCAL_TIMEOUT_SECS)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_cherry_pick_abort(root_dir: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&root_dir, &["cherry-pick", "--abort"], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_cherry_pick_continue(root_dir: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(
+            &root_dir,
+            &["-c", "core.editor=true", "cherry-pick", "--continue"],
+            LOCAL_TIMEOUT_SECS,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_reset_to(root_dir: String, hash: String, mode: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if hash.starts_with('-') {
+            return Err("invalid revision".into());
+        }
+        let flag = match mode.as_str() {
+            "soft" => "--soft",
+            "mixed" => "--mixed",
+            "hard" => "--hard",
+            _ => return Err("reset mode must be soft, mixed, or hard".into()),
+        };
+        run_git(&root_dir, &["reset", flag, &hash], LOCAL_TIMEOUT_SECS).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1117,13 +1456,20 @@ pub async fn git_stash_list(root_dir: String) -> Result<Vec<StashEntry>, String>
 }
 
 #[tauri::command]
-pub async fn git_stash_push(root_dir: String, message: Option<String>) -> Result<(), String> {
+pub async fn git_stash_push(
+    root_dir: String,
+    message: Option<String>,
+    include_untracked: bool,
+) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         // Guard against option-injection: reject a message that starts with '-'.
         if message.as_deref().map_or(false, |m| m.starts_with('-')) {
             return Err("invalid stash message".into());
         }
         let mut args: Vec<&str> = vec!["stash", "push"];
+        if include_untracked {
+            args.push("--include-untracked");
+        }
         if let Some(msg) = message.as_deref() {
             if !msg.is_empty() {
                 args.push("-m");
@@ -1131,6 +1477,35 @@ pub async fn git_stash_push(root_dir: String, message: Option<String>) -> Result
             }
         }
         run_git(&root_dir, &args, LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stash_show(root_dir: String, index: u32) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let stash_ref = format!("stash@{{{index}}}");
+        run_git_raw(
+            &root_dir,
+            &["stash", "show", "--stat", "--patch", "--include-untracked", &stash_ref],
+            LOCAL_TIMEOUT_SECS,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stash_apply(root_dir: String, index: u32) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let stash_ref = format!("stash@{{{index}}}");
+        run_git(
+            &root_dir,
+            &["stash", "apply", "--index", &stash_ref],
+            LOCAL_TIMEOUT_SECS,
+        )
+        .map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1225,6 +1600,31 @@ pub async fn git_delete_tag(root_dir: String, name: String) -> Result<(), String
             return Err("invalid tag name".into());
         }
         run_git(&root_dir, &["tag", "-d", &name], LOCAL_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_push_tag(root_dir: String, name: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if name.starts_with('-') {
+            return Err("invalid tag name".into());
+        }
+        run_git(&root_dir, &["push", "origin", &name], NET_TIMEOUT_SECS).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_delete_remote_tag(root_dir: String, name: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if name.starts_with('-') {
+            return Err("invalid tag name".into());
+        }
+        let refspec = format!(":refs/tags/{name}");
+        run_git(&root_dir, &["push", "origin", &refspec], NET_TIMEOUT_SECS).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1955,6 +2355,45 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert_eq!(out[0].refs, "HEAD -> main");
         assert_eq!(out[1].subject, "second commit");
         assert_eq!(out[1].refs, "");
+    }
+
+    #[test]
+    fn parse_log_reads_body_parents_and_remotes() {
+        let raw = "abc123\x1fabc\x1fAda\x1f2026-01-01T00:00:00Z\x1fHEAD -> main\x1fmerge\x1fdetails\x1fp1 p2\x1e";
+        let out = parse_log(raw);
+        assert_eq!(out[0].body, "details");
+        assert_eq!(out[0].parent_count, 2);
+
+        let remotes = parse_remotes(
+            "origin\tgit@example.com:org/app.git (fetch)\norigin\tssh://example.com/org/app.git (push)",
+        );
+        assert_eq!(remotes[0].fetch_url, "git@example.com:org/app.git");
+        assert_eq!(remotes[0].push_url, "ssh://example.com/org/app.git");
+    }
+
+    #[test]
+    fn discard_handles_untracked_and_staged_new_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let ps = p.to_str().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("base.txt"), "base\n").unwrap();
+        git(&["add", "base.txt"]);
+        git(&["commit", "-m", "init"]);
+
+        std::fs::write(p.join("untracked.txt"), "new\n").unwrap();
+        discard_file_core(ps, "untracked.txt", false).unwrap();
+        assert!(!p.join("untracked.txt").exists());
+
+        std::fs::write(p.join("staged-new.txt"), "new\n").unwrap();
+        git(&["add", "staged-new.txt"]);
+        discard_file_core(ps, "staged-new.txt", true).unwrap();
+        assert!(!p.join("staged-new.txt").exists());
+        let status = run_git(ps, &["status", "--porcelain"], LOCAL_TIMEOUT_SECS).unwrap();
+        assert!(status.trim().is_empty(), "repo should be clean, got: {status}");
     }
 
     #[test]

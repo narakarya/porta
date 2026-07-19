@@ -133,7 +133,7 @@ export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: 
         <div className="flex flex-col gap-2">
           <div className="text-[12px] text-bad font-medium">Rebase stopped — conflicts need resolving.</div>
           <pre className="text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-64 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2">{conflict}</pre>
-          <div className="text-[11px] text-ink-3">Resolve the conflicting files in the Changes tab, stage them, then Continue.</div>
+          <div className="text-[11px] text-ink-3">Resolve the conflicting files in the Status tab, stage them, then Continue.</div>
           <div className="flex items-center gap-2">
             <Button variant="danger" size="sm" disabled={busy} onClick={doAbort}>
               Abort
@@ -165,7 +165,7 @@ export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: 
 
           <div className="text-[11px] text-ink-3 leading-relaxed">
             Replays this branch's commits on top of the selected branch. If conflicts arise,
-            resolve them in the Changes tab, then Continue.
+            resolve them in the Status tab, then Continue.
           </div>
 
           {done && (

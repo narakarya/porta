@@ -1617,6 +1617,27 @@ export const gitPull = (rootDir: string): Promise<string> =>
 export const gitPush = (rootDir: string): Promise<string> =>
   isTauri ? invoke("git_push", { rootDir }) : Promise.resolve("");
 
+export const gitPullRebase = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_pull_rebase", { rootDir }) : Promise.resolve("");
+
+export const gitPushForceWithLease = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_push_force_with_lease", { rootDir }) : Promise.resolve("");
+
+export type GitRemote = {
+  name: string;
+  fetch_url: string;
+  push_url: string;
+};
+
+export const gitRemotes = (rootDir: string): Promise<GitRemote[]> =>
+  isTauri ? invoke("git_remotes", { rootDir }) : Promise.resolve([]);
+
+export const gitAddRemote = (rootDir: string, name: string, url: string): Promise<void> =>
+  isTauri ? invoke("git_add_remote", { rootDir, name, url }) : Promise.resolve();
+
+export const gitRemoveRemote = (rootDir: string, name: string): Promise<void> =>
+  isTauri ? invoke("git_remove_remote", { rootDir, name }) : Promise.resolve();
+
 export interface BranchList {
   local: string[];
   remote: string[];
@@ -1638,6 +1659,37 @@ export const gitBranches = (rootDir: string): Promise<BranchList> =>
  */
 export const gitSwitchBranch = (rootDir: string, branch: string, create: boolean): Promise<void> =>
   isTauri ? invoke("git_switch_branch", { rootDir, branch, create }) : Promise.resolve();
+
+export const gitCreateBranch = (
+  rootDir: string,
+  branch: string,
+  startPoint: string,
+): Promise<void> =>
+  isTauri ? invoke("git_create_branch", { rootDir, branch, startPoint }) : Promise.resolve();
+
+export const gitTrackRemoteBranch = (rootDir: string, remoteBranch: string): Promise<void> =>
+  isTauri ? invoke("git_track_remote_branch", { rootDir, remoteBranch }) : Promise.resolve();
+
+export const gitDeleteBranch = (
+  rootDir: string,
+  branch: string,
+  force = false,
+): Promise<void> =>
+  isTauri ? invoke("git_delete_branch", { rootDir, branch, force }) : Promise.resolve();
+
+export const gitDeleteRemoteBranch = (
+  rootDir: string,
+  remote: string,
+  branch: string,
+): Promise<void> =>
+  isTauri ? invoke("git_delete_remote_branch", { rootDir, remote, branch }) : Promise.resolve();
+
+export const gitBranchDiff = (
+  rootDir: string,
+  base: string,
+  branch: string,
+): Promise<string> =>
+  isTauri ? invoke("git_branch_diff", { rootDir, base, branch }) : Promise.resolve("");
 
 export const getGitAutofetchEnabled = (): Promise<boolean> =>
   isTauri ? invoke("get_git_autofetch_enabled") : Promise.resolve(true);
@@ -1697,8 +1749,11 @@ export const gitStage = (rootDir: string, path: string): Promise<void> =>
 export const gitUnstage = (rootDir: string, path: string): Promise<void> =>
   isTauri ? invoke("git_unstage", { rootDir, path }) : Promise.resolve();
 
-export const gitDiscard = (rootDir: string, path: string): Promise<void> =>
-  isTauri ? invoke("git_discard", { rootDir, path }) : Promise.resolve();
+export const gitDiscard = (rootDir: string, path: string, staged = false): Promise<void> =>
+  isTauri ? invoke("git_discard", { rootDir, path, staged }) : Promise.resolve();
+
+export const gitDiscardAll = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_discard_all", { rootDir }) : Promise.resolve();
 
 /** Stage every change (modified, added, deleted) across the working tree. */
 export const gitStageAll = (rootDir: string): Promise<void> =>
@@ -1722,16 +1777,49 @@ export type CommitEntry = {
   author: string;
   date: string;
   subject: string;
+  body: string;
   refs: string;
+  parent_count: number;
 };
 
 /** Commit history, newest first. `limit`/`skip` page through `git log`. */
 export const gitLog = (rootDir: string, limit: number, skip: number): Promise<CommitEntry[]> =>
   isTauri ? invoke("git_log", { rootDir, limit, skip }) : Promise.resolve([]);
 
+export const gitLogRef = (
+  rootDir: string,
+  revision: string,
+  query: string,
+  limit: number,
+  skip: number,
+): Promise<CommitEntry[]> =>
+  isTauri
+    ? invoke("git_log_ref", { rootDir, revision, query, limit, skip })
+    : Promise.resolve([]);
+
 /** `git show --patch --stat` for a single commit hash, verbatim. */
 export const gitShow = (rootDir: string, hash: string): Promise<string> =>
   isTauri ? invoke("git_show", { rootDir, hash }) : Promise.resolve("");
+
+export const gitCherryPick = (
+  rootDir: string,
+  hash: string,
+  mainline?: number,
+): Promise<string> =>
+  isTauri ? invoke("git_cherry_pick", { rootDir, hash, mainline }) : Promise.resolve("");
+
+export const gitCherryPickAbort = (rootDir: string): Promise<void> =>
+  isTauri ? invoke("git_cherry_pick_abort", { rootDir }) : Promise.resolve();
+
+export const gitCherryPickContinue = (rootDir: string): Promise<string> =>
+  isTauri ? invoke("git_cherry_pick_continue", { rootDir }) : Promise.resolve("");
+
+export const gitResetTo = (
+  rootDir: string,
+  hash: string,
+  mode: "soft" | "mixed" | "hard",
+): Promise<void> =>
+  isTauri ? invoke("git_reset_to", { rootDir, hash, mode }) : Promise.resolve();
 
 export type StashEntry = {
   index: number;
@@ -1743,8 +1831,20 @@ export const gitStashList = (rootDir: string): Promise<StashEntry[]> =>
   isTauri ? invoke("git_stash_list", { rootDir }) : Promise.resolve([]);
 
 /** Stash the working tree; `message` becomes `-m <message>` when non-empty. */
-export const gitStashPush = (rootDir: string, message?: string): Promise<void> =>
-  isTauri ? invoke("git_stash_push", { rootDir, message }) : Promise.resolve();
+export const gitStashPush = (
+  rootDir: string,
+  message?: string,
+  includeUntracked = false,
+): Promise<void> =>
+  isTauri
+    ? invoke("git_stash_push", { rootDir, message, includeUntracked })
+    : Promise.resolve();
+
+export const gitStashShow = (rootDir: string, index: number): Promise<string> =>
+  isTauri ? invoke("git_stash_show", { rootDir, index }) : Promise.resolve("");
+
+export const gitStashApply = (rootDir: string, index: number): Promise<void> =>
+  isTauri ? invoke("git_stash_apply", { rootDir, index }) : Promise.resolve();
 
 /** Pop (apply + drop) the stash at `index`. REJECTS on conflict. */
 export const gitStashPop = (rootDir: string, index: number): Promise<void> =>
@@ -1770,6 +1870,12 @@ export const gitCreateTag = (rootDir: string, name: string, message?: string): P
 /** Delete a tag by name. */
 export const gitDeleteTag = (rootDir: string, name: string): Promise<void> =>
   isTauri ? invoke("git_delete_tag", { rootDir, name }) : Promise.resolve();
+
+export const gitPushTag = (rootDir: string, name: string): Promise<void> =>
+  isTauri ? invoke("git_push_tag", { rootDir, name }) : Promise.resolve();
+
+export const gitDeleteRemoteTag = (rootDir: string, name: string): Promise<void> =>
+  isTauri ? invoke("git_delete_remote_tag", { rootDir, name }) : Promise.resolve();
 
 /** Rebase the current branch onto `branch`. Rebase-lite: no interactive editor — on
  *  conflict this REJECTS with the conflict text; resolve then call `gitRebaseContinue`

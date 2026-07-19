@@ -11,6 +11,7 @@ import {
   gitStage,
   gitUnstage,
   gitDiscard,
+  gitDiscardAll,
   gitCommit,
   gitCommitAmend,
   gitStageAll,
@@ -18,7 +19,7 @@ import {
   type BranchList,
   type ChangedFile,
 } from "../../lib/commands";
-import { Card, Input, EmptyState, Badge, Popover, Button, Spinner } from "../ui";
+import { Card, Input, EmptyState, Badge, Popover } from "../ui";
 import type { App } from "../../types";
 import HistoryPanel from "./git/HistoryPanel";
 import StashPanel from "./git/StashPanel";
@@ -26,6 +27,8 @@ import TagsPanel from "./git/TagsPanel";
 import RebasePanel from "./git/RebasePanel";
 import DiffView from "./git/DiffView";
 import FileTree from "./git/FileTree";
+import BranchesPanel from "./git/BranchesPanel";
+import SyncPanel from "./git/SyncPanel";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -65,13 +68,6 @@ function DotsIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-function PlusIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={className} aria-hidden="true">
-      <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
 function CheckboxIcon({ checked, className = "" }: { checked: boolean; className?: string }) {
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
@@ -106,13 +102,13 @@ function deriveSelected(
 // (History/Stash/Tags/Rebase) are gated by `gitAdvancedEnabled`.
 type GitTabId = "changes" | "branches" | "sync" | "history" | "stash" | "tags" | "rebase";
 const GIT_TABS: { id: GitTabId; label: string; tier: "core" | "advanced" }[] = [
-  { id: "changes", label: "Changes", tier: "core" },
-  { id: "branches", label: "Branches", tier: "core" },
-  { id: "sync", label: "Sync", tier: "core" },
+  { id: "changes", label: "Status", tier: "core" },
   { id: "history", label: "History", tier: "advanced" },
+  { id: "sync", label: "Sync", tier: "core" },
+  { id: "branches", label: "Branches", tier: "core" },
+  { id: "rebase", label: "Rebase", tier: "advanced" },
   { id: "stash", label: "Stash", tier: "advanced" },
   { id: "tags", label: "Tags", tier: "advanced" },
-  { id: "rebase", label: "Rebase", tier: "advanced" },
 ];
 
 /**
@@ -141,7 +137,6 @@ export default function GitTab({ app }: { app: App }) {
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchList | null>(null);
   const [branchQuery, setBranchQuery] = useState("");
-  const [newBranch, setNewBranch] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
   const [branchOpen, setBranchOpen] = useState(false);
   const [opsOpen, setOpsOpen] = useState(false);
@@ -153,6 +148,7 @@ export default function GitTab({ app }: { app: App }) {
   const [amend, setAmend] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [mutating, setMutating] = useState<string | null>(null);
+  const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
   // Local "probed, not a repo" bookkeeping — the store only holds GitStatus, so
   // a non-repo can't be recorded there; this stops the seeding effect refiring.
   const probedNonRepo = useRef(false);
@@ -237,13 +233,15 @@ export default function GitTab({ app }: { app: App }) {
   }
 
   // stage all / unstage all files. Uses a sentinel marker to gate the disable.
-  async function mutateBulk(op: "stageAll" | "unstageAll") {
+  async function mutateBulk(op: "stageAll" | "unstageAll" | "discardAll") {
     setMutating(op);
     setError(null);
     try {
       if (op === "stageAll") await gitStageAll(app.root_dir);
-      else await gitUnstageAll(app.root_dir);
+      else if (op === "unstageAll") await gitUnstageAll(app.root_dir);
+      else await gitDiscardAll(app.root_dir);
       await refreshAfterMutation();
+      if (mounted.current) setConfirmDiscardAll(false);
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
@@ -298,20 +296,12 @@ export default function GitTab({ app }: { app: App }) {
       if (fresh) setAppGit(app.id, fresh);
       await gitBranches(app.root_dir).then(setBranches).catch(() => {});
       setBranchQuery("");
-      setNewBranch("");
       setBranchOpen(false);
     } catch (e) {
       if (mounted.current) setError(String(e));
     } finally {
       if (mounted.current) setSwitching(null);
     }
-  }
-
-  // ＋ New branch (Branches tab): git switch -c off current HEAD.
-  function createBranch() {
-    const name = newBranch.trim();
-    if (name === "" || switching !== null) return;
-    switchTo(name, true);
   }
 
   if (pollError) {
@@ -517,39 +507,11 @@ export default function GitTab({ app }: { app: App }) {
           </div>
         </div>
 
-        {/* Body — Branches list, Sync panel, stub panels, or the two-pane
-            Changes working surface. */}
+        {/* Body — full Git workflows or the two-pane Status working surface. */}
         {tab === "sync" ? (
-          <div className="flex-1 min-h-0 flex flex-col gap-3 p-4">
-            {error && (
-              <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2">{error}</pre>
-            )}
-            <div className="flex items-center gap-2">
-              <Button size="sm" loading={busy === "fetch"} disabled={busy !== null} onClick={() => run("fetch")}>
-                Fetch
-              </Button>
-              <Button size="sm" loading={busy === "pull"} disabled={busy !== null || behind === 0} onClick={() => run("pull")}>
-                Pull
-              </Button>
-              <Button size="sm" loading={busy === "push"} disabled={busy !== null || ahead === 0} onClick={() => run("push")}>
-                Push
-              </Button>
-            </div>
-            <div className="text-[12px] text-ink-3">
-              {clean ? (
-                <>Up to date{upstream ? ` with ${upstream}` : ""}.</>
-              ) : (
-                <>
-                  {ahead > 0 && `${ahead} to push`}
-                  {ahead > 0 && behind > 0 && " · "}
-                  {behind > 0 && `${behind} to pull`}
-                  {upstream ? ` (${upstream})` : ""}
-                </>
-              )}
-            </div>
-          </div>
+          <SyncPanel app={app} status={status} onChanged={refreshAfterMutation} />
         ) : tab === "history" ? (
-          <HistoryPanel app={app} />
+          <HistoryPanel app={app} onChanged={refreshAfterMutation} />
         ) : tab === "stash" ? (
           <StashPanel app={app} onChanged={refreshAfterMutation} />
         ) : tab === "tags" ? (
@@ -557,75 +519,14 @@ export default function GitTab({ app }: { app: App }) {
         ) : tab === "rebase" ? (
           <RebasePanel app={app} onChanged={refreshAfterMutation} />
         ) : tab === "branches" ? (
-          <div className="flex-1 min-h-0 flex flex-col">
-            {error && (
-              <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
-            )}
-
-            {/* ＋ New branch — git switch -c off current HEAD. */}
-            <div className="shrink-0 flex items-center gap-2 px-3.5 py-2.5 border-b border-subtle">
-              <Input
-                value={newBranch}
-                onChange={(e) => setNewBranch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); createBranch(); }
-                }}
-                placeholder="New branch name…"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Button
-                size="sm"
-                icon={<PlusIcon />}
-                loading={switching !== null && switching === newBranch.trim()}
-                disabled={newBranch.trim() === "" || switching !== null}
-                onClick={createBranch}
-                className="shrink-0 whitespace-nowrap"
-              >
-                New branch
-              </Button>
-            </div>
-
-            {/* Local branch list — current is highlighted; others get a Switch. */}
-            <div className="flex-1 min-h-0 overflow-y-auto py-1">
-              {!branches ? (
-                <div className="inline-flex items-center gap-2 px-3.5 py-3 text-[12px] text-ink-3">
-                  <Spinner size={12} /> Loading branches…
-                </div>
-              ) : branches.local.length === 0 ? (
-                <div className="px-3.5 py-3 text-[12px] text-ink-3">No local branches.</div>
-              ) : (
-                branches.local.map((name) => {
-                  const isCurrent = branches.current === name;
-                  return (
-                    <div
-                      key={name}
-                      className={`flex items-center gap-2.5 mx-1 px-2.5 py-1.5 rounded-control transition-colors duration-fast ${isCurrent ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
-                    >
-                      <GitBranchIcon className={`shrink-0 ${isCurrent ? "text-accent" : "text-ink-3"}`} />
-                      <span className="flex-1 min-w-0 truncate font-mono text-[12px] text-ink" title={name}>
-                        {name}
-                        {isCurrent && <span className="text-ok"> ●</span>}
-                      </span>
-                      {isCurrent ? (
-                        <span className="shrink-0 text-[10px] text-ink-3">current</span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          loading={switching === name}
-                          disabled={switching !== null}
-                          onClick={() => switchTo(name, false)}
-                          className="shrink-0"
-                        >
-                          Switch
-                        </Button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <BranchesPanel app={app} onRepositoryChanged={async () => {
+            const [fresh, list] = await Promise.all([
+              gitStatus(app.root_dir),
+              gitBranches(app.root_dir),
+            ]);
+            if (fresh) setAppGit(app.id, fresh);
+            setBranches(list);
+          }} />
         ) : (
         <div className="flex-1 min-h-0 flex flex-col">
           {error && (
@@ -655,6 +556,35 @@ export default function GitTab({ app }: { app: App }) {
             <div className="flex-1 min-h-0 flex">
               {/* Left pane — Staged / Changes sections. */}
               <div className="w-[240px] shrink-0 border-r border-subtle overflow-y-auto py-1">
+                <div className="flex items-center justify-end gap-1.5 px-2 py-1 border-b border-subtle">
+                  {confirmDiscardAll ? (
+                    <>
+                      <span className="text-[11px] text-bad">Discard every change?</span>
+                      <button
+                        onClick={() => mutateBulk("discardAll")}
+                        disabled={mutating !== null}
+                        className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
+                      >
+                        {mutating === "discardAll" ? "Discarding…" : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDiscardAll(false)}
+                        disabled={mutating !== null}
+                        className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDiscardAll(true)}
+                      disabled={mutating !== null}
+                      className="text-[11px] text-ink-3 hover:text-bad disabled:opacity-40"
+                    >
+                      Discard all
+                    </button>
+                  )}
+                </div>
                 {stagedFiles.length > 0 && (
                   <>
                     <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
@@ -674,7 +604,7 @@ export default function GitTab({ app }: { app: App }) {
                       mutating={mutating}
                       onSelect={(path) => setSelected({ path, staged: true })}
                       onToggle={(path) => mutateFile(path, () => gitUnstage(app.root_dir, path))}
-                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path))}
+                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, true))}
                     />
                   </>
                 )}
@@ -697,7 +627,7 @@ export default function GitTab({ app }: { app: App }) {
                       mutating={mutating}
                       onSelect={(path) => setSelected({ path, staged: false })}
                       onToggle={(path) => mutateFile(path, () => gitStage(app.root_dir, path))}
-                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path))}
+                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, false))}
                     />
                   </>
                 )}
@@ -775,4 +705,3 @@ export default function GitTab({ app }: { app: App }) {
     </div>
   );
 }
-

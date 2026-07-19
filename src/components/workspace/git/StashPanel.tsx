@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { App } from "../../../types";
-import { gitStashList, gitStashPush, gitStashPop, gitStashDrop, type StashEntry } from "../../../lib/commands";
+import {
+  gitStashApply,
+  gitStashDrop,
+  gitStashList,
+  gitStashPop,
+  gitStashPush,
+  gitStashShow,
+  type StashEntry,
+} from "../../../lib/commands";
 import { Button, Input, Spinner } from "../../ui";
+import { DiffLines } from "./diffLines";
 
 /**
  * Stash tab — a "Stash changes" control (optional message) on top of the
@@ -22,7 +31,12 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
   const [error, setError] = useState<string | null>(null);
 
   const [message, setMessage] = useState("");
+  const [query, setQuery] = useState("");
+  const [includeUntracked, setIncludeUntracked] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [patch, setPatch] = useState("");
+  const [patchLoading, setPatchLoading] = useState(false);
 
   // Index of the stash whose Pop/Drop is in flight, and the index (if any)
   // sitting in the inline "Drop?" confirm state.
@@ -58,7 +72,11 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
     setPushing(true);
     setError(null);
     try {
-      await gitStashPush(app.root_dir, message.trim() === "" ? undefined : message.trim());
+      await gitStashPush(
+        app.root_dir,
+        message.trim() === "" ? undefined : message.trim(),
+        includeUntracked,
+      );
       if (mounted.current) setMessage("");
       load();
       onChanged?.();
@@ -67,6 +85,32 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
     } finally {
       if (mounted.current) setPushing(false);
     }
+  }
+
+  async function doApply(index: number) {
+    if (!app.root_dir || busyIndex !== null) return;
+    setBusyIndex(index);
+    setError(null);
+    try {
+      await gitStashApply(app.root_dir, index);
+      onChanged?.();
+    } catch (e) {
+      if (mounted.current) setError(String(e));
+    } finally {
+      if (mounted.current) setBusyIndex(null);
+    }
+  }
+
+  function showStash(index: number) {
+    if (!app.root_dir) return;
+    setSelected(index);
+    setPatch("");
+    setPatchLoading(true);
+    setError(null);
+    gitStashShow(app.root_dir, index)
+      .then((raw) => { if (mounted.current) setPatch(raw); })
+      .catch((e) => { if (mounted.current) setError(String(e)); })
+      .finally(() => { if (mounted.current) setPatchLoading(false); });
   }
 
   async function doPop(index: number) {
@@ -112,12 +156,31 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
           spellCheck={false}
           className="!py-1"
         />
+        <label className="shrink-0 inline-flex items-center gap-1.5 text-[11px] text-ink-2 px-1.5">
+          <input
+            type="checkbox"
+            checked={includeUntracked}
+            onChange={(e) => setIncludeUntracked(e.target.checked)}
+            className="accent-[var(--color-accent)]"
+          />
+          Include untracked
+        </label>
         <Button size="sm" loading={pushing} disabled={!app.root_dir} onClick={doPush} className="shrink-0">
           Stash changes
         </Button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto py-1">
+      <div className="shrink-0 border-b border-subtle p-2 bg-surface-1">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search stashes…"
+          className="!py-1"
+        />
+      </div>
+
+      <div className="flex-1 min-h-0 flex">
+      <div className="w-[360px] shrink-0 border-r border-subtle overflow-y-auto py-1">
         {error && (
           <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-2">{error}</pre>
         )}
@@ -128,13 +191,19 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
         ) : stashes.length === 0 ? (
           <div className="px-3 py-3 text-[12px] text-ink-3">No stashes.</div>
         ) : (
-          stashes.map((s) => {
+          stashes
+            .filter((s) => {
+              const q = query.trim().toLowerCase();
+              return q === "" || `stash@{${s.index}} ${s.message}`.toLowerCase().includes(q);
+            })
+            .map((s) => {
             const busy = busyIndex === s.index;
             const confirming = confirmDrop === s.index;
             return (
               <div
                 key={s.index}
-                className="mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control hover:bg-white/[0.04] transition-colors duration-fast"
+                onClick={() => showStash(s.index)}
+                className={`mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition-colors duration-fast ${selected === s.index ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
               >
                 <span className="shrink-0 font-mono text-[11px] text-ink-3">{`stash@{${s.index}}`}</span>
                 <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={s.message}>
@@ -161,14 +230,21 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
                 ) : (
                   <div className="shrink-0 flex items-center gap-1">
                     <button
-                      onClick={() => doPop(s.index)}
+                      onClick={(e) => { e.stopPropagation(); doApply(s.index); }}
+                      disabled={busyIndex !== null}
+                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-white/[0.06] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); doPop(s.index); }}
                       disabled={busyIndex !== null}
                       className="text-[11px] text-ink-2 hover:text-ink hover:bg-white/[0.06] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
                     >
                       Pop
                     </button>
                     <button
-                      onClick={() => setConfirmDrop(s.index)}
+                      onClick={(e) => { e.stopPropagation(); setConfirmDrop(s.index); }}
                       disabled={busyIndex !== null}
                       className="text-[11px] text-ink-2 hover:text-bad hover:bg-bad-bg rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
                     >
@@ -180,6 +256,20 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
             );
           })
         )}
+      </div>
+      <div className="flex-1 min-w-0 overflow-auto bg-surface-code font-mono text-[11px] leading-[1.7] px-3 py-2.5">
+        {selected === null ? (
+          <div className="h-full flex items-center justify-center text-ink-3 text-[12px] font-sans">
+            Select a stash to preview its changes
+          </div>
+        ) : patchLoading ? (
+          <div className="text-ink-3">Loading stash diff…</div>
+        ) : patch.trim() === "" ? (
+          <div className="text-ink-3">No textual diff to show.</div>
+        ) : (
+          <DiffLines diff={patch} />
+        )}
+      </div>
       </div>
     </div>
   );

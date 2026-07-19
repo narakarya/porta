@@ -6,7 +6,12 @@ All notable changes to Porta are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Git workbench parity pass**: History now supports branch selection, message search, commit bodies, cherry-pick (continue/abort on conflict), and soft/mixed/hard reset. Branches adds local/remote filtering, create-from-ref, compare diff, switch, and safe local/remote deletion. Sync adds pull-with-rebase, force-with-lease confirmation, and remote management. Stash adds search, include-untracked, preview, and Apply; Tags adds search plus push/delete-on-origin actions.
+- Backend Git commands for branch comparison/creation/deletion, remotes, sync variants, cross-branch history, cherry-pick/reset, stash preview/apply, and remote tag operations.
+
 ### Fixed
+- **Git discard semantics**: discarding now works for untracked files and directories, staged new files, and staged tracked edits. Status also has a confirmed “Discard all” action instead of requiring one file at a time.
 - **Docker image update visibility**: the workspace rollup now marks the exact app row that has a pending image update (including the affected Compose service/image in its tooltip), instead of showing only an ambiguous workspace-level count.
 
 ## [0.12.0-beta.5]
