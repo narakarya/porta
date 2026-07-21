@@ -51,6 +51,10 @@ export type UpdaterPhase =
   | "idle"
   | "checking"
   | "uptodate"
+  // The release manifest couldn't be reached — most often because a release is
+  // mid-publish, but also when offline. Distinct from `error`: nothing is
+  // broken and there's nothing to fix, so it reads neutral rather than red.
+  | "unavailable"
   | "available"
   | "downloading"
   | "installing"

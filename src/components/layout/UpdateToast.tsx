@@ -45,6 +45,9 @@ export default function UpdateToast() {
     phase === "ready"        ? "bg-accent" :
     phase === "uptodate"     ? "bg-ok" :
     phase === "error"        ? "bg-bad" :
+    // Neutral on purpose — `unavailable` is not a fault, so it must not wear
+    // the same red dot as a genuine failure.
+    phase === "unavailable"  ? "bg-accent" :
     phase === "checking"     ? "bg-accent pulse-dot" :
     phase === "downloading"  ? "bg-accent pulse-dot" :
     phase === "installing"   ? "bg-warn pulse-dot" :
@@ -212,6 +215,24 @@ export default function UpdateToast() {
     );
   } else if (phase === "restarting") {
     headerNode = titleBlock("Restarting…", "Hang tight.");
+  } else if (phase === "unavailable") {
+    // Not a failure: the release manifest just isn't reachable right now
+    // (a build mid-publish, or no network). Neutral copy, no red, and no
+    // plugin internals — Retry is the only useful thing to offer.
+    headerNode = titleBlock(
+      "No update available yet",
+      "Couldn't reach the release server. A new build may still be publishing.",
+    );
+    actions = (
+      <>
+        <button onClick={() => void checkForUpdate({ silent: false })} className={primaryBtn}>
+          Retry
+        </button>
+        <button onClick={dismissUpdater} className={secondaryBtn}>
+          Dismiss
+        </button>
+      </>
+    );
   } else if (phase === "error") {
     headerNode = titleBlock("Update failed");
     body = (
@@ -245,7 +266,8 @@ export default function UpdateToast() {
   // be closed with Escape — an in-flight download/install/restart must not be
   // interrupted by a stray keypress.
   const escDismiss =
-    phase === "available" || phase === "ready" || phase === "error" || phase === "checking";
+    phase === "available" || phase === "ready" || phase === "error" ||
+    phase === "checking" || phase === "unavailable";
 
   // The single update popover — rendered through the shared ui/Popover in card
   // mode so it inherits the common Escape handling while keeping its bespoke

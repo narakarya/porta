@@ -60,6 +60,50 @@ function setPhase(phase: UpdaterPhase, patch: Record<string, unknown> = {}) {
 }
 
 /**
+ * Does a failed CHECK mean "there is nothing to fetch right now" rather than
+ * "something is broken"?
+ *
+ * The beta channel republishes `latest.json` on the fixed `beta` release for
+ * every build, so a check that lands mid-publish reads a manifest that isn't
+ * there yet; being offline looks the same from here. Neither is a malfunction
+ * the user can act on, and surfacing the plugin's own wording ("Could not
+ * fetch a valid release JSON from the remote") as a red *Update failed* reads
+ * like the app broke. Those get the neutral `unavailable` phase instead.
+ *
+ * Anything else — a manifest that parsed but is malformed, a signature
+ * mismatch, an unexpected plugin fault — is a real error and stays red.
+ * Download/install failures never come through here.
+ */
+export function isManifestUnreachable(message: string): boolean {
+  const m = message.toLowerCase();
+  return [
+    "could not fetch a valid release json",
+    // Bare "not found" would also swallow "the platform darwin-aarch64 was not
+    // found on the response" — a manifest that WAS fetched and is genuinely
+    // wrong. Match the HTTP status instead.
+    "404",
+    "timed out",
+    "dns error",
+    "error sending request",
+    "failed to lookup address",
+    "connection refused",
+    "network",
+    "offline",
+  ].some((needle) => m.includes(needle));
+}
+
+// Route a failed manual check to the phase that matches what actually went
+// wrong. The raw message is deliberately dropped for `unavailable` — there is
+// nothing in it a user could act on, and the toast says it better.
+function setCheckFailurePhase(message: string) {
+  if (isManifestUnreachable(message)) {
+    setPhase("unavailable", { updaterError: null, updaterInfo: null });
+  } else {
+    setPhase("error", { updaterError: message, updaterInfo: null });
+  }
+}
+
+/**
  * Kick off an update check. Idempotent — if a check is already running, the
  * caller receives the in-flight Promise. If we've already downloaded an
  * update (`ready` phase), this is a no-op (the toast already shows Restart).
@@ -150,7 +194,7 @@ async function runUpdateCheck(
         setPhase("idle", { updaterError: null, updaterInfo: null });
         return;
       }
-      setPhase("error", { updaterError: msg, updaterInfo: null });
+      setCheckFailurePhase(msg);
       return;
     }
 
@@ -197,7 +241,7 @@ async function runUpdateCheck(
     }
     // Manual checks surface the failure in the toast with Retry/Dismiss — no
     // blocking native dialog.
-    setPhase("error", { updaterError: msg, updaterInfo: null });
+    setCheckFailurePhase(msg);
     return;
   }
 
@@ -368,7 +412,7 @@ export function dismissUpdater(): void {
     checkGeneration++;
     activeCheck = null;
     setPhase("idle", { updaterError: null, updaterInfo: null });
-  } else if (phase === "available" || phase === "error") {
+  } else if (phase === "available" || phase === "error" || phase === "unavailable") {
     setPhase("idle", { updaterError: null });
   }
 }
