@@ -22,7 +22,7 @@ export function DiffLines({ diff }: { diff: string }) {
     <>
       {diff.split("\n").map((line, i) => (
         <div key={i} className={`whitespace-pre ${diffLineClass(line)}`}>
-          {line === "" ? " " : line}
+          {line === "" ? " " : line}
         </div>
       ))}
     </>
@@ -147,8 +147,12 @@ export function DiffLineContent({
     return <>{spans.map((span, i) => emphasise(span.text, span.changed, i))}</>;
   }
 
-  // Word-diff spans as absolute offsets, so a syntax token can be intersected
-  // with them without walking the list from the start each time.
+  // Word-diff spans as absolute end offsets into the line, so intersecting a
+  // token with them is a comparison of numbers rather than a running tally kept
+  // in step with two segmentations at once. The loop below still scans from the
+  // first range for every token, skipping the ones already behind it; at the
+  // handful of spans a diff line actually has, that is cheaper than the
+  // bookkeeping to avoid it.
   const ranges: { end: number; changed: boolean }[] = [];
   let covered = 0;
   for (const span of spans ?? []) {
