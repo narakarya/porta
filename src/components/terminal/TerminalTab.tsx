@@ -2,11 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen } from "@tauri-apps/api/event";
-import { terminalOpen, terminalWrite, terminalResize, terminalClose, isTauri } from "../../lib/commands";
+import { terminalOpen, terminalWrite, terminalResize, isTauri } from "../../lib/commands";
 import { highlightLine, stripAnsi } from "../../lib/log-utils";
 import "@xterm/xterm/css/xterm.css";
 
 const MAX_TRANSCRIPT_LINES = 100_000;
+
+// Fallback used when the container can't be measured yet (e.g. cell metrics
+// depend on canvas text measurement, which jsdom doesn't implement). A real
+// WebView always has real dimensions here; this only matters for tests.
+const DEFAULT_DIMS = { rows: 24, cols: 80 };
 
 interface Props {
   appId: string;
@@ -17,6 +22,8 @@ interface Props {
   filterOutput?: boolean;
   onOutput?: () => void;
   onTranscriptStats?: (lineCount: number, matchCount: number | null) => void;
+  /** Shell exited — carries the code so the status bar can show `exited (1)`. */
+  onExit?: (code: number) => void;
 }
 
 function bytesToTranscriptText(bytes: number[], decoder: TextDecoder): string {
@@ -66,6 +73,7 @@ export default function TerminalTab({
   filterOutput = false,
   onOutput,
   onTranscriptStats,
+  onExit,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -78,8 +86,10 @@ export default function TerminalTab({
   const [transcript, setTranscript] = useState<string[]>([]);
   const onOutputRef = useRef(onOutput);
   const onTranscriptStatsRef = useRef(onTranscriptStats);
+  const onExitRef = useRef(onExit);
   onOutputRef.current = onOutput;
   onTranscriptStatsRef.current = onTranscriptStats;
+  onExitRef.current = onExit;
 
   const query = searchQuery.trim();
   const lowerQuery = query.toLowerCase();
@@ -180,23 +190,6 @@ export default function TerminalTab({
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
-    // Delay fit so the container is fully laid out.
-    requestAnimationFrame(() => {
-      fitAddon.fit();
-      const dims = fitAddon.proposeDimensions();
-      if (dims) {
-        terminalOpen(appId, rootDir, dims.rows, dims.cols, null).catch(console.error);
-        const startup = startupCommand?.trim();
-        if (startup) {
-          window.setTimeout(() => {
-            startTranscriptCapture();
-            const bytes = Array.from(new TextEncoder().encode(`${startup}\n`));
-            terminalWrite(appId, bytes).catch(console.error);
-          }, 120);
-        }
-      }
-    });
-
     termRef.current = term;
     fitRef.current = fitAddon;
 
@@ -207,31 +200,72 @@ export default function TerminalTab({
       terminalWrite(appId, bytes).catch(console.error);
     });
 
-    // Receive PTY output (byte array → Uint8Array → write).
     let mounted = true;
     let unlistenData: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
+    // Live chunks that land before the backlog has been replayed would render
+    // ahead of it. Hold them, then flush in order.
+    let backlogWritten = false;
+    const queued: number[][] = [];
 
-    if (isTauri) {
-      Promise.all([
-        listen<number[]>(`terminal:data:${appId}`, (e) => {
-          if (!mounted) return;
-          appendTranscript(e.payload);
-          term.write(new Uint8Array(e.payload));
-          onOutputRef.current?.();
-        }),
-        listen<void>(`terminal:exit:${appId}`, () => {
-          if (mounted) term.writeln("\r\n\x1b[90m— shell exited —\x1b[0m");
-        }),
-      ]).then(([d, x]) => {
+    function consume(bytes: number[]) {
+      appendTranscript(bytes);
+      term.write(new Uint8Array(bytes));
+      onOutputRef.current?.();
+    }
+
+    async function attach() {
+      if (isTauri) {
+        const [d, x] = await Promise.all([
+          listen<number[]>(`terminal:data:${appId}`, (e) => {
+            if (!mounted) return;
+            if (!backlogWritten) { queued.push(e.payload); return; }
+            consume(e.payload);
+          }),
+          listen<{ code: number }>(`terminal:exit:${appId}`, (e) => {
+            if (!mounted) return;
+            term.writeln("\r\n\x1b[90m— shell exited —\x1b[0m");
+            onExitRef.current?.(e.payload?.code ?? 0);
+          }),
+        ]);
         if (!mounted) { d(); x(); return; }
         unlistenData = d;
         unlistenExit = x;
-      });
-    } else {
-      // Browser mock: show placeholder
-      term.writeln("\x1b[90m(Terminal unavailable outside Tauri app)\x1b[0m");
+      } else {
+        // Browser mock: no IPC bridge to listen on, but terminalOpen below
+        // still resolves (commands.ts falls back to a mock) so tests and the
+        // web preview keep working.
+        term.writeln("\x1b[90m(Terminal unavailable outside Tauri app)\x1b[0m");
+      }
+
+      fitAddon.fit();
+      const dims = fitAddon.proposeDimensions() ?? DEFAULT_DIMS;
+
+      const { spawned, backlog } = await terminalOpen(
+        appId,
+        rootDir,
+        dims.rows,
+        dims.cols,
+        startupCommand ?? null,
+      );
+      if (!mounted) return;
+
+      if (backlog.length > 0) {
+        // Reattaching to a session that outlived its last view: replay what it
+        // printed while nothing was watching.
+        startTranscriptCapture();
+        consume(backlog);
+      }
+      backlogWritten = true;
+      for (const chunk of queued) consume(chunk);
+      queued.length = 0;
+
+      // The startup command is written by Rust only on a real spawn, so a
+      // reattach must not re-run it here either.
+      if (spawned && startupCommand?.trim()) startTranscriptCapture();
     }
+
+    requestAnimationFrame(() => { void attach().catch(console.error); });
 
     // Resize observer — keep PTY in sync with container size changes.
     // IMPORTANT: check pixel dimensions before calling fitAddon.fit() — calling it on a
@@ -257,7 +291,8 @@ export default function TerminalTab({
       unlistenData?.();
       unlistenExit?.();
       term.dispose();
-      terminalClose(appId).catch(() => {});
+      // Deliberately no terminalClose: the session outlives this view. Only a
+      // user action (close tab, close pane, delete app) tears a PTY down.
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId, rootDir]);
