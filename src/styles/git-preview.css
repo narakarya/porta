@@ -1,0 +1,310 @@
+/* Rendered markdown and highlighted code for the git tab's file preview.
+   Companion to git-theme.css: that file *declares* --md-* and --syn-* for all
+   seven palettes, this one is where they finally style something.
+
+   Two scoping rules, both enforced by src/lib/git-theme.test.ts:
+
+   1. Every selector starts at `.git-tab-root`. This file is imported globally
+      from src/index.css, so a bare `h1`/`table`/`code` rule here would restyle
+      Porta's whole chrome.
+   2. Every colour resolves through a token — never a literal. Six of the seven
+      palettes are dark but `paper` is light, and a hardcoded rgba(255,255,255,…)
+      would be invisible on it. There is no test for this one; it is on review.
+
+   The hook is `.md-body` on the element renderPreview() writes into. Inside it,
+   markdown-it emits bare semantic tags (<h1>, <p>, <ul>, <blockquote>, <table>)
+   — the extension's .md-h/.md-p/.md-list classes are *not* in core's output, as
+   src/lib/preview/markdown.ts and its fixtures show. So the body rules below
+   select elements, which covers today's output and would keep covering it if a
+   later pass ever adds those classes back. The class selectors that do appear
+   here (.md-pre, .md-pre-lang, .md-check, .md-mermaid, .shiki) are the markers
+   the pipeline really emits. */
+
+.git-tab-root .md-body {
+  /* Local to this file, not a palette token: a font stack has no per-palette
+     variant, and every rule below that sets type in code needs the same one. */
+  --md-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  color: var(--ink-1);
+  font-size: 13px;
+  line-height: 1.62;
+  white-space: normal;
+  overflow-wrap: break-word;
+  /* Porta's <body> is `select-none` for a native-app feel; a document preview
+     is the one surface where copying text is the point. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* No leading gap above the first block, no trailing one below the last — the
+   pane's own padding owns the outer edges. */
+.git-tab-root .md-body > :first-child { margin-top: 0; }
+.git-tab-root .md-body > :last-child { margin-bottom: 0; }
+
+/* ── Block flow ─────────────────────────────────────────────────────────── */
+
+.git-tab-root .md-body p {
+  margin: 0 0 13px;
+}
+
+.git-tab-root .md-body h1,
+.git-tab-root .md-body h2,
+.git-tab-root .md-body h3,
+.git-tab-root .md-body h4,
+.git-tab-root .md-body h5,
+.git-tab-root .md-body h6 {
+  color: var(--md-heading);
+  font-weight: 650;
+  line-height: 1.28;
+  margin: 20px 0 10px;
+}
+
+.git-tab-root .md-body h1 {
+  font-size: 22px;
+  border-bottom: 1px solid var(--border-strong);
+  padding-bottom: 7px;
+}
+
+.git-tab-root .md-body h2 {
+  font-size: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 5px;
+}
+
+.git-tab-root .md-body h3 { font-size: 15.5px; }
+
+/* h4–h6 step down to body ink rather than shrinking further — below 14px the
+   weight difference alone stops reading as a heading. */
+.git-tab-root .md-body h4,
+.git-tab-root .md-body h5,
+.git-tab-root .md-body h6 {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.git-tab-root .md-body hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 18px 0;
+}
+
+.git-tab-root .md-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-control);
+}
+
+/* ── Inline ─────────────────────────────────────────────────────────────── */
+
+.git-tab-root .md-body a {
+  color: var(--md-link);
+  text-decoration: none;
+}
+
+.git-tab-root .md-body a:hover { text-decoration: underline; }
+
+.git-tab-root .md-body strong {
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+.git-tab-root .md-body em { font-style: italic; }
+
+.git-tab-root .md-body del { color: var(--ink-3); }
+
+.git-tab-root .md-body code {
+  font-family: var(--md-mono);
+  font-size: 12px;
+  background: var(--md-code-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  padding: 1px 5px;
+  color: var(--ink-1);
+}
+
+/* A chip pinned at 12px inside a 22px heading reads as a rendering mistake.
+   Scale it with whatever it sits in instead. */
+.git-tab-root .md-body h1 code,
+.git-tab-root .md-body h2 code,
+.git-tab-root .md-body h3 code,
+.git-tab-root .md-body h4 code,
+.git-tab-root .md-body h5 code,
+.git-tab-root .md-body h6 code {
+  font-size: 0.88em;
+}
+
+/* ── Lists ──────────────────────────────────────────────────────────────── */
+
+/* Tailwind's preflight strips markers, margin and padding from every list, so
+   without these three declarations a rendered list is indistinguishable from a
+   run of paragraphs. */
+.git-tab-root .md-body ul,
+.git-tab-root .md-body ol {
+  margin: 0 0 13px;
+  padding-left: 24px;
+}
+
+.git-tab-root .md-body ul { list-style: disc outside; }
+.git-tab-root .md-body ol { list-style: decimal outside; }
+.git-tab-root .md-body ul ul { list-style: circle outside; }
+
+/* A nested list belongs to its parent item; its own bottom margin would double
+   the gap before the next sibling. */
+.git-tab-root .md-body li > ul,
+.git-tab-root .md-body li > ol { margin-bottom: 0; }
+
+.git-tab-root .md-body li { margin: 3px 0; }
+
+.git-tab-root .md-body .md-check {
+  margin-right: 4px;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
+/* A task item carries its own marker, so the bullet is noise. :has() needs
+   WKWebView 16.4; on an older engine the rule is simply dropped and the item
+   keeps its bullet — cosmetic, and exactly what the extension looked like, so
+   no @supports guard is warranted. */
+.git-tab-root .md-body li:has(> .md-check) { list-style: none; }
+
+/* ── Quotes ─────────────────────────────────────────────────────────────── */
+
+.git-tab-root .md-body blockquote {
+  border-left: 3px solid var(--md-quote-border);
+  margin: 0 0 13px;
+  padding: 2px 0 2px 12px;
+  color: var(--md-quote);
+}
+
+.git-tab-root .md-body blockquote > :last-child { margin-bottom: 0; }
+
+/* ── Tables ─────────────────────────────────────────────────────────────── */
+
+/* `display: block` so a wide table scrolls inside itself instead of widening
+   the pane; `width: max-content` keeps it from stretching to fill when narrow. */
+.git-tab-root .md-body table {
+  border-collapse: collapse;
+  margin: 0 0 13px;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.git-tab-root .md-body th,
+.git-tab-root .md-body td {
+  border: 1px solid var(--border-subtle);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.git-tab-root .md-body th {
+  background: var(--md-table-head-bg);
+  color: var(--md-heading);
+  font-weight: 600;
+}
+
+/* ── Fenced code ────────────────────────────────────────────────────────── */
+
+/* Matches both halves of the pipeline: markdown-it's `<pre class="md-pre">`
+   before highlighting, and the `<pre class="shiki … md-pre">` that replaces it
+   after (preview/index.ts carries the classes across). */
+.git-tab-root .md-body .md-pre,
+.git-tab-root .md-body .shiki {
+  /* Shiki writes `background-color: var(--shiki-background)` as an *inline*
+     style, which no class rule can outrank. git-theme.css binds that variable
+     to `transparent` so highlighted code inherits whatever surface it sits on;
+     inside a preview the surface it should sit on is the code surface, and
+     re-pointing the variable here is the only way to say so without an
+     !important or an edit to the palette file. */
+  --shiki-background: var(--surface-code);
+
+  position: relative;
+  background: var(--surface-code);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 0 0 13px;
+  overflow-x: auto;
+  font-family: var(--md-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* Inline-code chrome must not follow the text into a block. */
+.git-tab-root .md-body .md-pre code,
+.git-tab-root .md-body .shiki code {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+/* Shiki marks its <pre> `tabindex="0"` so a scrollable block is keyboard
+   reachable; without this the focus ring is the OS default on a dark surface. */
+.git-tab-root .md-body .shiki:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The language badge. It is a pseudo-element on the <pre> and not a sibling
+   <span> because Shiki's <pre> replaces markdown-it's wholesale — a sibling
+   would be orphaned mid-pipeline. `data-lang` rides on the element itself and
+   is copied onto the replacement, so the badge survives the swap. */
+.git-tab-root .md-body .md-pre-lang { padding-top: 26px; }
+
+.git-tab-root .md-body .md-pre-lang::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 7px;
+  right: 10px;
+  color: var(--ink-3);
+  font: 600 10px var(--md-mono);
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+/* ── Mermaid ────────────────────────────────────────────────────────────── */
+
+/* The placeholder is a <pre>, so it inherits `white-space: pre` — harmless
+   once hydrated (the content is an <svg>), and deliberate for the error state
+   below. Node-level styling is Mermaid's own: it themes itself from the
+   `{ dark }` flag the tab derives from the palette, so only the container and
+   the svg fit belong here. */
+.git-tab-root .md-body .md-mermaid {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  margin: 0 0 13px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-code);
+}
+
+.git-tab-root .md-body .md-mermaid svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+/* A diagram that failed to parse, or a mermaid chunk that never loaded: the
+   node holds the error message as text. Reads as a warning, not as a diagram,
+   and wraps — messages are long. */
+.git-tab-root .md-body .md-mermaid-error {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-family: var(--md-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
