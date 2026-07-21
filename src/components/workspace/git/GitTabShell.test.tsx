@@ -22,13 +22,16 @@ vi.mock("../../../lib/commands", async (importOriginal) => {
  */
 let statusMounts = 0;
 vi.mock("./StatusTab", () => ({
-  default: () => {
+  default: ({ onError }: { onError: (message: string | null) => void }) => {
     const [draft, setDraft] = useState("");
     useEffect(() => { statusMounts += 1; }, []);
     return (
       <div>
         status tab body
         <textarea aria-label="Commit message" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        {/* Stands in for any failing tab action (stage, commit, discard): the
+            real tab reports upward exactly like this. */}
+        <button onClick={() => onError("error: pathspec did not match")}>fail in status</button>
       </div>
     );
   },
@@ -141,6 +144,33 @@ describe("GitTab shell", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /^History$/ }));
     await act(async () => {});
+    expect(screen.queryByText(/no route to host/)).not.toBeInTheDocument();
+  });
+
+  // One slot, two writers. Whichever failed last is the one the user is being
+  // told about; the other would be old news presented as the current problem.
+  it("lets a fresh shell error take the slot from a stale Status error", async () => {
+    vi.mocked(gitFetch).mockRejectedValueOnce(new Error("no route to host"));
+    await renderTab();
+
+    await userEvent.click(screen.getByRole("button", { name: "fail in status" }));
+    expect(await screen.findByText(/pathspec did not match/)).toBeInTheDocument();
+
+    // Still on Status; the sync action is in the shell's header.
+    await userEvent.click(screen.getAllByRole("button", { name: /^Sync$/ })[1]);
+    expect(await screen.findByText(/no route to host/)).toBeInTheDocument();
+    expect(screen.queryByText(/pathspec did not match/)).not.toBeInTheDocument();
+  });
+
+  it("lets a fresh Status error take the slot from a stale shell error", async () => {
+    vi.mocked(gitFetch).mockRejectedValueOnce(new Error("no route to host"));
+    await renderTab();
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^Sync$/ })[1]);
+    expect(await screen.findByText(/no route to host/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "fail in status" }));
+    expect(await screen.findByText(/pathspec did not match/)).toBeInTheDocument();
     expect(screen.queryByText(/no route to host/)).not.toBeInTheDocument();
   });
 

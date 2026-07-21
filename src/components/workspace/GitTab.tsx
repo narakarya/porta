@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import {
   gitStatus,
@@ -27,6 +27,20 @@ import ErrorNotice from "./git/ui/ErrorNotice";
 import ActivePane from "./git/ui/ActivePane";
 
 type Busy = "fetch" | "pull" | "push" | null;
+
+/**
+ * A failure plus the order it was raised in. The tab has one error slot and two
+ * writers (the shell and the Status tab), and "which is on screen" has to be
+ * "the newer one" — otherwise a Status failure the user has already read sits
+ * on top of a sync failure they just caused, or the reverse.
+ */
+type Raised = { message: string; at: number } | null;
+
+function newest(a: Raised, b: Raised): Raised {
+  if (!a) return b;
+  if (!b) return a;
+  return a.at >= b.at ? a : b;
+}
 
 // ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
 function ChevronDown({ className = "" }: { className?: string }) {
@@ -96,10 +110,19 @@ export default function GitTab({ app }: { app: App }) {
 
   const [tab, setTab] = useState<GitTabId>("changes");
   const [busy, setBusy] = useState<Busy>(null);
-  const [error, setError] = useState<string | null>(null);
-  // The Status tab's failures, reported up so the shell can draw them in the
+  // The shell's own failures (sync ops, branch switch, theme write) and — via
+  // `onError` — the Status tab's, reported up so the shell can draw them in the
   // one error slot instead of the tab stacking a second box under this one.
-  const [statusError, setStatusError] = useState<string | null>(null);
+  // Both are stamped on the way in; `newest` picks the one to show.
+  const raiseSeq = useRef(0);
+  const [shellError, setShellError] = useState<Raised>(null);
+  const [statusError, setStatusError] = useState<Raised>(null);
+  const setError = useCallback((message: string | null) => {
+    setShellError(message === null ? null : { message, at: ++raiseSeq.current });
+  }, []);
+  const reportStatusError = useCallback((message: string | null) => {
+    setStatusError(message === null ? null : { message, at: ++raiseSeq.current });
+  }, []);
   const [branches, setBranches] = useState<BranchList | null>(null);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [branchQuery, setBranchQuery] = useState("");
@@ -123,7 +146,7 @@ export default function GitTab({ app }: { app: App }) {
   // Nothing else clears it on navigation, and a stale sync failure trailing the
   // user through Branches/Tags/History reads as a fresh failure there — so
   // changing tabs dismisses it.
-  useEffect(() => { setError(null); }, [tab]);
+  useEffect(() => { setError(null); }, [tab, setError]);
 
   // If advanced tools get disabled while an advanced tab is open, snap back
   // to Changes so the active tab is never hidden from the sub-nav.
@@ -455,9 +478,15 @@ export default function GitTab({ app }: { app: App }) {
 
             {/* The one error slot. Shell-level failures (sync ops, branch
                 switch) fill it on every tab; on Status the tab's own failure
-                takes it, because that is the surface the user is looking at
-                and two stacked boxes read as two separate problems. */}
-            <ErrorNotice message={tab === "changes" ? (statusError ?? error) : error} />
+                competes for it, because that is the surface the user is looking
+                at and two stacked boxes read as two separate problems. Whichever
+                was raised last wins — a Status failure the user has already read
+                must not hide a sync failure they just caused, or the reverse.
+                Off Status the tab's failure isn't drawn at all: its surface
+                isn't on screen. */}
+            <ErrorNotice
+              message={(tab === "changes" ? newest(shellError, statusError) : shellError)?.message ?? null}
+            />
           </>
         )}
 
@@ -475,7 +504,7 @@ export default function GitTab({ app }: { app: App }) {
             being written once, is what makes React keep the mount. Every other
             tab keeps its mount-on-demand behaviour — none holds a draft. */}
         <ActivePane active={!blocked && tab === "changes"} className="flex-1 min-h-0 flex flex-col">
-          <StatusTab app={app} onError={setStatusError} />
+          <StatusTab app={app} onError={reportStatusError} />
         </ActivePane>
 
         {blocked || !status ? null : tab === "sync" ? (
