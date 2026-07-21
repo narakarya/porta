@@ -286,6 +286,7 @@ pub fn run() {
             commands::git_changed_files,
             commands::git_diff_file,
             commands::git_file_preview,
+            commands::git_file_at_rev,
             commands::git_rename_path,
             commands::git_stage,
             commands::git_unstage,

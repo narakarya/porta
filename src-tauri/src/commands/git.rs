@@ -565,8 +565,10 @@ fn run_gh_raw(root_dir: &str, args: &[&str], timeout_secs: u64) -> Result<String
 }
 
 /// Like [`run_git_raw`] but feeds `stdin_data` to the child's stdin before
-/// draining its output — the variant `git apply --cached` needs, since a
-/// patch has to arrive on stdin rather than as an argv/file argument.
+/// draining its output — the variant `git apply --cached` needs, since a patch
+/// has to arrive on stdin rather than as an argv/file argument, and the one
+/// [`file_at_rev_for`] wants so a user-supplied object spec never touches argv
+/// where a leading `-` would make it an option.
 ///
 /// Mirrors [`run_bin`]'s contract (env, process group, timeout, two-thread
 /// drain) with one difference: stdin is piped instead of nulled, and we write
@@ -1395,6 +1397,18 @@ fn looks_binary(bytes: &[u8]) -> bool {
     bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0)
 }
 
+/// Clip `bytes` to [`MAX_PREVIEW_BYTES`], returning the kept prefix and whether
+/// anything was dropped.
+///
+/// One place, so the working-tree preview and the read-at-a-revision below
+/// cannot drift apart on how much of a file they will hand the frontend — the
+/// two are shown side by side, and a cap that differed between them would show
+/// as one side of a diff running longer than the other.
+fn clip_to_preview_cap(bytes: &[u8]) -> (&[u8], bool) {
+    let truncated = bytes.len() > MAX_PREVIEW_BYTES;
+    (&bytes[..bytes.len().min(MAX_PREVIEW_BYTES)], truncated)
+}
+
 #[tauri::command]
 pub async fn git_file_preview(
     root_dir: String,
@@ -1431,8 +1445,7 @@ fn file_preview_for(root_dir: &str, path: &str) -> Result<Option<GitFilePreview>
         _ => None,
     };
     let bytes = std::fs::read(&target).map_err(|error| error.to_string())?;
-    let truncated = bytes.len() > MAX_PREVIEW_BYTES;
-    let clipped = &bytes[..bytes.len().min(MAX_PREVIEW_BYTES)];
+    let (clipped, truncated) = clip_to_preview_cap(&bytes);
     if let Some(mime) = image_mime {
         return Ok(Some(GitFilePreview {
             kind: "image".into(),
@@ -1459,6 +1472,93 @@ fn file_preview_for(root_dir: &str, path: &str) -> Result<Option<GitFilePreview>
         kind: kind.into(),
         mime: "text/plain".into(),
         data: String::from_utf8_lossy(clipped).into_owned(),
+        truncated,
+    }))
+}
+
+/// One side of a diff, read whole out of git's object store.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GitFileAtRev {
+    /// The blob's text, clipped to the same cap [`GitFilePreview`] uses.
+    pub text: String,
+    /// Whether the cap dropped anything — the tail is missing, so a consumer
+    /// slicing this per diff line has nothing for lines past the cut.
+    pub truncated: bool,
+}
+
+#[tauri::command]
+pub async fn git_file_at_rev(
+    root_dir: String,
+    rev: String,
+    path: String,
+) -> Result<Option<GitFileAtRev>, String> {
+    tokio::task::spawn_blocking(move || file_at_rev_for(&root_dir, &rev, &path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Core of [`git_file_at_rev`], split out so it's unit-testable without going
+/// through `spawn_blocking` — the same split [`file_preview_for`] uses.
+///
+/// `rev` is the left half of git's own `<rev>:<path>` object spec: `HEAD`, a
+/// branch, a tag, a SHA — or the **empty string for the index**, which is
+/// exactly what git's `:path` staging notation means. Which one the caller
+/// wants follows from what the diff is against: `HEAD` for worktree-vs-HEAD,
+/// `""` for the staged side. `path` is repo-root relative.
+///
+/// `Ok(None)`, never an error, for the three ways a revision legitimately has
+/// no text at a path: the path is absent there (a newly added file has no
+/// `HEAD:` side), the object is not a blob (a directory, or a submodule
+/// gitlink), or the content is binary by the same sniff the preview uses.
+/// A broken repo or an unusable `root_dir` is still an error.
+///
+/// The spec is written to `git cat-file --batch -z` **on stdin**, never as an
+/// argv entry. That is deliberate: `rev` and `path` both come from the UI, and
+/// a spec beginning with `-` — `--upload-pack=…` is remote code execution —
+/// would otherwise be parsed as an option. On stdin it is inert data, and `-z`
+/// (NUL-delimited input, git ≥ 2.34) keeps a path containing a newline, which
+/// git permits, from splitting into two requests. `--batch` also answers
+/// "absent" structurally, as a `<spec> missing` line on a *successful* exit,
+/// so telling that apart from a real failure needs no stderr string-matching.
+fn file_at_rev_for(root_dir: &str, rev: &str, path: &str) -> Result<Option<GitFileAtRev>, String> {
+    let spec = format!("{rev}:{path}");
+    let raw = run_git_stdin(
+        root_dir,
+        &["cat-file", "--batch", "-z"],
+        &format!("{spec}\0"),
+        LOCAL_TIMEOUT_SECS,
+    )?;
+
+    // One request in, so one record out: a `<oid> <type> <size>` header line,
+    // then the object's bytes, then an LF git adds itself. Parsed from the
+    // right because the failure replies (`<spec> missing`, `<spec> ambiguous`)
+    // echo the spec back, and a path may contain spaces.
+    let Some((header, body)) = raw.split_once('\n') else {
+        return Err(format!("unexpected git cat-file reply for {spec}: {raw}"));
+    };
+    let Some((oid_and_kind, size)) = header.rsplit_once(' ') else {
+        return Err(format!("unexpected git cat-file reply for {spec}: {header}"));
+    };
+    if size.parse::<u64>().is_err() {
+        // `missing` — the path does not exist at this revision.
+        return Ok(None);
+    }
+    let Some((_oid, kind)) = oid_and_kind.rsplit_once(' ') else {
+        return Err(format!("unexpected git cat-file reply for {spec}: {header}"));
+    };
+    if kind != "blob" {
+        return Ok(None);
+    }
+
+    // Drop only git's own trailing LF, not the blob's — a file that ends with a
+    // newline has two here and must keep one.
+    let body = body.strip_suffix('\n').unwrap_or(body);
+    let (clipped, truncated) = clip_to_preview_cap(body.as_bytes());
+    if looks_binary(clipped) {
+        return Ok(None);
+    }
+    Ok(Some(GitFileAtRev {
+        text: String::from_utf8_lossy(clipped).into_owned(),
         truncated,
     }))
 }
@@ -3933,5 +4033,148 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
         assert!(file_preview_for(root, "sub").unwrap().is_none());
         assert!(file_preview_for(root, "nope.rs").unwrap().is_none());
         assert!(file_preview_for(root, "../escape.rs").is_err());
+    }
+
+    // ── git_file_at_rev ────────────────────────────────────────────────────
+    //
+    // Driven through `file_at_rev_for`, the sync core, for the same reason
+    // `file_preview_for` is: no `spawn_blocking`, no tauri runtime. These need
+    // a real repo, though — the content lives in the object store, so there is
+    // nothing to fake short of writing loose objects by hand.
+    //
+    // Named `git_file_at_rev_*` rather than `file_at_rev_*` so that the filter
+    // in the brief (`cargo test … git_file_at`) selects them: the filter is a
+    // substring match on the whole test path, and the module segment is
+    // `commands::git::tests`, which does not contain `git_file_at`.
+
+    /// A repo with one commit, `a.txt` = "one\ntwo\n" at HEAD.
+    fn rev_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        let git = |args: &[&str]| Command::new("git").current_dir(p).args(args).output().unwrap();
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(p.join("a.txt"), "one\ntwo\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-m", "init"]);
+        dir
+    }
+
+    fn git_in(p: &std::path::Path, args: &[&str]) {
+        let out = Command::new("git").current_dir(p).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?} failed: {out:?}");
+    }
+
+    #[test]
+    fn git_file_at_rev_reads_the_committed_content_not_the_worktree() {
+        let dir = rev_repo();
+        let p = dir.path();
+        // Worktree diverges from both HEAD and the index; HEAD must be unmoved.
+        std::fs::write(p.join("a.txt"), "one\nEDITED\n").unwrap();
+        let at_head = file_at_rev_for(p.to_str().unwrap(), "HEAD", "a.txt")
+            .expect("reading HEAD must not error")
+            .expect("a.txt exists at HEAD");
+        assert_eq!(at_head.text, "one\ntwo\n");
+        assert!(!at_head.truncated);
+    }
+
+    #[test]
+    fn git_file_at_rev_reads_the_index_for_an_empty_rev() {
+        let dir = rev_repo();
+        let p = dir.path();
+        std::fs::write(p.join("a.txt"), "one\nSTAGED\n").unwrap();
+        git_in(p, &["add", "a.txt"]);
+        std::fs::write(p.join("a.txt"), "one\nWORKTREE\n").unwrap();
+
+        let root = p.to_str().unwrap();
+        // "" is git's own `:path` staging notation — the index, not HEAD.
+        let index = file_at_rev_for(root, "", "a.txt").unwrap().expect("a.txt is in the index");
+        assert_eq!(index.text, "one\nSTAGED\n");
+        // …and HEAD is still the committed version, proving the two differ.
+        assert_eq!(file_at_rev_for(root, "HEAD", "a.txt").unwrap().unwrap().text, "one\ntwo\n");
+    }
+
+    #[test]
+    fn git_file_at_rev_returns_none_when_the_path_is_absent_there() {
+        let dir = rev_repo();
+        let p = dir.path();
+        let root = p.to_str().unwrap();
+        // A newly added file has no HEAD side. Not an error — the caller
+        // highlights only the new side.
+        std::fs::write(p.join("new.txt"), "fresh\n").unwrap();
+        git_in(p, &["add", "new.txt"]);
+        assert!(file_at_rev_for(root, "HEAD", "new.txt").unwrap().is_none());
+        // Absent from the index too, once it is neither staged nor on disk.
+        assert!(file_at_rev_for(root, "", "never.txt").unwrap().is_none());
+        // A directory is not a blob and has no text either.
+        std::fs::create_dir(p.join("sub")).unwrap();
+        std::fs::write(p.join("sub/x.txt"), "x\n").unwrap();
+        git_in(p, &["add", "sub/x.txt"]);
+        git_in(p, &["commit", "-m", "sub"]);
+        assert!(file_at_rev_for(root, "HEAD", "sub").unwrap().is_none());
+    }
+
+    #[test]
+    fn git_file_at_rev_returns_none_for_binary_content() {
+        let dir = rev_repo();
+        let p = dir.path();
+        // Same tell as the preview path: a NUL inside the sniff window. The
+        // name says nothing, deliberately.
+        std::fs::write(p.join("blob.dat"), b"\x7fELF\x02\x01\x01\x00\x00\x00payload").unwrap();
+        git_in(p, &["add", "blob.dat"]);
+        git_in(p, &["commit", "-m", "binary"]);
+        assert!(file_at_rev_for(p.to_str().unwrap(), "HEAD", "blob.dat").unwrap().is_none());
+    }
+
+    #[test]
+    fn git_file_at_rev_caps_a_large_blob_at_the_shared_limit() {
+        let dir = rev_repo();
+        let p = dir.path();
+        std::fs::write(p.join("big.ts"), vec![b'x'; MAX_PREVIEW_BYTES + 4096]).unwrap();
+        git_in(p, &["add", "big.ts"]);
+        git_in(p, &["commit", "-m", "big"]);
+        let big = file_at_rev_for(p.to_str().unwrap(), "HEAD", "big.ts").unwrap().unwrap();
+        assert!(big.truncated);
+        assert_eq!(big.text.len(), MAX_PREVIEW_BYTES);
+    }
+
+    #[test]
+    fn git_file_at_rev_returns_the_blob_byte_for_byte() {
+        let dir = rev_repo();
+        let p = dir.path();
+        // `git cat-file --batch` appends its own LF after the object data, so a
+        // blob with no trailing newline and one with a trailing newline must
+        // both come back unchanged.
+        std::fs::write(p.join("bare.txt"), "no trailing newline").unwrap();
+        git_in(p, &["add", "bare.txt"]);
+        git_in(p, &["commit", "-m", "bare"]);
+        let root = p.to_str().unwrap();
+        assert_eq!(
+            file_at_rev_for(root, "HEAD", "bare.txt").unwrap().unwrap().text,
+            "no trailing newline",
+        );
+        assert_eq!(file_at_rev_for(root, "HEAD", "a.txt").unwrap().unwrap().text, "one\ntwo\n");
+    }
+
+    #[test]
+    fn git_file_at_rev_never_lets_a_dash_argument_reach_git_as_an_option() {
+        let dir = rev_repo();
+        let p = dir.path();
+        let root = p.to_str().unwrap();
+        // A dash-leading *path* is a real file and must read normally.
+        std::fs::write(p.join("-dash.txt"), "dashed\n").unwrap();
+        git_in(p, &["add", "--", "-dash.txt"]);
+        git_in(p, &["commit", "-m", "dash"]);
+        assert_eq!(
+            file_at_rev_for(root, "HEAD", "-dash.txt").unwrap().unwrap().text,
+            "dashed\n",
+        );
+        // A dash-leading *rev* is an object name that resolves to nothing, not
+        // an option git acts on. `--upload-pack` would be remote-code
+        // execution if it were parsed.
+        assert!(file_at_rev_for(root, "--upload-pack=/bin/echo", "a.txt").unwrap().is_none());
+        assert!(file_at_rev_for(root, "", "--output=/tmp/porta-pwned").unwrap().is_none());
+        assert!(!std::path::Path::new("/tmp/porta-pwned").exists());
     }
 }

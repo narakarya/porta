@@ -1857,6 +1857,37 @@ export interface GitFilePreview {
 export const gitFilePreview = (rootDir: string, path: string): Promise<GitFilePreview | null> =>
   isTauri ? invoke("git_file_preview", { rootDir, path }) : Promise.resolve(null);
 
+/** One side of a diff, read whole out of git's object store. */
+export interface GitFileAtRev {
+  /** The blob's text, clipped to the same cap `GitFilePreview` uses. */
+  text: string;
+  /**
+   * Whether the cap dropped anything — the tail is missing, so a consumer
+   * slicing this per diff line has nothing for lines past the cut.
+   */
+  truncated: boolean;
+}
+
+/**
+ * A file's contents at a revision — the old side of a diff, which lives in the
+ * object store rather than on disk.
+ *
+ * `rev` is the left half of git's own `<rev>:<path>` object spec: `"HEAD"`, a
+ * branch, a tag, a SHA — or `""` for the index, which is what git's `:path`
+ * staging notation means. Which one you want follows from what the diff is
+ * against: `"HEAD"` for worktree-vs-HEAD, `""` for the staged side.
+ *
+ * `null` — never a rejection — whenever the revision legitimately has no text
+ * there: the path is absent at that revision (a newly added file has no
+ * `HEAD:` side), the object is not a blob, or the content is binary.
+ */
+export const gitFileAtRev = (
+  rootDir: string,
+  rev: string,
+  path: string,
+): Promise<GitFileAtRev | null> =>
+  isTauri ? invoke("git_file_at_rev", { rootDir, rev, path }) : Promise.resolve(null);
+
 export const gitRenamePath = (
   rootDir: string,
   path: string,
