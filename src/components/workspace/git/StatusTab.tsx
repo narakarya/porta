@@ -19,19 +19,9 @@ import { Input } from "../../ui";
 import type { App } from "../../../types";
 import DiffView from "./DiffView";
 import FileTree from "./FileTree";
+import GitBranchIcon from "./ui/GitBranchIcon";
 
 // ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
-function GitBranchIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.5" cy="4.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 5.25v5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M11.5 6.25c0 2.6-1.9 3.5-4.2 3.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
-}
 function CheckboxIcon({ checked, className = "" }: { checked: boolean; className?: string }) {
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
@@ -69,11 +59,20 @@ function deriveSelected(
  * repo is unreadable or missing, so the commit draft survives; the effects
  * below therefore no-op until the store has a GitStatus for the app.
  */
-export default function StatusTab({ app }: { app: App }) {
+export default function StatusTab({
+  app,
+  onError,
+}: {
+  app: App;
+  /**
+   * Hands this tab's failures to the shell, which owns the single error slot.
+   * Called with null wherever the tab used to clear its own — the raise/clear
+   * points are unchanged, only the surface that draws them moved.
+   */
+  onError: (message: string | null) => void;
+}) {
   const status = usePortaStore((s) => s.appGit[app.id]);
   const setAppGit = usePortaStore((s) => s.setAppGit);
-
-  const [error, setError] = useState<string | null>(null);
 
   // ── Working-surface state (changed files / diff / commit box) ──────────────
   const [changed, setChanged] = useState<ChangedFile[]>([]);
@@ -153,7 +152,7 @@ export default function StatusTab({ app }: { app: App }) {
 
   async function mutateSelected(kind: "stage" | "unstage" | "discard") {
     setMutating(`selected:${kind}`);
-    setError(null);
+    onError(null);
     try {
       if (kind === "stage") {
         for (const path of checkedUnstaged) await gitStage(app.root_dir, path);
@@ -173,7 +172,7 @@ export default function StatusTab({ app }: { app: App }) {
       setCheckedUnstaged(new Set());
       setConfirmDiscardSelected(false);
     } catch (cause) {
-      if (mounted.current) setError(String(cause));
+      if (mounted.current) onError(String(cause));
     } finally {
       if (mounted.current) setMutating(null);
     }
@@ -188,7 +187,7 @@ export default function StatusTab({ app }: { app: App }) {
   async function renameSelected() {
     if (!renameTarget || !renameName.trim() || mutating) return;
     setMutating(`rename:${renameTarget.path}`);
-    setError(null);
+    onError(null);
     try {
       const destination = await gitRenamePath(app.root_dir, renameTarget.path, renameName.trim());
       await refreshAfterMutation();
@@ -197,7 +196,7 @@ export default function StatusTab({ app }: { app: App }) {
       setRenameTarget(null);
       setRenameName("");
     } catch (cause) {
-      if (mounted.current) setError(String(cause));
+      if (mounted.current) onError(String(cause));
     } finally {
       if (mounted.current) setMutating(null);
     }
@@ -208,12 +207,12 @@ export default function StatusTab({ app }: { app: App }) {
   // here once it resolves.
   async function mutateFile(path: string, fn: () => Promise<void>) {
     setMutating(path);
-    setError(null);
+    onError(null);
     try {
       await fn();
       await refreshAfterMutation();
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) onError(String(e));
     } finally {
       if (mounted.current) setMutating(null);
     }
@@ -222,7 +221,7 @@ export default function StatusTab({ app }: { app: App }) {
   // stage all / unstage all files. Uses a sentinel marker to gate the disable.
   async function mutateBulk(op: "stageAll" | "unstageAll" | "discardAll") {
     setMutating(op);
-    setError(null);
+    onError(null);
     try {
       if (op === "stageAll") await gitStageAll(app.root_dir);
       else if (op === "unstageAll") await gitUnstageAll(app.root_dir);
@@ -230,7 +229,7 @@ export default function StatusTab({ app }: { app: App }) {
       await refreshAfterMutation();
       if (mounted.current) setConfirmDiscardAll(false);
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) onError(String(e));
     } finally {
       if (mounted.current) setMutating(null);
     }
@@ -239,7 +238,7 @@ export default function StatusTab({ app }: { app: App }) {
   async function doCommit(thenPush: boolean) {
     const msg = commitMsg.trim();
     setCommitting(true);
-    setError(null);
+    onError(null);
     try {
       if (amend) await gitCommitAmend(app.root_dir, msg);
       else await gitCommit(app.root_dir, msg);
@@ -250,7 +249,7 @@ export default function StatusTab({ app }: { app: App }) {
       setAmend(false);
       setSelected(null);
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) onError(String(e));
     } finally {
       if (mounted.current) setCommitting(false);
     }
@@ -269,10 +268,6 @@ export default function StatusTab({ app }: { app: App }) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      {error && (
-        <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
-      )}
-
       {changed.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-8">
           <div className="w-10 h-10 rounded-xl bg-[var(--hover)] flex items-center justify-center text-ink-3">

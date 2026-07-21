@@ -22,21 +22,12 @@ import StatusTab from "./git/StatusTab";
 import BranchesPanel from "./git/BranchesPanel";
 import SyncPanel from "./git/SyncPanel";
 import PullRequestsPanel from "./git/PullRequestsPanel";
+import GitBranchIcon from "./git/ui/GitBranchIcon";
+import ErrorNotice from "./git/ui/ErrorNotice";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
 // ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
-function GitBranchIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.5" cy="4.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 5.25v5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M11.5 6.25c0 2.6-1.9 3.5-4.2 3.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
-}
 function ChevronDown({ className = "" }: { className?: string }) {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={className} aria-hidden="true">
@@ -105,6 +96,9 @@ export default function GitTab({ app }: { app: App }) {
   const [tab, setTab] = useState<GitTabId>("changes");
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
+  // The Status tab's failures, reported up so the shell can draw them in the
+  // one error slot instead of the tab stacking a second box under this one.
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchList | null>(null);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [branchQuery, setBranchQuery] = useState("");
@@ -458,10 +452,11 @@ export default function GitTab({ app }: { app: App }) {
               </div>
             </div>
 
-            {/* Shell-level failures (sync ops, branch switch). */}
-            {error && (
-              <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
-            )}
+            {/* The one error slot. Shell-level failures (sync ops, branch
+                switch) fill it on every tab; on Status the tab's own failure
+                takes it, because that is the surface the user is looking at
+                and two stacked boxes read as two separate problems. */}
+            <ErrorNotice message={tab === "changes" ? (statusError ?? error) : error} />
           </>
         )}
 
@@ -481,7 +476,7 @@ export default function GitTab({ app }: { app: App }) {
           className={!blocked && tab === "changes" ? "flex-1 min-h-0 flex flex-col" : "hidden"}
           hidden={!!blocked || tab !== "changes"}
         >
-          <StatusTab app={app} />
+          <StatusTab app={app} onError={setStatusError} />
         </div>
 
         {blocked || !status ? null : tab === "sync" ? (
