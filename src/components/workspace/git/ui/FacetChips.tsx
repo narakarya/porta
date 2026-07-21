@@ -22,15 +22,15 @@ export default function FacetChips<T extends string>({
             aria-pressed={on}
             onClick={() => onSelect(f.id)}
             className={
-              "px-2 py-1 rounded-[var(--radius-control)] text-[12px] transition-colors " +
+              "px-2 py-1 rounded-control text-[12px] transition-colors " +
               (on
-                ? "bg-[var(--accent-bg)] text-[var(--accent-ink)]"
-                : "text-[var(--ink-2)] hover:bg-[var(--hover)]")
+                ? "bg-accent-bg text-accent-ink"
+                : "text-ink-2 hover:bg-[var(--hover)]")
             }
           >
             {f.label}
             {f.count !== undefined && (
-              <span className="ml-1.5 text-[var(--ink-3)] tabular-nums">{f.count}</span>
+              <span className="ml-1.5 text-ink-3 tabular-nums">{f.count}</span>
             )}
           </button>
         );
