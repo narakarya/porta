@@ -19,10 +19,19 @@ describe("git theme palettes", () => {
   });
 
   // The spec's hard boundary: tab palettes must never leak into Porta's chrome.
+  // Parsed by splitting on braces rather than matching selector lines, so the
+  // check survives reformatting — a Prettier pass must not be able to turn this
+  // into either a false alarm or a false pass.
   it("never declares palette variables outside the tab root", () => {
-    const selectors = css.match(/^[^\s@/][^{]*\{/gm) ?? [];
+    const selectors = css
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("}")
+      .map((block) => block.split("{")[0].trim())
+      .filter(Boolean);
+
+    expect(selectors.length, "found no selectors to check").toBeGreaterThan(0);
     for (const sel of selectors) {
-      expect(sel.trim(), "leaked selector").toMatch(/^\.git-tab-root/);
+      expect(sel, "leaked selector").toMatch(/^\.git-tab-root/);
     }
   });
 

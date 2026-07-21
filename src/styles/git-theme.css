@@ -15,7 +15,8 @@
   --md-table-head-bg: rgba(255, 255, 255, 0.06);
 
   background: var(--surface-0);
-  color: var(--ink-1); }
+  color: var(--ink-1);
+}
 
 .git-tab-root[data-git-theme="graphite"] {
   --surface-0: #111318; --surface-1: #171922; --surface-2: #1e212a;
@@ -26,7 +27,8 @@
   --md-heading: #ffffff; --md-link: #9bd0ff; --md-code-bg: rgba(255,255,255,.06);
   --md-quote: #c3c9d4; --md-quote-border: rgba(155,208,255,.38); --md-table-head-bg: rgba(255,255,255,.06);
   --syn-keyword: #c4b5fd; --syn-string: #8ddfb1; --syn-number: #f7c768;
-  --syn-comment: #9ba4b3; --syn-type: #9bd0ff; --syn-function: #a5d8ff; --syn-atom: #f7c768; }
+  --syn-comment: #9ba4b3; --syn-type: #9bd0ff; --syn-function: #a5d8ff; --syn-atom: #f7c768;
+}
 
 .git-tab-root[data-git-theme="soft-dark"] {
   --surface-0: #111214; --surface-1: #17191d; --surface-2: #1f2227;
@@ -37,7 +39,8 @@
   --md-heading: #f8fafc; --md-link: #8cc0ff; --md-code-bg: rgba(255,255,255,.06);
   --md-quote: #c5ced8; --md-quote-border: rgba(140,192,255,.36); --md-table-head-bg: rgba(255,255,255,.06);
   --syn-keyword: #c4b5fd; --syn-string: #8ddfb1; --syn-number: #f7c768;
-  --syn-comment: #a3adbb; --syn-type: #8cc0ff; --syn-function: #9bd0ff; --syn-atom: #f7c768; }
+  --syn-comment: #a3adbb; --syn-type: #8cc0ff; --syn-function: #9bd0ff; --syn-atom: #f7c768;
+}
 
 .git-tab-root[data-git-theme="midnight"] {
   --surface-0: #081018; --surface-1: #0d1621; --surface-2: #132131;
@@ -48,7 +51,8 @@
   --md-heading: #f8fbff; --md-link: #7dd3fc; --md-code-bg: rgba(125,211,252,.06);
   --md-quote: #bdd7ea; --md-quote-border: rgba(125,211,252,.42); --md-table-head-bg: rgba(125,211,252,.06);
   --syn-keyword: #bfdbfe; --syn-string: #86efac; --syn-number: #fbbf24;
-  --syn-comment: #9bb4c8; --syn-type: #7dd3fc; --syn-function: #93c5fd; --syn-atom: #fde047; }
+  --syn-comment: #9bb4c8; --syn-type: #7dd3fc; --syn-function: #93c5fd; --syn-atom: #fde047;
+}
 
 .git-tab-root[data-git-theme="paper"] {
   --surface-0: #f2eee7; --surface-1: #fbf9f4; --surface-2: #ffffff;
@@ -61,7 +65,8 @@
   --md-heading: #111827; --md-link: #1d4ed8; --md-code-bg: rgba(15,23,42,.04);
   --md-quote: #526071; --md-quote-border: rgba(37,99,235,.35); --md-table-head-bg: rgba(15,23,42,.05);
   --syn-keyword: #6d28d9; --syn-string: #166534; --syn-number: #b45309;
-  --syn-comment: #64748b; --syn-type: #1d4ed8; --syn-function: #0369a1; --syn-atom: #a16207; }
+  --syn-comment: #64748b; --syn-type: #1d4ed8; --syn-function: #0369a1; --syn-atom: #a16207;
+}
 
 .git-tab-root[data-git-theme="forest"] {
   --surface-0: #0b1712; --surface-1: #12211a; --surface-2: #182a22;
@@ -72,7 +77,8 @@
   --md-heading: #ffffff; --md-link: #8ddfb1; --md-code-bg: rgba(148,210,172,.06);
   --md-quote: #c2d9cd; --md-quote-border: rgba(148,210,172,.38); --md-table-head-bg: rgba(148,210,172,.06);
   --syn-keyword: #bbf7d0; --syn-string: #86efac; --syn-number: #f7c768;
-  --syn-comment: #a5b9ad; --syn-type: #8ddfb1; --syn-function: #bae6fd; --syn-atom: #f7c768; }
+  --syn-comment: #a5b9ad; --syn-type: #8ddfb1; --syn-function: #bae6fd; --syn-atom: #f7c768;
+}
 
 .git-tab-root[data-git-theme="sunset"] {
   --surface-0: #15100d; --surface-1: #211915; --surface-2: #2b201a;
@@ -83,4 +89,5 @@
   --md-heading: #ffffff; --md-link: #fdba74; --md-code-bg: rgba(251,146,60,.06);
   --md-quote: #ddc6b7; --md-quote-border: rgba(251,146,60,.38); --md-table-head-bg: rgba(251,146,60,.06);
   --syn-keyword: #fdba74; --syn-string: #fda4af; --syn-number: #fbbf24;
-  --syn-comment: #c9ad9d; --syn-type: #fed7aa; --syn-function: #fcd9bd; --syn-atom: #fbbf24; }
+  --syn-comment: #c9ad9d; --syn-type: #fed7aa; --syn-function: #fcd9bd; --syn-atom: #fbbf24;
+}
