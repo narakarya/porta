@@ -46,7 +46,21 @@ export async function hydrateMermaid(root: HTMLElement, opts: MermaidOptions): P
   const blocks = Array.from(root.querySelectorAll<HTMLElement>("pre.md-mermaid[data-mermaid]"));
   if (blocks.length === 0) return;
 
-  const mermaid = await getMermaid(opts.dark);
+  const loading = getMermaid(opts.dark);
+  let mermaid: Mermaid;
+  try {
+    mermaid = await loading;
+  } catch (err) {
+    // The *load* failed — a chunk that never arrived, a bad initialize(). Drop
+    // the cached promise so a later preview can retry, instead of one failure
+    // disabling diagrams for the app's lifetime; only if nothing has since
+    // replaced it with a working one. Same treatment as highlight.ts.
+    if (mermaidPromise === loading) {
+      mermaidPromise = null;
+      mermaidDark = null;
+    }
+    throw err;
+  }
 
   for (const block of blocks) {
     const src = block.dataset.mermaid ?? "";

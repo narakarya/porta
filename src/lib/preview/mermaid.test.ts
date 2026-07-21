@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderMarkdown } from "./markdown";
@@ -85,6 +85,41 @@ describe("hydrateMermaid", () => {
     const ids = [...document.querySelectorAll(".md-mermaid svg")].map((s) => s.id);
     expect(ids.length).toBeGreaterThan(2);
     expect(new Set(ids).size, "duplicate diagram ids").toBe(ids.length);
+  });
+
+  // The chunk is imported lazily and the promise is cached. Caching a *rejected*
+  // one meant a single failed load — a chunk that never arrived — disabled every
+  // diagram for the lifetime of the app. Mirrors highlight.ts's recovery.
+  it("retries the load after a failed one instead of disabling diagrams", async () => {
+    vi.resetModules();
+    let loads = 0;
+    vi.doMock("mermaid", () => {
+      loads++;
+      if (loads === 1) return Promise.reject(new Error("chunk load failed"));
+      return {
+        default: {
+          initialize: () => {},
+          render: async (id: string) => ({ svg: `<svg id="${id}"><g></g></svg>` }),
+        },
+      };
+    });
+
+    const { hydrateMermaid: fresh } = await import("./mermaid");
+    const src = "```mermaid\nflowchart TD\n  A[Start] --> B[End]\n```";
+
+    const first = mount(renderMarkdown(src));
+    // The rejection reaches the caller (vitest rewraps a mock factory's own
+    // error, so only the fact of it is asserted here).
+    await expect(fresh(first, { dark: true })).rejects.toThrow();
+    expect(first.querySelector(".md-mermaid svg")).toBeNull();
+
+    const second = mount(renderMarkdown(src));
+    await fresh(second, { dark: true });
+    expect(second.querySelector(".md-mermaid svg")).not.toBeNull();
+    expect(loads, "the failed load was cached forever").toBe(2);
+
+    vi.doUnmock("mermaid");
+    vi.resetModules();
   });
 
   // Parity for the mermaid fixtures lands here rather than in markdown.test.ts:
