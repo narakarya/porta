@@ -307,4 +307,40 @@ describe("highlightFileTokens", () => {
     vi.doUnmock("shiki");
     vi.resetModules();
   });
+
+  it("does not cache a failure, so the next call for that file retries", async () => {
+    // highlight.ts drops its cached highlighter promise when a load fails,
+    // specifically so a later call can retry rather than one bad load leaving
+    // the app uncoloured for its lifetime. Caching the resulting null against
+    // the content key would quietly take that back for this file.
+    vi.resetModules();
+    let loads = 0;
+    vi.doMock("shiki", () => ({
+      createCssVariablesTheme: vi.fn(() => ({ name: "porta-syn", tokenColors: [] })),
+      createHighlighter: vi.fn(() => {
+        loads += 1;
+        if (loads === 1) return Promise.reject(new Error("wasm instantiation failed"));
+        return Promise.resolve({
+          getLoadedLanguages: () => ["typescript"],
+          loadLanguage: () => Promise.resolve(),
+          codeToTokens: (code: string) => ({
+            tokens: code
+              .split("\n")
+              .map((line) => [{ content: line, color: "var(--shiki-token-keyword)" }]),
+          }),
+        });
+      }),
+    }));
+
+    const { highlightFileTokens: fresh } = await import("./diff-highlight");
+    const source = "const a = 1;\n";
+
+    expect(await fresh(source, "src/a.ts")).toBeNull();
+    // Same path, same bytes — the same cache key the failure arrived under.
+    expect(await fresh(source, "src/a.ts")).not.toBeNull();
+    expect(loads).toBe(2);
+
+    vi.doUnmock("shiki");
+    vi.resetModules();
+  });
 });
