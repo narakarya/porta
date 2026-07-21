@@ -4,10 +4,15 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0-beta.5]
 
-Terminal sessions now outlive the view that shows them, and the chrome around
-them stops repeating itself.
+Terminal sessions now outlive the view that shows them, the chrome around them
+stops repeating itself, and the Git tab learns to preview files properly.
+
+### Added
+
+- **The Git tab previews any text file** as syntax-highlighted code, and
+  renders markdown and diagrams inline rather than showing their source.
 
 ### Fixed
 
@@ -23,6 +28,10 @@ them stops repeating itself.
   the app tears a shell down.
 - **An exited shell keeps its last screen.** It used to leave a line of text in
   the scrollback and an inert tab with no way back.
+- **Staging a file no longer rebuilds its diff view**, and the diff stays
+  mounted through the refetch instead of blanking.
+- **Access control is inert until the app actually serves**, rather than
+  offering switches that cannot take effect yet.
 
 ### Changed
 
