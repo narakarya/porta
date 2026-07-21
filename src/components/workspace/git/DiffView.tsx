@@ -411,11 +411,20 @@ export default function DiffView({
   //
   // Cancellation on unmount and on every re-run: a slow highlight for the file
   // the user just navigated away from resolves into a closure that no longer
-  // sets anything. (Belt and braces — `tokensForLine` also refuses to paint a
-  // row whose text the tokens disagree with, so even a leaked result could not
-  // put one file's colours on another's lines.)
+  // sets anything.
+  //
+  // The tokens already held are dropped *before* the await, not left standing
+  // until the new ones land. `tokensForLine` compares a row's text against the
+  // tokens before painting and so rejects almost all of the mismatches, but not
+  // the one that matters: a line that is byte-identical at the same line number
+  // in both files passes that guard and gets painted with the other file's
+  // grammar state — a line inside a template literal coloured as code, which is
+  // the exact error this whole path exists to prevent. Dropping them costs a
+  // brief uncoloured moment on a refetch; it does not blank the diff text.
   useEffect(() => {
     let cancelled = false;
+    setOldTokens(null);
+    setNewTokens(null);
     Promise.all([
       oldText === null ? null : highlightFileTokens(oldText, path),
       newText === null ? null : highlightFileTokens(newText, path),

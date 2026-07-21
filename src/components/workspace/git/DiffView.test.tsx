@@ -35,6 +35,25 @@ vi.mock("../../../lib/commands", async (importOriginal) => {
   };
 });
 
+/**
+ * A latch on the tokeniser, closed by exactly one test below — the one that has
+ * to observe the window between a file switch landing and the new file's
+ * tokens arriving. Left open (`null`) everywhere else, where the real
+ * tokeniser runs untouched and the wrapper costs not even a tick.
+ */
+let holdTokens: Promise<void> | null = null;
+
+vi.mock("../../../lib/diff-highlight", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/diff-highlight")>();
+  return {
+    ...actual,
+    highlightFileTokens: (content: string, path: string) =>
+      holdTokens
+        ? holdTokens.then(() => actual.highlightFileTokens(content, path))
+        : actual.highlightFileTokens(content, path),
+  };
+});
+
 const app = { id: "demo", root_dir: "/tmp/demo", kind: "process" } as unknown as App;
 
 // The two words are chosen with no shared substring (unlike e.g. "staged" /
@@ -690,6 +709,83 @@ describe("DiffView syntax colour", () => {
     );
     expect(container.textContent).not.toContain("notCode");
     expect(diffViewMounts).toBe(1);
+  }, PREVIEW_TIMEOUT);
+
+  it("drops the previous file's tokens on a switch instead of painting a row with them", async () => {
+    // The gap `tokensForLine`'s text comparison cannot close. These two files
+    // both have `const notCode = true;` as line 3 — inside a template literal
+    // in one, ordinary code in the other — so the guard sees the text it
+    // expects at the line number it expects and paints happily. Only dropping
+    // the tokens on the switch stops the second file's row being coloured by
+    // the first file's grammar state, which is the very error this whole path
+    // exists to prevent.
+    const plainNew = ["const a = 1;", "const b = 2;", "const notCode = true;", ""].join("\n");
+    const plainOld = plainNew.replace("const b = 2;", "const b = 9;");
+    const plainDiff = [
+      "diff --git a/src/plain.ts b/src/plain.ts",
+      "--- a/src/plain.ts",
+      "+++ b/src/plain.ts",
+      "@@ -1,3 +1,3 @@",
+      " const a = 1;",
+      "-const b = 9;",
+      "+const b = 2;",
+      " const notCode = true;",
+      "",
+    ].join("\n");
+
+    vi.mocked(gitDiffFile).mockImplementation(async (_root, p) =>
+      p === "src/db.ts" ? TEMPLATE_DIFF : plainDiff,
+    );
+    vi.mocked(gitFilePreview).mockImplementation(async (_root, p) =>
+      codeSide(p === "src/db.ts" ? TEMPLATE_NEW : plainNew),
+    );
+    vi.mocked(gitFileAtRev).mockImplementation(async (_root, _rev, p) => ({
+      text: p === "src/db.ts" ? TEMPLATE_OLD : plainOld,
+      truncated: false,
+    }));
+
+    const onChanged = vi.fn();
+    const { container, rerender } = render(
+      <CountingDiffView key="stable" app={app} path="src/db.ts" staged={false} onChanged={onChanged} />,
+    );
+    // Line 3 of the *new* side either way: the added row here, the context row
+    // there. Same side, same line number — the index a stale token list would
+    // be consulted at.
+    await waitFor(
+      () =>
+        expect(rowFor(container, "+const notCode = true;").innerHTML).toContain(
+          "--shiki-token-string-expression",
+        ),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+
+    // Hold the second file's tokens back, so the render under test is the one
+    // where its diff is on screen and its colours are not there yet.
+    let release = () => {};
+    holdTokens = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      rerender(
+        <CountingDiffView key="stable" app={app} path="src/plain.ts" staged={false} onChanged={onChanged} />,
+      );
+      await waitFor(() => expect(container.textContent).toContain("const b = 2;"));
+
+      const row = rowFor(container, " const notCode = true;");
+      expect(row.innerHTML).not.toContain("--shiki-token-string-expression");
+      expect(row.innerHTML).not.toContain("--shiki-token-");
+    } finally {
+      release();
+      holdTokens = null;
+    }
+
+    // …and the right colours land once the tokeniser is let go: real code this
+    // time, not string content.
+    await waitFor(
+      () =>
+        expect(rowFor(container, " const notCode = true;").innerHTML).toContain(
+          "--shiki-token-keyword",
+        ),
+      { timeout: PREVIEW_TIMEOUT },
+    );
   }, PREVIEW_TIMEOUT);
 
   it("emits no colour of its own — every one resolves through a palette variable", async () => {
