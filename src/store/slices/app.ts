@@ -312,6 +312,9 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   },
 
   deleteApp: async (id) => {
+    // Sessions are keyed by pane id in Rust and would otherwise outlive the
+    // app that owns them, with no UI left to close them from.
+    await get().closeAppTerminals(id);
     await cmd.deleteApp(id);
     set((s) => ({
       apps: s.apps.filter((a) => a.id !== id),

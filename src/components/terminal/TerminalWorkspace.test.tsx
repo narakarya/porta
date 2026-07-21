@@ -14,6 +14,9 @@ vi.mock("../../lib/commands", async (orig) => ({
   terminalState,
 }));
 
+const confirmDialog = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmDialog }));
+
 // Captured per pane id so tests can drive `onTranscriptStats` at will,
 // independent of mount timing — a real TerminalTab reports stats from its
 // xterm transcript, which this double doesn't have.
@@ -475,5 +478,90 @@ describe("terminalState contract (commands.ts)", () => {
     const real = await loadRealCommandsWithInvoke(async () => state);
 
     await expect(real.terminalState("p1")).resolves.toEqual(state);
+  });
+});
+
+describe("closing a busy tab", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+    terminalClose.mockClear();
+    confirmDialog.mockClear();
+    confirmDialog.mockResolvedValue(true);
+  });
+
+  function seedRunning() {
+    // Keep the focused-pane poll's own response consistent with the
+    // "running" state seeded below — the file-level default resolves
+    // `running: false`, and the poll's mount tick is already in flight by
+    // the time this function returns, so leaving that default in place
+    // would race the seeded state and clobber it back to "idle" before the
+    // click below ever fires.
+    terminalState.mockResolvedValue({ alive: true, running: true, pid: 1, exitCode: null } satisfies TerminalState);
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tab = usePortaStore.getState().terminalTabs["a1"][0];
+    act(() => {
+      usePortaStore.getState().setTerminalPaneState("a1", tab.panes[0].id, { state: "running" });
+    });
+    return tab;
+  }
+
+  it("asks before killing a shell that is still working", async () => {
+    seedRunning();
+    await userEvent.click(screen.getByTitle("Close tab (⌘W)"));
+
+    expect(confirmDialog).toHaveBeenCalled();
+    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalled());
+  });
+
+  it("leaves the session alone when the user declines", async () => {
+    confirmDialog.mockResolvedValue(false);
+    seedRunning();
+    await userEvent.click(screen.getByTitle("Close tab (⌘W)"));
+
+    await vi.waitFor(() => expect(confirmDialog).toHaveBeenCalled());
+    expect(terminalClose).not.toHaveBeenCalled();
+  });
+
+  it("closes an idle tab without asking", async () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    await userEvent.click(screen.getByTitle("Close tab (⌘W)"));
+
+    expect(confirmDialog).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalled());
+  });
+});
+
+// ADDENDUM: TerminalModal never unmounts on close (just `display: none`), so
+// a background app's TerminalWorkspace stays mounted and watching its own
+// tabs. Once deleteApp calls closeAppTerminals (this task), deleting a
+// background app empties that app's tab list — without the `active` guard,
+// its onEmpty would fire and call setActiveTerminalAppId(null), closing
+// whichever *other* terminal the user currently has open.
+describe("reporting an empty surface", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+  });
+
+  it("does not call onEmpty when an inactive surface's tabs are emptied from outside", async () => {
+    const onEmpty = vi.fn();
+    render(
+      <TerminalWorkspace
+        appId="a1"
+        appName="porta"
+        rootDir="/src/porta"
+        active={false}
+        onEmpty={onEmpty}
+      />,
+    );
+    act(() => {
+      usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+    });
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+
+    await act(async () => {
+      await usePortaStore.getState().closeTerminalTab("a1", tabId);
+    });
+
+    expect(onEmpty).not.toHaveBeenCalled();
   });
 });

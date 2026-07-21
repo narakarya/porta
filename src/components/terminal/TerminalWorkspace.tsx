@@ -336,18 +336,35 @@ export default function TerminalWorkspace({
   const hadTabs = useRef(false);
   if (tabs.length > 0) hadTabs.current = true;
   useEffect(() => {
-    if (!onEmpty || autoSeed) return;
+    if (!active || !onEmpty || autoSeed) return;
     if (tabs.length === 0 && hadTabs.current) onEmpty();
-  }, [tabs.length, onEmpty, autoSeed]);
+  }, [active, tabs.length, onEmpty, autoSeed]);
 
   const addNewTab = useCallback(
     () => { addTerminalTab(appId, appName, rootDir, null); },
     [addTerminalTab, appId, appName, rootDir],
   );
 
+  // A tab with a foreground process is the case that used to lose work
+  // silently. Ask; an idle prompt closes without ceremony.
   const closeTab = useCallback(
-    (tabId: string) => { void closeTerminalTab(appId, tabId); },
-    [closeTerminalTab, appId],
+    (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (!tab) return;
+      if (tabState(tab) !== "running") {
+        void closeTerminalTab(appId, tabId);
+        return;
+      }
+      void (async () => {
+        const { confirm } = await import("@tauri-apps/plugin-dialog");
+        const ok = await confirm(`"${tab.label}" is still running. Close it anyway?`, {
+          title: "Close terminal tab",
+          kind: "warning",
+        });
+        if (ok) await closeTerminalTab(appId, tabId);
+      })();
+    },
+    [tabs, closeTerminalTab, appId],
   );
 
   const splitInto = useCallback(

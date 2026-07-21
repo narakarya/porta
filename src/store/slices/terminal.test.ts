@@ -275,6 +275,19 @@ describe("closing terminal surfaces", () => {
   });
 });
 
+describe("app deletion", () => {
+  beforeEach(reset);
+
+  it("takes the app's terminal sessions with it", async () => {
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    const pane = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+
+    await usePortaStore.getState().closeAppTerminals("a1");
+
+    expect(terminalClose).toHaveBeenCalledWith(pane);
+  });
+});
+
 describe("pane state", () => {
   beforeEach(reset);
 
