@@ -301,7 +301,7 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") selectCommit(c.hash);
                 }}
-                className={`group relative w-[calc(100%_-_8px)] cursor-pointer text-left mx-1 mb-0.5 pl-7 pr-2 py-1.5 rounded-control transition-colors duration-fast ${selected === c.hash ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+                className={`group relative w-[calc(100%_-_8px)] cursor-pointer text-left mx-1 mb-0.5 pl-7 pr-2 py-1.5 rounded-control transition-colors duration-fast ${selected === c.hash ? "bg-accent-bg" : "hover:bg-[var(--hover)]"}`}
               >
                 <input
                   type="checkbox"
@@ -332,7 +332,7 @@ export default function HistoryPanel({ app, onChanged }: { app: App; onChanged?:
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
-                className="inline-flex items-center gap-1.5 mx-1 mt-1 mb-2 text-[11px] text-ink-2 hover:bg-white/[0.05] rounded-control px-2 py-1.5 disabled:opacity-40 transition-colors"
+                className="inline-flex items-center gap-1.5 mx-1 mt-1 mb-2 text-[11px] text-ink-2 hover:bg-[var(--hover)] rounded-control px-2 py-1.5 disabled:opacity-40 transition-colors"
               >
                 {loadingMore && <Spinner size={11} />}
                 {loadingMore ? "Loading…" : "Load more"}

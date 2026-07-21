@@ -1799,6 +1799,12 @@ export const getGitAdvancedEnabled = (): Promise<boolean> =>
 export const setGitAdvancedEnabled = (enabled: boolean): Promise<void> =>
   isTauri ? invoke("set_git_advanced_enabled", { enabled }) : Promise.resolve();
 
+export const getGitTheme = (): Promise<string> =>
+  isTauri ? invoke("get_git_theme") : Promise.resolve("dark");
+
+export const setGitThemeCmd = (theme: string): Promise<void> =>
+  isTauri ? invoke("set_git_theme", { theme }) : Promise.resolve();
+
 // ── Git changes panel ──────────────────────────────────────────────────────────
 
 export interface ChangedFile {

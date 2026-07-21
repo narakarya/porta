@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import {
   gitStatus,
@@ -8,46 +8,41 @@ import {
   gitBranches,
   gitSwitchBranch,
   gitWorktreeList,
-  gitChangedFiles,
-  gitStage,
-  gitUnstage,
-  gitDiscard,
-  gitDiscardAll,
-  gitRenamePath,
-  gitCommit,
-  gitCommitAmend,
-  gitStageAll,
-  gitUnstageAll,
   type BranchList,
-  type ChangedFile,
   type WorktreeEntry,
 } from "../../lib/commands";
+import { GIT_THEMES, type GitTheme } from "../../lib/git-theme";
 import { Card, Input, EmptyState, Badge, Popover } from "../ui";
 import type { App } from "../../types";
 import HistoryPanel from "./git/HistoryPanel";
 import StashPanel from "./git/StashPanel";
 import TagsPanel from "./git/TagsPanel";
 import RebasePanel from "./git/RebasePanel";
-import DiffView from "./git/DiffView";
-import FileTree from "./git/FileTree";
+import StatusTab from "./git/StatusTab";
 import BranchesPanel from "./git/BranchesPanel";
 import SyncPanel from "./git/SyncPanel";
 import PullRequestsPanel from "./git/PullRequestsPanel";
+import GitBranchIcon from "./git/ui/GitBranchIcon";
+import ErrorNotice from "./git/ui/ErrorNotice";
+import ActivePane from "./git/ui/ActivePane";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
-// ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
-function GitBranchIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.5" cy="4.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 5.25v5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M11.5 6.25c0 2.6-1.9 3.5-4.2 3.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+/**
+ * A failure plus the order it was raised in. The tab has one error slot and two
+ * writers (the shell and the Status tab), and "which is on screen" has to be
+ * "the newer one" — otherwise a Status failure the user has already read sits
+ * on top of a sync failure they just caused, or the reverse.
+ */
+type Raised = { message: string; at: number } | null;
+
+function newest(a: Raised, b: Raised): Raised {
+  if (!a) return b;
+  if (!b) return a;
+  return a.at >= b.at ? a : b;
 }
+
+// ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
 function ChevronDown({ className = "" }: { className?: string }) {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={className} aria-hidden="true">
@@ -72,34 +67,6 @@ function DotsIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-function CheckboxIcon({ checked, className = "" }: { checked: boolean; className?: string }) {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
-      {checked && <path d="M5 8.2l2 2 4-4.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
-    </svg>
-  );
-}
-
-// Re-derive `selected` against a freshly-fetched `changed` list: keep it if
-// the file still has content in its current `selected.staged` section, flip
-// to the other section if it moved there (e.g. the whole file — or its last
-// remaining hunk — just got staged/unstaged), or clear it if the file no
-// longer appears in either section. Shared by every mutation path that can
-// move a file between sections (whole-file stage/unstage/discard, per-hunk
-// staging, stash push/pop/drop, rebase) so none of them dead-end the diff
-// pane on a file that just left the Changes list.
-function deriveSelected(
-  files: ChangedFile[],
-  selected: { path: string; staged: boolean } | null,
-): { path: string; staged: boolean } | null {
-  if (!selected) return null;
-  const inSection = (staged: boolean) =>
-    files.some((f) => f.path === selected.path && (staged ? f.staged : f.unstaged || f.untracked));
-  if (inSection(selected.staged)) return selected;
-  if (inSection(!selected.staged)) return { path: selected.path, staged: !selected.staged };
-  return null;
-}
 
 // Tab registry — tiers which sub-nav entries need the "advanced" git tools
 // setting on. Core tabs (Changes/Branches/Sync) always show; advanced tabs
@@ -121,14 +88,16 @@ const GIT_TABS: { id: GitTabId; label: string; tier: "core" | "advanced" }[] = [
  * card's GitBadge popover. Reads the same store-backed GitStatus (the Rust
  * poller keeps `appGit[app.id]` fresh) and drives the same git commands.
  *
- * Layout mirrors docs/design-mockups/08_porta_git_tab_full.html: one unified
- * panel that fills the pane, a Changes/Branches/Sync/History/Stash/Tags/Rebase
- * sub-nav, a branch pill + Sync/overflow header, and a body. Changes (two-pane
- * diff/stage/commit) and Branches (list + switch + create) are live tabs
- * backed by real git commands; Sync is an inline fetch/pull/push panel; the
- * remaining tabs render their full workflow panels. The History/PR/Stash/Tags/Rebase
- * tabs are "advanced" — hidden from the sub-nav
- * (see `GIT_TABS`) unless the user has opted into advanced git tools.
+ * This component is the shell only: the theme root, a branch pill + Sync/
+ * overflow header, the Changes/Branches/Sync/History/Stash/Tags/Rebase sub-nav
+ * and the body switch. Every tab's content lives in its own component under
+ * ./git/ — Status included (`StatusTab`). The History/PR/Stash/Tags/Rebase tabs
+ * are "advanced" — hidden from the sub-nav (see `GIT_TABS`) unless the user has
+ * opted into advanced git tools. Status is the one tab that stays mounted while
+ * another tab is showing, so a commit draft survives the round trip.
+ *
+ * The whole tree hangs off `.git-tab-root`, which is what scopes the seven git
+ * palettes (src/styles/git-theme.css) to this tab and nothing else.
  */
 export default function GitTab({ app }: { app: App }) {
   const status = usePortaStore((s) => s.appGit[app.id]);
@@ -136,30 +105,32 @@ export default function GitTab({ app }: { app: App }) {
   const pollError = usePortaStore((s) => s.appGitError[app.id]);
   const setAppGitError = usePortaStore((s) => s.setAppGitError);
   const gitAdvancedEnabled = usePortaStore((s) => s.gitAdvancedEnabled);
+  const gitTheme = usePortaStore((s) => s.gitTheme);
+  const setGitTheme = usePortaStore((s) => s.setGitTheme);
 
   const [tab, setTab] = useState<GitTabId>("changes");
   const [busy, setBusy] = useState<Busy>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The shell's own failures (sync ops, branch switch, theme write) and — via
+  // `onError` — the Status tab's, reported up so the shell can draw them in the
+  // one error slot instead of the tab stacking a second box under this one.
+  // Both are stamped on the way in; `newest` picks the one to show.
+  const raiseSeq = useRef(0);
+  const [shellError, setShellError] = useState<Raised>(null);
+  const [statusError, setStatusError] = useState<Raised>(null);
+  const setError = useCallback((message: string | null) => {
+    setShellError(message === null ? null : { message, at: ++raiseSeq.current });
+  }, []);
+  const reportStatusError = useCallback((message: string | null) => {
+    setStatusError(message === null ? null : { message, at: ++raiseSeq.current });
+  }, []);
   const [branches, setBranches] = useState<BranchList | null>(null);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [branchQuery, setBranchQuery] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
   const [branchOpen, setBranchOpen] = useState(false);
   const [opsOpen, setOpsOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
 
-  // ── Working-surface state (changed files / diff / commit box) ──────────────
-  const [changed, setChanged] = useState<ChangedFile[]>([]);
-  const [selected, setSelected] = useState<{ path: string; staged: boolean } | null>(null);
-  const [commitMsg, setCommitMsg] = useState("");
-  const [amend, setAmend] = useState(false);
-  const [committing, setCommitting] = useState(false);
-  const [mutating, setMutating] = useState<string | null>(null);
-  const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
-  const [checkedStaged, setCheckedStaged] = useState<Set<string>>(new Set());
-  const [checkedUnstaged, setCheckedUnstaged] = useState<Set<string>>(new Set());
-  const [confirmDiscardSelected, setConfirmDiscardSelected] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<{ path: string; staged: boolean } | null>(null);
-  const [renameName, setRenameName] = useState("");
   // Local "probed, not a repo" bookkeeping — the store only holds GitStatus, so
   // a non-repo can't be recorded there; this stops the seeding effect refiring.
   const probedNonRepo = useRef(false);
@@ -170,6 +141,12 @@ export default function GitTab({ app }: { app: App }) {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => { probedNonRepo.current = false; }, [app.root_dir]);
+
+  // The error surface sits above the body, so it is on screen for every tab.
+  // Nothing else clears it on navigation, and a stale sync failure trailing the
+  // user through Branches/Tags/History reads as a fresh failure there — so
+  // changing tabs dismisses it.
+  useEffect(() => { setError(null); }, [tab, setError]);
 
   // If advanced tools get disabled while an advanced tab is open, snap back
   // to Changes so the active tab is never hidden from the sub-nav.
@@ -202,165 +179,13 @@ export default function GitTab({ app }: { app: App }) {
     gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
   }, [status, app.root_dir]);
 
-  // Load changed files once we know it's a repo (mirrors the branches effect).
-  useEffect(() => {
-    if (!status || !app.root_dir) return;
-    let cancelled = false;
-    gitChangedFiles(app.root_dir)
-      .then((files) => { if (!cancelled) setChanged(files); })
-      .catch(() => { if (!cancelled) setChanged([]); });
-    return () => { cancelled = true; };
-  }, [status, app.root_dir]);
-
-  // Refresh both the changed-file list and the header GitStatus badge after any
-  // mutation, keeping the store-backed poller value in sync — and re-derive
-  // `selected` (via `deriveSelected`) against the fresh list so the diff pane
-  // follows a file that moved sections instead of dead-ending. This is the
-  // shared refetch handed to DiffView (per-hunk staging), StashPanel and
-  // RebasePanel as `onChanged`, so all of those paths get the same treatment.
-  async function refreshAfterMutation(): Promise<ChangedFile[]> {
-    const [files, fresh] = await Promise.all([
-      gitChangedFiles(app.root_dir),
-      gitStatus(app.root_dir),
-    ]);
-    if (!mounted.current) return files;
-    setChanged(files);
+  // Refresh the header GitStatus badge after a mutation in any tab, keeping the
+  // store-backed poller value in sync. Handed to every panel as `onChanged`;
+  // the Status tab owns its own changed-file refetch (see StatusTab).
+  async function refreshStatus() {
+    const fresh = await gitStatus(app.root_dir);
+    if (!mounted.current) return;
     if (fresh) setAppGit(app.id, fresh);
-    setSelected((sel) => deriveSelected(files, sel));
-    const stagedPaths = new Set(files.filter((file) => file.staged).map((file) => file.path));
-    const unstagedPaths = new Set(files.filter((file) => file.unstaged || file.untracked).map((file) => file.path));
-    setCheckedStaged((previous) => new Set([...previous].filter((path) => stagedPaths.has(path))));
-    setCheckedUnstaged((previous) => new Set([...previous].filter((path) => unstagedPaths.has(path))));
-    return files;
-  }
-
-  function toggleChecked(stagedSection: boolean, path: string) {
-    const setter = stagedSection ? setCheckedStaged : setCheckedUnstaged;
-    setter((previous) => {
-      const next = new Set(previous);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-    setConfirmDiscardSelected(false);
-  }
-
-  function setManyChecked(stagedSection: boolean, paths: string[], nextChecked: boolean) {
-    const setter = stagedSection ? setCheckedStaged : setCheckedUnstaged;
-    setter((previous) => {
-      const next = new Set(previous);
-      for (const path of paths) {
-        if (nextChecked) next.add(path);
-        else next.delete(path);
-      }
-      return next;
-    });
-    setConfirmDiscardSelected(false);
-  }
-
-  async function mutateSelected(kind: "stage" | "unstage" | "discard") {
-    setMutating(`selected:${kind}`);
-    setError(null);
-    try {
-      if (kind === "stage") {
-        for (const path of checkedUnstaged) await gitStage(app.root_dir, path);
-      } else if (kind === "unstage") {
-        for (const path of checkedStaged) await gitUnstage(app.root_dir, path);
-      } else {
-        const selectedPaths = new Map<string, boolean>();
-        for (const path of checkedUnstaged) selectedPaths.set(path, false);
-        for (const path of checkedStaged) selectedPaths.set(path, true);
-        for (const [path, stagedSection] of selectedPaths) {
-          await gitDiscard(app.root_dir, path, stagedSection);
-        }
-      }
-      await refreshAfterMutation();
-      if (!mounted.current) return;
-      setCheckedStaged(new Set());
-      setCheckedUnstaged(new Set());
-      setConfirmDiscardSelected(false);
-    } catch (cause) {
-      if (mounted.current) setError(String(cause));
-    } finally {
-      if (mounted.current) setMutating(null);
-    }
-  }
-
-  function beginRename(path: string, stagedSection: boolean) {
-    setRenameTarget({ path, staged: stagedSection });
-    setRenameName(path.slice(path.lastIndexOf("/") + 1));
-    setSelected({ path, staged: stagedSection });
-  }
-
-  async function renameSelected() {
-    if (!renameTarget || !renameName.trim() || mutating) return;
-    setMutating(`rename:${renameTarget.path}`);
-    setError(null);
-    try {
-      const destination = await gitRenamePath(app.root_dir, renameTarget.path, renameName.trim());
-      await refreshAfterMutation();
-      if (!mounted.current) return;
-      setSelected({ path: destination, staged: false });
-      setRenameTarget(null);
-      setRenameName("");
-    } catch (cause) {
-      if (mounted.current) setError(String(cause));
-    } finally {
-      if (mounted.current) setMutating(null);
-    }
-  }
-
-  // stage(+) / unstage(−) / discard a whole file. `refreshAfterMutation`
-  // already re-derives `selected` (see above), so there's nothing left to do
-  // here once it resolves.
-  async function mutateFile(path: string, fn: () => Promise<void>) {
-    setMutating(path);
-    setError(null);
-    try {
-      await fn();
-      await refreshAfterMutation();
-    } catch (e) {
-      if (mounted.current) setError(String(e));
-    } finally {
-      if (mounted.current) setMutating(null);
-    }
-  }
-
-  // stage all / unstage all files. Uses a sentinel marker to gate the disable.
-  async function mutateBulk(op: "stageAll" | "unstageAll" | "discardAll") {
-    setMutating(op);
-    setError(null);
-    try {
-      if (op === "stageAll") await gitStageAll(app.root_dir);
-      else if (op === "unstageAll") await gitUnstageAll(app.root_dir);
-      else await gitDiscardAll(app.root_dir);
-      await refreshAfterMutation();
-      if (mounted.current) setConfirmDiscardAll(false);
-    } catch (e) {
-      if (mounted.current) setError(String(e));
-    } finally {
-      if (mounted.current) setMutating(null);
-    }
-  }
-
-  async function doCommit(thenPush: boolean) {
-    const msg = commitMsg.trim();
-    setCommitting(true);
-    setError(null);
-    try {
-      if (amend) await gitCommitAmend(app.root_dir, msg);
-      else await gitCommit(app.root_dir, msg);
-      if (thenPush) await gitPush(app.root_dir);
-      await refreshAfterMutation();
-      if (!mounted.current) return;
-      setCommitMsg("");
-      setAmend(false);
-      setSelected(null);
-    } catch (e) {
-      if (mounted.current) setError(String(e));
-    } finally {
-      if (mounted.current) setCommitting(false);
-    }
   }
 
   async function run(kind: Exclude<Busy, null>) {
@@ -377,6 +202,20 @@ export default function GitTab({ app }: { app: App }) {
       if (mounted.current) setError(String(e));
     } finally {
       if (mounted.current) setBusy(null);
+    }
+  }
+
+  // The store applies the palette immediately and then writes it to the Tauri
+  // config; if that write fails the setter puts the previous palette back (see
+  // `setGitTheme` in store/slices/ui.ts), so the picker and the config never
+  // disagree. The failure is still the user's to know about — it lands on the
+  // shell's error line.
+  async function pickTheme(id: GitTheme) {
+    setError(null);
+    try {
+      await setGitTheme(id);
+    } catch (e) {
+      if (mounted.current) setError(`Couldn't save the theme: ${String(e)}`);
     }
   }
 
@@ -401,27 +240,16 @@ export default function GitTab({ app }: { app: App }) {
     }
   }
 
-  if (pollError) {
-    return (
-      <div className="p-6 max-w-xl">
-        <Card>
-          <div className="text-[13px] text-ink mb-1.5">Porta couldn't read this repo</div>
-          <pre className="text-[11px] font-mono text-warn whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{pollError}</pre>
-        </Card>
-      </div>
-    );
-  }
+  // Both "can't read this repo" and "not a repo" take over the whole tab, but
+  // neither may be an early return: the poll error is transient (the Rust
+  // poller retracts it on the next successful 15s tick) and an early return
+  // would unmount the persistent StatusTab below, throwing away the commit
+  // draft the user was typing. So they render *inside* the one tree, replacing
+  // the chrome and the other panels while Status stays mounted-but-hidden.
+  const blocked = pollError ? "unreadable" : !status ? "non-repo" : null;
 
-  if (!status) {
-    return (
-      <EmptyState
-        title="Not a git repository"
-        hint={`No .git found under ${app.root_dir || "this app's root"}.`}
-      />
-    );
-  }
-
-  const { branch, ahead, behind, dirty, upstream, detached } = status;
+  const { branch, ahead, behind, dirty, upstream, detached } =
+    status ?? { branch: "", ahead: 0, behind: 0, dirty: 0, upstream: null, detached: false };
 
   // Merge local + unambiguous remote-only branches into a switch list.
   const rows: Array<{ name: string; kind: "local" | "remote" }> = [];
@@ -451,184 +279,250 @@ export default function GitTab({ app }: { app: App }) {
   const clean = ahead === 0 && behind === 0 && dirty === 0;
   const visibleTabs = GIT_TABS.filter((t) => t.tier === "core" || gitAdvancedEnabled);
 
-  const stagedFiles = changed.filter((f) => f.staged);
-  const unstagedFiles = changed.filter((f) => f.unstaged || f.untracked);
-  const canCommit =
-    !committing &&
-    (amend
-      ? stagedFiles.length > 0 || commitMsg.trim() !== ""
-      : stagedFiles.length > 0 && commitMsg.trim() !== "");
-
   return (
-    <div className="h-full p-3">
-      <div className="h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden">
-        {/* Sub-nav — core and advanced native Git workflows. */}
-        <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
-          {visibleTabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === t.id ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-            >
-              {t.label}
-              {t.id === "changes" && dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
-              {t.id === "branches" && branches && <span className="text-ink-3"> {branches.local.length}</span>}
-            </button>
-          ))}
-          <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
-            {upstream ? `↕ ${upstream}` : "no upstream"}
-          </span>
-        </div>
-
-        {/* Branch pill + sync / overflow ops. */}
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-subtle bg-surface-1">
-          <Popover
-            open={branchOpen}
-            onClose={() => setBranchOpen(false)}
-            width="w-72"
-            anchor={
-              <button
-                onClick={() => setBranchOpen((v) => !v)}
-                className="inline-flex items-center gap-1.5 text-[12px] border border-strong rounded-control px-2 py-1 text-ink hover:bg-white/[0.05] transition-colors duration-fast"
-              >
-                <GitBranchIcon className="text-ink-3 shrink-0" />
-                <span className="font-mono truncate max-w-[18ch]">{branch}</span>
-                {detached && <Badge tone="warn">detached</Badge>}
-                <ChevronDown className="text-ink-3 shrink-0" />
-              </button>
-            }
-          >
-            <div className="text-[11px] text-ink-3 px-1 pb-1.5">Switch branch</div>
-            <Input
-              value={branchQuery}
-              onChange={(e) => setBranchQuery(e.target.value)}
-              placeholder="Search or create branch…"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <div className="mt-2 flex flex-col gap-0.5 max-h-56 overflow-y-auto">
-              {filtered.length === 0 && !showCreate && (
-                <div className="text-[11px] text-ink-3 px-1 py-1">No matching branch.</div>
-              )}
-              {filtered.map((r) => {
-                const isCurrent = branches?.current === r.name;
-                const worktreePath = branchWorktrees.get(r.name);
-                const disabled = isCurrent || !!worktreePath || switching !== null;
-                return (
-                  <button
-                    key={`${r.kind}:${r.name}`}
-                    disabled={disabled}
-                    onClick={() => switchTo(r.name, false)}
-                    title={worktreePath ? `Checked out in ${worktreePath}` : r.name}
-                    className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-white/[0.05] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
-                  >
-                    <span className="font-mono text-ink flex-1 truncate">
-                      {isCurrent && <span className="text-ok">● </span>}
-                      {r.name}
-                      {r.kind === "remote" && <span className="text-ink-3"> ↗</span>}
-                    </span>
-                    {isCurrent ? (
-                      <span className="text-[10px] text-ink-3">current</span>
-                    ) : worktreePath ? (
-                      <span className="text-[10px] text-warn shrink-0">in worktree</span>
-                    ) : switching === r.name ? (
-                      <span className="text-[10px] text-ink-3">…</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-              {showCreate && (
-                <button
-                  disabled={switching !== null}
-                  onClick={() => switchTo(q, true)}
-                  className="mt-1 w-full text-left text-[11px] text-ok hover:bg-white/[0.05] rounded-control px-1.5 py-1.5 disabled:opacity-40"
-                >
-                  {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
-                </button>
-              )}
-            </div>
-          </Popover>
-
-          {/* Inline ahead/behind/dirty indicators. */}
-          {clean ? (
-            <span className="text-[11px] text-ink-3">in sync</span>
-          ) : (
-            <span className="inline-flex items-center gap-2 text-[11px] font-mono">
-              {ahead > 0 && <span className="text-ink-2" title={`${ahead} to push`}>↑{ahead}</span>}
-              {behind > 0 && <span className="text-ink-2" title={`${behind} to pull`}>↓{behind}</span>}
-              {dirty > 0 && <span className="text-warn" title={`${dirty} uncommitted`}>●{dirty}</span>}
-            </span>
-          )}
-
-          <div className="ml-auto flex items-center gap-1.5">
-            {/* Single accent Sync — fetch, or pull when behind. */}
-            <button
-              onClick={() => run(behind > 0 ? "pull" : "fetch")}
-              disabled={busy !== null}
-              className="inline-flex items-center gap-1.5 text-[11px] text-accent-ink bg-accent-bg rounded-control px-2.5 py-1 hover:brightness-110 disabled:opacity-40 disabled:pointer-events-none transition duration-fast"
-            >
-              <RefreshIcon className={syncBusy ? "animate-spin" : ""} />
-              {syncBusy ? "Syncing…" : "Sync"}
-            </button>
-
-            {/* Overflow: explicit Fetch / Pull / Push. */}
-            <Popover
-              open={opsOpen}
-              onClose={() => setOpsOpen(false)}
-              align="right"
-              width="w-40"
-              anchor={
-                <button
-                  onClick={() => setOpsOpen((v) => !v)}
-                  className="inline-flex items-center border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-white/[0.05] transition-colors duration-fast"
-                  aria-label="More git actions"
-                >
-                  <DotsIcon />
-                </button>
-              }
-            >
-              <button
-                onClick={() => { setOpsOpen(false); run("fetch"); }}
-                disabled={busy !== null}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-              >
-                {busy === "fetch" ? "Fetching…" : "Fetch"}
-              </button>
-              <button
-                onClick={() => { setOpsOpen(false); run("pull"); }}
-                disabled={busy !== null || behind === 0}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-              >
-                {busy === "pull" ? "Pulling…" : "Pull"}
-              </button>
-              <button
-                onClick={() => { setOpsOpen(false); run("push"); }}
-                disabled={busy !== null || ahead === 0}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-              >
-                {busy === "push" ? "Pushing…" : "Push"}
-              </button>
-            </Popover>
+    <div className={blocked ? "git-tab-root h-full" : "git-tab-root h-full p-3"} data-git-theme={gitTheme}>
+      <div className={blocked ? "h-full" : "h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden"}>
+        {blocked === "unreadable" ? (
+          <div className="p-6 max-w-xl">
+            <Card>
+              <div className="text-[13px] text-ink mb-1.5">Porta couldn't read this repo</div>
+              <pre className="text-[11px] font-mono text-warn whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{pollError}</pre>
+            </Card>
           </div>
-        </div>
+        ) : blocked === "non-repo" ? (
+          <EmptyState
+            title="Not a git repository"
+            hint={`No .git found under ${app.root_dir || "this app's root"}.`}
+          />
+        ) : (
+          <>
+            {/* Sub-nav — core and advanced native Git workflows. */}
+            <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
+              {visibleTabs.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === t.id ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+                >
+                  {t.label}
+                  {t.id === "changes" && dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
+                  {t.id === "branches" && branches && <span className="text-ink-3"> {branches.local.length}</span>}
+                </button>
+              ))}
+              <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
+                {upstream ? `↕ ${upstream}` : "no upstream"}
+              </span>
+            </div>
 
-        {/* Body — full Git workflows or the two-pane Status working surface. */}
-        {tab === "sync" ? (
-          <SyncPanel app={app} status={status} onChanged={refreshAfterMutation} />
+            {/* Branch pill + sync / overflow ops. */}
+            <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-subtle bg-surface-1">
+              <Popover
+                open={branchOpen}
+                onClose={() => setBranchOpen(false)}
+                width="w-72"
+                anchor={
+                  <button
+                    onClick={() => setBranchOpen((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-[12px] border border-strong rounded-control px-2 py-1 text-ink hover:bg-[var(--hover)] transition-colors duration-fast"
+                  >
+                    <GitBranchIcon className="text-ink-3 shrink-0" />
+                    <span className="font-mono truncate max-w-[18ch]">{branch}</span>
+                    {detached && <Badge tone="warn">detached</Badge>}
+                    <ChevronDown className="text-ink-3 shrink-0" />
+                  </button>
+                }
+              >
+                <div className="text-[11px] text-ink-3 px-1 pb-1.5">Switch branch</div>
+                <Input
+                  value={branchQuery}
+                  onChange={(e) => setBranchQuery(e.target.value)}
+                  placeholder="Search or create branch…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <div className="mt-2 flex flex-col gap-0.5 max-h-56 overflow-y-auto">
+                  {filtered.length === 0 && !showCreate && (
+                    <div className="text-[11px] text-ink-3 px-1 py-1">No matching branch.</div>
+                  )}
+                  {filtered.map((r) => {
+                    const isCurrent = branches?.current === r.name;
+                    const worktreePath = branchWorktrees.get(r.name);
+                    const disabled = isCurrent || !!worktreePath || switching !== null;
+                    return (
+                      <button
+                        key={`${r.kind}:${r.name}`}
+                        disabled={disabled}
+                        onClick={() => switchTo(r.name, false)}
+                        title={worktreePath ? `Checked out in ${worktreePath}` : r.name}
+                        className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-[var(--hover)] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
+                      >
+                        <span className="font-mono text-ink flex-1 truncate">
+                          {isCurrent && <span className="text-ok">● </span>}
+                          {r.name}
+                          {r.kind === "remote" && <span className="text-ink-3"> ↗</span>}
+                        </span>
+                        {isCurrent ? (
+                          <span className="text-[10px] text-ink-3">current</span>
+                        ) : worktreePath ? (
+                          <span className="text-[10px] text-warn shrink-0">in worktree</span>
+                        ) : switching === r.name ? (
+                          <span className="text-[10px] text-ink-3">…</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                  {showCreate && (
+                    <button
+                      disabled={switching !== null}
+                      onClick={() => switchTo(q, true)}
+                      className="mt-1 w-full text-left text-[11px] text-ok hover:bg-[var(--hover)] rounded-control px-1.5 py-1.5 disabled:opacity-40"
+                    >
+                      {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
+                    </button>
+                  )}
+                </div>
+              </Popover>
+
+              {/* Inline ahead/behind/dirty indicators. */}
+              {clean ? (
+                <span className="text-[11px] text-ink-3">in sync</span>
+              ) : (
+                <span className="inline-flex items-center gap-2 text-[11px] font-mono">
+                  {ahead > 0 && <span className="text-ink-2" title={`${ahead} to push`}>↑{ahead}</span>}
+                  {behind > 0 && <span className="text-ink-2" title={`${behind} to pull`}>↓{behind}</span>}
+                  {dirty > 0 && <span className="text-warn" title={`${dirty} uncommitted`}>●{dirty}</span>}
+                </span>
+              )}
+
+              <div className="ml-auto flex items-center gap-1.5">
+                {/* Single accent Sync — fetch, or pull when behind. */}
+                <button
+                  onClick={() => run(behind > 0 ? "pull" : "fetch")}
+                  disabled={busy !== null}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-accent-ink bg-accent-bg rounded-control px-2.5 py-1 hover:brightness-110 disabled:opacity-40 disabled:pointer-events-none transition duration-fast"
+                >
+                  <RefreshIcon className={syncBusy ? "animate-spin" : ""} />
+                  {syncBusy ? "Syncing…" : "Sync"}
+                </button>
+
+                {/* Palette picker — scoped to this tab via `.git-tab-root`. */}
+                <Popover
+                  open={themeOpen}
+                  onClose={() => setThemeOpen(false)}
+                  align="right"
+                  width="w-40"
+                  anchor={
+                    <button
+                      onClick={() => setThemeOpen((v) => !v)}
+                      className="inline-flex items-center gap-1.5 text-[11px] border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
+                    >
+                      Theme
+                      <ChevronDown className="text-ink-3 shrink-0" />
+                    </button>
+                  }
+                >
+                  <div role="menu" aria-label="Git tab theme">
+                    {GIT_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        role="menuitem"
+                        onClick={() => { setThemeOpen(false); void pickTheme(t.id); }}
+                        className={`w-full text-left text-[12px] px-2 py-1.5 rounded-lg hover:bg-[var(--hover)] transition-colors ${t.id === gitTheme ? "text-accent" : "text-ink"}`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </Popover>
+
+                {/* Overflow: explicit Fetch / Pull / Push. */}
+                <Popover
+                  open={opsOpen}
+                  onClose={() => setOpsOpen(false)}
+                  align="right"
+                  width="w-40"
+                  anchor={
+                    <button
+                      onClick={() => setOpsOpen((v) => !v)}
+                      className="inline-flex items-center border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
+                      aria-label="More git actions"
+                    >
+                      <DotsIcon />
+                    </button>
+                  }
+                >
+                  <button
+                    onClick={() => { setOpsOpen(false); run("fetch"); }}
+                    disabled={busy !== null}
+                    className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {busy === "fetch" ? "Fetching…" : "Fetch"}
+                  </button>
+                  <button
+                    onClick={() => { setOpsOpen(false); run("pull"); }}
+                    disabled={busy !== null || behind === 0}
+                    className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {busy === "pull" ? "Pulling…" : "Pull"}
+                  </button>
+                  <button
+                    onClick={() => { setOpsOpen(false); run("push"); }}
+                    disabled={busy !== null || ahead === 0}
+                    className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {busy === "push" ? "Pushing…" : "Push"}
+                  </button>
+                </Popover>
+              </div>
+            </div>
+
+            {/* The one error slot. Shell-level failures (sync ops, branch
+                switch) fill it on every tab; on Status the tab's own failure
+                competes for it, because that is the surface the user is looking
+                at and two stacked boxes read as two separate problems. Whichever
+                was raised last wins — a Status failure the user has already read
+                must not hide a sync failure they just caused, or the reverse.
+                Off Status the tab's failure isn't drawn at all: its surface
+                isn't on screen. */}
+            <ErrorNotice
+              message={(tab === "changes" ? newest(shellError, statusError) : shellError)?.message ?? null}
+            />
+          </>
+        )}
+
+        {/* Body — one component per tab.
+            Status is deliberately outside the switch: it holds user-authored
+            draft state (commit message, staged selection, an in-progress
+            rename) plus an already-loaded changed-file list, none of which may
+            be thrown away by a trip to History and back — nor by a poll error
+            blanking the tab for one 15s tick. It stays mounted for every tab
+            and every `blocked` state, and is hidden whenever it isn't the
+            thing on screen. `ActivePane` is that slot: it hides rather than
+            unmounts, and passes "you are hidden" down so the tab's refetches
+            can idle instead of running behind display:none. The slot has to
+            stay at a fixed position among its siblings — that, not the JSX
+            being written once, is what makes React keep the mount. Every other
+            tab keeps its mount-on-demand behaviour — none holds a draft. */}
+        <ActivePane active={!blocked && tab === "changes"} className="flex-1 min-h-0 flex flex-col">
+          <StatusTab app={app} onError={reportStatusError} />
+        </ActivePane>
+
+        {blocked || !status ? null : tab === "sync" ? (
+          <SyncPanel app={app} status={status} onChanged={refreshStatus} />
         ) : tab === "history" ? (
-          <HistoryPanel app={app} onChanged={refreshAfterMutation} />
+          <HistoryPanel app={app} onChanged={refreshStatus} />
         ) : tab === "pull-requests" ? (
           <PullRequestsPanel
             app={app}
             currentBranch={branch}
-            onRepositoryChanged={async () => { await refreshAfterMutation(); }}
+            onRepositoryChanged={refreshStatus}
           />
         ) : tab === "stash" ? (
-          <StashPanel app={app} onChanged={refreshAfterMutation} />
+          <StashPanel app={app} onChanged={refreshStatus} />
         ) : tab === "tags" ? (
           <TagsPanel app={app} />
         ) : tab === "rebase" ? (
-          <RebasePanel app={app} onChanged={refreshAfterMutation} />
+          <RebasePanel app={app} onChanged={refreshStatus} />
         ) : tab === "branches" ? (
           <BranchesPanel app={app} onRepositoryChanged={async () => {
             const [fresh, list] = await Promise.all([
@@ -638,273 +532,7 @@ export default function GitTab({ app }: { app: App }) {
             if (fresh) setAppGit(app.id, fresh);
             setBranches(list);
           }} />
-        ) : (
-        <div className="flex-1 min-h-0 flex flex-col">
-          {error && (
-            <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
-          )}
-
-          {changed.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-8">
-              <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-ink-3">
-                <GitBranchIcon className="scale-125" />
-              </div>
-              <div className="text-[13px] text-ink">Working tree clean</div>
-              <p className="text-[12px] text-ink-3 max-w-xs">
-                Nothing staged or modified.
-                {(ahead > 0 || behind > 0) && (
-                  <>
-                    {" "}
-                    {ahead > 0 && `${ahead} to push`}
-                    {ahead > 0 && behind > 0 && " · "}
-                    {behind > 0 && `${behind} to pull`}
-                    .
-                  </>
-                )}
-              </p>
-            </div>
-          ) : (
-            <div className="flex-1 min-h-0 flex">
-              {/* Left pane — Staged / Changes sections. */}
-              <div className="w-[240px] shrink-0 border-r border-subtle overflow-y-auto py-1">
-                {(checkedStaged.size > 0 || checkedUnstaged.size > 0) && (
-                  <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-2 py-1.5">
-                    <span className="mr-auto text-[10px] text-ink-3">
-                      {new Set([...checkedStaged, ...checkedUnstaged]).size} selected
-                    </span>
-                    {checkedUnstaged.size > 0 && (
-                      <button
-                        onClick={() => mutateSelected("stage")}
-                        disabled={mutating !== null}
-                        className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
-                      >
-                        Stage
-                      </button>
-                    )}
-                    {checkedStaged.size > 0 && (
-                      <button
-                        onClick={() => mutateSelected("unstage")}
-                        disabled={mutating !== null}
-                        className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
-                      >
-                        Unstage
-                      </button>
-                    )}
-                    {confirmDiscardSelected ? (
-                      <>
-                        <button
-                          onClick={() => mutateSelected("discard")}
-                          disabled={mutating !== null}
-                          className="text-[10px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setConfirmDiscardSelected(false)}
-                          disabled={mutating !== null}
-                          className="text-[10px] text-ink-3 hover:text-ink"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDiscardSelected(true)}
-                        disabled={mutating !== null}
-                        className="text-[10px] text-bad hover:brightness-125 disabled:opacity-40"
-                      >
-                        Discard
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="flex items-center justify-end gap-1.5 px-2 py-1 border-b border-subtle">
-                  {confirmDiscardAll ? (
-                    <>
-                      <span className="text-[11px] text-bad">Discard every change?</span>
-                      <button
-                        onClick={() => mutateBulk("discardAll")}
-                        disabled={mutating !== null}
-                        className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
-                      >
-                        {mutating === "discardAll" ? "Discarding…" : "Confirm"}
-                      </button>
-                      <button
-                        onClick={() => setConfirmDiscardAll(false)}
-                        disabled={mutating !== null}
-                        className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDiscardAll(true)}
-                      disabled={mutating !== null}
-                      className="text-[11px] text-ink-3 hover:text-bad disabled:opacity-40"
-                    >
-                      Discard all
-                    </button>
-                  )}
-                </div>
-                {stagedFiles.length > 0 && (
-                  <>
-                    <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                      <span>Staged Changes · {stagedFiles.length}</span>
-                      <button
-                        onClick={() => mutateBulk("unstageAll")}
-                        disabled={mutating !== null}
-                        className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                      >
-                        {mutating === "unstageAll" ? "Unstaging…" : "Unstage all"}
-                      </button>
-                    </div>
-                    <FileTree
-                      files={stagedFiles}
-                      staged
-                      selected={selected}
-                      mutating={mutating}
-                      checked={checkedStaged}
-                      onCheck={(path) => toggleChecked(true, path)}
-                      onCheckMany={(paths, value) => setManyChecked(true, paths, value)}
-                      onSelect={(path) => setSelected({ path, staged: true })}
-                      onToggle={(path) => mutateFile(path, () => gitUnstage(app.root_dir, path))}
-                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, true))}
-                      onRename={(path) => beginRename(path, true)}
-                      onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
-                    />
-                  </>
-                )}
-                {unstagedFiles.length > 0 && (
-                  <>
-                    <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                      <span>Changes · {unstagedFiles.length}</span>
-                      <button
-                        onClick={() => mutateBulk("stageAll")}
-                        disabled={mutating !== null}
-                        className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                      >
-                        {mutating === "stageAll" ? "Staging…" : "Stage all"}
-                      </button>
-                    </div>
-                    <FileTree
-                      files={unstagedFiles}
-                      staged={false}
-                      selected={selected}
-                      mutating={mutating}
-                      checked={checkedUnstaged}
-                      onCheck={(path) => toggleChecked(false, path)}
-                      onCheckMany={(paths, value) => setManyChecked(false, paths, value)}
-                      onSelect={(path) => setSelected({ path, staged: false })}
-                      onToggle={(path) => mutateFile(path, () => gitStage(app.root_dir, path))}
-                      onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, false))}
-                      onRename={(path) => beginRename(path, false)}
-                      onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
-                    />
-                  </>
-                )}
-              </div>
-
-              {/* Right pane — unified diff + commit box. */}
-              <div className="flex-1 min-w-0 flex flex-col">
-                {renameTarget && (
-                  <div className="flex shrink-0 items-center gap-2 border-b border-subtle bg-surface-1 px-3 py-2">
-                    <span className="shrink-0 text-[11px] text-ink-3">Rename</span>
-                    <span className="max-w-[35%] truncate font-mono text-[11px] text-ink-2" title={renameTarget.path}>
-                      {renameTarget.path}
-                    </span>
-                    <Input
-                      value={renameName}
-                      onChange={(event) => setRenameName(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void renameSelected();
-                        if (event.key === "Escape") setRenameTarget(null);
-                      }}
-                      autoFocus
-                      className="max-w-sm !py-1 font-mono"
-                    />
-                    <button
-                      onClick={renameSelected}
-                      disabled={!renameName.trim() || mutating !== null}
-                      className="text-[11px] font-medium text-accent disabled:opacity-40"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setRenameTarget(null)}
-                      disabled={mutating !== null}
-                      className="text-[11px] text-ink-3 hover:text-ink"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-                <div className="flex-1 min-h-0 overflow-auto bg-surface-code font-mono text-[11px] leading-[1.7] px-3 py-2.5">
-                  {!selected ? (
-                    <div className="h-full flex items-center justify-center text-ink-3 text-[12px] font-sans">
-                      Select a file to view its diff
-                    </div>
-                  ) : (
-                    <DiffView
-                      key={`${selected.path}:${selected.staged}`}
-                      app={app}
-                      path={selected.path}
-                      staged={selected.staged}
-                      onChanged={refreshAfterMutation}
-                    />
-                  )}
-                </div>
-
-                {/* Commit box. */}
-                <div className="shrink-0 border-t border-subtle p-3 bg-surface-1">
-                  <textarea
-                    value={commitMsg}
-                    onChange={(e) => setCommitMsg(e.target.value)}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                        e.preventDefault();
-                        if (canCommit) doCommit(false);
-                      }
-                    }}
-                    placeholder={amend ? "Amend message (blank keeps existing)…" : "Commit message…"}
-                    rows={2}
-                    spellCheck={false}
-                    className="w-full resize-none rounded-control border border-subtle bg-surface-input text-[12px] text-ink placeholder:text-ink-3 px-2.5 py-1.5 mb-1.5 focus:outline-none focus:border-strong"
-                  />
-                  <div className="flex items-center justify-between mb-1.5 px-0.5 text-[10px] text-ink-3">
-                    <span>⌘↵ to commit</span>
-                    {stagedFiles.length > 0 && <span>{stagedFiles.length} staged</span>}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => doCommit(false)}
-                      disabled={!canCommit}
-                      className="text-[11px] text-accent-ink bg-accent-bg rounded-control px-3 py-1 hover:brightness-110 disabled:opacity-40 disabled:pointer-events-none transition duration-fast"
-                    >
-                      {committing ? "Committing…" : amend ? "Amend" : "Commit"}
-                    </button>
-                    <button
-                      onClick={() => doCommit(true)}
-                      disabled={!canCommit}
-                      className="text-[11px] text-ink border border-strong rounded-control px-3 py-1 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
-                    >
-                      Commit &amp; push
-                    </button>
-                    <button
-                      onClick={() => setAmend((v) => !v)}
-                      className={`ml-auto inline-flex items-center gap-1.5 text-[11px] rounded-control px-2 py-1 transition-colors duration-fast ${amend ? "text-accent" : "text-ink-2 hover:bg-white/[0.05]"}`}
-                      aria-pressed={amend}
-                    >
-                      <CheckboxIcon checked={amend} />
-                      Amend
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

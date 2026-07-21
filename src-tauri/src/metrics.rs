@@ -61,7 +61,7 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
                     // cores); normalize to % of the machine like the process path.
                     let cpu = (cpu / ncores).min(100.0);
                     let payload = serde_json::json!({
-                        "cpu": ((cpu as f64) * 10.0).round() / 10.0,
+                        "cpu": ((cpu as f64) * 100.0).round() / 100.0,
                         "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,
                     });
                     app.emit(&format!("app:metrics:{}", app_id), payload).ok();
@@ -86,7 +86,7 @@ pub fn spawn_metrics_poller(app: tauri::AppHandle) {
                     // Normalize the summed process-tree CPU to 0-100% of the machine.
                     let cpu = (cpu / ncores).min(100.0);
                     let payload = serde_json::json!({
-                        "cpu": ((cpu as f64) * 10.0).round() / 10.0,  // 1 decimal place
+                        "cpu": ((cpu as f64) * 100.0).round() / 100.0,  // 2 decimal places
                         "mem_mb": (mem as f64 / 1_048_576.0).round() as u64,
                     });
                     app.emit(&format!("app:metrics:{}", app_id), payload).ok();

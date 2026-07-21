@@ -175,7 +175,7 @@ export default function ReadOnlyDiff({
                   key={file.path}
                   onClick={() => setSelectedPath(file.path)}
                   className={`mx-1 flex w-[calc(100%_-_8px)] items-center gap-2 rounded-control px-2 py-1.5 text-left ${
-                    selected?.path === file.path ? "bg-accent-bg" : "hover:bg-white/[0.04]"
+                    selected?.path === file.path ? "bg-accent-bg" : "hover:bg-[var(--hover)]"
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink" title={file.path}>

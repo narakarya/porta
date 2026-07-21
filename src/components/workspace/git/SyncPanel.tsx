@@ -232,7 +232,7 @@ export default function SyncPanel({
           ) : remotes.length === 0 ? (
             <div className="px-3 py-2 text-[11px] text-ink-3">No remotes configured.</div>
           ) : remotes.map((remote) => (
-            <div key={remote.name} className="mx-1 flex items-center gap-2 px-2 py-1.5 rounded-control hover:bg-white/[0.04]">
+            <div key={remote.name} className="mx-1 flex items-center gap-2 px-2 py-1.5 rounded-control hover:bg-[var(--hover)]">
               <span className="font-mono text-[11px] text-ink w-24 shrink-0 truncate">{remote.name}</span>
               <span className="font-mono text-[11px] text-ink-3 flex-1 min-w-0 truncate" title={remote.fetch_url}>
                 {remote.fetch_url}

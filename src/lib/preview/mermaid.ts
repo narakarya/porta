@@ -1,0 +1,106 @@
+/**
+ * Lazy Mermaid hydration for rendered markdown. The mermaid package is large,
+ * so it is imported only when a preview actually contains a diagram — a preview
+ * without one never downloads the chunk.
+ *
+ * Rendering only: no toolbar, no injected chrome. The preview surface owns any
+ * controls, so this module stays reusable outside the git tab — which is also
+ * why the contract is `{ dark }` and not a palette id. Callers map their own
+ * palette to a boolean; nothing here knows what a git-tab theme is.
+ */
+type Mermaid = typeof import("mermaid").default;
+
+export interface MermaidOptions {
+  /** Whether the surrounding surface is dark. Maps to Mermaid's dark/default theme. */
+  dark: boolean;
+}
+
+let mermaidPromise: Promise<Mermaid> | null = null;
+// The theme the cached instance was initialised with. Mermaid's config is
+// global, so a palette flip has to re-run initialize() or every later diagram
+// keeps the old theme.
+let mermaidDark: boolean | null = null;
+
+function getMermaid(dark: boolean): Promise<Mermaid> {
+  if (mermaidPromise && mermaidDark === dark) return mermaidPromise;
+
+  mermaidDark = dark;
+  // import() is module-cached, so a flip re-initialises the one instance
+  // rather than creating a second one; idSeq below never rewinds, so the ids
+  // it hands out stay unique across flips too.
+  const previous = mermaidPromise;
+  mermaidPromise = (previous ?? import("mermaid").then((m) => m.default)).then((mermaid) => {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: dark ? "dark" : "default",
+    });
+    return mermaid;
+  });
+  return mermaidPromise;
+}
+
+let idSeq = 0;
+
+/**
+ * Hydrates every mermaid placeholder in `root` in place. Never rejects: a
+ * malformed diagram and a failed chunk load both degrade to `.md-mermaid-error`
+ * rather than propagating, so a caller that awaits this can rely on it always
+ * settling.
+ *
+ * `signal`, if given, is checked before every DOM write; once it fires, no
+ * further block in `root` is touched by this call.
+ */
+export async function hydrateMermaid(
+  root: HTMLElement,
+  opts: MermaidOptions,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return;
+  const blocks = Array.from(root.querySelectorAll<HTMLElement>("pre.md-mermaid[data-mermaid]"));
+  if (blocks.length === 0) return;
+
+  const loading = getMermaid(opts.dark);
+  let mermaid: Mermaid;
+  try {
+    mermaid = await loading;
+  } catch (err) {
+    // The *load* failed — a chunk that never arrived, a bad initialize(). Drop
+    // the cached promise so a later preview can retry, instead of one failure
+    // disabling diagrams for the app's lifetime; only if nothing has since
+    // replaced it with a working one. Same treatment as highlight.ts.
+    if (mermaidPromise === loading) {
+      mermaidPromise = null;
+      mermaidDark = null;
+    }
+    if (signal?.aborted) return;
+    // Same degradation path as a malformed diagram below: hydrateMermaid is
+    // documented to never reject, so a load failure must not escape as one
+    // either. Every block that would have used this instance gets the error.
+    const message = err instanceof Error ? err.message : String(err);
+    for (const block of blocks) {
+      block.textContent = message;
+      block.classList.add("md-mermaid-error");
+      delete block.dataset.mermaid;
+    }
+    return;
+  }
+
+  if (signal?.aborted) return;
+
+  for (const block of blocks) {
+    if (signal?.aborted) return;
+    const src = block.dataset.mermaid ?? "";
+    try {
+      const { svg } = await mermaid.render(`md-mermaid-${idSeq++}`, src);
+      if (signal?.aborted) return;
+      block.innerHTML = svg;
+      delete block.dataset.mermaid; // hydrated once; a re-render would duplicate ids
+    } catch (err) {
+      if (signal?.aborted) return;
+      // A malformed diagram in someone's README must not blank the preview.
+      block.textContent = err instanceof Error ? err.message : String(err);
+      block.classList.add("md-mermaid-error");
+    }
+  }
+}

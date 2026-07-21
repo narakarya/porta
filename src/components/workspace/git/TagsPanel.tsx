@@ -180,7 +180,7 @@ export default function TagsPanel({ app }: { app: App }) {
             return (
               <div
                 key={t.name}
-                className="mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control hover:bg-white/[0.04] transition-colors duration-fast"
+                className="mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control hover:bg-[var(--hover)] transition-colors duration-fast"
               >
                 <span className="shrink-0 font-mono text-[11px] text-ink-1">{t.name}</span>
                 {t.subject && (
@@ -214,7 +214,7 @@ export default function TagsPanel({ app }: { app: App }) {
                     <button
                       onClick={() => doPush(t.name)}
                       disabled={busyName !== null}
-                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-white/[0.06] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
+                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-[var(--hover)] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
                     >
                       Push
                     </button>

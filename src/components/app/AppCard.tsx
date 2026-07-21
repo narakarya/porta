@@ -50,6 +50,26 @@ function resolvedHost(app: App, workspace: Workspace | null): string {
   return sub === "*" ? `*.${domain}` : `${sub}.${domain}`;
 }
 
+/** Stop with an in-flight spinner — `stopApp` returns only once the process /
+ *  compose stack is really gone, which can take tens of seconds. */
+function StopButton({ stopping, onClick }: { stopping: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={stopping}
+      title={stopping ? "Stopping…" : "Stop"}
+      className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors disabled:pointer-events-none disabled:text-zinc-400"
+    >
+      {stopping && (
+        <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      )}
+      {stopping ? "Stopping" : "Stop"}
+    </button>
+  );
+}
+
 function allHosts(app: App, workspace: Workspace | null): string[] {
   const domain = app.custom_domain || workspace?.domain || "narakarya.test";
   const primary = resolvedHost(app, workspace);
@@ -158,6 +178,20 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       setPendingRestart(false);
     }
   }, [pendingRestart, isInstance, isRestarting, isStarting, isRunning, app.status]);
+
+  // `stopApp` marks the app stopped optimistically while the IPC is still
+  // running (compose down takes 5-30s), which swapped this button set back to
+  // "Start" with no indication anything was in flight. Track the round-trip
+  // locally so Stop keeps a spinner until it really settles.
+  const [stopping, setStopping] = useState(false);
+  const handleStop = async () => {
+    setStopping(true);
+    try {
+      await doStop();
+    } finally {
+      setStopping(false);
+    }
+  };
 
   const [instancesExpanded, setInstancesExpanded] = useState(true);
   const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
@@ -730,7 +764,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             start or stop. */}
         {isManaged && (
         <div className="flex items-center gap-1">
-          {isStarting || isRestarting || pendingRestart ? (
+          {!stopping && (isStarting || isRestarting || pendingRestart) ? (
             <>
               <button
                 disabled
@@ -744,14 +778,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 </svg>
                 {isRestarting || pendingRestart ? "Restarting" : "Starting"}
               </button>
-              <button
-                onClick={doStop}
-                className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
-              >
-                Stop
-              </button>
+              <StopButton stopping={stopping} onClick={handleStop} />
             </>
-          ) : isRunning ? (
+          ) : isRunning || stopping ? (
             <>
               <button
                 onClick={async () => {
@@ -765,18 +794,14 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                     setPendingRestart(false);
                   }
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors
+                disabled={stopping}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:opacity-40 disabled:pointer-events-none
                   text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10"
                 title="Restart"
               >
                 Restart
               </button>
-              <button
-                onClick={doStop}
-                className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
-              >
-                Stop
-              </button>
+              <StopButton stopping={stopping} onClick={handleStop} />
             </>
           ) : (
             <>
@@ -797,12 +822,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   apps don't get a noisy Stop button next to Start. */}
               {(isDocker || isCompose) && crashed && (
                 <Tooltip label="Clean up any orphan containers from the failed start" className="inline-flex">
-                  <button
-                    onClick={doStop}
-                    className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
-                  >
-                    Stop
-                  </button>
+                  <StopButton stopping={stopping} onClick={handleStop} />
                 </Tooltip>
               )}
               {/* Keep port cleanup visible on stopped instances. The context

@@ -1,0 +1,259 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, useState } from "react";
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { usePortaStore } from "../../../store";
+import { gitFetch, setGitThemeCmd } from "../../../lib/commands";
+import GitTab from "../GitTab";
+
+// Only the two commands whose failure path is under test are replaced; the rest
+// keep their real out-of-Tauri behaviour (resolve to null/[]), which the shell's
+// seeding effects already tolerate.
+vi.mock("../../../lib/commands", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/commands")>();
+  return { ...actual, gitFetch: vi.fn(async () => {}), setGitThemeCmd: vi.fn(async () => {}) };
+});
+
+/**
+ * Stand-in for the real Status tab: it holds local state (a draft, exactly like
+ * the commit box) and counts its own mounts. Together those make "did the shell
+ * unmount it?" observable — a remount both resets the draft and bumps the
+ * counter, so a test can't pass by accident on a component that re-fetched.
+ */
+let statusMounts = 0;
+vi.mock("./StatusTab", () => ({
+  default: ({ onError }: { onError: (message: string | null) => void }) => {
+    const [draft, setDraft] = useState("");
+    useEffect(() => { statusMounts += 1; }, []);
+    return (
+      <div>
+        status tab body
+        <textarea aria-label="Commit message" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        {/* Stands in for any failing tab action (stage, commit, discard): the
+            real tab reports upward exactly like this. */}
+        <button onClick={() => onError("error: pathspec did not match")}>fail in status</button>
+      </div>
+    );
+  },
+}));
+
+const app = { id: "demo", root_dir: "/tmp/demo", kind: "process" } as never;
+
+/**
+ * The shell renders its chrome only once the store has a GitStatus for the app
+ * (otherwise it short-circuits to "Not a git repository"). Outside Tauri the
+ * command wrappers resolve to null, so the status has to be seeded here.
+ */
+function seed() {
+  usePortaStore.setState({
+    appGit: { demo: { branch: "main", detached: false, upstream: "origin/main", ahead: 0, behind: 0, dirty: 0 } },
+    appGitError: {},
+    gitAdvancedEnabled: true,
+    gitTheme: "dark",
+  });
+}
+
+/** Mount and flush the effects' already-resolved command promises. */
+async function renderTab() {
+  const view = render(<GitTab app={app} />);
+  await act(async () => {});
+  return view;
+}
+
+describe("GitTab shell", () => {
+  beforeEach(() => {
+    seed();
+    statusMounts = 0;
+    vi.mocked(gitFetch).mockResolvedValue(undefined);
+    vi.mocked(setGitThemeCmd).mockResolvedValue(undefined);
+  });
+
+  it("renders the Status tab body through the extracted component", async () => {
+    await renderTab();
+    expect(screen.getByText("status tab body")).toBeInTheDocument();
+  });
+
+  it("keeps the shell chrome — sub-nav, branch pill and sync — around that body", async () => {
+    await renderTab();
+    expect(screen.getByRole("button", { name: /^Status$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Rebase$/ })).toBeInTheDocument();
+    expect(screen.getByText("main")).toBeInTheDocument();
+    // The Sync sub-nav tab and the header's Sync action are both present.
+    expect(screen.getAllByRole("button", { name: /^Sync$/ })).toHaveLength(2);
+  });
+
+  it("hides advanced tabs when the advanced-tools tier is off", async () => {
+    usePortaStore.setState({ gitAdvancedEnabled: false });
+    await renderTab();
+    expect(screen.getByRole("button", { name: /^Status$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Rebase$/ })).not.toBeInTheDocument();
+  });
+
+  it("puts the palette on the tab root and nowhere else", async () => {
+    const { container } = await renderTab();
+    const root = container.querySelector(".git-tab-root");
+    expect(root).not.toBeNull();
+    expect(root).toHaveAttribute("data-git-theme");
+    expect(document.documentElement).not.toHaveAttribute("data-git-theme");
+    expect(document.body).not.toHaveAttribute("data-git-theme");
+  });
+
+  it("reflects the store's palette on the tab root", async () => {
+    usePortaStore.setState({ gitTheme: "paper" });
+    const { container } = await renderTab();
+    expect(container.querySelector(".git-tab-root")).toHaveAttribute("data-git-theme", "paper");
+  });
+
+  it("offers every palette in the theme picker", async () => {
+    await renderTab();
+    await userEvent.click(screen.getByRole("button", { name: /theme/i }));
+    for (const label of ["Dark", "Graphite", "Soft Dark", "Midnight", "Paper", "Forest", "Sunset"]) {
+      expect(screen.getByRole("menuitem", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("persists the picked palette through the store", async () => {
+    await renderTab();
+    await userEvent.click(screen.getByRole("button", { name: /theme/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Forest" }));
+    expect(usePortaStore.getState().gitTheme).toBe("forest");
+  });
+
+  // A failed write leaves the config on the old palette, so the picker must go
+  // back to it too — otherwise the tab shows a palette that quietly disappears
+  // on the next launch. The failure is still reported.
+  it("surfaces a failed theme write and puts the previous palette back", async () => {
+    vi.mocked(setGitThemeCmd).mockRejectedValueOnce(new Error("config write denied"));
+    const { container } = await renderTab();
+    await userEvent.click(screen.getByRole("button", { name: /theme/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Forest" }));
+    expect(await screen.findByText(/Couldn't save the theme/)).toHaveTextContent("config write denied");
+    expect(usePortaStore.getState().gitTheme).toBe("dark");
+    expect(container.querySelector(".git-tab-root")).toHaveAttribute("data-git-theme", "dark");
+  });
+
+  // The shell's error line is above the body, so it shows on every tab. A sync
+  // failure must not follow the user around after they've navigated away.
+  it("clears a shell-level error when the active tab changes", async () => {
+    vi.mocked(gitFetch).mockRejectedValueOnce(new Error("no route to host"));
+    await renderTab();
+
+    const syncAction = screen.getAllByRole("button", { name: /^Sync$/ })[1];
+    await userEvent.click(syncAction);
+    expect(await screen.findByText(/no route to host/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^History$/ }));
+    await act(async () => {});
+    expect(screen.queryByText(/no route to host/)).not.toBeInTheDocument();
+  });
+
+  // One slot, two writers. Whichever failed last is the one the user is being
+  // told about; the other would be old news presented as the current problem.
+  it("lets a fresh shell error take the slot from a stale Status error", async () => {
+    vi.mocked(gitFetch).mockRejectedValueOnce(new Error("no route to host"));
+    await renderTab();
+
+    await userEvent.click(screen.getByRole("button", { name: "fail in status" }));
+    expect(await screen.findByText(/pathspec did not match/)).toBeInTheDocument();
+
+    // Still on Status; the sync action is in the shell's header.
+    await userEvent.click(screen.getAllByRole("button", { name: /^Sync$/ })[1]);
+    expect(await screen.findByText(/no route to host/)).toBeInTheDocument();
+    expect(screen.queryByText(/pathspec did not match/)).not.toBeInTheDocument();
+  });
+
+  it("lets a fresh Status error take the slot from a stale shell error", async () => {
+    vi.mocked(gitFetch).mockRejectedValueOnce(new Error("no route to host"));
+    await renderTab();
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^Sync$/ })[1]);
+    expect(await screen.findByText(/no route to host/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "fail in status" }));
+    expect(await screen.findByText(/pathspec did not match/)).toBeInTheDocument();
+    expect(screen.queryByText(/no route to host/)).not.toBeInTheDocument();
+  });
+
+  // Regression guard for the split: Status holds the commit draft, so the shell
+  // must hide it rather than unmount it. `statusMounts` is what makes that
+  // distinction observable — a component that remounted and re-fetched would
+  // bump the counter even if its content happened to look the same.
+  it("keeps the Status tab mounted — and its draft intact — across a tab switch", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByLabelText("Commit message"), "fix(git): keep the draft");
+    expect(statusMounts).toBe(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /^History$/ }));
+    await act(async () => {});
+    // Hidden, not gone: still in the DOM, still the same mount.
+    expect(screen.getByLabelText("Commit message")).not.toBeVisible();
+    expect(statusMounts).toBe(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /^Status$/ }));
+    await act(async () => {});
+    const draft = screen.getByLabelText("Commit message");
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("fix(git): keep the draft");
+    expect(statusMounts).toBe(1);
+  });
+
+  // `appGitError` is written by the Rust poller and retracted on its next
+  // successful tick (~15s), so it is a transient state, not a terminal one. If
+  // the shell swapped the whole subtree for the error card the user would lose
+  // an in-progress commit message to one failed poll — the same draft the test
+  // above protects across tab switches.
+  it("keeps the Status tab mounted — and its draft intact — through a transient poll error", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByLabelText("Commit message"), "fix(git): survive a bad poll");
+    expect(statusMounts).toBe(1);
+
+    // Poller reports a failure.
+    await act(async () => {
+      usePortaStore.setState({ appGitError: { demo: "fatal: not a git repository" } });
+    });
+    // The message still gets the whole tab, at full prominence…
+    expect(screen.getByText("Porta couldn't read this repo")).toBeVisible();
+    expect(screen.getByText(/fatal: not a git repository/)).toBeVisible();
+    // …but the draft is only hidden, not destroyed.
+    expect(screen.getByLabelText("Commit message")).not.toBeVisible();
+    expect(statusMounts).toBe(1);
+
+    // Next successful poll retracts it.
+    await act(async () => {
+      usePortaStore.setState({ appGitError: { demo: "" } });
+    });
+    expect(screen.queryByText("Porta couldn't read this repo")).not.toBeInTheDocument();
+    const draft = screen.getByLabelText("Commit message");
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("fix(git): survive a bad poll");
+    expect(statusMounts).toBe(1);
+  });
+
+  // The other half of `blocked`: no GitStatus at all. It reaches the same
+  // hide-don't-unmount path as the poll error above, and is just as transient —
+  // switching the app's root to a directory that isn't a repo (or back) must
+  // not cost the draft either.
+  it("keeps the Status tab mounted — and its draft intact — through a not-a-repo state", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByLabelText("Commit message"), "fix(git): survive a non-repo");
+    expect(statusMounts).toBe(1);
+
+    // The store loses the status: nothing here is a git repository.
+    await act(async () => {
+      usePortaStore.setState({ appGit: {} });
+    });
+    expect(screen.getByText("Not a git repository")).toBeVisible();
+    expect(screen.getByLabelText("Commit message")).not.toBeVisible();
+    expect(statusMounts).toBe(1);
+
+    // And back — a repo again, same mount, same draft.
+    await act(async () => {
+      seed();
+    });
+    expect(screen.queryByText("Not a git repository")).not.toBeInTheDocument();
+    const draft = screen.getByLabelText("Commit message");
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("fix(git): survive a non-repo");
+    expect(statusMounts).toBe(1);
+  });
+});

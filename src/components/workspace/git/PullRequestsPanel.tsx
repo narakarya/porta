@@ -248,7 +248,7 @@ export default function PullRequestsPanel({
               className={`mx-1 flex w-[calc(100%_-_8px)] flex-col gap-1 rounded-control px-2.5 py-2 text-left ${
                 selectedNumber === item.number && view !== "create"
                   ? "bg-accent-bg"
-                  : "hover:bg-white/[0.04]"
+                  : "hover:bg-[var(--hover)]"
               }`}
             >
               <div className="flex w-full items-start gap-2">
@@ -398,7 +398,7 @@ export default function PullRequestsPanel({
                           key={`${label}:${index}`}
                           disabled={!check.detailsUrl && !check.targetUrl}
                           onClick={() => openExternalUrl(check.detailsUrl || check.targetUrl)}
-                          className="flex w-full items-center gap-3 border-b border-subtle px-3 py-2 text-left last:border-b-0 hover:bg-white/[0.03] disabled:pointer-events-none"
+                          className="flex w-full items-center gap-3 border-b border-subtle px-3 py-2 text-left last:border-b-0 hover:bg-[var(--hover)] disabled:pointer-events-none"
                         >
                           <span className={`text-[10px] uppercase ${stateTone(status)}`}>● {status}</span>
                           <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2">{label}</span>

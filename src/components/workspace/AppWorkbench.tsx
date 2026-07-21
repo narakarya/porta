@@ -186,9 +186,11 @@ function LiveMetrics({ appId, running }: { appId: string; running: boolean }) {
 
   return (
     <div className="grid grid-cols-2 gap-2">
+      {/* Fixed 2 decimals — the raw value jitters between 1 and 4 characters,
+          which resized the tile on every 2s sample. */}
       <MetricTile
         label="CPU"
-        value={<>{sample.cpu}<span className="text-[11px] text-ink-3 ml-0.5">%</span></>}
+        value={<>{sample.cpu.toFixed(2)}<span className="text-[11px] text-ink-3 ml-0.5">%</span></>}
         points={cpuHist}
         sparkClass="text-accent"
       />
@@ -473,8 +475,15 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
         await runInstance(parentApp!.id, instance!.worktree_path);
       }
     : () => restartApp(app.id);
+  // `stopApp` flips the store to "stopped" optimistically (compose down blocks
+  // 5-30s), which used to unmount the very Stop button the user had just
+  // clicked: the header fell back to the stopped branch, the spinner vanished
+  // and the app looked idle while the IPC was still running — and a Start click
+  // in that window silently queued behind the per-app lifecycle lock. Keep the
+  // in-flight branch mounted until the round-trip actually settles.
+  const stopping = busy === "stop";
   // Instance restart has no store `appRestarting` flag; the local `busy` covers it.
-  const startLoading = busy === "start" || waitingForReady === "start" || (isStarting && !restarting && waitingForReady !== "restart");
+  const startLoading = !stopping && (busy === "start" || waitingForReady === "start" || (isStarting && !restarting && waitingForReady !== "restart"));
   const restartLoading = busy === "restart" || waitingForReady === "restart" || (!isInstance && restarting);
 
   async function toggleInstanceTunnel() {
@@ -582,8 +591,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             {domainHost && (
               <button
                 onClick={() => openExternalUrl(domainUrl)}
-                title={`Open ${domainUrl}`}
-                className="min-w-0 truncate text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors"
+                disabled={!running}
+                title={running ? `Open ${domainUrl}` : "App is not running"}
+                className="min-w-0 truncate text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors disabled:pointer-events-none disabled:opacity-60"
               >
                 <span className="truncate">{domainHost}</span>
                 <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="shrink-0"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -603,12 +613,12 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               the loading branch rendered a different button set in a different
               order, so Restart jumped slots mid-click. Stop is appended (never
               prepended) while starting, so the Start button keeps its slot. */}
-          {running || restartLoading ? (
+          {running || restartLoading || stopping ? (
             <>
               {/* Lifecycle actions: Stop is the more prominent neutral (border-strong),
                   Restart the lighter subtle border — per mockup 05, neither is red. */}
-              <Button variant="secondary" loading={busy === "stop"} disabled={busy === "stop"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", stopFn)}>Stop</Button>
-              <Button variant="ghost" className="border border-subtle" loading={restartLoading} disabled={restartLoading} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", restartFn)}>{restartLoading ? "Restarting" : "Restart"}</Button>
+              <Button variant="secondary" loading={stopping} disabled={stopping} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", stopFn)}>{stopping ? "Stopping" : "Stop"}</Button>
+              <Button variant="ghost" className="border border-subtle" loading={restartLoading} disabled={restartLoading || stopping} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", restartFn)}>{restartLoading ? "Restarting" : "Restart"}</Button>
             </>
           ) : (
             <>
@@ -624,8 +634,8 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               {startLoading && (
                 <Button
                   variant="secondary"
-                  loading={busy === "stop"}
-                  disabled={busy === "stop"}
+                  loading={stopping}
+                  disabled={stopping}
                   icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>}
                   onClick={() => runLifecycle("stop", stopFn)}
                 >
@@ -641,6 +651,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             destinations={localDestinations}
             primaryUrl={localUrl}
             quickOnly={isInstance}
+            offline={!running}
             externalBusy={tunnelBusy}
             onToggleExternalTunnel={isInstance ? toggleInstanceTunnel : undefined}
             onOpenAccessSettings={
@@ -760,8 +771,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                     <span className="min-w-0 inline-flex items-center gap-1.5">
                       <button
                         onClick={() => openExternalUrl(url)}
-                        className="text-accent-ink font-mono truncate max-w-[20rem] hover:underline"
-                        title={`Open ${url}`}
+                        disabled={!running}
+                        className="text-accent-ink font-mono truncate max-w-[20rem] hover:underline disabled:pointer-events-none disabled:opacity-60"
+                        title={running ? `Open ${url}` : "App is not running"}
                       >
                         {url}
                       </button>
@@ -782,8 +794,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                         >
                           <button
                             onClick={() => openExternalUrl(`${scheme}://${h}`)}
-                            title={`Open ${scheme}://${h}`}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-ink-2 hover:text-accent-ink transition-colors"
+                            disabled={!running}
+                            title={running ? `Open ${scheme}://${h}` : "App is not running"}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-ink-2 hover:text-accent-ink transition-colors disabled:pointer-events-none disabled:opacity-60"
                           >
                             {h}
                             <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>

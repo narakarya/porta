@@ -9,8 +9,11 @@ import {
 } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { tokenDiff, type Span } from "../../../lib/word-diff";
+import { renderPreview } from "../../../lib/preview";
+import { usePortaStore } from "../../../store";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
+import { useActivePane } from "./ui/ActivePane";
 
 function previewTable(preview: GitFilePreview) {
   const separator = preview.kind === "tsv" ? "\t" : ",";
@@ -45,6 +48,56 @@ function previewTable(preview: GitFilePreview) {
   );
 }
 
+/** The one light palette among the seven declared in src/styles/git-theme.css.
+ *  Mermaid picks its diagram colours from a dark/light boolean of its own
+ *  rather than from the tab's tokens (see `MermaidOptions`), so this is the one
+ *  place the palette id has to be reduced to that boolean. A new light palette
+ *  must be added here too, or its diagrams come out dark on a light surface. */
+const LIGHT_GIT_THEMES: ReadonlySet<string> = new Set(["paper"]);
+
+/**
+ * The rendered-markdown surface: markdown-it → Mermaid → Shiki, composed by
+ * `renderPreview`, which writes into a DOM node imperatively.
+ *
+ * React and that imperative API are reconciled by handing the module a node
+ * React will never look inside: the JSX below declares no children, so
+ * reconciliation has nothing to diff there and can never paint over what the
+ * module wrote. The effect is the only writer, and it is scoped to one node it
+ * captures up front — so a render can't outlive its target either.
+ *
+ * `md-body` is load-bearing, not decoration. Every rule in
+ * src/styles/git-preview.css is scoped `.git-tab-root .md-body …`; without the
+ * class the preview still renders correctly and is completely unstyled, and no
+ * assertion about the markup would notice.
+ */
+function MarkdownPreview({ source }: { source: string }) {
+  const dark = !LIGHT_GIT_THEMES.has(usePortaStore((s) => s.gitTheme));
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  // Keyed on the source (and the palette, which Mermaid bakes into the diagram
+  // it emits), not on the preview object: a refetch that returns identical
+  // content leaves this alone entirely, so the pane never blanks and never
+  // re-runs Shiki and Mermaid for a result it already has on screen.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const controller = new AbortController();
+    // renderPreview stops writing as soon as it observes the signal but does
+    // not roll back what it already committed, so a caller that wants a clean
+    // slate resets the target itself — otherwise an abandoned render's
+    // half-finished output would sit under the next file's.
+    host.replaceChildren();
+    // Never rejects (documented on renderPreview): a bad diagram becomes an
+    // error node, an unsupported fence becomes escaped text.
+    void renderPreview(host, source, { dark }, controller.signal);
+    // Aborts on unmount and before every re-run, so an earlier file's pending
+    // Shiki/Mermaid work can never write into the node the later one owns.
+    return () => controller.abort();
+  }, [source, dark]);
+
+  return <div ref={hostRef} className="md-body mx-auto max-w-4xl p-5" />;
+}
+
 function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: string }) {
   if (preview.kind === "image") {
     return (
@@ -69,15 +122,19 @@ function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: stri
     );
   }
   if (preview.kind === "csv" || preview.kind === "tsv") return previewTable(preview);
+  // Everything left is `markdown` (git.rs:1411-1417 emits nothing else for a
+  // text file), which is where the real pipeline replaces the line-prefix
+  // fallback that used to stand in for it.
+  return <MarkdownPreview source={preview.data} />;
+}
+
+/** Corner affordance for a refetch that has previous content still on
+ *  screen — deliberately small and `pointer-events-none` so it never steals a
+ *  click from the diff underneath it. */
+function RefetchIndicator() {
   return (
-    <div className="mx-auto max-w-4xl p-5 font-sans text-[13px] leading-relaxed text-ink-2">
-      {preview.data.split(/\r?\n/).map((line, index) => {
-        if (line.startsWith("### ")) return <h3 key={index} className="mb-1 mt-4 text-[14px] font-semibold text-ink">{line.slice(4)}</h3>;
-        if (line.startsWith("## ")) return <h2 key={index} className="mb-1 mt-5 text-[16px] font-semibold text-ink">{line.slice(3)}</h2>;
-        if (line.startsWith("# ")) return <h1 key={index} className="mb-2 mt-2 text-[20px] font-semibold text-ink">{line.slice(2)}</h1>;
-        if (line.startsWith("- ") || line.startsWith("* ")) return <div key={index} className="pl-3">• {line.slice(2)}</div>;
-        return <div key={index} className={line === "" ? "h-3" : "whitespace-pre-wrap"}>{line}</div>;
-      })}
+    <div className="pointer-events-none absolute right-1.5 top-1.5 z-10">
+      <Spinner size={11} className="text-ink-3" />
     </div>
   );
 }
@@ -203,6 +260,7 @@ export default function DiffView({
   // Inline "Discard?" confirm, mirroring StashPanel's Drop confirm — Tauri
   // webview can't rely on window.confirm. Keyed by hunk index.
   const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
+  const active = useActivePane();
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -210,9 +268,21 @@ export default function DiffView({
     return () => { mounted.current = false; };
   }, []);
 
+  // Set once this mounted instance's first fetch has landed. `path` is keyed
+  // by the caller (StatusTab), so a new file is always a fresh instance and
+  // this starts over at `false` — but a stage/unstage flip on the *same*
+  // file reuses this instance, and must not look like a first load.
+  const hasLoadedOnce = useRef(false);
+
+  // Idle while the pane is hidden: the Status tab stays mounted behind another
+  // tab, and re-reading a diff (plus its file preview) for a surface nobody can
+  // see is pure background work. `active` is a dependency, so the diff is
+  // re-read the moment the pane comes back rather than being served stale.
   useEffect(() => {
+    if (!active) return;
     if (!app.root_dir || path === "") { setParsed(null); return; }
     let cancelled = false;
+    const isFirstLoad = !hasLoadedOnce.current;
     setLoading(true);
     setError(null);
     Promise.all([
@@ -224,12 +294,17 @@ export default function DiffView({
         setRawDiff(raw);
         setParsed(parseUnifiedDiff(raw));
         setPreview(nextPreview);
-        setSurface(nextPreview?.kind === "image" ? "preview" : "diff");
+        // Only auto-pick a surface on this instance's first load. A later
+        // refetch — staged flipping, a hunk stage/unstage, or the pane coming
+        // back into view — must not knock the user off the Preview/Diff
+        // surface they'd already chosen.
+        if (isFirstLoad) setSurface(nextPreview?.kind === "image" ? "preview" : "diff");
+        hasLoadedOnce.current = true;
       })
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [app.root_dir, path, staged, refreshKey]);
+  }, [active, app.root_dir, path, staged, refreshKey]);
 
   async function applyHunk(hunk: Hunk, index: number) {
     if (!parsed) return;
@@ -268,11 +343,19 @@ export default function DiffView({
     }
   }
 
-  if (loading) return <div className="text-ink-3">Loading diff…</div>;
+  // Blank the pane only on this instance's genuine first load — `parsed` is
+  // still null then because nothing has ever landed. A later refetch on the
+  // same instance (staged flip, hunk stage/unstage, the pane regaining focus)
+  // sets `loading` back to true too, but `parsed`/`rawDiff`/`preview` still
+  // hold the last successful fetch: keep rendering those so the container
+  // one level up (StatusTab) never sees its content collapse to a single
+  // line and back, which is what was resetting the user's scroll position.
+  if (loading && parsed === null) return <div className="text-ink-3">Loading diff…</div>;
   if (error) return <div className="text-bad whitespace-pre-wrap break-words">{error}</div>;
   if (preview && surface === "preview") {
     return (
-      <div className="flex h-full min-h-[280px] flex-col font-sans">
+      <div className="relative flex h-full min-h-[280px] flex-col font-sans">
+        {loading && <RefetchIndicator />}
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle bg-surface-1 px-2.5 py-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">{path}</span>
           {preview.truncated && <span className="text-[10px] text-warn">Preview limited to 512 KB</span>}
@@ -292,7 +375,8 @@ export default function DiffView({
   // mode-only change comes back non-empty but with zero `@@` hunks.
   if (!parsed || rawDiff.trim() === "") {
     return (
-      <div className="flex items-center justify-between gap-2 text-ink-3">
+      <div className="relative flex items-center justify-between gap-2 text-ink-3">
+        {loading && <RefetchIndicator />}
         <span>No changes.</span>
         {preview && (
           <button onClick={() => setSurface("preview")} className="rounded-control border border-strong px-2 py-0.5 font-sans text-[11px] text-ink-2">
@@ -304,7 +388,8 @@ export default function DiffView({
   }
   if (parsed.hunks.length === 0) {
     return (
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
+        {loading && <RefetchIndicator />}
         {parsed.fileHeader.map((line, i) => (
           <div key={`h${i}`} className="whitespace-pre text-ink-3">
             {line === "" ? " " : line}
@@ -315,7 +400,8 @@ export default function DiffView({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
+      {loading && <RefetchIndicator />}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           {parsed.fileHeader.map((line, i) => (
@@ -328,7 +414,7 @@ export default function DiffView({
           {preview && (
             <button
               onClick={() => setSurface("preview")}
-              className="border-r border-strong px-2 py-0.5 text-ink-2 hover:bg-white/[0.05]"
+              className="border-r border-strong px-2 py-0.5 text-ink-2 hover:bg-[var(--hover)]"
             >
               Preview
             </button>
@@ -336,7 +422,7 @@ export default function DiffView({
           <button
             onClick={() => setView("unified")}
             className={`px-2 py-0.5 transition-colors duration-fast ${
-              view === "unified" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-white/[0.05]"
+              view === "unified" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-[var(--hover)]"
             }`}
           >
             Unified
@@ -344,7 +430,7 @@ export default function DiffView({
           <button
             onClick={() => setView("split")}
             className={`px-2 py-0.5 transition-colors duration-fast ${
-              view === "split" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-white/[0.05]"
+              view === "split" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-[var(--hover)]"
             }`}
           >
             Split
@@ -383,7 +469,7 @@ export default function DiffView({
                   <button
                     onClick={() => setConfirmDiscard(hi)}
                     disabled={applying !== null}
-                    className="text-[11px] text-bad border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                    className="text-[11px] text-bad border border-strong rounded-control px-2 py-0.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
                   >
                     Discard hunk
                   </button>
@@ -391,7 +477,7 @@ export default function DiffView({
                 <button
                   onClick={() => applyHunk(hunk, hi)}
                   disabled={applying !== null}
-                  className="text-[11px] text-ink-2 border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                  className="text-[11px] text-ink-2 border border-strong rounded-control px-2 py-0.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
                 >
                   {applying === hi ? <Spinner size={11} /> : staged ? "Unstage hunk" : "Stage hunk"}
                 </button>
