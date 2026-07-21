@@ -58,6 +58,82 @@ describe("terminal tabs are scoped per app", () => {
     const tabs = usePortaStore.getState().terminalTabs["a1"];
     expect(tabs[tabs.length - 1].label).toBe("zsh");
   });
+
+  // The by-value isolation test above can't catch aliasing — two apps
+  // accidentally sharing the same array reference would still pass it as
+  // long as the values happened to differ. Assert identity too.
+  it("leaves another app's tab array reference untouched when one app is mutated", () => {
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    usePortaStore.getState().ensureTerminalTab("a2", "smartuq", "/src/smartuq");
+    const before = usePortaStore.getState().terminalTabs["a2"];
+
+    usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+
+    const after = usePortaStore.getState().terminalTabs["a2"];
+    expect(before).toBe(after);
+  });
+});
+
+describe("renaming and splitting tabs", () => {
+  beforeEach(reset);
+
+  it("renames a tab, trimming whitespace", () => {
+    usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+    const tab = usePortaStore.getState().terminalTabs["a1"][0];
+
+    usePortaStore.getState().renameTerminalTab("a1", tab.id, "  build  ");
+
+    expect(usePortaStore.getState().terminalTabs["a1"][0].label).toBe("build");
+  });
+
+  it("keeps the previous label when renamed to a blank string", () => {
+    usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+    const tab = usePortaStore.getState().terminalTabs["a1"][0];
+    const original = tab.label;
+
+    usePortaStore.getState().renameTerminalTab("a1", tab.id, "   ");
+
+    expect(usePortaStore.getState().terminalTabs["a1"][0].label).toBe(original);
+  });
+
+  it("splitting an unsplit tab adds a second pane in the requested orientation", () => {
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    const tab = usePortaStore.getState().terminalTabs["a1"][0];
+
+    usePortaStore.getState().splitTerminalTab("a1", tab.id, "cols");
+
+    const result = usePortaStore.getState().terminalTabs["a1"][0];
+    expect(result.panes).toHaveLength(2);
+    expect(result.splitOrientation).toBe("cols");
+  });
+
+  it("splitting an already-split tab flips orientation instead of adding a third pane", () => {
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    const tab = usePortaStore.getState().terminalTabs["a1"][0];
+    usePortaStore.getState().splitTerminalTab("a1", tab.id, "cols");
+    const panesAfterFirstSplit = usePortaStore.getState().terminalTabs["a1"][0].panes;
+    expect(panesAfterFirstSplit).toHaveLength(2);
+
+    usePortaStore.getState().splitTerminalTab("a1", tab.id, "rows");
+
+    const result = usePortaStore.getState().terminalTabs["a1"][0];
+    expect(result.panes).toHaveLength(2);
+    expect(result.panes.map((p) => p.id)).toEqual(panesAfterFirstSplit.map((p) => p.id));
+    expect(result.splitOrientation).toBe("rows");
+  });
+});
+
+describe("selecting the active tab", () => {
+  beforeEach(reset);
+
+  it("ignores a stale tab id instead of installing a dangling active tab", () => {
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    const before = usePortaStore.getState().terminalActiveTab["a1"];
+
+    usePortaStore.getState().setActiveTerminalTab("a1", "tab-does-not-exist");
+
+    expect(usePortaStore.getState().terminalActiveTab["a1"]).toBe(before);
+  });
 });
 
 describe("closing terminal surfaces", () => {
@@ -108,6 +184,22 @@ describe("closing terminal surfaces", () => {
     expect(usePortaStore.getState().terminalTabs["a1"]).toEqual([]);
   });
 
+  it("closing one of several panes removes only that pane and keeps the tab", async () => {
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    const tab = usePortaStore.getState().terminalTabs["a1"][0];
+    usePortaStore.getState().splitTerminalTab("a1", tab.id, "cols");
+    const [paneA, paneB] = usePortaStore.getState().terminalTabs["a1"][0].panes;
+
+    await usePortaStore.getState().closeTerminalPane("a1", tab.id, paneA.id);
+
+    expect(terminalClose).toHaveBeenCalledTimes(1);
+    expect(terminalClose).toHaveBeenCalledWith(paneA.id);
+
+    const tabs = usePortaStore.getState().terminalTabs["a1"];
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].panes.map((p) => p.id)).toEqual([paneB.id]);
+  });
+
   it("closes every session an app owns when the app is deleted", async () => {
     usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
     usePortaStore.getState().ensureTerminalTab("a2", "smartuq", "/src/smartuq");
@@ -118,6 +210,68 @@ describe("closing terminal surfaces", () => {
     expect(terminalClose).toHaveBeenCalledWith(doomed);
     expect(usePortaStore.getState().terminalTabs["a1"]).toBeUndefined();
     expect(usePortaStore.getState().terminalTabs["a2"]).toHaveLength(1);
+  });
+
+  // Regression, same shape as Finding 1: closeAppTerminals used to snapshot
+  // its panes before awaiting terminalClose, then delete the app's key
+  // outright. A tab added mid-teardown had its key deleted with no
+  // terminalClose ever sent for it — a leaked shell.
+  it("closes a pane added during closeAppTerminals's await window before deleting the app", async () => {
+    const { addTerminalTab, closeAppTerminals } = usePortaStore.getState();
+    addTerminalTab("a1", "porta", "/src/porta", null);
+
+    let releaseClose: () => void = () => {};
+    terminalClose.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClose = resolve;
+        }),
+    );
+
+    const teardown = closeAppTerminals("a1");
+
+    // Simulate a tab appearing while the first close round is in flight.
+    const addedId = usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+    const addedPaneId = usePortaStore.getState().terminalTabs["a1"].find((t) => t.id === addedId)!
+      .panes[0].id;
+
+    releaseClose();
+    await teardown;
+
+    expect(terminalClose.mock.calls.map((c) => c[0])).toContain(addedPaneId);
+    expect(usePortaStore.getState().terminalTabs["a1"]).toBeUndefined();
+  });
+
+  // Regression: closeTerminalTab used to snapshot `tabs` before awaiting
+  // terminalClose, then write that stale array wholesale into state. A tab
+  // added mid-close (user clicks "+" while the close IPC round-trips) was
+  // silently dropped, while terminalActiveTab kept pointing at it — a
+  // dangling active id with a spawned PTY nothing could reach to close.
+  it("keeps a tab added during a slow close's await window", async () => {
+    const { addTerminalTab, closeTerminalTab } = usePortaStore.getState();
+    const closingId = addTerminalTab("a1", "porta", "/src/porta", null);
+
+    let releaseClose: () => void = () => {};
+    terminalClose.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClose = resolve;
+        }),
+    );
+
+    const closePromise = closeTerminalTab("a1", closingId);
+
+    // Simulate the user clicking "+" while the close is still in flight.
+    const addedId = usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+
+    releaseClose();
+    await closePromise;
+
+    const tabs = usePortaStore.getState().terminalTabs["a1"];
+    expect(tabs.map((t) => t.id)).toEqual([addedId]);
+
+    const activeId = usePortaStore.getState().terminalActiveTab["a1"];
+    expect(tabs.some((t) => t.id === activeId)).toBe(true);
   });
 });
 
@@ -133,6 +287,19 @@ describe("pane state", () => {
     const p = usePortaStore.getState().terminalTabs["a1"][0].panes[0];
     expect(p.state).toBe("running");
     expect(p.pid).toBe(4242);
+  });
+
+  it("preserves object identity for tabs that don't contain the target pane", () => {
+    const { addTerminalTab, setTerminalPaneState } = usePortaStore.getState();
+    addTerminalTab("a1", "porta", "/src/porta", null);
+    addTerminalTab("a1", "porta", "/src/porta", null);
+    const [untouched, target] = usePortaStore.getState().terminalTabs["a1"];
+
+    setTerminalPaneState("a1", target.panes[0].id, { state: "running", pid: 1 });
+
+    const tabs = usePortaStore.getState().terminalTabs["a1"];
+    expect(tabs[0]).toBe(untouched);
+    expect(tabs[1]).not.toBe(target);
   });
 
   it("flags unseen output only on tabs that aren't active", () => {

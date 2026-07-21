@@ -104,22 +104,40 @@ export const createTerminalSlice: StateCreator<AllSlices, [], [], TerminalSlice>
     const idx = tabs.findIndex((t) => t.id === tabId);
     if (idx < 0) return;
 
-    await Promise.all(tabs[idx].panes.map((p) => cmd.terminalClose(p.id).catch(() => {})));
+    // Only decide *which panes* to close from this pre-await snapshot — that
+    // part is correct, since those are the panes the user asked to close.
+    await Promise.all(
+      tabs[idx].panes.map((p) =>
+        cmd.terminalClose(p.id).catch((err) => {
+          console.error(`terminalClose failed for pane ${p.id}`, err);
+        }),
+      ),
+    );
 
     // Emptying is all the slice does. Whether that means "seed a fresh shell"
     // (the workbench tab) or "close the surface" (the modal) is the host's
     // call — see TerminalWorkspace's empty-surface effect.
-    const rest = tabs.filter((t) => t.id !== tabId);
-    set((s) => ({
-      terminalTabs: { ...s.terminalTabs, [appId]: rest },
-      terminalActiveTab:
-        s.terminalActiveTab[appId] === tabId
-          ? {
-              ...s.terminalActiveTab,
-              [appId]: rest.length ? rest[Math.max(0, idx - 1)].id : null,
-            }
-          : s.terminalActiveTab,
-    }));
+    //
+    // Compute survivors from the *current* state inside this updater, not
+    // from the pre-await snapshot: anything that changed terminalTabs[appId]
+    // during the await (e.g. a tab added mid-close) must not be reverted.
+    set((s) => {
+      const current = s.terminalTabs[appId] ?? [];
+      const freshIdx = current.findIndex((t) => t.id === tabId);
+      const rest = current.filter((t) => t.id !== tabId);
+      return {
+        terminalTabs: { ...s.terminalTabs, [appId]: rest },
+        terminalActiveTab:
+          s.terminalActiveTab[appId] === tabId
+            ? {
+                ...s.terminalActiveTab,
+                [appId]: rest.length
+                  ? rest[Math.max(0, (freshIdx >= 0 ? freshIdx : current.length) - 1)].id
+                  : null,
+              }
+            : s.terminalActiveTab,
+      };
+    });
   },
 
   closeTerminalPane: async (appId, tabId, paneId) => {
@@ -129,7 +147,9 @@ export const createTerminalSlice: StateCreator<AllSlices, [], [], TerminalSlice>
       await get().closeTerminalTab(appId, tabId);
       return;
     }
-    await cmd.terminalClose(paneId).catch(() => {});
+    await cmd.terminalClose(paneId).catch((err) => {
+      console.error(`terminalClose failed for pane ${paneId}`, err);
+    });
     set((s) => ({
       terminalTabs: {
         ...s.terminalTabs,
@@ -158,15 +178,21 @@ export const createTerminalSlice: StateCreator<AllSlices, [], [], TerminalSlice>
     })),
 
   setActiveTerminalTab: (appId, tabId) =>
-    set((s) => ({
-      terminalActiveTab: { ...s.terminalActiveTab, [appId]: tabId },
-      terminalTabs: {
-        ...s.terminalTabs,
-        [appId]: (s.terminalTabs[appId] ?? []).map((t) =>
-          t.id !== tabId ? t : { ...t, panes: t.panes.map((p) => ({ ...p, hasUnseenOutput: false })) },
-        ),
-      },
-    })),
+    set((s) => {
+      // Guard the invariant "the active id names a tab that exists, or is
+      // null" by construction: a stale tabId (e.g. a race with a close)
+      // must not install a dangling active id.
+      if (!(s.terminalTabs[appId] ?? []).some((t) => t.id === tabId)) return {};
+      return {
+        terminalActiveTab: { ...s.terminalActiveTab, [appId]: tabId },
+        terminalTabs: {
+          ...s.terminalTabs,
+          [appId]: (s.terminalTabs[appId] ?? []).map((t) =>
+            t.id !== tabId ? t : { ...t, panes: t.panes.map((p) => ({ ...p, hasUnseenOutput: false })) },
+          ),
+        },
+      };
+    }),
 
   renameTerminalTab: (appId, tabId, label) =>
     set((s) => ({
@@ -196,18 +222,40 @@ export const createTerminalSlice: StateCreator<AllSlices, [], [], TerminalSlice>
     set((s) => ({
       terminalTabs: {
         ...s.terminalTabs,
-        [appId]: (s.terminalTabs[appId] ?? []).map((t) => ({
-          ...t,
-          panes: t.panes.map((p) => (p.id !== paneId ? p : { ...p, ...patch })),
-        })),
+        [appId]: (s.terminalTabs[appId] ?? []).map((t) => {
+          // This mirrors a 2-second poll, so short-circuit like every
+          // sibling action does — otherwise every tick invalidates the
+          // identity of every tab object for the app, defeating memoization
+          // downstream.
+          if (!t.panes.some((p) => p.id === paneId)) return t;
+          return { ...t, panes: t.panes.map((p) => (p.id !== paneId ? p : { ...p, ...patch })) };
+        }),
       },
     })),
 
   closeAppTerminals: async (appId) => {
-    const tabs = get().terminalTabs[appId] ?? [];
-    await Promise.all(
-      tabs.flatMap((t) => t.panes.map((p) => cmd.terminalClose(p.id).catch(() => {}))),
-    );
+    // Re-snapshot after every await round and close whatever showed up in
+    // the window, rather than trusting a single pre-await list — a tab
+    // added while the previous batch's IPC round-trips were in flight would
+    // otherwise have its key deleted below with no terminalClose ever sent
+    // for it (a leaked shell). The loop converges: once a round closes zero
+    // new panes, nothing can appear between that check and the synchronous
+    // `set` that follows, since no await separates them.
+    const closed = new Set<string>();
+    for (;;) {
+      const pending = (get().terminalTabs[appId] ?? [])
+        .flatMap((t) => t.panes.map((p) => p.id))
+        .filter((id) => !closed.has(id));
+      if (pending.length === 0) break;
+      await Promise.all(
+        pending.map((id) =>
+          cmd.terminalClose(id).catch((err) => {
+            console.error(`terminalClose failed for pane ${id}`, err);
+          }),
+        ),
+      );
+      pending.forEach((id) => closed.add(id));
+    }
     set((s) => {
       const tabsNext = { ...s.terminalTabs };
       const activeNext = { ...s.terminalActiveTab };
