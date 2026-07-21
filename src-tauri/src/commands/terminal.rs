@@ -581,11 +581,18 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_owning_the_foreground_reads_as_idle() {
-        let h = handle(b"", None);
-        let state = session_state(&h, 0);
+    fn a_shell_at_its_own_prompt_reads_as_idle() {
+        // PIDs must be nonzero to exercise the comparison fg_pgid != h.child_pid,
+        // which is the production case: a shell sitting at its prompt has the
+        // same foreground process group as its own pid.
+        let mut h = handle(b"", None);
+        h.child_pid = 4242;
+
+        let state = session_state(&h, 4242);
+
         assert!(state.alive);
         assert!(!state.running);
+        assert_eq!(state.pid, 4242);
     }
 
     #[test]
