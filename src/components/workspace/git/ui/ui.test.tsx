@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import FilterBox from "./FilterBox";
 import FacetChips from "./FacetChips";
 import ActivePane, { useActivePane } from "./ActivePane";
-import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { useContextMenu, type ContextMenuItem } from "./useContextMenu";
 
 describe("FilterBox", () => {
   it("reports each keystroke without losing focus", async () => {
