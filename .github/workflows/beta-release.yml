@@ -1,10 +1,25 @@
 name: Beta Release
 
 # Publishes the opt-in **beta channel**. Unlike the stable `release.yml` (which
-# uploads a versioned release and flips GitHub's "latest"), this workflow always
-# publishes to a single, force-moved `beta` release so the fixed updater
-# endpoint `releases/download/beta/latest.json` — the one `updater_channel.rs`'
-# `BETA_ENDPOINT` points at — always resolves to the newest beta build.
+# uploads a versioned release and flips GitHub's "latest"), this workflow keeps
+# a single permanent `beta` release holding nothing but `latest.json`, so the
+# fixed updater endpoint `releases/download/beta/latest.json` — the one
+# `updater_channel.rs`' `BETA_ENDPOINT` points at — always resolves.
+#
+# The build artifacts live on the per-version `beta-v<version>` release that the
+# trigger tag names, and `latest.json` points at THOSE urls. That split is what
+# keeps the channel readable while a release is being built:
+#
+#   - `beta` is never deleted, so the endpoint never 404s. It used to be torn
+#     down and recreated as a draft at the START of the run, which left the
+#     endpoint dead for the ~10 minutes a build takes — a client checking for
+#     updates in that window got "Could not fetch a valid release JSON".
+#   - Artifact names are unique per version, so a build in flight can never
+#     overwrite the bundle a live `latest.json` still points at (which would
+#     break signature verification for anyone downloading right then).
+#
+# `latest.json` is written LAST, as a single clobber. Until that moment clients
+# see the previous beta, whole and consistent.
 #
 # It builds the SAME "Porta" app as stable (identifier `dev.narakarya.porta`),
 # so a beta build updates in place and shares the same `~/.porta` data dir. The
@@ -29,7 +44,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  # ─── 1. Verify the version + (re)create the fixed `beta` release ───────────
+  # ─── 1. Verify the version + open the versioned release as a draft ────────
   prepare:
     name: Prepare beta release
     runs-on: ubuntu-latest
@@ -62,25 +77,27 @@ jobs:
           esac
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
-      - name: Force-move the `beta` release + tag to this commit (as draft)
-        # Delete any prior `beta` release AND its git tag, then recreate the
-        # release (which also creates the `beta` tag) at this commit. Draft +
-        # prerelease so it never becomes GitHub "latest" and stable clients
-        # polling `releases/latest/download/latest.json` are untouched. The
-        # merge job flips off the draft once latest.json is written.
+      - name: Open the versioned release as a draft
+        # Create the `beta-v<version>` release up front so the two matrix build
+        # jobs upload into an existing release instead of racing to create it.
+        # Draft + prerelease: the assets stay unreachable until merge-updater
+        # publishes it, which is what lets `latest.json` be the last thing that
+        # changes. The permanent `beta` release is NOT touched here — that is
+        # the whole point, it must keep serving the previous manifest until the
+        # new build is ready.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          if gh release view beta --repo "$REPO" >/dev/null 2>&1; then
-            gh release delete beta --repo "$REPO" --cleanup-tag --yes
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — reusing it."
+            exit 0
           fi
-          gh release create beta \
+          gh release create "$TAG" \
             --repo "$REPO" \
-            --target "$SHA" \
             --draft \
             --prerelease \
             --title "Porta Beta $VERSION" \
@@ -125,7 +142,7 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Build and upload arch-specific bundle to the beta release
+      - name: Build and upload arch-specific bundle to the versioned release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -135,11 +152,13 @@ jobs:
           # release.yml) — the build is unsigned; open via right-click → Open
           # the first time.
         with:
-          # Publish to the fixed `beta` release, NOT a versioned tag. Draft is
-          # kept so the release only goes live once merge-updater writes
-          # latest.json. Same regular config as stable → same app identifier →
-          # same ~/.porta data dir.
-          tagName: beta
+          # Upload to the per-version release, NOT the fixed `beta` one. Asset
+          # names therefore carry this version and can never collide with the
+          # bundle the live `latest.json` still points at. Draft is kept so the
+          # release only goes live once merge-updater has the manifest ready.
+          # Same regular config as stable → same app identifier → same
+          # ~/.porta data dir.
+          tagName: ${{ github.ref_name }}
           releaseName: "Porta Beta ${{ needs.prepare.outputs.version }}"
           releaseBody: "Opt-in beta build. Enable Settings → About → Beta updates to receive these."
           releaseDraft: true
@@ -156,6 +175,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -179,7 +199,7 @@ jobs:
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           NOTES=$(cat /tmp/release-notes.txt)
 
-          assets=$(gh release view beta --repo "$REPO" --json assets --jq '.assets[].name')
+          assets=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
           echo "Found assets:"; echo "$assets"
 
           arm_sig_name=$(echo "$assets" | grep -E 'aarch64.*\.app\.tar\.gz\.sig$' | head -1 || true)
@@ -191,13 +211,14 @@ jobs:
           arm_bundle_name="${arm_sig_name%.sig}"
           intel_bundle_name="${intel_sig_name%.sig}"
 
-          # Assets live on the fixed `beta` release, so the updater URLs are the
-          # stable `releases/download/beta/...` path `BETA_ENDPOINT` expects.
-          base="https://github.com/$REPO/releases/download/beta"
+          # Bundles live on the per-version release; only latest.json itself
+          # sits on the fixed `beta` release that BETA_ENDPOINT reads. These
+          # urls are therefore immutable once published.
+          base="https://github.com/$REPO/releases/download/$TAG"
 
           mkdir -p /tmp/sigs
-          gh release download beta --repo "$REPO" --pattern "$arm_sig_name"   --dir /tmp/sigs
-          gh release download beta --repo "$REPO" --pattern "$intel_sig_name" --dir /tmp/sigs
+          gh release download "$TAG" --repo "$REPO" --pattern "$arm_sig_name"   --dir /tmp/sigs
+          gh release download "$TAG" --repo "$REPO" --pattern "$intel_sig_name" --dir /tmp/sigs
 
           arm_sig=$(cat "/tmp/sigs/$arm_sig_name"; echo x); arm_sig="${arm_sig%x}"
           intel_sig=$(cat "/tmp/sigs/$intel_sig_name"; echo x); intel_sig="${intel_sig%x}"
@@ -222,37 +243,56 @@ jobs:
 
           echo "── latest.json ──"; cat latest.json
 
-      - name: Upload latest.json to the beta release
-        run: |
-          gh release upload beta --repo "$REPO" latest.json --clobber
+      # Order matters from here down. The versioned release must be live BEFORE
+      # latest.json names its urls, and latest.json must be the LAST thing that
+      # changes — it is the single switch that moves clients onto this build.
 
-      - name: Update beta release body with generated changelog
-        run: |
-          gh release edit beta --repo "$REPO" --notes-file /tmp/release-notes.txt
-
-      - name: Publish the beta release (drop draft flag)
-        run: |
-          gh release edit beta --repo "$REPO" --draft=false --prerelease
-
-      - name: Publish a per-version archival release page
-        # In addition to the rolling `beta` release (which the updater reads via
-        # the fixed releases/download/beta/latest.json endpoint — left untouched),
-        # publish a versioned prerelease at the `beta-v<version>` trigger tag so
-        # each beta has its own human-readable release page + notes + installers.
-        # This is purely archival: the updater never reads this release.
-        env:
-          TAG: ${{ github.ref_name }}
+      - name: Publish the versioned release (drop draft flag)
         run: |
           set -euo pipefail
-          # Human-facing installers from the rolling beta release.
-          mkdir -p /tmp/dist
-          gh release download beta --repo "$REPO" --pattern '*.dmg' --dir /tmp/dist
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release edit "$TAG" --repo "$REPO" --prerelease \
-              --title "Porta Beta $VERSION" --notes-file /tmp/release-notes.txt
-            gh release upload "$TAG" --repo "$REPO" /tmp/dist/*.dmg --clobber
+          gh release edit "$TAG" --repo "$REPO" \
+            --draft=false --prerelease \
+            --title "Porta Beta $VERSION" \
+            --notes-file /tmp/release-notes.txt
+
+      - name: Ensure the permanent `beta` release exists
+        # Only ever created, never deleted or moved — deleting it is what used
+        # to blank the updater endpoint mid-run. On an established repo this is
+        # a no-op; it exists so a fresh fork can bootstrap the channel.
+        run: |
+          set -euo pipefail
+          if gh release view beta --repo "$REPO" >/dev/null 2>&1; then
+            echo "beta release present."
           else
-            gh release create "$TAG" --repo "$REPO" --prerelease \
-              --title "Porta Beta $VERSION" --notes-file /tmp/release-notes.txt \
-              /tmp/dist/*.dmg
+            gh release create beta \
+              --repo "$REPO" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --title "Porta Beta channel" \
+              --notes "Updater manifest for the opt-in beta channel. Installers live on each beta-v<version> release."
           fi
+
+      - name: Point the beta channel at this build (single atomic switch)
+        run: |
+          set -euo pipefail
+          gh release upload beta --repo "$REPO" latest.json --clobber
+          echo "Beta channel now serves $VERSION."
+
+      - name: Prune stale bundles from the `beta` release
+        # Older betas uploaded their bundles here, back when `beta` doubled as
+        # the artifact store. Those are dead weight now that latest.json points
+        # at the versioned release — but they are only safe to remove AFTER the
+        # new manifest is live, since the previous one still referenced them.
+        run: |
+          set -euo pipefail
+          stale=$(gh release view beta --repo "$REPO" --json assets \
+            --jq '.assets[].name | select(. != "latest.json")' || true)
+          if [ -z "$stale" ]; then
+            echo "Nothing to prune."
+            exit 0
+          fi
+          echo "$stale" | while read -r name; do
+            [ -n "$name" ] || continue
+            echo "Deleting stale asset: $name"
+            gh release delete-asset beta "$name" --repo "$REPO" --yes
+          done
