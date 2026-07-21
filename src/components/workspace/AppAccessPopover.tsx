@@ -183,6 +183,12 @@ export default function AppAccessPopover({
     setAccess(app.basic_auth_enabled ? "password" : "public");
   }, [app.basic_auth_enabled, app.id]);
 
+  // An app can stop while the panel is open — the trigger going inert doesn't
+  // dismiss what's already on screen, so close it here.
+  useEffect(() => {
+    if (offline) setOpen(false);
+  }, [offline]);
+
   const namedHosts = useMemo(() => namedPublicHosts(app), [app]);
 
   const publicDestinations = useMemo(() => {
@@ -297,12 +303,22 @@ export default function AppAccessPopover({
       width="w-[680px] max-w-[calc(100vw-2rem)]"
       panelClassName="!max-h-[calc(100vh-6rem)] !overflow-y-auto !p-0"
       anchor={
-        <span className={`inline-flex self-center overflow-hidden rounded-control border border-[rgba(96,165,250,0.30)] ${offline ? "opacity-50" : ""}`}>
+        /* The whole control goes inert until the app serves: Open would land on
+           a connection error and every panel action has another home anyway —
+           disconnect on the Publish tab and Config → Tunneling, access settings
+           in Config, copy on the Overview details card. Disabled rather than
+           hidden so the header doesn't reflow the moment an app starts. */
+        <span
+          className={`inline-flex self-center overflow-hidden rounded-control border border-[rgba(96,165,250,0.30)] ${
+            offline ? "opacity-45" : ""
+          }`}
+          title={offline ? "App is not running" : undefined}
+        >
           <button
             type="button"
             onClick={() => void openExternalUrl(primaryUrl)}
             disabled={offline}
-            title={offline ? "App is not running" : `Open ${primaryUrl}`}
+            title={offline ? undefined : `Open ${primaryUrl}`}
             className="inline-flex items-center gap-1.5 bg-accent-bg px-2.5 py-[5px] text-[12px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
           >
             <ArrowSquareOut size={14} weight="regular" />
@@ -311,11 +327,12 @@ export default function AppAccessPopover({
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            title="Open app access"
+            disabled={offline}
+            title={offline ? undefined : "Open app access"}
             aria-label="Open app access"
             aria-haspopup="menu"
             aria-expanded={open}
-            className="inline-flex items-center gap-1.5 border-l border-[rgba(96,165,250,0.30)] bg-accent-bg px-2 py-[5px] text-[11px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)]"
+            className="inline-flex items-center gap-1.5 border-l border-[rgba(96,165,250,0.30)] bg-accent-bg px-2 py-[5px] text-[11px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
           >
             <Globe size={14} weight="regular" />
             <span
@@ -329,11 +346,12 @@ export default function AppAccessPopover({
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            title="App access options"
+            disabled={offline}
+            title={offline ? undefined : "App access options"}
             aria-label="App access options"
             aria-haspopup="menu"
             aria-expanded={open}
-            className="inline-flex items-center border-l border-[rgba(96,165,250,0.30)] bg-accent-bg px-[7px] text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)]"
+            className="inline-flex items-center border-l border-[rgba(96,165,250,0.30)] bg-accent-bg px-[7px] text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
           >
             <CaretDown size={13} weight="bold" />
           </button>
