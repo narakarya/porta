@@ -335,6 +335,46 @@ pub fn terminal_resize(app_id: String, rows: u16, cols: u16) -> Result<(), Strin
     Ok(())
 }
 
+/// Live state of one session, as the status bar renders it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalState {
+    pub alive: bool,
+    pub running: bool,
+    pub pid: u32,
+    pub exit_code: Option<i32>,
+}
+
+/// A foreground pgid that isn't the shell's own means a command is running in
+/// front of the prompt. `-1` means the fd is unreadable — treat as idle rather
+/// than inventing activity.
+fn session_state(h: &TerminalHandle, fg_pgid: i32) -> TerminalState {
+    let alive = h.exit_code.is_none();
+    TerminalState {
+        alive,
+        running: alive && fg_pgid > 0 && fg_pgid != h.child_pid as i32,
+        pid: h.child_pid,
+        exit_code: h.exit_code,
+    }
+}
+
+/// Poll one session's liveness. Drives the status bar and the
+/// "something is still running" confirmation before a tab closes.
+#[tauri::command]
+pub fn terminal_state(app_id: String) -> Result<TerminalState, String> {
+    let map = terminals().lock().unwrap();
+    let h = map.get(&app_id).ok_or("no such terminal session")?;
+    // Guard on the descriptor, not `exit_code`, so this stays consistent with
+    // `terminal_write`/`terminal_resize`: an exited session has its fd
+    // retired to -1, and tcgetpgrp on a recycled number would be meaningless.
+    let fg_pgid = if is_writable(h) {
+        unsafe { libc::tcgetpgrp(h.master_fd) }
+    } else {
+        -1
+    };
+    Ok(session_state(h, fg_pgid))
+}
+
 /// Close (and kill) a terminal session. The only path that removes a session —
 /// called from closing a tab, closing a pane, or deleting the app.
 #[tauri::command]
@@ -362,8 +402,8 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_existing, exit_code_from_status, is_writable, push_backlog, record_exit, take_fd,
-        utf8_locale_overrides, TerminalHandle, BACKLOG_CAP,
+        attach_existing, exit_code_from_status, is_writable, push_backlog, record_exit,
+        session_state, take_fd, utf8_locale_overrides, TerminalHandle, BACKLOG_CAP,
     };
     use std::collections::{HashMap, VecDeque};
 
@@ -527,5 +567,40 @@ mod tests {
         assert!(is_writable(&h));
         h.master_fd = -1;
         assert!(!is_writable(&h));
+    }
+
+    #[test]
+    fn a_foreground_process_other_than_the_shell_reads_as_running() {
+        let h = handle(b"", None);
+        // child_pid is 0 in the fixture; a different foreground pgid means
+        // something is running in front of the prompt.
+        let state = session_state(&h, 4242);
+        assert!(state.alive);
+        assert!(state.running);
+        assert_eq!(state.exit_code, None);
+    }
+
+    #[test]
+    fn the_shell_owning_the_foreground_reads_as_idle() {
+        let h = handle(b"", None);
+        let state = session_state(&h, 0);
+        assert!(state.alive);
+        assert!(!state.running);
+    }
+
+    #[test]
+    fn an_exited_session_is_neither_alive_nor_running() {
+        let h = handle(b"", Some(1));
+        let state = session_state(&h, 4242);
+        assert!(!state.alive);
+        assert!(!state.running);
+        assert_eq!(state.exit_code, Some(1));
+    }
+
+    #[test]
+    fn an_unreadable_foreground_pgid_reads_as_idle() {
+        // tcgetpgrp returns -1 when the fd is gone; don't report phantom work.
+        let h = handle(b"", None);
+        assert!(!session_state(&h, -1).running);
     }
 }
