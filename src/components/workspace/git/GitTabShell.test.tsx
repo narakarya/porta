@@ -116,12 +116,17 @@ describe("GitTab shell", () => {
     expect(usePortaStore.getState().gitTheme).toBe("forest");
   });
 
-  it("surfaces a failed theme write instead of dropping the promise", async () => {
+  // A failed write leaves the config on the old palette, so the picker must go
+  // back to it too — otherwise the tab shows a palette that quietly disappears
+  // on the next launch. The failure is still reported.
+  it("surfaces a failed theme write and puts the previous palette back", async () => {
     vi.mocked(setGitThemeCmd).mockRejectedValueOnce(new Error("config write denied"));
-    await renderTab();
+    const { container } = await renderTab();
     await userEvent.click(screen.getByRole("button", { name: /theme/i }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Forest" }));
     expect(await screen.findByText(/Couldn't save the theme/)).toHaveTextContent("config write denied");
+    expect(usePortaStore.getState().gitTheme).toBe("dark");
+    expect(container.querySelector(".git-tab-root")).toHaveAttribute("data-git-theme", "dark");
   });
 
   // The shell's error line is above the body, so it shows on every tab. A sync

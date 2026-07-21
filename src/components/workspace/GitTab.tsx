@@ -182,10 +182,10 @@ export default function GitTab({ app }: { app: App }) {
   }
 
   // The store applies the palette immediately and then writes it to the Tauri
-  // config; if that write fails the picker would otherwise look like it stuck
-  // while silently reverting on the next launch. Surface it on the shell's
-  // error line instead. No revert: the store setter is the only writer and
-  // calling it again would just fail the same way.
+  // config; if that write fails the setter puts the previous palette back (see
+  // `setGitTheme` in store/slices/ui.ts), so the picker and the config never
+  // disagree. The failure is still the user's to know about — it lands on the
+  // shell's error line.
   async function pickTheme(id: GitTheme) {
     setError(null);
     try {

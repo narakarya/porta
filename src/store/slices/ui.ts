@@ -314,9 +314,19 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   setGitAdvancedEnabled: (enabled) => set({ gitAdvancedEnabled: enabled }),
 
+  // Optimistic: the palette applies on the click, then goes to the Tauri
+  // config. If that write fails the config still holds the old palette, so
+  // keeping the new one on screen would be a lie the next launch corrects —
+  // roll the store back and re-throw so the caller can say what happened.
   setGitTheme: async (theme) => {
+    const previous = get().gitTheme;
     set({ gitTheme: theme });
-    await cmd.setGitThemeCmd(theme);
+    try {
+      await cmd.setGitThemeCmd(theme);
+    } catch (cause) {
+      set({ gitTheme: previous });
+      throw cause;
+    }
   },
 
   setBetaUpdates: (enabled) => {
