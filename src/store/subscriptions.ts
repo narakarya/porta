@@ -200,8 +200,15 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
           ),
           appRestarting: { ...s.appRestarting, [app.id]: false },
         }));
+        // Was a blocking `window.alert` — a modal wall that halts the whole
+        // WebView (and, per the extension guidance, wedges automation) for
+        // something the user can read and dismiss at their own pace.
         if (!suppressAlert) {
-          window.alert(`Failed to start ${app.name}:\n\n${short}`);
+          get().notify({
+            kind: "error",
+            message: `Failed to start ${app.name}`,
+            detail: short,
+          });
         }
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 

@@ -104,7 +104,6 @@ export default function WorkspaceView() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  const [savedToast] = useState(false);
   const [activeTerminalAppId, setActiveTerminalAppId] = useState<string | null>(null);
   // Track which apps have ever opened a terminal so their modal stays mounted (preserves PTY sessions)
   const [openedTerminalIds, setOpenedTerminalIds] = useState<Set<string>>(new Set());
@@ -591,18 +590,6 @@ export default function WorkspaceView() {
             ))}
           </Suspense>
 
-          {/* Save-success toast — appears centered-bottom after the settings
-              modal closes via a successful save. Auto-dismisses after 2s. */}
-          <div
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-[11px] text-emerald-400 shadow-lg transition-all duration-200 pointer-events-none ${
-              savedToast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
-            }`}
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Settings saved
-          </div>
       </>
 
       <SelectionBar selectedIds={[...selectedAppIds]} onClear={clearSelection} />

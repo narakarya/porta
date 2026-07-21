@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { cfAccessListApps, cfAccessProtect, cfAccessUnprotect, getCfApiToken, openExternalUrl, type AccessAppInfo } from "../../lib/commands";
 import AccessPolicyEditor from "./AccessPolicyEditor";
+import { usePortaStore } from "../../store";
 
 interface Props {
   /** Bumped by parent when the API token changes — triggers re-fetch. */
@@ -57,7 +58,7 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
       await cfAccessUnprotect(token, app.domain);
       setApps((prev) => prev.filter((a) => a.uid !== app.uid));
     } catch (e) {
-      window.alert(`Remove failed:\n${e instanceof Error ? e.message : String(e)}`);
+      usePortaStore.getState().notifyError("Remove failed", e);
     } finally {
       setRemovingUid(null);
     }

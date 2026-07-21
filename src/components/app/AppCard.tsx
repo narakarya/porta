@@ -113,6 +113,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   const portConflicts = usePortaStore((s) => s.portConflicts[app.id]);
   const appRestarting = usePortaStore((s) => s.appRestarting[app.id]);
   const appTunnelErrors = usePortaStore((s) => s.appTunnelErrors[app.id]);
+  const notify = usePortaStore((s) => s.notify);
 
   // Host computations read app fields that rarely change — memoize so they
   // don't re-run on unrelated parent state updates.
@@ -337,7 +338,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       }
       const short = full.length > 400 ? `${full.slice(0, 400)}…\n\n(truncated — check logs for full output)` : full;
       if (!isDockerRuntimeUnavailable(full)) {
-        window.alert(`Failed to start ${app.name}:\n\n${short}`);
+        notify({ kind: "error", message: `Failed to start ${app.name}`, detail: short });
       }
     }
   }

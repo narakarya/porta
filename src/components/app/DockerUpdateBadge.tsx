@@ -873,9 +873,7 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
       } catch (e) {
         // Surface the failure so the user knows the YAML wasn't patched
         // and can edit manually.
-        window.alert(
-          `Couldn't patch compose with ${hint.tag}: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        usePortaStore.getState().notifyError(`Couldn't patch compose with ${hint.tag}`, e);
       }
     }
 

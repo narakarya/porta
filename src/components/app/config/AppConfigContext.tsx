@@ -303,7 +303,7 @@ export function useAppConfigDraft(
       try {
         await setTunnelConfig(app.id, tunnelProvider, newName, newHost, tunnelAutoStart);
       } catch (e) {
-        window.alert(`Failed to save tunnel config: ${e instanceof Error ? e.message : String(e)}`);
+        usePortaStore.getState().notifyError("Failed to save tunnel config", e);
         setTunnelBusy(null);
         return;
       }

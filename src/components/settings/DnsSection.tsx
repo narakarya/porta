@@ -10,6 +10,7 @@ import {
   type DnsRecord,
   type DnsRecordInput,
 } from "../../lib/commands";
+import { usePortaStore } from "../../store";
 
 const RECORD_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS"] as const;
 type RecordType = typeof RECORD_TYPES[number];
@@ -200,7 +201,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
       await cfDnsDeleteRecord(token, selectedZoneId, rec.id);
       await loadRecords(token, selectedZoneId, search.trim() || undefined);
     } catch (e) {
-      window.alert(`Delete failed:\n${e instanceof Error ? e.message : String(e)}`);
+      usePortaStore.getState().notifyError("Delete failed", e);
     } finally {
       setDeletingId(null);
     }

@@ -16,6 +16,7 @@ import {
   type EmailRule,
   type EmailRoutingStatus,
 } from "../../lib/commands";
+import { usePortaStore } from "../../store";
 
 interface Props {
   tokenVersion?: number;
@@ -115,7 +116,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
       const dest = await cfEmailCreateAddress(token, newDestEmail.trim());
       setDestinations((prev) => [...prev, dest]);
       setNewDestEmail("");
-      window.alert(`Verification email sent to ${dest.email}. Click the link in the email to activate it as a destination.`);
+      usePortaStore.getState().notify({ kind: "info", message: `Verification email sent to ${dest.email}`, detail: "Click the link in the email to activate it as a destination." });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -130,7 +131,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
       await cfEmailDeleteAddress(token, d.tag);
       setDestinations((prev) => prev.filter((x) => x.tag !== d.tag));
     } catch (e) {
-      window.alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      usePortaStore.getState().notifyError("Delete failed", e);
     }
   }
 
@@ -164,7 +165,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
       await cfEmailDeleteRule(token, zoneId, r.tag);
       setRules((prev) => prev.filter((x) => x.tag !== r.tag));
     } catch (e) {
-      window.alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      usePortaStore.getState().notifyError("Delete failed", e);
     } finally {
       setDeletingTag(null);
     }

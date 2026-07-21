@@ -109,7 +109,7 @@ function Sparkline({ samples }: { samples: Array<{ cpu: number; mem: number }> }
 // from real store state (apps + services), host system metrics, a resource
 // trend sparkline, and a session-lived recent-events feed.
 export default function ActivityView() {
-  const { apps, services, workspaces, selectApp, setActiveDomain, startApp, stopApp } =
+  const { apps, services, workspaces, selectApp, setActiveDomain, startApp, stopApp, notifyError } =
     usePortaStore(
       useShallow((s) => ({
         apps: s.apps,
@@ -119,8 +119,19 @@ export default function ActivityView() {
         setActiveDomain: s.setActiveDomain,
         startApp: s.startApp,
         stopApp: s.stopApp,
+        notifyError: s.notifyError,
       }))
     );
+
+  // These were bare `onClick={() => startApp(id)}` calls: the store action
+  // rejects on a failed spawn and nothing caught it, so the row just sat there.
+  async function run(kind: "start" | "stop", name: string, fn: () => Promise<void>) {
+    try {
+      await fn();
+    } catch (e) {
+      notifyError(`Failed to ${kind} ${name}`, e);
+    }
+  }
 
   // ── Host metrics + rolling trend buffer ─────────────────────────────────
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
@@ -352,9 +363,9 @@ export default function ActivityView() {
                     </button>
                     <div className="pr-2 pl-1 shrink-0">
                       {a.status === "running" ? (
-                        <Button size="sm" onClick={() => stopApp(a.id)}>Stop</Button>
+                        <Button size="sm" onClick={() => run("stop", a.name, () => stopApp(a.id))}>Stop</Button>
                       ) : (
-                        <Button size="sm" variant="primary" onClick={() => startApp(a.id)}>Start</Button>
+                        <Button size="sm" variant="primary" onClick={() => run("start", a.name, () => startApp(a.id))}>Start</Button>
                       )}
                     </div>
                   </div>

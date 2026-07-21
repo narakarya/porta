@@ -118,6 +118,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const instances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
   const runInstance = usePortaStore((s) => s.runInstance);
   const stopInstanceAction = usePortaStore((s) => s.stopInstanceAction);
+  const notifyError = usePortaStore((s) => s.notifyError);
   const removeInstanceAction = usePortaStore((s) => s.removeInstanceAction);
   const refreshInstances = usePortaStore((s) => s.refreshInstances);
 
@@ -542,7 +543,13 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                             // Stop keeps the row (→ "stopped"); no confirm needed.
                             <Tooltip label="Stop instance (keeps it in the list)" side="top">
                               <button
-                                onClick={() => stopInstanceAction(inst.id, app.id)}
+                                onClick={() => {
+                                  // Bare call before: a rejected stop left the
+                                  // row unchanged with no explanation.
+                                  void stopInstanceAction(inst.id, app.id).catch((e) =>
+                                    notifyError(`Failed to stop ${inst.branch}`, e)
+                                  );
+                                }}
                                 className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
                               >
                                 Stop
