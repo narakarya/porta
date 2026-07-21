@@ -105,6 +105,19 @@ fn record_exit(exit_code_slot: &mut Option<i32>, code: i32) {
 }
 
 /// Snapshot a session's retained output for a view that is (re)attaching.
+///
+/// The `backlog` lock this takes (see the reader thread below) guarantees
+/// this snapshot can't observe a *torn* chunk — one whose append and emit are
+/// still mid-flight — but it does **not** guarantee a chunk appears in only
+/// one of {this snapshot, a live `terminal:data` event}. The frontend
+/// registers its listener before calling `terminal_open`, so a chunk whose
+/// append+emit critical section completes in the window between that
+/// registration and this snapshot is both delivered live (and queued in JS,
+/// since the backlog hasn't been consumed yet) *and* included here. Known
+/// limitation: a reattach can replay a few of the shell's most recent bytes
+/// twice. Nothing here corrupts state or drops output — the cost is purely
+/// cosmetic duplicate lines — so it's left as is rather than adding a
+/// sequence-number scheme to close it.
 fn attach_existing(h: &TerminalHandle) -> TerminalAttach {
     TerminalAttach {
         spawned: false,
@@ -290,10 +303,15 @@ pub fn terminal_open(
             let chunk = &buf[..n as usize];
             // Hold the backlog lock across append + emit so a `terminal_open`
             // reattach's snapshot (also taken under this same lock, see
-            // `attach_existing`) can't land in the gap between the two and
-            // either duplicate this chunk (in both the snapshot and a live
-            // event) or drop it (if the snapshot ran first and no listener
-            // was attached yet). Deliberately *not* the map lock — this is a
+            // `attach_existing`) can't land *in the middle* of this chunk's
+            // append+emit and see a torn/inconsistent version of it — the
+            // snapshot either fully includes this chunk or fully doesn't.
+            // That is weaker than "never both": it does not prevent this
+            // chunk from landing in *both* the snapshot and a live event a
+            // frontend listener already registered before `terminal_open` was
+            // called receives — see the comment on `attach_existing` for that
+            // known (cosmetic, duplicate-replay-only) limitation. Deliberately
+            // *not* the map lock — this is a
             // per-session lock, so one session's `emit` (a JSON
             // serialization + IPC hop) never serializes against another
             // session's reader thread, and never against `terminal_write`'s
@@ -741,12 +759,20 @@ mod tests {
     }
 
     // Companion to the test above: the two locks being independent must not
-    // come at the cost of the ordering guarantee `terminal_open`'s reattach
-    // snapshot depends on. `attach_existing` takes the *same* `backlog` lock
-    // the reader thread's append-then-emit critical section holds, so a
-    // snapshot running concurrently with an append must still serialize
-    // against it rather than interleave — otherwise a chunk could land in
-    // both the snapshot and a live event (double delivery) or in neither.
+    // come at the cost of the *torn-read* guarantee `terminal_open`'s
+    // reattach snapshot depends on. `attach_existing` takes the *same*
+    // `backlog` lock the reader thread's append-then-emit critical section
+    // holds, so a snapshot running concurrently with an append must still
+    // serialize against it rather than interleave — it sees either all of a
+    // given chunk or none of it, never a half-appended one.
+    //
+    // This is *not* a claim that a chunk never appears in both the snapshot
+    // and a live event — it can, since the frontend registers its listener
+    // before calling `terminal_open`: a chunk whose critical section
+    // completes between that registration and this snapshot is delivered
+    // live *and* included here. See the comment on `attach_existing` for
+    // that known, cosmetic (duplicate-replay-only) limitation, which this
+    // lock does not and was never meant to close.
     #[test]
     fn a_backlog_snapshot_serializes_against_a_concurrent_append() {
         use std::sync::{Arc, Barrier};
