@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import FilterBox from "./FilterBox";
 import FacetChips from "./FacetChips";
+import ActivePane, { useActivePane } from "./ActivePane";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 describe("FilterBox", () => {
@@ -171,5 +173,54 @@ describe("useContextMenu", () => {
       expect(menu.style.left).toBe("100px");
       expect(menu.style.top).toBe("100px");
     });
+  });
+});
+
+/**
+ * The gate the kept-mounted panes read. Its whole job is to make "hidden" and
+ * "unmounted" two different things, so both are asserted here.
+ */
+describe("ActivePane", () => {
+  let probeMounts = 0;
+  function Probe() {
+    const active = useActivePane();
+    useEffect(() => { probeMounts += 1; }, []);
+    return <span>pane is {active ? "active" : "idle"}</span>;
+  }
+
+  function Toggling() {
+    const [active, setActive] = useState(true);
+    return (
+      <>
+        <button onClick={() => setActive((v) => !v)}>toggle</button>
+        <ActivePane active={active} className="flex-1">
+          <Probe />
+        </ActivePane>
+      </>
+    );
+  }
+
+  beforeEach(() => { probeMounts = 0; });
+
+  // Seven of the eight tabs mount on demand and never sit in a pane slot; they
+  // must not have to opt in to keep working.
+  it("reads as active with no pane above it", () => {
+    render(<Probe />);
+    expect(screen.getByText(/pane is active/)).toBeInTheDocument();
+  });
+
+  it("hides its child and tells it so — without unmounting it", async () => {
+    render(<Toggling />);
+    expect(probeMounts).toBe(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "toggle" }));
+    const probe = screen.getByText(/pane is idle/);
+    expect(probe).not.toBeVisible();
+    expect(probe.closest("div")).toHaveAttribute("hidden");
+    expect(probeMounts).toBe(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "toggle" }));
+    expect(screen.getByText(/pane is active/)).toBeVisible();
+    expect(probeMounts).toBe(1);
   });
 });

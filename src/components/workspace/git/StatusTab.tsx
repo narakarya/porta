@@ -20,6 +20,7 @@ import type { App } from "../../../types";
 import DiffView from "./DiffView";
 import FileTree from "./FileTree";
 import GitBranchIcon from "./ui/GitBranchIcon";
+import { useActivePane } from "./ui/ActivePane";
 
 // ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
 function CheckboxIcon({ checked, className = "" }: { checked: boolean; className?: string }) {
@@ -57,7 +58,8 @@ function deriveSelected(
  * so the shell stays a shell; the behaviour is unchanged from when it lived
  * there. The shell keeps this mounted (hidden) on every other tab and while a
  * repo is unreadable or missing, so the commit draft survives; the effects
- * below therefore no-op until the store has a GitStatus for the app.
+ * below therefore no-op until the store has a GitStatus for the app — and,
+ * via `useActivePane`, while the pane is the hidden one.
  */
 export default function StatusTab({
   app,
@@ -73,6 +75,7 @@ export default function StatusTab({
 }) {
   const status = usePortaStore((s) => s.appGit[app.id]);
   const setAppGit = usePortaStore((s) => s.setAppGit);
+  const active = useActivePane();
 
   // ── Working-surface state (changed files / diff / commit box) ──────────────
   const [changed, setChanged] = useState<ChangedFile[]>([]);
@@ -95,14 +98,19 @@ export default function StatusTab({
   }, []);
 
   // Load changed files once we know it's a repo (mirrors the branches effect).
+  // `active` gates it because the shell keeps this tab mounted while hidden:
+  // the poller rewrites `status` every 15s, and without the gate each tick
+  // would re-list the working tree for a pane nobody is looking at. It is also
+  // a dependency, so becoming visible again re-lists — a hidden pane goes
+  // stale by design, and must not be shown that way.
   useEffect(() => {
-    if (!status || !app.root_dir) return;
+    if (!active || !status || !app.root_dir) return;
     let cancelled = false;
     gitChangedFiles(app.root_dir)
       .then((files) => { if (!cancelled) setChanged(files); })
       .catch(() => { if (!cancelled) setChanged([]); });
     return () => { cancelled = true; };
-  }, [status, app.root_dir]);
+  }, [active, status, app.root_dir]);
 
   // Refresh both the changed-file list and the header GitStatus badge after any
   // mutation, keeping the store-backed poller value in sync — and re-derive

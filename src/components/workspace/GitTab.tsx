@@ -24,6 +24,7 @@ import SyncPanel from "./git/SyncPanel";
 import PullRequestsPanel from "./git/PullRequestsPanel";
 import GitBranchIcon from "./git/ui/GitBranchIcon";
 import ErrorNotice from "./git/ui/ErrorNotice";
+import ActivePane from "./git/ui/ActivePane";
 
 type Busy = "fetch" | "pull" | "push" | null;
 
@@ -467,17 +468,15 @@ export default function GitTab({ app }: { app: App }) {
             be thrown away by a trip to History and back — nor by a poll error
             blanking the tab for one 15s tick. It stays mounted for every tab
             and every `blocked` state, and is hidden whenever it isn't the
-            thing on screen; the `hidden` attribute keeps it out of the a11y
-            tree, the class does the layout. This slot has to stay at a fixed
-            position among its siblings — that, not the JSX being written once,
-            is what makes React keep the mount. Every other tab keeps its
-            mount-on-demand behaviour — none of them holds a draft. */}
-        <div
-          className={!blocked && tab === "changes" ? "flex-1 min-h-0 flex flex-col" : "hidden"}
-          hidden={!!blocked || tab !== "changes"}
-        >
+            thing on screen. `ActivePane` is that slot: it hides rather than
+            unmounts, and passes "you are hidden" down so the tab's refetches
+            can idle instead of running behind display:none. The slot has to
+            stay at a fixed position among its siblings — that, not the JSX
+            being written once, is what makes React keep the mount. Every other
+            tab keeps its mount-on-demand behaviour — none holds a draft. */}
+        <ActivePane active={!blocked && tab === "changes"} className="flex-1 min-h-0 flex flex-col">
           <StatusTab app={app} onError={setStatusError} />
-        </div>
+        </ActivePane>
 
         {blocked || !status ? null : tab === "sync" ? (
           <SyncPanel app={app} status={status} onChanged={refreshStatus} />

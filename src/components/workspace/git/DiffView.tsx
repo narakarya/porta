@@ -11,6 +11,7 @@ import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDif
 import { tokenDiff, type Span } from "../../../lib/word-diff";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
+import { useActivePane } from "./ui/ActivePane";
 
 function previewTable(preview: GitFilePreview) {
   const separator = preview.kind === "tsv" ? "\t" : ",";
@@ -203,6 +204,7 @@ export default function DiffView({
   // Inline "Discard?" confirm, mirroring StashPanel's Drop confirm — Tauri
   // webview can't rely on window.confirm. Keyed by hunk index.
   const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
+  const active = useActivePane();
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -210,7 +212,12 @@ export default function DiffView({
     return () => { mounted.current = false; };
   }, []);
 
+  // Idle while the pane is hidden: the Status tab stays mounted behind another
+  // tab, and re-reading a diff (plus its file preview) for a surface nobody can
+  // see is pure background work. `active` is a dependency, so the diff is
+  // re-read the moment the pane comes back rather than being served stale.
   useEffect(() => {
+    if (!active) return;
     if (!app.root_dir || path === "") { setParsed(null); return; }
     let cancelled = false;
     setLoading(true);
@@ -229,7 +236,7 @@ export default function DiffView({
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [app.root_dir, path, staged, refreshKey]);
+  }, [active, app.root_dir, path, staged, refreshKey]);
 
   async function applyHunk(hunk: Hunk, index: number) {
     if (!parsed) return;
