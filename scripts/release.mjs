@@ -57,7 +57,11 @@ const MODES = {
 
 // ─── shell helpers ────────────────────────────────────────────────────────
 
-const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+// Read-only git. stderr is captured rather than inherited because several
+// callers probe for things that are legitimately absent — `rev-parse` on a tag
+// that does not exist yet would otherwise print "Needed a single revision".
+const git = (...args) =>
+  execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
 let DRY_RUN = false;
 
