@@ -4,270 +4,229 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.0-beta.11]
+## [0.13.0] — 2026-07-21
 
-### Changed
-- Open and Publish are now combined into one access popover. It lists every
-  local route, exposes live public destinations, and keeps Quick and Named
-  Cloudflare tunnel modes selectable from the same control. The popover also
-  retains access-policy shortcuts and a collapsed live tunnel-output stream for
-  debugging. Domain and Tunneling are removed from app Config; their
-  non-redundant editing controls now live once in the focused Routes & Access
-  drawer opened from the popover.
-
-### Fixed
-- Restored the inline **Kill port** action on stopped worktree instances so
-  orphaned port holders can be cleared without discovering the context menu.
-- Start and Restart controls now remain in their loading state until the app's
-  readiness event arrives. Worktree instances use the same HTTP/health-check
-  readiness gate as primary apps, and slow startups are no longer marked ready
-  by a fixed timeout.
-- The workbench Open menu now uses the app's effective Caddy domain and local
-  certificate scheme, and lists the primary route plus every registered extra
-  subdomain instead of opening hardcoded `.test` or bare custom-domain URLs.
-
-## [0.12.0-beta.10]
-
-### Added
-- **Native Git pull requests**: list and search open PRs, inspect descriptions and checks, browse file-tree diffs, create or checkout a PR, open it on GitHub, and squash-merge with confirmation. The panel detects GitHub CLI installation and authentication before enabling the workflow.
-- **Interactive rebase editor**: reorder commits and mark each as pick, edit, reword, squash, fixup, or drop, with multiline reword messages plus clear continue/abort handling when a rebase pauses.
-- **Visual file previews in Status** for images, Markdown, sandboxed HTML, CSV, and TSV files, with an explicit Preview/Diff switch.
-
-### Changed
-- **Branches reaches Git Manager parity** with compare-base selection, create-from-ref, All/Identical/Merged/Unmerged/Local-only/On-remote facets, commit metadata, unique-commit and ahead/behind counts, explicit Compare/Commits actions, copy, tracking, worktree-safe switching, and confirmed local/remote/bulk removal.
-- **History, diffs, stashes, and tags are richer**: cross-branch message search, bulk cherry-pick, commit bodies, selectable diff context and whitespace handling, tree-based unified/split viewers, bulk stash drop, and explicit lightweight/annotated tag creation.
-- **Status supports multi-file workflows**: file and folder selection, bulk stage/unstage/discard, rename, and copy-path actions while retaining per-file and per-hunk controls.
-- **Sync adds Rebase from main/master** alongside fetch/prune, pull, pull-with-rebase, push, force-with-lease, and remote management.
-
-### Fixed
-- Git panels now preserve selection and refresh repository state after mutations, and branch actions refuse unsafe switches/removals for refs checked out in another worktree.
-
-## [0.12.0-beta.9]
-
-### Added
-- **Git workbench parity pass**: History now supports branch selection, message search, commit bodies, cherry-pick (continue/abort on conflict), and soft/mixed/hard reset. Branches adds local/remote filtering, create-from-ref, compare diff, switch, and safe local/remote deletion. Sync adds pull-with-rebase, force-with-lease confirmation, and remote management. Stash adds search, include-untracked, preview, and Apply; Tags adds search plus push/delete-on-origin actions.
-- Backend Git commands for branch comparison/creation/deletion, remotes, sync variants, cross-branch history, cherry-pick/reset, stash preview/apply, and remote tag operations.
-
-### Changed
-- **Cleaner instance workbench header**: parent navigation, branch, status, domain, and port now stay readable without repeating the branch; parent-only aliases no longer appear on worktree instances.
-- The parent app header now uses a neutral app icon instead of a redundant status checkmark.
-
-### Fixed
-- **Git discard semantics**: discarding now works for untracked files and directories, staged new files, and staged tracked edits. Status also has a confirmed “Discard all” action instead of requiring one file at a time.
-- **Docker image update visibility**: the workspace rollup now marks the exact app row that has a pending image update (including the affected Compose service/image in its tooltip), instead of showing only an ambiguous workspace-level count.
-- **Empty domain header strip**: Hosts, Services, Activity, Extensions, and app workbenches now begin at the top of their content area instead of sitting below a blank 44px drag bar.
-
-## [0.12.0-beta.8]
+Promotes the whole "Shell C" line to stable. This is the largest release since
+0.10.0: a new content-forward app shell, a native Git manager, first-class
+worktree instances, a unified access surface, and a full restyle onto the design
+tokens. It supersedes the 0.11.0-era redesign previews and the entire
+0.12.0-beta channel (beta.1 – beta.11), which were never released as stable.
 
 ### Added
 
-- **First-class instance navigation:** clicking a worktree instance in the
-  sidebar, app card, or parent Overview now opens its own workbench with
-  Overview, Logs, Git, and Terminal, plus a breadcrumb back to the parent.
-
-### Changed
-
-- **Git manager is worktree-aware:** branches checked out in another worktree
-  are disabled before switching, clearly labeled, and show the checkout path
-  instead of failing only after the Git command runs.
-- Instance selection is shared across the sidebar and workbench and safely
-  falls back to the parent when the selected instance is removed.
-
-### Fixed
-
-- **Switching to `beta` looked broken.** Porta now explains when Git has locked
-  a branch because another worktree already has it checked out.
-
-## [0.12.0-beta.7]
-
-### Added
-
-- **Instance context actions:** worktree instances now expose the same
-  right-click actions as their parent app, including **Open in Editor** and
-  **Extensions**.
-- **Open in Editor:** the app context menu now opens the selected app checkout
-  directly in the configured editor.
-
-### Fixed
-
-- **Instance actions targeted the parent checkout.** Browser, terminal, editor,
-  and extension actions now consistently use the instance's own host, port,
-  and worktree path.
-- **Extensions could not open or run shell commands for instances.** The
-  extension sidebar now resolves synthetic instance apps, and extension shell
-  commands securely scope their working directory to the instance worktree.
-
-## [0.12.0-beta.6]
-
-Backports the fixes from the 0.10.0 feedback round that the Shell C line hadn't
-already covered. Beta channel.
-
-### Fixed
-
-- **Per-app CPU % printed a garbage float** (e.g. `2.9000000953`). The value was
-  rounded as `f32` then serialized, which promoted to `f64` and exposed the
-  representation error; now cast to `f64` before rounding. (Complements the
-  beta.5 magnitude normalization — that fixed the range, this fixes the digits.)
-- **Shell extensions could hang or leak processes.** The extension shell runner
-  now disables interactive git prompts, runs commands in their own process group
-  with a group-kill on timeout, and drains stdout/stderr concurrently — matching
-  the hardening the core git runner already had. Prevents a fetch/push that hits
-  a credential prompt from hanging up to the timeout, and stops orphaned
-  git/ssh children on timeout.
-- **Reorder could silently diverge from disk.** Workspace and service reordering
-  now awaits the write and reloads the authoritative order on failure instead of
-  fire-and-forget.
-
-### Changed
-
-- **"Ready" now means serving, not just bound.** An app is marked ready (and its
-  Open affordances light up) only once it actually answers HTTP — via its
-  configured health path, or a `GET /` probe otherwise — rather than at the
-  first TCP accept; genuinely non-HTTP processes still fall back to the
-  port-open signal.
-
-## [0.12.0-beta.5]
-
-### Added
-- **Workbench Overview → Docker image**: Docker/Compose apps now show an image panel (image, update status, and a Check-for-updates / apply control) right in the Overview. The image-update affordance previously lived only on the grid card, which is hidden once an app is opened — so there was no way to reach it from the workbench.
-
-### Fixed
-- **Updater**: a background (silent) update check that fails on a transient release/network hiccup no longer pops a blocking "Update failed" toast — only a user-initiated check reports errors now. This also stops that error card (anchored bottom-left) from covering the Settings/account buttons at the bottom of the rail.
-- **Per-app CPU %**: normalized to 0–100% of the machine (divided by logical core count) for both native process-tree apps and Docker containers. It previously summed per-core usage and could read far above 100% (up to ~100×cores on a busy multi-core app).
-
-### Changed
-- **Config tab**: content and footer are width-constrained so form fields don't stretch across the full workbench.
-- **Open menu**: unified the dropdown row styling — the "Local" row no longer reads as mis-highlighted against the others.
-- **Publish tab**: the "Tunnel output" block is hidden until the tunnel has actually run, instead of showing an empty log pane.
-
-## [0.12.0-beta.4]
-
-### Added
-- **Git manager**: folder-nested collapsible file tree in the Changes pane; per-file insertion/deletion counts; per-hunk Discard (with confirm) alongside per-hunk Stage/Unstage; Stage-all / Unstage-all section actions; a line-number gutter and word-level intra-line diff highlighting in the diff view; commit-box ⌘↵ hint + staged count.
-- Backend git commands: numstat counts on changed files, git_discard_hunk, git_stage_all / git_unstage_all, and a content diff for untracked (new) files.
-
-### Fixed
-- Git: discarding a file's changes now asks for confirmation (was a one-click data loss); the diff view resets its state on file switch (a stale per-hunk "Discard?" could target the wrong file); bulk stage/unstage now disables individual file actions while in flight; the commit "Amend" no longer fires as a no-op in a clean tree; untracked files show their content instead of "No changes".
-
-## [0.12.0-beta.3]
-
-### Added
-- **Git manager**: History, Stash, Tags, and Rebase (onto / abort / continue) tabs; per-hunk staging and a unified/split diff toggle. New backend commands: git_log/git_show, git_stash_*, git_tags/create/delete, git_rebase_*, git_apply_hunk.
-- **Advanced Git tools** setting (Settings → Git & defaults, default on) that shows/hides the History/Stash/Tags/Rebase tabs.
-- **Publish**: live streaming log pane of the tunnel's cloudflared output ("terminal publish").
-- Instances as first-class workbenches.
-
-### Changed
-- **App Config** tab refactored from the 2900-line settings modal into a thin shell + focused section components (General/Domain/Environment/Tunneling) over a shared draft context; polished to design tokens.
-- **Settings**: merged the Cloudflare "DNS Records" and "Zone" sub-tabs into one "DNS & Zones" tab.
-
-### Removed
-- Dead code: the unused SettingsModal component and the unreachable store-driven full-screen app-settings modal path.
-
-### Fixed
-- Git: option-injection guards on tag/stash messages; per-hunk diff view refreshes after staging; binary/mode-only diffs render instead of showing "No changes".
-- Publish: tunnel-log auto-scroll survives the ring-buffer cap; named-connector log channels reuse resolved members.
-- Config: the Save footer no longer sticks on "Unsaved changes" when only the tunnel provider/auto-start (which persist out-of-band) changed.
-
-## [0.12.0-beta.2] — 2026-07-18
-
-Restores functionality the Shell-C redesign dropped from the app workbench and
-unifies the remaining chrome. Beta channel.
-
-### Fixed
-
-- **Logs.** The rewritten log viewer regained its line-number gutter, the six
-  colored level badges (ERR/WARN/INFO/DBG/TRC/OK), copy-entry (header + body +
-  stacktrace as one unit), the **Success** and **Debug** filter chips, per-level
-  text coloring for warn/info/success (not just error), and the colored
-  continuation rail / alternating block tint. The beta additions (timestamp
-  toggle, export, "Paused · N new", error-count badge) stay.
-- **Extensions unreachable from the workbench.** Opening an app hid the grid
-  card (and its extension affordances) with no replacement. The workbench header
-  now has an extensions toggle and the Overview lists each matching extension's
-  app-actions, wired to the shared extension sidebar.
-- **Git branch/switch gone from the app surface.** The workbench header showed a
-  read-only branch label; restored the interactive `GitBadge` (branch indicator
-  + switch-branch + fetch/pull/push). The full Git tab remains.
-- **Lifecycle buttons had no loading state through startup.** Start/Restart/Stop
-  cleared their spinner the instant the IPC returned, before the process was up.
-  Loading/disabled now derive from `starting` status + the `appRestarting` store
-  flag (cleared on `app:ready`), and the button set no longer flickers back to
-  "Start" mid-startup.
-- **"Open" button did nothing** in the workbench — it used raw `window.open`,
-  a no-op in the Tauri WebView. All Open affordances now use `openExternalUrl`.
-- **Domain list missing.** The workbench Details card lists every host the app
-  answers on (primary `.test` subdomain + `extra_subdomains`), each openable.
-
-### Changed
-
-- **One update popover.** The redundant self-update popover in the sidebar
-  status row was removed; the rail-anchored update popover (`UpdateToast`) is now
-  the single update surface and is built on the shared `ui/Popover` (new `card`
-  variant). The sidebar row keeps only the version + system-health dot.
-- **Unified sidebar.** The Hosts sidebar stopped hand-rolling its own 256px
-  column and now shares the same `SidebarFrame/Header/Body/Footer` shell as the
-  Workspaces sidebar (216px, matching surface/border, a "Hosts" title header,
-  and a bordered add-host footer).
-
-## [0.12.0] — 2026-07-17
-
-### Changed
-
-- **Settings + Config restyle.** Every Settings section and the app **Config**
-  tab migrated off legacy `zinc`/`blue`/`emerald` styling onto the design
-  tokens (`--surface-*`, `--ink-*`, `--accent`, `--success`/`--warning`/
-  `--danger`) — ~22 panels including About, Notifications, Git, Setup, Disk
-  Usage, Backup, Extensions, Remote, Tailscale, the full Cloudflare cluster
-  (Tunnels / DNS / Access / Zone / Email / Certificates), and the Config
-  General / Domain / Environment / Tunneling / Health / Danger sub-panels.
-  Radii normalized (`rounded-card` / `rounded-control`) and silent
-  opacity-on-token classes replaced with explicit rgba.
-
-### Fixed
-
-- Rail Porta logo top padding reduced so it lines up with the **Workspaces**
-  sidebar title.
-- Self-update popover caret repositioned to point at the account avatar (which
-  moved to the rail's bottom after the version label was removed).
-- Docker **Disk Usage** cleanup and **Backup → Export Database** buttons no
-  longer use a low-contrast solid-green fill (white-on-mint, ~1.9:1); the
-  cleanup action is now a legible green **tint** (mirroring its destructive
-  sibling) and Export uses the standard accent primary.
-
-## [0.11.0] — 2026-07-17
+- **Native Git manager** as a first-class workbench tab. Status with a
+  folder-nested collapsible file tree, per-file insertion/deletion counts,
+  unified/split diffs with selectable context and whitespace handling,
+  word-level intra-line highlighting, a line-number gutter, per-hunk and
+  per-file stage/unstage/discard, multi-file and folder bulk actions, rename and
+  copy-path, and visual previews for images, Markdown, sandboxed HTML, CSV and
+  TSV. Commit, commit & push, and amend (with a clean-tree guard) plus a ⌘↵ hint
+  and staged count.
+- **Git History, Branches, Sync, Stash and Tags.** Cross-branch message search,
+  commit bodies, cherry-pick (with continue/abort), soft/mixed/hard reset;
+  branch compare-base selection, create-from-ref,
+  All/Identical/Merged/Unmerged/Local-only/On-remote facets, ahead/behind and
+  unique-commit counts, worktree-safe switching and confirmed local/remote/bulk
+  removal; fetch/prune, pull, pull-with-rebase, push, force-with-lease, rebase
+  from main/master and remote management; stash search/preview/apply/bulk-drop;
+  lightweight and annotated tags with push/delete on origin.
+- **Interactive rebase editor** — reorder commits and mark each as pick, edit,
+  reword, squash, fixup or drop, with multiline reword messages and explicit
+  continue/abort handling when a rebase pauses.
+- **Native GitHub pull requests** — list and search open PRs, inspect
+  descriptions and checks, browse file-tree diffs, create or checkout a PR, open
+  it on GitHub, and squash-merge with confirmation. Detects GitHub CLI install
+  and auth before enabling the workflow.
+- **Worktree instances as first-class workbenches.** `git_worktree_add` creates
+  a worktree for an existing or new branch and launches an instance from it;
+  each instance gets its own Overview / Logs / Git / Terminal workbench,
+  sidebar and card entry points, a breadcrumb back to the parent, and the same
+  context actions as its parent app.
+- **Activity domain** — host CPU / memory / disk via `system_metrics`, a live
+  per-app CPU/memory panel on the workbench Overview, and a session-lived
+  recent-events feed.
+- **Docker image panel** in the workbench Overview (image, update status, and a
+  check-for-updates / apply control) so the affordance survives opening an app.
+- **Publish surface** — unified routing panel, shareable QR code, and a live
+  streaming pane of the tunnel's `cloudflared` output.
+- **Open in Editor** from the app and instance context menus, and an
+  **Advanced Git tools** setting (Settings → Git & defaults, default on) that
+  shows or hides the History/Stash/Tags/Rebase tabs.
+- On-demand app volume snapshot (`create_app_volume_snapshot`).
+- Persisted view preferences — sidebar collapse state and per-card instance
+  expansion survive a reload (stored locally, not in the backed-up database).
 
 ### Changed
 
 - **"Shell C" app redesign.** Content-forward workbench shell: an icon rail of
   domains (Workspaces / Hosts / Services / Activity / Extensions), a thin
-  workspace-grouped app list, and a rich app workbench (header + Overview /
-  Logs / Git / Terminal / Publish / Config tabs). App settings now render
-  inline as a **Config tab** instead of a full-screen modal. Every surface
-  restyled to the design tokens (`--surface-*`, `--ink-*`, `--accent`).
-- App workbench header gains an **Open split-button** with an "Open in browser"
-  dropdown (Local / Tunnel / Custom URLs, copy + open per row).
-- Logs tab: segmented All/Info/Warn/Error filter, timestamps toggle, export,
-  following/paused footer. Publish tab: unified routing panel + shareable **QR
-  code**. Update notification moved to a rail-anchored popover.
-- Sidebar: hover start/stop, per-app context menu with icons, always-visible
-  "＋" per workspace. Services domain: "Add from template" now prefills the
-  new-service form (Postgres/MySQL/Redis/Mongo/RabbitMQ/MariaDB/MinIO).
-- Loading/spinner + skeleton states across async controls.
+  workspace-grouped app list, and a rich app workbench (header plus Overview /
+  Logs / Git / Terminal / Publish / Config tabs). App settings render inline as
+  a **Config** tab instead of a full-screen modal. Sidebar gains hover
+  start/stop, a per-app context menu, and an always-visible "＋" per workspace;
+  Services gains "Add from template" prefill (Postgres / MySQL / Redis / Mongo /
+  RabbitMQ / MariaDB / MinIO). Loading, spinner and skeleton states across async
+  controls.
+- **Unified access popover.** Open and Publish are one control listing every
+  local route and live public destination, with Quick and Named Cloudflare
+  tunnel modes, access-policy shortcuts and a collapsed live tunnel-output
+  stream. Domain and Tunneling left the Config tab; their non-redundant editing
+  controls now live once in a focused **Routes & Access** drawer opened from the
+  popover.
+- **Full restyle onto the design tokens.** ~22 Settings panels and every Config
+  sub-panel migrated off legacy `zinc`/`blue`/`emerald` onto `--surface-*`,
+  `--ink-*`, `--accent`, `--success`/`--warning`/`--danger`; radii normalized
+  (`rounded-card` / `rounded-control`) and opacity-on-token classes replaced
+  with explicit rgba.
+- **Config tab refactored** from the 2900-line settings modal into a thin shell
+  plus focused section components (General / Domain / Environment / Tunneling)
+  over a shared draft context, width-constrained so fields don't stretch across
+  the workbench.
+- **"Ready" now means serving, not just bound.** An app is marked ready (and its
+  Open affordances light up) only once it answers HTTP — via its configured
+  health path, or a `GET /` probe otherwise — rather than at the first TCP
+  accept. Genuinely non-HTTP processes still fall back to the port-open signal.
+- **Git manager is worktree-aware** — branches checked out in another worktree
+  are labeled, disabled before switching, and show the checkout path instead of
+  failing after the Git command runs.
+- **One update surface.** The redundant sidebar self-update popover was removed
+  in favour of the rail-anchored update popover; the sidebar row keeps only the
+  version and system-health dot. The Hosts sidebar now shares the Workspaces
+  sidebar shell instead of hand-rolling its own column.
+- Cleaner instance workbench header (parent navigation, branch, status, domain,
+  port without repetition; no parent-only aliases), a neutral app icon on the
+  parent header, and merged Cloudflare "DNS Records" + "Zone" settings tabs.
+- Log severity rail spans the whole error/warn block (header plus continuation
+  lines) so a severity block reads as one unit.
+
+### Fixed
+
+- **Per-app CPU % was wrong twice over** — normalized to 0–100% of the machine
+  (previously summed per-core, reading up to ~100×cores), and cast to `f64`
+  before rounding so it no longer prints a representation artefact like
+  `2.9000000953`.
+- **Lifecycle controls lied about state.** Start / Restart / Stop cleared their
+  spinner the instant the IPC returned; they now stay in a loading state until
+  the readiness event arrives, don't flicker back to "Start" mid-startup, and
+  worktree instances use the same HTTP/health-check gate as primary apps instead
+  of a fixed timeout.
+- **"Open" did nothing** in the workbench — raw `window.open` is a no-op in the
+  Tauri WebView; all Open affordances now use `openExternalUrl`. The Open menu
+  also uses the app's effective Caddy domain and local certificate scheme, and
+  lists the primary route plus every registered extra subdomain instead of
+  hardcoded `.test` or bare custom-domain URLs.
+- **Log viewer regressions from the redesign** — the line-number gutter, six
+  colored level badges (ERR/WARN/INFO/DBG/TRC/OK), copy-entry as one unit, the
+  Success and Debug filter chips, per-level text coloring and the colored
+  continuation rail / alternating block tint are all back, keeping the beta
+  additions (timestamp toggle, export, "Paused · N new", error-count badge).
+- **Extensions were unreachable from the workbench** and could not open or run
+  shell commands for instances. The workbench header has an extensions toggle,
+  Overview lists each matching extension's app-actions, and extension shell
+  commands resolve synthetic instance apps and scope their working directory to
+  the instance worktree.
+- **Shell extensions could hang or leak processes.** The extension shell runner
+  disables interactive git prompts, runs commands in their own process group
+  with a group-kill on timeout, and drains stdout/stderr concurrently — matching
+  the core git runner. A credential prompt no longer hangs until the timeout,
+  and orphaned git/ssh children are cleaned up.
+- **Git discard was unsafe and incomplete.** Discarding now asks for
+  confirmation, works for untracked files and directories, staged new files and
+  staged tracked edits, offers a confirmed "Discard all", resets diff state on
+  file switch (a stale per-hunk "Discard?" could target the wrong file), and
+  gates individual file actions while a bulk operation is in flight. Untracked
+  files show their content instead of "No changes"; binary and mode-only diffs
+  render; option-injection guards were added to tag and stash messages.
+- **Reorder could silently diverge from disk** — workspace and service
+  reordering now awaits the write and reloads the authoritative order on failure
+  instead of fire-and-forget.
+- **Updater noise.** A background check that fails on a transient release or
+  network hiccup no longer pops a blocking "Update failed" toast covering the
+  rail's Settings and account buttons; only user-initiated checks report errors.
+- Restored the inline **Kill port** action on stopped worktree instances so
+  orphaned port holders can be cleared without discovering the context menu.
+- **Docker image update visibility** — the workspace rollup marks the exact app
+  row with a pending image update (naming the affected Compose service/image in
+  its tooltip) instead of an ambiguous workspace-level count.
+- Hosts, Services, Activity, Extensions and app workbenches begin at the top of
+  their content area instead of below a blank 44px drag bar; the rail logo lines
+  up with the Workspaces title.
+- Porta now explains when Git refuses a branch switch because another worktree
+  has that branch checked out, instead of looking broken.
+- Git branch/switch is interactive again on the app surface (`GitBadge` with
+  branch indicator, switch-branch and fetch/pull/push), the workbench Details
+  card lists every host the app answers on, and the Config save footer no longer
+  sticks on "Unsaved changes" when only out-of-band tunnel settings changed.
+- Switching workspaces no longer re-scans every app card (a visible shimmer);
+  cards paint cached extension state and re-detect only when the cache is empty.
+- Low-contrast solid-green fills on Docker **Disk Usage** cleanup and
+  **Backup → Export Database** (white-on-mint, ~1.9:1) replaced with a legible
+  green tint and the standard accent primary; tunnel-log auto-scroll survives
+  the ring-buffer cap; per-hunk diffs refresh after staging.
+
+### Removed
+
+- Dead code: the unused `SettingsModal` component and the unreachable
+  store-driven full-screen app-settings modal path.
+
+## [0.11.0] — 2026-07-19
+
+Workspace-app UI polish batch answering a round of feedback: lifecycle and
+link-surface fixes plus a few small view-preference and updater improvements.
+(Larger redesign items — sidebar app tree, Open/Publish popover, Inspect
+tabs, bundled git-manager, config re-skin — are tracked for a later release.)
+
+### Fixed
+
+- **CPU reading showed a garbage float** (e.g. `0.0000000953`). The metric was
+  rounded as `f32` then serialized, which promoted to `f64` and exposed the
+  representation error. Now cast to `f64` before rounding so a clean value is
+  emitted, for both process and Docker apps.
+- **Open button linked to the wrong/incomplete host.** The card's link list had
+  drifted from the routes the backend actually serves — it omitted port
+  bindings, the tunnel alias domain, and the public tunnel URL, and only showed
+  a picker when extra subdomains existed. A single resolver now mirrors the
+  backend route set (Local and Public groups) and shows a popover whenever there
+  is more than one target.
+- **Start button gave no loading feedback.** During an initial start the Restart
+  and Stop buttons appeared live with no spinner; the primary control now shows
+  a disabled "Starting…" spinner, while Stop stays enabled to act as Cancel.
+- **Git badge was hidden on Docker/Compose repos** even though status was already
+  being computed for them; the badge now shows for any app with a working
+  directory.
+- **Log view layout.** Severity badges (ERR/WARN/…) are now fixed-width and
+  centered so they align in a tidy column, and the line-number gutter widens for
+  large line counts instead of overflowing into the badge.
+- **Shell extensions could hang or leak processes.** The extension shell runner
+  now disables interactive git prompts, runs commands in their own process group
+  with a group-kill on timeout, and drains stdout/stderr concurrently — matching
+  the hardening the core git runner already had.
+- **Reorder could silently diverge from disk.** Workspace/service reordering now
+  awaits the write and reloads authoritative order on failure.
+- **Switching workspaces re-scanned every app card** (a visible shimmer); cards
+  now paint cached extension state and only re-detect when the cache is empty.
 
 ### Added
 
-- **Git tab working surface** — per-file staged/unstaged list, unified diff,
-  stage/unstage/discard, commit / commit&push / amend (`git_changed_files`,
-  `git_diff_file`, `git_stage`, `git_unstage`, `git_discard`, `git_commit`,
-  `git_commit_amend`), plus a Branches sub-nav (switch/create).
-- **Activity domain metrics** — host CPU/memory/disk via `system_metrics`, a
-  live per-app CPU/memory panel on the workbench Overview, and a
-  session-lived recent-events feed.
-- **Run instance by branch** — `git_worktree_add` creates a worktree for a
-  branch (existing or new) and launches an instance from it, via the
-  Instances modal's "Run on branch" picker.
-- On-demand app volume snapshot (`create_app_volume_snapshot`).
+- **Persisted view preferences.** Sidebar section collapse/expand state and each
+  card's instances-expanded state now survive a reload (stored locally, not in
+  the backed-up database).
+- **Update button in the sidebar.** When an update is available or ready, a
+  labelled Update button appears above the settings gear showing the target
+  version, so updating no longer requires digging into About.
+
+### Changed
+
+- **Log severity rail** now spans the whole error/warn block (header plus
+  continuation lines) instead of only the continuations, so a severity block
+  reads as one consistently marked unit.
+- **"Ready" now means serving, not just bound.** An app is marked ready (and the
+  Open button appears) only once it actually answers HTTP — via its configured
+  health path, or a `GET /` probe otherwise — rather than at the first TCP
+  accept; the health indicator also refreshes immediately on ready. Genuinely
+  non-HTTP processes still fall back to the port-open signal.
+- Dropped the redundant app-name label in the About card (the version line
+  stands on its own).
 
 ## [0.10.0] — 2026-07-17
 
