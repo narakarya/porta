@@ -22,6 +22,44 @@
   color: var(--ink-1);
 }
 
+/* Shiki → palette bridge. Shiki writes token colours as *inline* styles, which
+   no class-based rule can override; highlighted code would otherwise be pinned
+   to whatever theme it was rendered with, and every --syn-* above would be
+   dead. src/lib/preview/highlight.ts therefore renders with Shiki's
+   css-variables theme, so those inline styles read var(--shiki-token-*) — and
+   this block is where they meet the palette.
+
+   Declared on the same element as the --syn-* tokens, so each palette's values
+   are what these resolve to; no palette needs to know these names exist.
+   Outside .git-tab-root the variables are simply undefined, which makes the
+   inline color invalid-at-computed-value-time and leaves the code inheriting
+   its surface's ink — unhighlighted but never invisible.
+
+   More Shiki roles than palette tokens, so some share: string-expression is a
+   string, and the diff roles reuse the status colours the tab already has. */
+.git-tab-root {
+  --shiki-foreground: var(--ink-1);
+  --shiki-background: transparent;
+
+  --shiki-token-keyword: var(--syn-keyword);
+  --shiki-token-string: var(--syn-string);
+  --shiki-token-string-expression: var(--syn-string);
+  --shiki-token-number: var(--syn-number);
+  --shiki-token-comment: var(--syn-comment);
+  --shiki-token-type: var(--syn-type);
+  --shiki-token-function: var(--syn-function);
+  --shiki-token-atom: var(--syn-atom);
+  /* Everything Shiki still calls a constant once numbers and atoms are split
+     back out: language constants, symbols, property names. */
+  --shiki-token-constant: var(--syn-atom);
+  --shiki-token-parameter: var(--ink-1);
+  --shiki-token-punctuation: var(--ink-2);
+  --shiki-token-link: var(--md-link);
+  --shiki-token-inserted: var(--success);
+  --shiki-token-deleted: var(--danger);
+  --shiki-token-changed: var(--warning);
+}
+
 .git-tab-root[data-git-theme="graphite"] {
   --surface-0: #111318; --surface-1: #171922; --surface-2: #1e212a;
   --surface-input: #10131a; --surface-code: #0d1016;
