@@ -425,8 +425,11 @@ export default function Sidebar() {
       >
         {list.map((a, i) => {
           const on = selectedAppId === a.id && selectedInstanceId === null;
-          const running = a.status === "running" || a.status === "starting";
-          const busy = busyApps.has(a.id);
+          const starting = a.status === "starting";
+          const running = a.status === "running" || starting;
+          // The IPC resolves after spawn; app:ready is the real completion
+          // signal. Keep the row spinner while status is still "starting".
+          const busy = busyApps.has(a.id) || starting;
           const menuOpen = appMenu?.app.id === a.id;
           const isAppGhost = appDraggingId === a.id;
           const pendingImageUpdates = updatesByApp.get(a.id) ?? [];
@@ -509,7 +512,7 @@ export default function Sidebar() {
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); void toggleApp(a); }}
                     disabled={busy}
-                    title={busy ? (running ? "Stopping…" : "Starting…") : running ? "Stop" : "Start"}
+                    title={starting ? "Starting…" : busy ? (running ? "Stopping…" : "Starting…") : running ? "Stop" : "Start"}
                     className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${running ? "text-zinc-400 hover:text-zinc-100" : "text-emerald-400 hover:text-emerald-300"}`}
                   >
                     {busy ? (
@@ -541,8 +544,9 @@ export default function Sidebar() {
                 // the app dot); instance rows stay muted with no accent bg.
                 <div className="ml-[30px] border-l border-[rgba(255,255,255,0.07)] flex flex-col gap-px mt-px mb-0.5">
                   {appInstances.map((inst) => {
-                    const instOn = inst.status === "running" || inst.status === "starting";
-                    const instBusy = busyInstances.has(inst.id);
+                    const instStarting = inst.status === "starting";
+                    const instOn = inst.status === "running" || instStarting;
+                    const instBusy = busyInstances.has(inst.id) || instStarting;
                     const instMenuOpen = instMenu?.inst.id === inst.id;
                     const instanceSelected = selectedInstanceId === inst.id;
                     return (
@@ -565,7 +569,7 @@ export default function Sidebar() {
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); void toggleInstance(inst, a); }}
                             disabled={instBusy}
-                            title={instBusy ? (instOn ? "Stopping…" : "Starting…") : instOn ? "Stop" : "Start"}
+                            title={instStarting ? "Starting…" : instBusy ? (instOn ? "Stopping…" : "Starting…") : instOn ? "Stop" : "Start"}
                             className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${instOn ? "text-ink-2 hover:text-ink" : "text-ok hover:text-ok"}`}
                           >
                             {instBusy ? (

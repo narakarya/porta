@@ -13,11 +13,12 @@ export function deriveInstanceApp(parent: App, inst: AppInstance): App {
     id: inst.id,
     root_dir: inst.worktree_path,
     subdomain: inst.subdomain,
-    // Domain configuration belongs to the parent checkout. A worktree
-    // instance only owns its generated subdomain, so do not leak the parent's
-    // aliases/custom host into child surfaces such as Details and Open.
+    // An instance owns only its generated subdomain, but the backend registers
+    // that label under the parent's effective domain. Keep custom_domain so
+    // every Open action resolves the same host Caddy actually serves; only the
+    // parent's extra aliases must stay hidden from the child.
     extra_subdomains: [],
-    custom_domain: null,
+    custom_domain: parent.custom_domain,
     port: inst.port,
     status: inst.status as App["status"],
     name: `${parent.name} · ${inst.branch}`,

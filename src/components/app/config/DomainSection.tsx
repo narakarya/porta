@@ -25,8 +25,8 @@ export default function DomainSection() {
   return (
     <>
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Domain</p>
-        <p className="text-[12px] text-ink-3 mt-1">Subdomains and local HTTPS URLs for this app.</p>
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Local routes</p>
+        <p className="text-[12px] text-ink-3 mt-1">Subdomains, port bindings, and local HTTPS access for this app.</p>
       </div>
 
       {/* Reachable at — one row per public URL. Add/remove wires to the

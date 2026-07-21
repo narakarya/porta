@@ -29,9 +29,27 @@ interface Props {
   embedded?: boolean;
   // Deep-link the sub-nav to a section on open (e.g. Publish tab → Tunneling).
   initialSection?: Section;
+  // Drawer mode for the access hub. Hides the general Config sidebar and
+  // exposes only the shared Local Routes / Public Tunnel editor.
+  accessOnly?: boolean;
 }
-export default function AppSettingsModal({ app, workspace, onClose, onSaved, embedded = false, initialSection }: Props) {
-  const draft = useAppConfigDraft(app, workspace, onClose, onSaved, initialSection);
+export default function AppSettingsModal({
+  app,
+  workspace,
+  onClose,
+  onSaved,
+  embedded = false,
+  initialSection,
+  accessOnly = false,
+}: Props) {
+  const seededSection = accessOnly
+    ? initialSection === "domain" || initialSection === "tunneling"
+      ? initialSection
+      : "domain"
+    : initialSection === "domain" || initialSection === "tunneling"
+      ? "general"
+      : initialSection;
+  const draft = useAppConfigDraft(app, workspace, onClose, onSaved, seededSection);
   const {
     section, setSection,
     saving, saveError, savedAt,
@@ -66,12 +84,11 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
 
   const NAV: { id: Section; label: string }[] = [
     { id: "general",     label: "General" },
-    { id: "domain",      label: "Domain" },
     ...((isStatic || isProxy) ? [] : [{ id: "environment" as Section, label: "Environment" }]),
-    { id: "tunneling"   as Section, label: "Tunneling" },
     ...((isStatic || isProxy) ? [] : [{ id: "health" as Section, label: "Health" }]),
     { id: "danger",      label: "Danger" },
   ];
+  const accessSection = section === "tunneling" ? "tunneling" : "domain";
 
   return (
     <AppConfigProvider value={draft}>
@@ -90,7 +107,7 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
       )}
 
       {/* Sidebar */}
-      <aside className={`w-[120px] bg-surface-2 border-r border-subtle flex flex-col pb-3 shrink-0 ${embedded ? "pt-3" : "pt-8"}`}>
+      {!accessOnly && <aside className={`w-[132px] bg-surface-2 border-r border-subtle flex flex-col pb-3 shrink-0 ${embedded ? "pt-3" : "pt-8"}`}>
         {!embedded && (
           <div className="px-4 mb-4">
             <button
@@ -136,12 +153,39 @@ export default function AppSettingsModal({ app, workspace, onClose, onSaved, emb
             );
           })}
         </nav>
-      </aside>
+      </aside>}
 
       {/* Content */}
       <main className="flex-1 flex flex-col no-drag overflow-hidden">
       <div className={`flex-1 overflow-auto px-8 pb-4 ${embedded ? "pt-5" : "pt-10"}`}>
-        <div className="w-full max-w-2xl flex flex-col gap-5">
+        <div className={`w-full flex flex-col gap-5 ${accessOnly ? "max-w-3xl" : "max-w-2xl"}`}>
+
+          {accessOnly && (section === "domain" || section === "tunneling") && (
+            <div className="flex items-center gap-3 border-b border-subtle pb-4">
+              <div className="grid w-full max-w-md grid-cols-2 overflow-hidden rounded-[8px] border border-subtle">
+                {([
+                  { id: "domain" as const, label: "Local routes" },
+                  { id: "tunneling" as const, label: "Public tunnel" },
+                ]).map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-pressed={accessSection === item.id}
+                    onClick={() => setSection(item.id)}
+                    className={`px-3 py-2 text-[11px] font-medium transition-colors ${
+                      index > 0 ? "border-l border-subtle" : ""
+                    } ${
+                      accessSection === item.id
+                        ? "bg-accent-bg text-accent-ink"
+                        : "text-ink-2 hover:bg-white/[0.03] hover:text-ink"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {section === "general" && <GeneralSection />}
 

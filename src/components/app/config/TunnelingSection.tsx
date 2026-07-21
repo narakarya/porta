@@ -43,7 +43,7 @@ export default function TunnelingSection() {
   return (
     <>
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Tunneling</p>
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-2">Public tunnel</p>
         <p className="text-[12px] text-ink-3 mt-1">Expose this app to the internet via a secure tunnel.</p>
       </div>
 

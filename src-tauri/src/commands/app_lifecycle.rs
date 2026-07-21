@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
@@ -302,11 +302,12 @@ pub(crate) fn start_single(
 ///   2. If `health_check_path` is configured, the app is ready once that path
 ///      returns 2xx/3xx (reusing `health::check_health`).
 ///   3. Otherwise probe `GET /`: any HTTP response means ready; a
-///      connection-refused / reset / non-HTTP reply means a genuinely non-HTTP
-///      process, so the TCP-open is accepted as ready; a timeout means it's
-///      still booting, so keep polling.
-/// A ~60s overall deadline bounds the retries so a never-serving app can't hang
-/// the watcher forever.
+///      connection-refused / reset / non-HTTP reply or timeout means it is not
+///      ready yet. Porta v1 exposes HTTP/HTTPS routes, so a TCP-only listener
+///      must not complete a web-app startup.
+/// The watcher keeps polling until the app serves or leaves `"starting"`.
+/// A slow build must never be declared ready merely because a timer elapsed;
+/// the user can always cancel it with Stop.
 ///
 /// Aborts silently if the app's DB status is no longer `"starting"` — that
 /// means the user stopped (or restarted differently) the app while we were
@@ -339,10 +340,7 @@ pub(crate) fn spawn_port_watcher(
             notify(handle, &format!("{} is ready", app_name), &format!("Running on :{port}"));
         };
 
-        // Deadline-based (not iteration-count-based) so the extra HTTP probe
-        // time per loop can't stretch the overall wait far past ~60s.
-        let deadline = Instant::now() + Duration::from_secs(60);
-        while Instant::now() < deadline {
+        loop {
             thread::sleep(Duration::from_millis(500));
             if !still_starting(&handle) {
                 return;
@@ -370,22 +368,10 @@ pub(crate) fn spawn_port_watcher(
                         emit_ready(&handle);
                         return;
                     }
-                    // Port answers TCP but isn't HTTP → non-HTTP process; accept
-                    // the TCP-open so e.g. a raw socket server still goes ready.
-                    crate::health::HttpProbe::NotHttp => {
-                        emit_ready(&handle);
-                        return;
-                    }
-                    // Accepted the connection but hasn't replied yet → retry.
-                    crate::health::HttpProbe::Pending => {}
+                    // TCP is open but HTTP is not serving yet → retry.
+                    crate::health::HttpProbe::NotHttp | crate::health::HttpProbe::Pending => {}
                 },
             }
-        }
-        // Timeout fallback — only nudge the UI to "ready" if the user is
-        // still expecting a startup. Otherwise the stop already happened
-        // and we'd be flipping the dot back to running.
-        if still_starting(&handle) {
-            handle.emit(&format!("app:ready:{}", id), ()).ok();
         }
     });
 }

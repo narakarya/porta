@@ -4,7 +4,27 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0-beta.11]
+
+### Changed
+- Open and Publish are now combined into one access popover. It lists every
+  local route, exposes live public destinations, and keeps Quick and Named
+  Cloudflare tunnel modes selectable from the same control. The popover also
+  retains access-policy shortcuts and a collapsed live tunnel-output stream for
+  debugging. Domain and Tunneling are removed from app Config; their
+  non-redundant editing controls now live once in the focused Routes & Access
+  drawer opened from the popover.
+
+### Fixed
+- Restored the inline **Kill port** action on stopped worktree instances so
+  orphaned port holders can be cleared without discovering the context menu.
+- Start and Restart controls now remain in their loading state until the app's
+  readiness event arrives. Worktree instances use the same HTTP/health-check
+  readiness gate as primary apps, and slow startups are no longer marked ready
+  by a fixed timeout.
+- The workbench Open menu now uses the app's effective Caddy domain and local
+  certificate scheme, and lists the primary route plus every registered extra
+  subdomain instead of opening hardcoded `.test` or bare custom-domain URLs.
 
 ## [0.12.0-beta.10]
 

@@ -143,13 +143,20 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
 
   // Local state for instant spinner feedback before Zustand's appRestarting propagates
   const [pendingRestart, setPendingRestart] = useState(false);
-  // Clear once the real restarting flag arrives, the app is back up, OR the
-  // app stopped — without the stopped case, clicking Stop while the
-  // optimistic spinner is still showing would leave the buttons stuck in
-  // "yellow Restarting" mode even though the backend already stopped.
+  const restartSawStarting = useRef(false);
+  // Keep an instance restart pending across stop → spawn → ready. Primary apps
+  // hand off to appRestarting; instances have no equivalent store flag, so the
+  // observed starting → running transition is their completion signal.
   useEffect(() => {
-    if (isRestarting || isRunning || app.status === "stopped") setPendingRestart(false);
-  }, [isRestarting, isRunning, app.status]);
+    if (!pendingRestart) {
+      restartSawStarting.current = false;
+      return;
+    }
+    if (isStarting) restartSawStarting.current = true;
+    if ((!isInstance && isRestarting) || (restartSawStarting.current && (isRunning || app.status === "stopped"))) {
+      setPendingRestart(false);
+    }
+  }, [pendingRestart, isInstance, isRestarting, isStarting, isRunning, app.status]);
 
   const [instancesExpanded, setInstancesExpanded] = useState(true);
   const appInstances = usePortaStore((s) => s.instances[app.id] ?? EMPTY_INSTANCES);
@@ -722,7 +729,28 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             start or stop. */}
         {isManaged && (
         <div className="flex items-center gap-1">
-          {isActive || isRestarting || pendingRestart ? (
+          {isStarting || isRestarting || pendingRestart ? (
+            <>
+              <button
+                disabled
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
+                  text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
+                  disabled:text-amber-400/70 disabled:bg-amber-500/10"
+                title={isRestarting || pendingRestart ? "Restarting" : "Starting"}
+              >
+                <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+                {isRestarting || pendingRestart ? "Restarting" : "Starting"}
+              </button>
+              <button
+                onClick={doStop}
+                className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
+              >
+                Stop
+              </button>
+            </>
+          ) : isRunning ? (
             <>
               <button
                 onClick={async () => {
@@ -730,22 +758,17 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   await yieldToFrame();
                   openToast();
                   setBannerDismissed(false);
-                  doRestart();
+                  try {
+                    await doRestart();
+                  } catch {
+                    setPendingRestart(false);
+                  }
                 }}
-                disabled={isRestarting || pendingRestart}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
-                  text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
-                  disabled:text-amber-400/70 disabled:bg-amber-500/10"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors
+                  text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10"
                 title="Restart"
               >
-                {isRestarting || pendingRestart ? (
-                  <>
-                    <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                    </svg>
-                    Restarting
-                  </>
-                ) : "Restart"}
+                Restart
               </button>
               <button
                 onClick={doStop}
@@ -778,6 +801,21 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                     className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
                   >
                     Stop
+                  </button>
+                </Tooltip>
+              )}
+              {/* Keep port cleanup visible on stopped instances. The context
+                  menu also exposes this action, but the inline button makes
+                  the recovery path discoverable when an orphan still owns the
+                  instance's port. */}
+              {isInstance && instance && (
+                <Tooltip label={`Free port :${app.port}`} className="inline-flex">
+                  <button
+                    onClick={handleKillPortHolder}
+                    disabled={killingPort}
+                    className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-amber-300 hover:bg-amber-500/10 rounded-md transition-colors disabled:opacity-40"
+                  >
+                    {killingPort ? "Killing…" : "Kill port"}
                   </button>
                 </Tooltip>
               )}

@@ -3,10 +3,10 @@ import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
 import { isTauri, openExternalUrl, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel } from "../../lib/commands";
-import { Button, Tabs, StatusDot, Badge, Card, Popover, Skeleton, type Status, type TabItem } from "../ui";
+import { Button, Tabs, StatusDot, Badge, Card, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalTab from "../terminal/TerminalTab";
 import GitTab from "./GitTab";
-import PublishTab from "./PublishTab";
+import AppAccessPopover, { type LocalDestination } from "./AppAccessPopover";
 import GitBadge from "../app/GitBadge";
 import DockerUpdateBadge from "../app/DockerUpdateBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
@@ -17,7 +17,9 @@ const LogViewer = lazy(() => import("../app/LogViewer"));
 const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
 const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
 const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
+const AccessSettingsDrawer = lazy(() => import("../app/AccessSettingsDrawer"));
 type ConfigSection = import("../app/AppSettingsModal").Section;
+type AccessSettingsSection = import("../app/AccessSettingsDrawer").AccessSettingsSection;
 type AppInstance = import("../../lib/commands").AppInstance;
 const EMPTY_INSTANCES: AppInstance[] = [];
 
@@ -38,7 +40,6 @@ const TABS: TabItem[] = [
   { id: "logs", label: "Logs", icon: <svg {...I}><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
   { id: "git", label: "Git", icon: <svg {...I}><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
   { id: "terminal", label: "Terminal", icon: <svg {...I}><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6.5L7 8l-2 1.5M8.5 9.5H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-  { id: "publish", label: "Publish", icon: <svg {...I}><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg> },
   { id: "config", label: "Config", icon: <svg {...I}><path d="M3.5 4.5h9M3.5 8h9M3.5 11.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="6" cy="4.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="10.5" cy="8" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="6" cy="11.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/></svg> },
 ];
 
@@ -182,15 +183,18 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // the Publish tab → Tunneling). Remounted per section so the initial deep
   // link takes effect.
   const [configSection, setConfigSection] = useState<ConfigSection | undefined>(undefined);
+  const [accessSettingsSection, setAccessSettingsSection] = useState<AccessSettingsSection | null>(null);
   const workspaces = usePortaStore((s) => s.workspaces);
   // Traffic + Files reuse their existing full-screen surfaces, opened as an
   // overlay from the Overview quick actions (they aren't inline tabs yet).
   const [overlay, setOverlay] = useState<null | "traffic" | "files">(null);
-  // "Open in browser" split-button dropdown (mockup 05).
-  const [openMenu, setOpenMenu] = useState(false);
   // In-flight lifecycle action — drives the Start/Stop/Restart Button spinners
   // while the start/stop/restart round-trip is pending.
   const [busy, setBusy] = useState<null | "start" | "stop" | "restart">(null);
+  // start/restart IPC resolves after spawn, while readiness arrives later via
+  // app:ready/instance:ready. Preserve which action is awaiting that event so
+  // the button cannot look finished during the gap.
+  const [waitingForReady, setWaitingForReady] = useState<null | "start" | "restart">(null);
   // Worktree instances (mockup 26) — the Overview "Instances" section lists the
   // primary checkout + each branch instance. "＋ New from branch" reveals the
   // inline RunOnBranchPicker; selecting an instance is stored globally so the
@@ -200,7 +204,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const [tunnelBusy, setTunnelBusy] = useState(false);
 
   const {
-    startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting,
+    startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting, setupStatus,
     instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
     openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
     clearTunnelLog, selectInstance,
@@ -214,6 +218,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       health: s.healthStatuses[app.id],
       branch: s.appGit[app.id]?.branch,
       restarting: s.appRestarting[app.id] ?? false,
+      setupStatus: s.setupStatus,
       instances: s.instances[app.id] ?? EMPTY_INSTANCES,
       refreshInstances: s.refreshInstances,
       runInstance: s.runInstance,
@@ -253,13 +258,13 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // otherwise the local `busy` flag clears the instant the IPC returns (before
   // the process is actually up) and the button flickers back to plain "Start".
   const isStarting = app.status === "starting";
-  const active = running || isStarting;
   const st = toStatus(app.status);
-  // Every host Caddy serves this app under — the primary .test subdomain plus
+  // Every host Caddy serves this app under — the primary subdomain plus
   // any extra_subdomains, resolved against the app's custom domain or the
   // workspace domain (mirrors the card's allHosts in main).
-  const workspace = workspaces.find((w) => w.id === app.workspace_id) ?? null;
-  const hostDomain = app.custom_domain || workspace?.domain || "narakarya.test";
+  const routeOwner = isInstance && parentApp ? parentApp : app;
+  const workspace = workspaces.find((w) => w.id === routeOwner.workspace_id) ?? null;
+  const hostDomain = routeOwner.custom_domain || workspace?.domain || "narakarya.test";
   const primaryDomainHost = (() => {
     const sub = app.subdomain ?? app.name;
     return sub === "*" ? `*.${hostDomain}` : `${sub}.${hostDomain}`;
@@ -267,26 +272,60 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // A worktree instance owns one generated host. Keep this guard at the
   // presentation boundary too, so a stale synthetic App can never show parent
   // aliases as domains belonging to the child.
-  const allHosts = isInstance
-    ? [primaryDomainHost]
-    : [primaryDomainHost, ...(app.extra_subdomains ?? []).map((s) => `${s}.${hostDomain}`)];
+  const scheme = setupStatus?.certs_generated ? "https" : "http";
+  const localDestinations: LocalDestination[] = (() => {
+    const rows: LocalDestination[] = [
+      {
+        host: primaryDomainHost,
+        url: `${scheme}://${primaryDomainHost}`,
+        kind: "default",
+      },
+    ];
+    if (!isInstance) {
+      rows.push(
+        ...(app.extra_subdomains ?? [])
+          .map((subdomain) => subdomain.trim())
+          .filter(Boolean)
+          .map((subdomain) => {
+            const host = `${subdomain}.${hostDomain}`;
+            return { host, url: `${scheme}://${host}`, kind: "alias" as const };
+          }),
+        ...(app.port_bindings ?? []).map((binding) => {
+          const subdomain =
+            binding.subdomain?.trim() ||
+            binding.label.trim().toLowerCase().replace(/\s+/g, "-");
+          const domain = binding.custom_domain?.trim() || hostDomain;
+          const host = `${subdomain}.${domain}`;
+          return { host, url: `${scheme}://${host}`, kind: "binding" as const };
+        }),
+      );
+    }
+    const seen = new Set<string>();
+    return rows.filter(({ host }) => {
+      if (seen.has(host)) return false;
+      seen.add(host);
+      return true;
+    });
+  })();
+  const allHosts = localDestinations.map(({ host }) => host);
   // Instances section (mockup 26): the primary checkout counts as running when
   // the app itself is up; branch instances count their own "running" status.
   const runningCount = (running ? 1 : 0) + instances.filter((i) => i.status === "running").length;
-  // Host shown on the primary row — the app's .test subdomain if Caddy assigned
-  // one, otherwise its raw localhost host.
-  const primaryHost = app.subdomain ? `${app.subdomain}.test` : `localhost:${app.port}`;
-  const url = app.tunnel_active && app.tunnel_url ? app.tunnel_url : `http://localhost:${app.port}`;
-  // The default local address for this app — its .test subdomain if Caddy
-  // assigned one, otherwise the raw localhost:port. Powers the split-button's
-  // primary "Open" segment and the dropdown's Local row.
-  const localHost = app.subdomain ? `${app.subdomain}.test` : `localhost:${app.port}`;
-  const localUrl = app.subdomain ? `https://${app.subdomain}.test` : `http://localhost:${app.port}`;
-  // Public host Caddy exposes this app under (if any) — shown as a link in the
-  // header, matching the mockup's "mediapress.test" affordance.
+  // Host shown on the primary row and opened by the main Open segment.
+  const primaryHost = primaryDomainHost;
+  const localUrl = localDestinations[0].url;
+  const url = app.tunnel_active && app.tunnel_url ? app.tunnel_url : localUrl;
+  // Public host Caddy exposes this app under — shown as a link in the header.
   const domainHost =
     app.tunnel_active && app.tunnel_url ? app.tunnel_url.replace(/^https?:\/\//, "")
-    : app.custom_domain || (app.subdomain ? `${app.subdomain}.test` : null);
+    : primaryDomainHost;
+  const domainUrl = app.tunnel_active && app.tunnel_url ? app.tunnel_url : localUrl;
+
+  useEffect(() => {
+    if (waitingForReady && app.status !== "starting") {
+      setWaitingForReady(null);
+    }
+  }, [app.status, waitingForReady]);
 
   // Run a lifecycle action with a local in-flight flag so its Button shows a
   // spinner + disables until the round-trip settles.
@@ -294,6 +333,16 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     setBusy(kind);
     try {
       await fn();
+      if (kind !== "stop") {
+        const snapshot = usePortaStore.getState();
+        const status = isInstance && instance
+          ? snapshot.instances[instance.app_id]?.find((i) => i.id === instance.id)?.status
+          : snapshot.apps.find((a) => a.id === app.id)?.status;
+        if (status === "starting") setWaitingForReady(kind);
+      }
+    } catch (error) {
+      setWaitingForReady(null);
+      throw error;
     } finally {
       setBusy(null);
     }
@@ -315,7 +364,8 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       }
     : () => restartApp(app.id);
   // Instance restart has no store `appRestarting` flag; the local `busy` covers it.
-  const restartLoading = busy === "restart" || (!isInstance && restarting);
+  const startLoading = busy === "start" || waitingForReady === "start" || (isStarting && !restarting && waitingForReady !== "restart");
+  const restartLoading = busy === "restart" || waitingForReady === "restart" || (!isInstance && restarting);
 
   async function toggleInstanceTunnel() {
     if (!instance) return;
@@ -356,9 +406,8 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v5.5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg> },
   ];
 
-  // Instance mode hides the parent-only tabs: Config (an instance inherits the
-  // parent's config) and Publish (the instance tunnel toggle lives in the header).
-  const visibleTabs = isInstance ? TABS.filter((t) => t.id !== "config" && t.id !== "publish") : TABS;
+  // Instance mode hides Config because a branch instance inherits its parent.
+  const visibleTabs = isInstance ? TABS.filter((t) => t.id !== "config") : TABS;
 
   return (
     <div className="flex flex-col h-screen -mx-6 -mt-6 -mb-6">
@@ -406,8 +455,8 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             {running && health === "unhealthy" && <Badge tone="bad">unhealthy</Badge>}
             {domainHost && (
               <button
-                onClick={() => openExternalUrl(`https://${domainHost}`)}
-                title={`Open https://${domainHost}`}
+                onClick={() => openExternalUrl(domainUrl)}
+                title={`Open ${domainUrl}`}
                 className="min-w-0 truncate text-ink-3 hover:text-accent-ink font-mono inline-flex items-center gap-1 transition-colors"
               >
                 <span className="truncate">{domainHost}</span>
@@ -422,126 +471,52 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {active ? (
+          {startLoading || restartLoading ? (
+            <>
+              <Button
+                variant={restartLoading ? "ghost" : "accent"}
+                className={restartLoading ? "border border-subtle" : ""}
+                loading
+                disabled
+                icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              >
+                {restartLoading ? "Restarting" : "Starting"}
+              </Button>
+              <Button
+                variant="secondary"
+                loading={busy === "stop"}
+                disabled={busy !== null}
+                icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>}
+                onClick={() => runLifecycle("stop", stopFn)}
+              >
+                Stop
+              </Button>
+            </>
+          ) : running ? (
             <>
               {/* Lifecycle actions: Stop is the more prominent neutral (border-strong),
-                  Restart the lighter subtle border — per mockup 05, neither is red.
-                  Restart keeps spinning off the store `restarting` flag (cleared on
-                  app:ready), not the local `busy` flag which clears too early. */}
+                  Restart the lighter subtle border — per mockup 05, neither is red. */}
               <Button variant="secondary" loading={busy === "stop"} disabled={busy === "stop"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>} onClick={() => runLifecycle("stop", stopFn)}>Stop</Button>
               <Button variant="ghost" className="border border-subtle" loading={restartLoading} disabled={restartLoading} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", restartFn)}>{restartLoading ? "Restarting" : "Restart"}</Button>
             </>
           ) : (
-            <Button variant="accent" loading={busy === "start"} disabled={busy === "start"} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", startFn)}>Start</Button>
+            <Button variant="accent" icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", startFn)}>Start</Button>
           )}
           {/* Thin divider separates lifecycle actions from the Open action (mockup 05). */}
           <span className="w-px h-5 self-center bg-[var(--border-subtle)] mx-0.5" aria-hidden />
-          {/* Open split-button (mockup 05): the accent-tinted label opens the local
-              URL directly; the chevron segment reveals the link-aware dropdown. */}
-          <Popover
-            open={openMenu}
-            onClose={() => setOpenMenu(false)}
-            align="right"
-            width="w-[320px]"
-            anchor={
-              <span className="inline-flex items-stretch rounded-control overflow-hidden border border-[rgba(96,165,250,0.30)] self-center">
-                <button
-                  onClick={() => openExternalUrl(localUrl)}
-                  title={`Open ${localUrl}`}
-                  className="text-[12px] font-medium text-accent-ink bg-accent-bg px-2.5 py-[5px] inline-flex items-center gap-1.5 hover:bg-[rgba(96,165,250,0.24)] transition-colors duration-fast"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  Open
-                </button>
-                <button
-                  onClick={() => setOpenMenu((v) => !v)}
-                  title="Open in browser"
-                  aria-label="Open in browser options"
-                  aria-haspopup="menu"
-                  aria-expanded={openMenu}
-                  className="text-accent-ink bg-accent-bg px-[7px] border-l border-[rgba(96,165,250,0.30)] inline-flex items-center hover:bg-[rgba(96,165,250,0.24)] transition-colors duration-fast"
-                >
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-              </span>
+          <AppAccessPopover
+            app={app}
+            destinations={localDestinations}
+            primaryUrl={localUrl}
+            quickOnly={isInstance}
+            externalBusy={tunnelBusy}
+            onToggleExternalTunnel={isInstance ? toggleInstanceTunnel : undefined}
+            onOpenAccessSettings={
+              isInstance
+                ? undefined
+                : (section) => setAccessSettingsSection(section ?? "domain")
             }
-          >
-            <div className="text-[10px] uppercase tracking-[0.04em] text-ink-3 px-2 py-1">Open in browser</div>
-
-            {/* Local URL — always present; the app's default .test host or localhost. */}
-            <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control hover:bg-white/[0.03] transition-colors">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-2 shrink-0"><path d="M2.5 7L8 2.5 13.5 7M4 6v6.5h8V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <span className="min-w-0">
-                <span className="block text-[13px] text-ink">
-                  Local
-                  <span className="text-[10px] text-ink-3 border border-subtle rounded-[4px] px-1 ml-1.5">default</span>
-                </span>
-                <span className="block text-[11px] text-ink-2 font-mono truncate">{localHost}</span>
-              </span>
-              <span className="ml-auto flex gap-2 text-ink-3 shrink-0">
-                <button onClick={() => navigator.clipboard.writeText(localUrl)} title="Copy URL" aria-label="Copy local URL" className="hover:text-ink transition-colors">
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 10.5A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5h5a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                </button>
-                <button onClick={() => openExternalUrl(localUrl)} title="Open URL" aria-label="Open local URL" className="hover:text-ink transition-colors">
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-              </span>
-            </div>
-
-            {/* Tunnel — only when a live Cloudflare tunnel URL exists. */}
-            {app.tunnel_active && app.tunnel_url && (
-              <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control hover:bg-white/[0.03] transition-colors">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ok shrink-0"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg>
-                <span className="min-w-0">
-                  <span className="block text-[13px] text-ink">
-                    Tunnel <span className="text-[10px] text-ok">● live</span>
-                  </span>
-                  <span className="block text-[11px] text-ink-2 font-mono truncate">{app.tunnel_url.replace(/^https?:\/\//, "")}</span>
-                </span>
-                <span className="ml-auto flex gap-2 text-ink-3 shrink-0">
-                  <button onClick={() => navigator.clipboard.writeText(app.tunnel_url!)} title="Copy URL" aria-label="Copy tunnel URL" className="hover:text-ink transition-colors">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 10.5A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5h5a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                  </button>
-                  <button onClick={() => openExternalUrl(app.tunnel_url!)} title="Open URL" aria-label="Open tunnel URL" className="hover:text-ink transition-colors">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </button>
-                </span>
-              </div>
-            )}
-
-            {/* Custom domain — only when the app has one configured. */}
-            {app.custom_domain && (
-              <div className="flex items-center gap-2.5 px-2 py-[7px] rounded-control hover:bg-white/[0.03] transition-colors">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-2 shrink-0"><path d="M8 2l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.8 4.6 12.5l.7-3.8L2.5 6l3.8-.5L8 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
-                <span className="min-w-0">
-                  <span className="block text-[13px] text-ink">Custom domain</span>
-                  <span className="block text-[11px] text-ink-2 font-mono truncate">{app.custom_domain}</span>
-                </span>
-                <span className="ml-auto flex gap-2 text-ink-3 shrink-0">
-                  <button onClick={() => navigator.clipboard.writeText(`https://${app.custom_domain}`)} title="Copy URL" aria-label="Copy custom domain URL" className="hover:text-ink transition-colors">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3.5 10.5A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5h5a1.5 1.5 0 0 1 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                  </button>
-                  <button onClick={() => openExternalUrl(`https://${app.custom_domain}`)} title="Open URL" aria-label="Open custom domain URL" className="hover:text-ink transition-colors">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M6 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5v-2M9 3h4v4M13 3L7 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </button>
-                </span>
-              </div>
-            )}
-
-            {/* Config-based manage link — parent only (an instance inherits it). */}
-            {!isInstance && (
-              <>
-                <div className="h-px bg-[var(--border-subtle)] mx-1.5 my-1" aria-hidden />
-                <button
-                  onClick={() => { setOpenMenu(false); openConfig("domain"); }}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] text-ink-2 rounded-control hover:bg-white/[0.03] hover:text-ink transition-colors"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                  Manage domains &amp; tunnel
-                </button>
-              </>
-            )}
-          </Popover>
+          />
           {/* Extensions toggle (restored from the card): opens the global
               extension sidebar for this app. One match → focus it directly. */}
           {appExtensions.length > 0 && (
@@ -562,19 +537,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           )}
           {isInstance ? (
             <>
-              {/* Instance tunnel toggle — the per-instance equivalent of the
-                  parent's Publish tab. */}
-              <Button
-                variant="ghost"
-                className={`border border-subtle ${app.tunnel_active ? "text-ok" : ""}`}
-                loading={tunnelBusy}
-                disabled={tunnelBusy}
-                onClick={() => void toggleInstanceTunnel()}
-                title={app.tunnel_active ? "Stop tunnel" : "Start tunnel"}
-              >
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="mr-1"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg>
-                {app.tunnel_active ? "Tunnel on" : "Tunnel"}
-              </Button>
               {/* Remove this instance (deletes its worktree). */}
               <Button
                 variant="ghost"
@@ -629,7 +591,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                       {url}
                     </button>
                   </div>
-                  {/* Every Caddy host this app answers on — the primary .test
+                  {/* Every Caddy host this app answers on — the primary
                       subdomain plus any extra_subdomains (restored from the card). */}
                   <div className={row}>
                     <span className={`${key} self-start pt-0.5`}>Domains</span>
@@ -637,8 +599,8 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                       {allHosts.map((h) => (
                         <button
                           key={h}
-                          onClick={() => openExternalUrl(`https://${h}`)}
-                          title={`Open https://${h}`}
+                          onClick={() => openExternalUrl(`${scheme}://${h}`)}
+                          title={`Open ${scheme}://${h}`}
                           className="inline-flex items-center gap-1 text-[11px] text-ink-2 font-mono border border-subtle rounded-[5px] px-1.5 py-0.5 hover:text-accent-ink hover:border-strong transition-colors"
                         >
                           {h}
@@ -750,7 +712,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                   const isRunning = inst.status === "running";
                   const instUrl = inst.tunnel_active && inst.tunnel_url
                     ? inst.tunnel_url
-                    : `https://${inst.subdomain}.test`;
+                    : `${scheme}://${inst.subdomain}.${hostDomain}`;
                   return (
                     <div key={inst.id} className="group flex items-center gap-2.5 border border-subtle rounded-[9px] px-3 py-2 hover:border-strong hover:bg-white/[0.02] transition-colors">
                       <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${isRunning ? "bg-ok" : "bg-ink-3"}`} aria-hidden />
@@ -764,7 +726,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                           <span className="truncate">{inst.branch}</span>
                         </span>
                         <span className="text-[11px] text-ink-3 font-mono truncate">
-                          :{inst.port} · {isRunning ? `${inst.subdomain}.test` : "stopped"}
+                          :{inst.port} · {isRunning ? `${inst.subdomain}.${hostDomain}` : "stopped"}
                         </span>
                       </button>
                       <span className="ml-auto flex items-center gap-1.5 text-ink-3 shrink-0">
@@ -835,10 +797,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           <GitTab app={app} />
         </div>
 
-        <div hidden={tab !== "publish"} className="h-full">
-          <PublishTab app={app} onOpenConfig={openConfig} />
-        </div>
-
         {/* Config (mockup 20) — app settings inline, not a full-screen modal.
             Mounted only while active (like the old modal); keyed by section so
             a deep-link re-seeds the sub-nav. */}
@@ -871,6 +829,17 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             composePath={app.compose_file ?? null}
             currentPort={app.port}
             onClose={() => setOverlay(null)}
+          />
+        </Suspense>
+      )}
+
+      {accessSettingsSection && !isInstance && (
+        <Suspense fallback={null}>
+          <AccessSettingsDrawer
+            app={app}
+            workspace={workspaces.find((w) => w.id === app.workspace_id) ?? null}
+            initialSection={accessSettingsSection}
+            onClose={() => setAccessSettingsSection(null)}
           />
         </Suspense>
       )}

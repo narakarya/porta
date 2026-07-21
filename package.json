@@ -1,7 +1,7 @@
 {
   "name": "porta",
   "private": true,
-  "version": "0.12.0-beta.10",
+  "version": "0.12.0-beta.11",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
     "@codemirror/legacy-modes": "^6.5.3",
     "@codemirror/lint": "^6.9.5",
     "@codemirror/search": "^6.6.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-process": "^2.3.1",

@@ -493,7 +493,12 @@ fn start_instance_inner(
 
     // 8. Add the Caddy route now that the row exists, then watch the port.
     sync_caddy(&state)?;
-    spawn_instance_port_watcher(app.clone(), iid.clone(), port);
+    spawn_instance_port_watcher(
+        app.clone(),
+        iid.clone(),
+        port,
+        app_row.health_check_path.clone(),
+    );
 
     // Return the freshly-inserted instance (with pid).
     let db = state.db.lock().unwrap();
@@ -561,8 +566,16 @@ fn disambiguate(base: String, taken: &[String]) -> String {
     base
 }
 
-/// Poll the instance's port; flip "starting" → "running" and emit ready.
-fn spawn_instance_port_watcher(app: AppHandle, iid: String, port: u16) {
+/// Poll the instance until it is actually serving, then flip
+/// "starting" → "running" and emit ready. This mirrors the primary app
+/// watcher: a TCP bind alone is too early for frameworks that open their
+/// listener before routes/build output are ready.
+fn spawn_instance_port_watcher(
+    app: AppHandle,
+    iid: String,
+    port: u16,
+    health_check_path: Option<String>,
+) {
     std::thread::spawn(move || {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
@@ -580,20 +593,25 @@ fn spawn_instance_port_watcher(app: AppHandle, iid: String, port: u16) {
             app.emit(&format!("instance:ready:{}", iid), ()).ok();
         };
 
-        for _ in 0..120 {
+        loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
             if !still_starting(&app) { return; }
-            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok() {
+            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_err() {
+                continue;
+            }
+            let ready = match health_check_path.as_deref() {
+                Some(path) => {
+                    crate::health::check_health(port, Some(path))
+                        == crate::health::HealthStatus::Healthy
+                }
+                None => {
+                    crate::health::probe_http_root(port) == crate::health::HttpProbe::Responded
+                }
+            };
+            if ready {
                 resolve(&app);
                 return;
             }
-        }
-        // Timeout fallback — the port never opened. Only resolve if the user is
-        // still expecting a startup; otherwise a stop already happened and we'd
-        // flip the dot back to running. Mirrors `spawn_port_watcher` in
-        // app_lifecycle.rs so the UI never stays stuck on "starting".
-        if still_starting(&app) {
-            resolve(&app);
         }
     });
 }

@@ -57,8 +57,7 @@ pub enum HttpProbe {
     Responded,
     /// The port accepts a raw TCP connect but doesn't speak HTTP: a fresh
     /// connection is refused/reset or the reply isn't parseable as HTTP. That
-    /// means a genuinely non-HTTP process — the caller can treat the earlier
-    /// TCP-open as ready.
+    /// is not ready for Porta's HTTP/HTTPS routing and must keep polling.
     NotHttp,
     /// Connected but no usable HTTP response yet (timeout) — the server is
     /// likely still booting; the caller should keep polling.
