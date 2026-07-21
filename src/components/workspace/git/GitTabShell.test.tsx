@@ -198,4 +198,32 @@ describe("GitTab shell", () => {
     expect(draft).toHaveValue("fix(git): survive a bad poll");
     expect(statusMounts).toBe(1);
   });
+
+  // The other half of `blocked`: no GitStatus at all. It reaches the same
+  // hide-don't-unmount path as the poll error above, and is just as transient —
+  // switching the app's root to a directory that isn't a repo (or back) must
+  // not cost the draft either.
+  it("keeps the Status tab mounted — and its draft intact — through a not-a-repo state", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByLabelText("Commit message"), "fix(git): survive a non-repo");
+    expect(statusMounts).toBe(1);
+
+    // The store loses the status: nothing here is a git repository.
+    await act(async () => {
+      usePortaStore.setState({ appGit: {} });
+    });
+    expect(screen.getByText("Not a git repository")).toBeVisible();
+    expect(screen.getByLabelText("Commit message")).not.toBeVisible();
+    expect(statusMounts).toBe(1);
+
+    // And back — a repo again, same mount, same draft.
+    await act(async () => {
+      seed();
+    });
+    expect(screen.queryByText("Not a git repository")).not.toBeInTheDocument();
+    const draft = screen.getByLabelText("Commit message");
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("fix(git): survive a non-repo");
+    expect(statusMounts).toBe(1);
+  });
 });
