@@ -1,10 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { useEffect } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { App } from "../../../types";
 import { gitDiffFile, gitFilePreview } from "../../../lib/commands";
 import DiffView from "./DiffView";
+
+// Same reason as src/lib/preview/index.test.ts: jsdom answers neither SVG
+// measurement API, so Mermaid's layout throws before producing markup unless
+// both are stubbed. The preview tests below drive the *real* renderPreview —
+// mocking it would prove nothing about the composition this task exists to
+// wire up — so the same stubs are needed here.
+beforeAll(() => {
+  Object.assign(SVGElement.prototype, {
+    getBBox: () => ({ x: 0, y: 0, width: 100, height: 20 }) as DOMRect,
+    getComputedTextLength: () => 60,
+  });
+});
 
 // Only the commands DiffView calls are replaced; everything else keeps its
 // real out-of-Tauri behaviour.
@@ -181,4 +193,171 @@ describe("DiffView", () => {
     await waitFor(() => expect(container.textContent).toContain("mango"));
     expect(container.textContent).not.toContain("banana");
   });
+});
+
+// ── The preview surface ────────────────────────────────────────────────────
+//
+// Deliberately against the real `renderPreview` (markdown-it + Mermaid +
+// Shiki), not a mock: every one of those modules already passes its own unit
+// tests in isolation, and had never once run together behind this component.
+// A mocked renderer would assert that DiffView calls a function — which is not
+// the thing that was broken.
+//
+// Shiki loads a grammar and Mermaid loads its chunk on first use, both real
+// work in jsdom, so these get a wider timeout than the default 5s.
+const PREVIEW_TIMEOUT = 30_000;
+
+const MARKDOWN_DOC = [
+  "# Release notes",
+  "",
+  "Shipped **today**.",
+  "",
+  "- first item",
+  "- second item",
+  "",
+].join("\n");
+
+// The highlighting case. `git_file_preview` only ever emits markdown for a text
+// file (`git.rs:1411-1417` — everything that isn't md/html/csv/tsv/image is
+// `None`), so a code *block* inside a markdown preview is the real path a
+// highlighted `.ex` snippet reaches the screen, and is what audit row 28
+// ("syntax-highlighted fences inside markdown previews") names.
+const ELIXIR_DOC = [
+  "```elixir",
+  "defmodule Foo do",
+  "  def run(x), do: {:ok, x + 1}",
+  "end",
+  "```",
+  "",
+].join("\n");
+
+const MERMAID_DOC = [
+  "# Diagram",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  "  A[Start] --> B{Decision}",
+  "```",
+  "",
+].join("\n");
+
+function markdownPreview(data: string) {
+  return { kind: "markdown" as const, mime: "text/markdown", data, truncated: false };
+}
+
+/** Mounts DiffView for a markdown file and switches to the Preview surface —
+ *  a markdown preview opens on Diff, so the toggle is the way in. */
+async function openPreview(doc: string) {
+  vi.mocked(gitFilePreview).mockResolvedValue(markdownPreview(doc));
+  const view = renderDiff("notes.md", false, vi.fn());
+  await waitFor(() => expect(view.container.textContent).toContain("banana"));
+  await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+  return view;
+}
+
+describe("DiffView preview surface", () => {
+  beforeEach(() => {
+    diffViewMounts = 0;
+    vi.mocked(gitDiffFile).mockResolvedValue(UNSTAGED_DIFF);
+    vi.mocked(gitFilePreview).mockResolvedValue(null);
+  });
+
+  it("renders a markdown preview as markdown, not as text", async () => {
+    const { container } = await openPreview(MARKDOWN_DOC);
+
+    await waitFor(
+      () => expect(container.querySelector("h1")?.textContent).toBe("Release notes"),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(container.querySelector("strong")?.textContent).toBe("today");
+    expect([...container.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+      "first item",
+      "second item",
+    ]);
+    // The old hand-rolled renderer emitted a literal bullet character in a
+    // <div>; a real <ul> is what says the pipeline is in play.
+    expect(container.querySelector("ul")).not.toBeNull();
+  }, PREVIEW_TIMEOUT);
+
+  // The single cheapest guard against the silent-failure mode: every rule in
+  // src/styles/git-preview.css is scoped `.git-tab-root .md-body …`, so a
+  // container without this class renders a completely unstyled preview while
+  // every other assertion here still passes.
+  it("hands renderPreview a container carrying md-body, the class the stylesheet hooks", async () => {
+    const { container } = await openPreview(MARKDOWN_DOC);
+
+    await waitFor(
+      () => expect(container.querySelector(".md-body h1")?.textContent).toBe("Release notes"),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+  }, PREVIEW_TIMEOUT);
+
+  it("highlights a code fence through the palette's variables, with no baked-in colours", async () => {
+    const { container } = await openPreview(ELIXIR_DOC);
+
+    await waitFor(
+      () => expect(container.querySelector('pre[data-lang="elixir"].shiki')).not.toBeNull(),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    const pre = container.querySelector<HTMLElement>('pre[data-lang="elixir"]')!;
+    // Token colours must resolve through --shiki-token-*, which git-theme.css
+    // binds to the palette. A Shiki theme's baked hex would pin every preview
+    // to that theme regardless of which of the seven palettes is active.
+    expect(pre.querySelector("span[style*='var(--shiki-token-']")).not.toBeNull();
+    expect(pre.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(pre.textContent).toContain("defmodule Foo do");
+  }, PREVIEW_TIMEOUT);
+
+  it("hydrates a mermaid fence into a real diagram", async () => {
+    const { container } = await openPreview(MERMAID_DOC);
+
+    await waitFor(
+      () => expect(container.querySelector(".md-mermaid svg")).not.toBeNull(),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(container.querySelector(".md-mermaid-error")).toBeNull();
+    // The placeholder is consumed rather than left for a second pass.
+    expect(container.querySelector("pre.md-mermaid[data-mermaid]")).toBeNull();
+  }, PREVIEW_TIMEOUT);
+
+  // The cancellation contract from Task 2, seen from the consumer's side. The
+  // key is held stable here on purpose: that keeps one DiffView instance and
+  // one preview host element across the switch, which is the case where an
+  // earlier render could still write into the *live* node. A key change would
+  // hand the later file a brand-new node and prove nothing.
+  it("leaves the later file's preview on screen when the file switches mid-render", async () => {
+    vi.mocked(gitFilePreview).mockImplementation(async (_root, path) =>
+      markdownPreview(path === "alpha.md" ? MERMAID_DOC.replace("# Diagram", "# Alpha") : "# Bravo\n"),
+    );
+    const onChanged = vi.fn();
+    const { container, rerender } = render(
+      <CountingDiffView key="stable" app={app} path="alpha.md" staged={false} onChanged={onChanged} />,
+    );
+    await waitFor(() => expect(container.textContent).toContain("banana"));
+    await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    // Alpha's markdown is on screen; its Mermaid hydration is still in flight
+    // (the chunk load and render are genuinely async), which is the window the
+    // switch below lands in.
+    await waitFor(() => expect(container.textContent).toContain("Alpha"), {
+      timeout: PREVIEW_TIMEOUT,
+    });
+
+    rerender(
+      <CountingDiffView key="stable" app={app} path="bravo.md" staged={false} onChanged={onChanged} />,
+    );
+
+    // Asserted through the pipeline's own output, not raw text: a plain-text
+    // fallback would satisfy `textContent` alone while proving nothing about
+    // which render won the live node.
+    await waitFor(
+      () => expect(container.querySelector(".md-body h1")?.textContent).toBe("Bravo"),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(container.textContent).not.toContain("Alpha");
+    // Nothing from the abandoned render is left behind in the live node.
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector(".md-mermaid")).toBeNull();
+    expect(diffViewMounts).toBe(1);
+  }, PREVIEW_TIMEOUT);
 });

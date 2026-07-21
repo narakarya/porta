@@ -9,6 +9,8 @@ import {
 } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { tokenDiff, type Span } from "../../../lib/word-diff";
+import { renderPreview } from "../../../lib/preview";
+import { usePortaStore } from "../../../store";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
 import { useActivePane } from "./ui/ActivePane";
@@ -46,6 +48,56 @@ function previewTable(preview: GitFilePreview) {
   );
 }
 
+/** The one light palette among the seven declared in src/styles/git-theme.css.
+ *  Mermaid picks its diagram colours from a dark/light boolean of its own
+ *  rather than from the tab's tokens (see `MermaidOptions`), so this is the one
+ *  place the palette id has to be reduced to that boolean. A new light palette
+ *  must be added here too, or its diagrams come out dark on a light surface. */
+const LIGHT_GIT_THEMES: ReadonlySet<string> = new Set(["paper"]);
+
+/**
+ * The rendered-markdown surface: markdown-it → Mermaid → Shiki, composed by
+ * `renderPreview`, which writes into a DOM node imperatively.
+ *
+ * React and that imperative API are reconciled by handing the module a node
+ * React will never look inside: the JSX below declares no children, so
+ * reconciliation has nothing to diff there and can never paint over what the
+ * module wrote. The effect is the only writer, and it is scoped to one node it
+ * captures up front — so a render can't outlive its target either.
+ *
+ * `md-body` is load-bearing, not decoration. Every rule in
+ * src/styles/git-preview.css is scoped `.git-tab-root .md-body …`; without the
+ * class the preview still renders correctly and is completely unstyled, and no
+ * assertion about the markup would notice.
+ */
+function MarkdownPreview({ source }: { source: string }) {
+  const dark = !LIGHT_GIT_THEMES.has(usePortaStore((s) => s.gitTheme));
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  // Keyed on the source (and the palette, which Mermaid bakes into the diagram
+  // it emits), not on the preview object: a refetch that returns identical
+  // content leaves this alone entirely, so the pane never blanks and never
+  // re-runs Shiki and Mermaid for a result it already has on screen.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const controller = new AbortController();
+    // renderPreview stops writing as soon as it observes the signal but does
+    // not roll back what it already committed, so a caller that wants a clean
+    // slate resets the target itself — otherwise an abandoned render's
+    // half-finished output would sit under the next file's.
+    host.replaceChildren();
+    // Never rejects (documented on renderPreview): a bad diagram becomes an
+    // error node, an unsupported fence becomes escaped text.
+    void renderPreview(host, source, { dark }, controller.signal);
+    // Aborts on unmount and before every re-run, so an earlier file's pending
+    // Shiki/Mermaid work can never write into the node the later one owns.
+    return () => controller.abort();
+  }, [source, dark]);
+
+  return <div ref={hostRef} className="md-body mx-auto max-w-4xl p-5" />;
+}
+
 function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: string }) {
   if (preview.kind === "image") {
     return (
@@ -70,17 +122,10 @@ function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: stri
     );
   }
   if (preview.kind === "csv" || preview.kind === "tsv") return previewTable(preview);
-  return (
-    <div className="mx-auto max-w-4xl p-5 font-sans text-[13px] leading-relaxed text-ink-2">
-      {preview.data.split(/\r?\n/).map((line, index) => {
-        if (line.startsWith("### ")) return <h3 key={index} className="mb-1 mt-4 text-[14px] font-semibold text-ink">{line.slice(4)}</h3>;
-        if (line.startsWith("## ")) return <h2 key={index} className="mb-1 mt-5 text-[16px] font-semibold text-ink">{line.slice(3)}</h2>;
-        if (line.startsWith("# ")) return <h1 key={index} className="mb-2 mt-2 text-[20px] font-semibold text-ink">{line.slice(2)}</h1>;
-        if (line.startsWith("- ") || line.startsWith("* ")) return <div key={index} className="pl-3">• {line.slice(2)}</div>;
-        return <div key={index} className={line === "" ? "h-3" : "whitespace-pre-wrap"}>{line}</div>;
-      })}
-    </div>
-  );
+  // Everything left is `markdown` (git.rs:1411-1417 emits nothing else for a
+  // text file), which is where the real pipeline replaces the line-prefix
+  // fallback that used to stand in for it.
+  return <MarkdownPreview source={preview.data} />;
 }
 
 /** Corner affordance for a refetch that has previous content still on
