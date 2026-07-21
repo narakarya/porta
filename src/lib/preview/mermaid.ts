@@ -42,7 +42,21 @@ function getMermaid(dark: boolean): Promise<Mermaid> {
 
 let idSeq = 0;
 
-export async function hydrateMermaid(root: HTMLElement, opts: MermaidOptions): Promise<void> {
+/**
+ * Hydrates every mermaid placeholder in `root` in place. Never rejects: a
+ * malformed diagram and a failed chunk load both degrade to `.md-mermaid-error`
+ * rather than propagating, so a caller that awaits this can rely on it always
+ * settling.
+ *
+ * `signal`, if given, is checked before every DOM write; once it fires, no
+ * further block in `root` is touched by this call.
+ */
+export async function hydrateMermaid(
+  root: HTMLElement,
+  opts: MermaidOptions,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return;
   const blocks = Array.from(root.querySelectorAll<HTMLElement>("pre.md-mermaid[data-mermaid]"));
   if (blocks.length === 0) return;
 
@@ -59,16 +73,31 @@ export async function hydrateMermaid(root: HTMLElement, opts: MermaidOptions): P
       mermaidPromise = null;
       mermaidDark = null;
     }
-    throw err;
+    if (signal?.aborted) return;
+    // Same degradation path as a malformed diagram below: hydrateMermaid is
+    // documented to never reject, so a load failure must not escape as one
+    // either. Every block that would have used this instance gets the error.
+    const message = err instanceof Error ? err.message : String(err);
+    for (const block of blocks) {
+      block.textContent = message;
+      block.classList.add("md-mermaid-error");
+      delete block.dataset.mermaid;
+    }
+    return;
   }
 
+  if (signal?.aborted) return;
+
   for (const block of blocks) {
+    if (signal?.aborted) return;
     const src = block.dataset.mermaid ?? "";
     try {
       const { svg } = await mermaid.render(`md-mermaid-${idSeq++}`, src);
+      if (signal?.aborted) return;
       block.innerHTML = svg;
       delete block.dataset.mermaid; // hydrated once; a re-render would duplicate ids
     } catch (err) {
+      if (signal?.aborted) return;
       // A malformed diagram in someone's README must not blank the preview.
       block.textContent = err instanceof Error ? err.message : String(err);
       block.classList.add("md-mermaid-error");

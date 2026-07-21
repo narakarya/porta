@@ -90,7 +90,11 @@ describe("hydrateMermaid", () => {
   // The chunk is imported lazily and the promise is cached. Caching a *rejected*
   // one meant a single failed load — a chunk that never arrived — disabled every
   // diagram for the lifetime of the app. Mirrors highlight.ts's recovery.
-  it("retries the load after a failed one instead of disabling diagrams", async () => {
+  //
+  // hydrateMermaid is documented to never reject: a malformed diagram already
+  // degraded to an error class, but a failed chunk load used to escape that
+  // path and reject the caller's promise instead. It must degrade the same way.
+  it("degrades to an error instead of rejecting when the chunk load fails, and retries next time", async () => {
     vi.resetModules();
     let loads = 0;
     vi.doMock("mermaid", () => {
@@ -108,10 +112,10 @@ describe("hydrateMermaid", () => {
     const src = "```mermaid\nflowchart TD\n  A[Start] --> B[End]\n```";
 
     const first = mount(renderMarkdown(src));
-    // The rejection reaches the caller (vitest rewraps a mock factory's own
-    // error, so only the fact of it is asserted here).
-    await expect(fresh(first, { dark: true })).rejects.toThrow();
+    await expect(fresh(first, { dark: true })).resolves.toBeUndefined();
     expect(first.querySelector(".md-mermaid svg")).toBeNull();
+    expect(first.querySelector(".md-mermaid-error")).not.toBeNull();
+    expect(first.querySelector(".md-mermaid")?.textContent).toBeTruthy();
 
     const second = mount(renderMarkdown(src));
     await fresh(second, { dark: true });

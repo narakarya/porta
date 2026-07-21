@@ -105,3 +105,25 @@ describe("renderPreview", () => {
     }
   });
 });
+
+// A file-list click faster than Shiki/Mermaid finish must not paint an earlier
+// file's output over a later one. The caller signals "never mind" with an
+// AbortSignal; renderPreview must leave the element exactly as it found it.
+describe("renderPreview cancellation", () => {
+  it("resolves without touching the target element when the signal is already aborted", async () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<p>previous preview</p>";
+    document.body.appendChild(root);
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      renderPreview(root, DOC, { dark: true }, controller.signal),
+    ).resolves.toBeUndefined();
+
+    // Not just "resolved" — the DOM this render would have overwritten must
+    // still hold whatever was there before the call.
+    expect(root.innerHTML).toBe("<p>previous preview</p>");
+  });
+});

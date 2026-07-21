@@ -30,15 +30,25 @@ export interface PreviewOptions {
  * Renders markdown into `root` and hydrates it in place. Resolves once the DOM
  * is final. Never rejects on bad content: an unparseable diagram becomes an
  * error node, an unsupported fence becomes escaped text.
+ *
+ * `signal`, if given, lets a caller say "never mind" — a file-list click
+ * faster than Shiki/Mermaid can finish must not paint an earlier file's
+ * output over a later one. The signal is checked before every DOM write
+ * (including inside hydrateMermaid/highlightFences); once it fires, `root` is
+ * left exactly as this call found it — never half-hydrated.
  */
 export async function renderPreview(
   root: HTMLElement,
   source: string,
   opts: PreviewOptions,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
   root.innerHTML = renderMarkdown(source);
-  await hydrateMermaid(root, opts);
-  await highlightFences(root);
+  if (signal?.aborted) return;
+  await hydrateMermaid(root, opts, signal);
+  if (signal?.aborted) return;
+  await highlightFences(root, signal);
 }
 
 /**
@@ -46,11 +56,16 @@ export async function renderPreview(
  * Exported separately because a caller that already has rendered markdown in
  * the DOM (a diff pane, an incrementally updated preview) needs this half
  * without re-rendering the markdown.
+ *
+ * See renderPreview for the `signal` contract: checked before every write, so
+ * a cancelled call leaves already-replaced fences alone but touches no more.
  */
-export async function highlightFences(root: HTMLElement): Promise<void> {
+export async function highlightFences(root: HTMLElement, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
   const pres = Array.from(root.querySelectorAll<HTMLPreElement>("pre.md-pre"));
 
   for (const pre of pres) {
+    if (signal?.aborted) return;
     const code = pre.querySelector("code");
     if (!code) continue;
 
@@ -59,6 +74,7 @@ export async function highlightFences(root: HTMLElement): Promise<void> {
     // handing it to Shiki would render an empty final line in every block.
     const source = (code.textContent ?? "").replace(/\n$/, "");
     const html = await highlightCode(source, lang);
+    if (signal?.aborted) return;
 
     const holder = document.createElement("template");
     holder.innerHTML = html;
