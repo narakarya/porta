@@ -46,14 +46,18 @@ describe("SshSessionTabs", () => {
     expect(screen.queryByText(/Couldn't connect/)).not.toBeInTheDocument();
   });
 
-  it("retry reconnects the same host", async () => {
+  it("retry replaces the failed session instead of stacking a new tab", async () => {
     const connectSsh = vi.fn(async () => {});
+    const disconnectSsh = vi.fn(async () => {});
     seed("error", "connect: Connection refused");
-    usePortaStore.setState({ connectSsh });
+    usePortaStore.setState({ connectSsh, disconnectSsh });
 
     render(<SshSessionTabs />);
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
 
+    // Dropping the dead session first is the point: retrying without it left
+    // one more red tab behind on every attempt.
+    expect(disconnectSsh).toHaveBeenCalledWith("s1");
     expect(connectSsh).toHaveBeenCalledWith("h1");
   });
 });

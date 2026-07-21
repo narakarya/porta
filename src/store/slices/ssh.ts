@@ -41,6 +41,8 @@ export interface SshSlice {
   connectSsh: (hostId: string) => Promise<void>;
   /** Focus the host's most recent live session if one exists, else open a new one. */
   connectOrFocusSsh: (hostId: string) => Promise<void>;
+  /** Retry a failed session: drop the dead one, then reconnect its host. */
+  retrySsh: (sessionId: string) => Promise<void>;
   disconnectSsh: (sessionId: string) => Promise<void>;
   setActiveSession: (id: string | null) => void;
   upsertSession: (s: SshSession) => void;
@@ -96,6 +98,17 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
       return;
     }
     await get().connectSsh(hostId);
+  },
+
+  // Retry used to call `connectSsh` straight from the error card, which mints
+  // a fresh sessionId and upserts it as an ADDITIONAL session — the failed one
+  // stayed in the tab strip, so every retry left another dead red tab behind.
+  // Tear the dead session down first (also unregisters its listeners).
+  retrySsh: async (sessionId) => {
+    const dead = get().sshSessions.find((s) => s.id === sessionId);
+    if (!dead) return;
+    await get().disconnectSsh(sessionId);
+    await get().connectSsh(dead.hostId);
   },
 
   connectSsh: async (hostId) => {

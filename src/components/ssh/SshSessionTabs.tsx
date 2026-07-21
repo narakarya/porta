@@ -15,6 +15,7 @@ export default function SshSessionTabs() {
   const setActive = usePortaStore((s) => s.setActiveSession);
   const disconnect = usePortaStore((s) => s.disconnectSsh);
   const connectSsh = usePortaStore((s) => s.connectSsh);
+  const retrySsh = usePortaStore((s) => s.retrySsh);
 
   const activeHostId = sessions.find((s) => s.id === active)?.hostId;
 
@@ -81,7 +82,7 @@ export default function SshSessionTabs() {
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => connectSsh(s.hostId)}
+                    onClick={() => retrySsh(s.id)}
                     className="px-2.5 py-1 text-[11px] font-medium text-zinc-200 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors"
                   >
                     Retry
