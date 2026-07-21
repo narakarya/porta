@@ -217,11 +217,9 @@ const MARKDOWN_DOC = [
   "",
 ].join("\n");
 
-// The highlighting case. `git_file_preview` only ever emits markdown for a text
-// file (`git.rs:1411-1417` — everything that isn't md/html/csv/tsv/image is
-// `None`), so a code *block* inside a markdown preview is the real path a
-// highlighted `.ex` snippet reaches the screen, and is what audit row 28
-// ("syntax-highlighted fences inside markdown previews") names.
+// The highlighting case reached through markdown: a fenced block inside a
+// markdown preview. The whole-file `code` kind is the other route to Shiki and
+// is covered separately at the bottom of this file.
 const ELIXIR_DOC = [
   "```elixir",
   "defmodule Foo do",
@@ -359,5 +357,88 @@ describe("DiffView preview surface", () => {
     expect(container.querySelector("svg")).toBeNull();
     expect(container.querySelector(".md-mermaid")).toBeNull();
     expect(diffViewMounts).toBe(1);
+  }, PREVIEW_TIMEOUT);
+});
+
+// ── The `code` kind: a whole source file as its own preview ────────────────
+//
+// `git_file_preview` used to return None for anything that wasn't
+// md/html/csv/tsv/image, so a `.ex` file had a diff and nothing else. It now
+// falls through to `code`, and that content has to reach the same
+// markdown→mermaid→Shiki pipeline the markdown kind uses — same real modules
+// here, same reason: a mock would assert a call, not a rendered token.
+
+const ELIXIR_SOURCE = [
+  "defmodule Foo do",
+  "  def run(x), do: {:ok, x + 1}",
+  "end",
+  "",
+].join("\n");
+
+function codePreview(data: string) {
+  return { kind: "code" as const, mime: "text/plain", data, truncated: false };
+}
+
+async function openCodePreview(path: string, data: string) {
+  vi.mocked(gitFilePreview).mockResolvedValue(codePreview(data));
+  const view = renderDiff(path, false, vi.fn());
+  await waitFor(() => expect(view.container.textContent).toContain("banana"));
+  await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+  return view;
+}
+
+describe("DiffView code preview", () => {
+  beforeEach(() => {
+    diffViewMounts = 0;
+    vi.mocked(gitDiffFile).mockResolvedValue(UNSTAGED_DIFF);
+    vi.mocked(gitFilePreview).mockResolvedValue(null);
+  });
+
+  it("previews an .ex file as highlighted code, coloured only through the palette's variables", async () => {
+    const { container } = await openCodePreview("lib/foo.ex", ELIXIR_SOURCE);
+
+    // The language comes from the *path* (langFromPath), not from anything in
+    // the payload — the backend sends plain text and no language at all.
+    await waitFor(
+      () => expect(container.querySelector('.md-body pre[data-lang="elixir"].shiki')).not.toBeNull(),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    const pre = container.querySelector<HTMLElement>('pre[data-lang="elixir"]')!;
+    expect(pre.querySelector("span[style*='var(--shiki-token-']")).not.toBeNull();
+    expect(pre.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(pre.textContent).toContain("defmodule Foo do");
+    expect(pre.textContent).toContain("{:ok, x + 1}");
+    // The file's own three lines and no more: the fence wrapper has to supply
+    // a newline before its closing delimiter, and a file that already ends
+    // with one must not gain a phantom blank line at the bottom.
+    expect(pre.querySelectorAll("span.line")).toHaveLength(3);
+  }, PREVIEW_TIMEOUT);
+
+  // The file is handed to the pipeline as a fenced block, so its own content
+  // must not be able to close that fence — a markdown file full of ``` runs
+  // would otherwise render as half code and half interpreted markdown.
+  it("keeps a file containing its own code fences inside one block", async () => {
+    const doc = ["# heading", "", "```", "not a fence terminator", "```", ""].join("\n");
+    const { container } = await openCodePreview("notes.txt", doc);
+
+    await waitFor(() => expect(container.querySelector(".md-body pre")).not.toBeNull(), {
+      timeout: PREVIEW_TIMEOUT,
+    });
+    // Nothing was interpreted: no heading element, exactly one block, and the
+    // backticks survive as literal text.
+    expect(container.querySelector(".md-body h1")).toBeNull();
+    expect(container.querySelectorAll(".md-body pre")).toHaveLength(1);
+    expect(container.querySelector(".md-body pre")!.textContent).toContain("# heading");
+    expect(container.querySelector(".md-body pre")!.textContent).toContain("```");
+  }, PREVIEW_TIMEOUT);
+
+  it("renders an unmapped extension as unhighlighted text rather than dropping the preview", async () => {
+    const { container } = await openCodePreview("data/notes.txt", "plain line one\nplain line two\n");
+
+    await waitFor(
+      () => expect(container.querySelector(".md-body pre.shiki")).not.toBeNull(),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(container.querySelector(".md-body pre")!.textContent).toContain("plain line one");
   }, PREVIEW_TIMEOUT);
 });

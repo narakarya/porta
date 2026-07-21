@@ -1796,7 +1796,15 @@ export const gitDiffFile = (
   isTauri ? invoke("git_diff_file", { rootDir, path, staged }) : Promise.resolve("");
 
 export interface GitFilePreview {
-  kind: "image" | "markdown" | "html" | "csv" | "tsv";
+  /**
+   * Mirrors the `kind` arms in `git_file_preview` (src-tauri/src/commands/git.rs).
+   * `code` is the fallthrough for any text file no other kind claimed — the
+   * backend sends the raw contents and no language, so the surface derives one
+   * from the path. DiffView's `PreviewSurface` handles every member of this
+   * union explicitly and asserts exhaustiveness, so adding one here without a
+   * branch there is a type error rather than a silent default rendering.
+   */
+  kind: "image" | "markdown" | "html" | "csv" | "tsv" | "code";
   mime: string;
   data: string;
   truncated: boolean;

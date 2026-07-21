@@ -9,7 +9,7 @@ import {
 } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { tokenDiff, type Span } from "../../../lib/word-diff";
-import { renderPreview } from "../../../lib/preview";
+import { renderPreview, langFromPath } from "../../../lib/preview";
 import { usePortaStore } from "../../../store";
 import { Spinner } from "../../ui";
 import SplitHunk from "./SplitHunk";
@@ -98,6 +98,30 @@ function MarkdownPreview({ source }: { source: string }) {
   return <div ref={hostRef} className="md-body mx-auto max-w-4xl p-5" />;
 }
 
+/**
+ * Wraps a whole source file as a single markdown fence, so the `code` kind
+ * reaches the screen through the same markdown → mermaid → Shiki pipeline the
+ * `markdown` kind uses instead of a second, parallel rendering path. The
+ * language is `langFromPath`'s — the backend sends contents and no language,
+ * and that map is the module's own; duplicating it here is how the two would
+ * drift.
+ *
+ * The fence is opened with one more backtick than the longest run anywhere in
+ * the file. A source file that contains ``` (a README-ish comment, a heredoc,
+ * this very repo's markdown fixtures) would otherwise close its own block
+ * partway down and have its remainder parsed as markdown.
+ *
+ * The closing fence needs a newline before it, but almost every file already
+ * ends with one — adding a second unconditionally would put a phantom blank
+ * line at the bottom of every preview.
+ */
+function codeAsMarkdown(source: string, path: string): string {
+  const longestRun = Math.max(0, ...Array.from(source.matchAll(/`+/g), (m) => m[0].length));
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+  const body = source.endsWith("\n") ? source : `${source}\n`;
+  return `${fence}${langFromPath(path)}\n${body}${fence}`;
+}
+
 function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: string }) {
   if (preview.kind === "image") {
     return (
@@ -122,10 +146,17 @@ function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: stri
     );
   }
   if (preview.kind === "csv" || preview.kind === "tsv") return previewTable(preview);
-  // Everything left is `markdown` (git.rs:1411-1417 emits nothing else for a
-  // text file), which is where the real pipeline replaces the line-prefix
-  // fallback that used to stand in for it.
-  return <MarkdownPreview source={preview.data} />;
+  if (preview.kind === "code") return <MarkdownPreview source={codeAsMarkdown(preview.data, path)} />;
+  if (preview.kind === "markdown") return <MarkdownPreview source={preview.data} />;
+  // Exhaustive by construction: `preview.kind` has narrowed to `never`, so a
+  // kind added to GitFilePreview without a branch above fails to compile here
+  // rather than silently falling through to whichever branch happened to be
+  // last. Not a throw — that would take the whole pane down at runtime if a
+  // backend ever sent a kind this build doesn't know; showing the bytes as
+  // text is the honest degradation.
+  const unhandled: never = preview.kind;
+  void unhandled;
+  return <MarkdownPreview source={codeAsMarkdown(preview.data, path)} />;
 }
 
 /** Corner affordance for a refetch that has previous content still on

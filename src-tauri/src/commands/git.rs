@@ -1368,62 +1368,99 @@ pub struct GitFilePreview {
     pub truncated: bool,
 }
 
+const MAX_PREVIEW_BYTES: usize = 512 * 1024;
+
+/// How much of a file the binary sniff looks at. Same window git uses for its
+/// own text/binary call, and the same reason: a real binary puts a NUL near
+/// the front, so scanning further costs time without finding more.
+const BINARY_SNIFF_BYTES: usize = 8000;
+
+/// Whether a file's bytes look like a binary rather than text.
+///
+/// A NUL in the leading [`BINARY_SNIFF_BYTES`] — the heuristic git uses for the
+/// same call. It has to be content-based, not an extension allowlist: `.dat`,
+/// `.bin` and an extensionless `a.out` say nothing about what is inside, and
+/// the `code` fallthrough below is reached by every extension nothing else
+/// claimed.
+///
+/// What it catches: executables, object files, archives, compiled artifacts,
+/// most media containers, and UTF-16/UTF-32 text (whose ASCII runs are padded
+/// with NULs — deliberately treated as binary, since the preview decodes UTF-8).
+/// What it misses: a binary whose first 8000 bytes happen to be NUL-free —
+/// some compressed streams and dense-numeric formats. Those preview as
+/// mojibake rather than corrupting anything: the bytes go through
+/// `String::from_utf8_lossy`, so invalid sequences become U+FFFD and the
+/// result is still a valid string.
+fn looks_binary(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0)
+}
+
 #[tauri::command]
 pub async fn git_file_preview(
     root_dir: String,
     path: String,
 ) -> Result<Option<GitFilePreview>, String> {
-    tokio::task::spawn_blocking(move || {
-        use base64::Engine;
-        let target = safe_repo_path(&root_dir, &path)?;
-        if !target.is_file() {
-            return Ok(None);
-        }
-        let extension = target
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .to_lowercase();
-        let image_mime = match extension.as_str() {
-            "png" => Some("image/png"),
-            "jpg" | "jpeg" => Some("image/jpeg"),
-            "gif" => Some("image/gif"),
-            "webp" => Some("image/webp"),
-            "svg" => Some("image/svg+xml"),
-            "bmp" => Some("image/bmp"),
-            "ico" => Some("image/x-icon"),
-            "avif" => Some("image/avif"),
-            "tif" | "tiff" => Some("image/tiff"),
-            _ => None,
-        };
-        const MAX_PREVIEW_BYTES: usize = 512 * 1024;
-        let bytes = std::fs::read(&target).map_err(|error| error.to_string())?;
-        let truncated = bytes.len() > MAX_PREVIEW_BYTES;
-        let clipped = &bytes[..bytes.len().min(MAX_PREVIEW_BYTES)];
-        if let Some(mime) = image_mime {
-            return Ok(Some(GitFilePreview {
-                kind: "image".into(),
-                mime: mime.into(),
-                data: base64::engine::general_purpose::STANDARD.encode(clipped),
-                truncated,
-            }));
-        }
-        let kind = match extension.as_str() {
-            "md" | "markdown" => "markdown",
-            "html" | "htm" => "html",
-            "csv" => "csv",
-            "tsv" => "tsv",
-            _ => return Ok(None),
-        };
-        Ok(Some(GitFilePreview {
-            kind: kind.into(),
-            mime: "text/plain".into(),
-            data: String::from_utf8_lossy(clipped).into_owned(),
+    tokio::task::spawn_blocking(move || file_preview_for(&root_dir, &path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Core of [`git_file_preview`], split out so it's unit-testable without going
+/// through `spawn_blocking` — the same split [`diff_file_for`] uses.
+fn file_preview_for(root_dir: &str, path: &str) -> Result<Option<GitFilePreview>, String> {
+    use base64::Engine;
+    let target = safe_repo_path(root_dir, path)?;
+    if !target.is_file() {
+        return Ok(None);
+    }
+    let extension = target
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    let image_mime = match extension.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
+        "avif" => Some("image/avif"),
+        "tif" | "tiff" => Some("image/tiff"),
+        _ => None,
+    };
+    let bytes = std::fs::read(&target).map_err(|error| error.to_string())?;
+    let truncated = bytes.len() > MAX_PREVIEW_BYTES;
+    let clipped = &bytes[..bytes.len().min(MAX_PREVIEW_BYTES)];
+    if let Some(mime) = image_mime {
+        return Ok(Some(GitFilePreview {
+            kind: "image".into(),
+            mime: mime.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(clipped),
             truncated,
-        }))
-    })
-    .await
-    .map_err(|error| error.to_string())?
+        }));
+    }
+    let kind = match extension.as_str() {
+        "md" | "markdown" => "markdown",
+        "html" | "htm" => "html",
+        "csv" => "csv",
+        "tsv" => "tsv",
+        // Everything else that is text at all: previewed as its own contents,
+        // syntax-highlighted by the frontend from the path's extension. This
+        // is the only arm that inspects content, and only because it is the
+        // one arm no extension vouched for — an extensionless LICENSE or
+        // Dockerfile is text and belongs here, a `.dat` blob is not and is
+        // dropped back to diff-only by returning None.
+        _ if !looks_binary(clipped) => "code",
+        _ => return Ok(None),
+    };
+    Ok(Some(GitFilePreview {
+        kind: kind.into(),
+        mime: "text/plain".into(),
+        data: String::from_utf8_lossy(clipped).into_owned(),
+        truncated,
+    }))
 }
 
 /// Wall-clock budget for the changes-panel ops below. They only touch the
@@ -3795,5 +3832,106 @@ u UU N... 100644 100644 100644 100644 3f2a1b9 aaaaaaa bbbbbbb conflict.rs
             build_rebase_todo(ps, "main", &dropped).unwrap_err(),
             "a rebase cannot drop every commit",
         );
+    }
+
+    // ── git_file_preview ───────────────────────────────────────────────────
+    //
+    // Driven through `file_preview_for`, the sync core, for the same reason
+    // `diff_file_for` is split out: no `spawn_blocking`, no tauri runtime.
+    // `safe_repo_path` canonicalizes, so a tempdir under /var (a symlink to
+    // /private/var on macOS) resolves to the same root the target does.
+
+    fn preview_in(dir: &std::path::Path, name: &str, bytes: &[u8]) -> Option<GitFilePreview> {
+        std::fs::write(dir.join(name), bytes).unwrap();
+        file_preview_for(dir.to_str().unwrap(), name).expect("preview must not error")
+    }
+
+    #[test]
+    fn file_preview_falls_through_to_code_for_a_source_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = "defmodule Foo do\n  def run(x), do: {:ok, x}\nend\n";
+        let preview = preview_in(dir.path(), "foo.ex", source.as_bytes())
+            .expect("a source file must preview, not fall off the end as None");
+        assert_eq!(preview.kind, "code");
+        assert_eq!(preview.data, source);
+        assert!(!preview.truncated);
+    }
+
+    #[test]
+    fn file_preview_treats_an_extensionless_text_file_as_code() {
+        // LICENSE, Makefile, Dockerfile, .gitignore — all extensionless and all
+        // text. Content, not the name, decides; the frontend's langFromPath
+        // resolves these to "text" and renders them unhighlighted but styled.
+        let dir = tempfile::tempdir().unwrap();
+        let preview = preview_in(dir.path(), "LICENSE", b"MIT License\n\nPermission...\n")
+            .expect("an extensionless text file must still preview");
+        assert_eq!(preview.kind, "code");
+        assert!(preview.data.starts_with("MIT License"));
+    }
+
+    #[test]
+    fn file_preview_returns_none_for_binary_content() {
+        let dir = tempfile::tempdir().unwrap();
+        // A NUL inside the sniff window is the binary tell git itself uses.
+        // An extension allowlist would be no help here: `.dat` says nothing,
+        // and neither does an extensionless name.
+        let blob = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00payload".to_vec();
+        assert!(preview_in(dir.path(), "blob.dat", &blob).is_none());
+        assert!(preview_in(dir.path(), "a.out", &blob).is_none());
+    }
+
+    #[test]
+    fn file_preview_sniffs_only_the_leading_bytes_for_binary() {
+        // The sniff window is bounded so a 512 KB read isn't scanned twice; a
+        // NUL past it is deliberately not caught. Pinning the boundary keeps
+        // that a decision rather than an accident.
+        let dir = tempfile::tempdir().unwrap();
+        let mut late = vec![b'a'; BINARY_SNIFF_BYTES];
+        late.push(0);
+        assert!(
+            preview_in(dir.path(), "late.dat", &late).is_some(),
+            "a NUL past the sniff window is out of scope by design",
+        );
+
+        let mut early = vec![b'a'; BINARY_SNIFF_BYTES - 1];
+        early.push(0);
+        assert!(preview_in(dir.path(), "early.dat", &early).is_none());
+    }
+
+    #[test]
+    fn file_preview_keeps_markdown_and_images_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let md = preview_in(dir.path(), "notes.md", b"# Title\n").unwrap();
+        assert_eq!(md.kind, "markdown");
+        assert_eq!(md.mime, "text/plain");
+        assert_eq!(md.data, "# Title\n");
+
+        // A PNG is full of NULs — the binary sniff must not reach it, because
+        // the image branch returns before the text kinds are considered.
+        let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00";
+        let image = preview_in(dir.path(), "logo.png", png).unwrap();
+        assert_eq!(image.kind, "image");
+        assert_eq!(image.mime, "image/png");
+        assert!(!image.data.is_empty());
+    }
+
+    #[test]
+    fn file_preview_caps_a_large_code_file_at_the_existing_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = vec![b'x'; MAX_PREVIEW_BYTES + 4096];
+        let preview = preview_in(dir.path(), "big.ts", &big).unwrap();
+        assert_eq!(preview.kind, "code");
+        assert!(preview.truncated);
+        assert_eq!(preview.data.len(), MAX_PREVIEW_BYTES);
+    }
+
+    #[test]
+    fn file_preview_returns_none_for_a_directory_or_missing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let root = dir.path().to_str().unwrap();
+        assert!(file_preview_for(root, "sub").unwrap().is_none());
+        assert!(file_preview_for(root, "nope.rs").unwrap().is_none());
+        assert!(file_preview_for(root, "../escape.rs").is_err());
     }
 }
