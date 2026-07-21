@@ -135,11 +135,19 @@ export default function TerminalWorkspace({
   const focusedPaneKey = focusedPane?.id ?? null;
 
   // Bumped by Restart (below). Included in the poll effect's deps so a
-  // restart tears down and re-establishes the poll for its pane, rather than
-  // leaving the old effect instance's in-flight IPC call free to resolve
-  // after the restart and write over the fresh `idle` state with the exited
-  // session it was actually asking about.
+  // restart tears down and re-establishes the poll for its pane. `Ref`
+  // mirrors the same record so the poll's response handlers — which close
+  // over the generation captured when *their* request was issued — can
+  // compare against the *live* generation when the response actually lands.
+  // `cancelled` alone isn't enough for that (see the poll effect below).
   const [restartNonce, setRestartNonce] = useState<Record<string, number>>({});
+  const restartNonceRef = useRef(restartNonce);
+  restartNonceRef.current = restartNonce;
+
+  // Named so the poll effect's dep array holds a value, not a computed
+  // expression — statically checkable even without a lint script to catch a
+  // future mistake here.
+  const focusedPaneRestartNonce = restartNonce[focusedPaneKey ?? ""] ?? 0;
 
   // Poll only the pane the user is looking at. Guards against flapping with
   // TerminalTab's onExit (which sets `exited` independently, off this same
@@ -150,14 +158,39 @@ export default function TerminalWorkspace({
   useEffect(() => {
     if (!active || !focusedPaneKey) return;
     const paneId = focusedPaneKey;
+    // This effect instance's restart generation, captured once at setup.
+    // `restartFocusedPane`'s store writes (idle reset) land, then only later
+    // does React actually run this effect's cleanup (which flips
+    // `cancelled`) — child-before-parent effect ordering plus the async
+    // `terminalClose` round trip mean a response already in flight when
+    // Restart is clicked can resolve *inside* that window, while `cancelled`
+    // is still false. Comparing the live nonce (via the ref, since a plain
+    // closure over `restartNonce` would also be stale) against the
+    // generation this request was issued under discards that response
+    // instead of writing the dead session's state over the freshly reset
+    // pane.
+    const requestGeneration = focusedPaneRestartNonce;
     let cancelled = false;
     let intervalId: number | undefined;
+    // Consecutive "Rust has no record of this session" responses in a row.
+    // One or two of these are the ordinary terminal_open race (a pane that
+    // hasn't attached in Rust yet) and self-heal within a tick or two. A
+    // session that never shows up after several ticks means terminalOpen
+    // itself failed — polling forever with nothing to show would strand the
+    // pane at its initial state with no way back, so past this bound treat
+    // it as a failed open and surface Restart instead.
+    let consecutiveAbsent = 0;
+    const MAX_CONSECUTIVE_ABSENT = 5; // ~8s of ticks: far past the single-
+    // frame open() race, short enough not to leave the user staring at a
+    // silently stuck pane.
 
     const currentState = () =>
       usePortaStore
         .getState()
         .terminalTabs[appId]?.flatMap((t) => t.panes)
         .find((p) => p.id === paneId)?.state;
+
+    const isStaleRestart = () => (restartNonceRef.current[paneId] ?? 0) !== requestGeneration;
 
     const tick = () => {
       if (currentState() === "exited") {
@@ -166,7 +199,19 @@ export default function TerminalWorkspace({
       }
       terminalState(paneId)
         .then((s) => {
-          if (cancelled) return;
+          if (cancelled || isStaleRestart()) return;
+          if (s === null) {
+            // No record of this session yet — Rust hasn't seen terminal_open
+            // land, or (past the bound) it never will. Never synthesize a
+            // state from an absent session; just leave the pane as is and
+            // keep polling until it either shows up or we give up.
+            consecutiveAbsent += 1;
+            if (consecutiveAbsent >= MAX_CONSECUTIVE_ABSENT) {
+              setTerminalPaneState(appId, paneId, { state: "exited", exitCode: null, pid: null });
+            }
+            return;
+          }
+          consecutiveAbsent = 0;
           if (currentState() === "exited") return;
           setTerminalPaneState(appId, paneId, {
             state: !s.alive ? "exited" : s.running ? "running" : "idle",
@@ -174,15 +219,31 @@ export default function TerminalWorkspace({
             pid: s.pid,
           });
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error(`[terminal] state poll failed for pane ${paneId}:`, err);
+        });
     };
-    tick();
-    intervalId = window.setInterval(tick, 2000);
+    // Skip installing anything for a pane that's already exited when this
+    // effect sets up — otherwise the interval still gets created (only to
+    // fire once at 2s and immediately clear itself), which doesn't match
+    // what the guard above reads as preventing.
+    if (currentState() !== "exited") {
+      tick();
+      intervalId = window.setInterval(tick, 2000);
+    }
     return () => {
       cancelled = true;
       if (intervalId !== undefined) window.clearInterval(intervalId);
     };
-  }, [active, appId, focusedPaneKey, restartNonce[focusedPaneKey ?? ""], setTerminalPaneState]);
+  }, [active, appId, focusedPaneKey, focusedPaneRestartNonce, setTerminalPaneState]);
+
+  // Guards restartFocusedPane against a second click landing while the first
+  // restart's terminalClose → store-reset round trip is still in flight —
+  // without it, two fast clicks dispatch two terminalClose calls and two
+  // nonce bumps for the same pane, and if the second close resolves after
+  // the first restart's remount it closes the fresh PTY instead of the dead
+  // one it was meant for.
+  const pendingRestarts = useRef<Set<string>>(new Set());
 
   // Restart drops the dead session so the pane starts clean rather than
   // stacking a second shell's output under the first one's. Bumping the
@@ -194,6 +255,8 @@ export default function TerminalWorkspace({
   const restartFocusedPane = useCallback(() => {
     const paneId = focusedPaneKey;
     if (!paneId) return;
+    if (pendingRestarts.current.has(paneId)) return;
+    pendingRestarts.current.add(paneId);
     void terminalClose(paneId)
       .catch(() => {})
       .then(() => {
@@ -205,6 +268,9 @@ export default function TerminalWorkspace({
           return next;
         });
         setRestartNonce((n) => ({ ...n, [paneId]: (n[paneId] ?? 0) + 1 }));
+      })
+      .finally(() => {
+        pendingRestarts.current.delete(paneId);
       });
   }, [focusedPaneKey, appId, setTerminalPaneState]);
 

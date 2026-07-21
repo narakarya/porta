@@ -1330,22 +1330,31 @@ export const terminalResize = (appId: string, rows: number, cols: number): Promi
 export const terminalClose = (appId: string): Promise<void> =>
   isTauri ? invoke("terminal_close", { appId }) : Promise.resolve();
 
-/** Polled for the focused pane only — see TerminalWorkspace's status bar. */
-export const terminalState = (appId: string): Promise<TerminalState> =>
+/**
+ * Polled for the focused pane only — see TerminalWorkspace's status bar.
+ *
+ * Resolves `null` when Rust has no record of this session id at all — which
+ * is a *different fact* from the shell having exited. The caller (currently
+ * only TerminalWorkspace's poll) must not collapse the two: a pane whose
+ * `terminal_open` hasn't reached Rust yet (it's scheduled a frame later, see
+ * TerminalTab's mount effect) looks identical on the wire to one that
+ * genuinely exited unless this distinction is preserved end to end.
+ */
+export const terminalState = (appId: string): Promise<TerminalState | null> =>
   isTauri
     ? invoke<TerminalState>("terminal_state", { appId }).catch((err) => {
         // A session the backend no longer knows is not an error here — a tab
-        // mid-close is removed from Rust's map before its poll stops. That's
-        // the exact string `terminal_state` returns via `ok_or`; anything
-        // else (a broken IPC call, a Rust panic, a signature mismatch) is a
-        // real fault and must reject so the caller's `.catch` and the
-        // console see it, rather than presenting as a permanently idle
-        // terminal with nothing logged anywhere. Tauri's command errors
-        // arrive as a plain string, but check `.message` too in case a
-        // future runtime wraps it in an Error.
+        // mid-close is removed from Rust's map before its poll stops, and a
+        // pane that hasn't attached yet hits the same `ok_or`. That's the
+        // exact string `terminal_state` returns; anything else (a broken IPC
+        // call, a Rust panic, a signature mismatch) is a real fault and must
+        // reject so the caller's `.catch` and the console see it, rather
+        // than presenting as a permanently idle terminal with nothing logged
+        // anywhere. Tauri's command errors arrive as a plain string, but
+        // check `.message` too in case a future runtime wraps it in an Error.
         const message = err instanceof Error ? err.message : err;
         if (message === "no such terminal session") {
-          return { alive: false, running: false, pid: 0, exitCode: null };
+          return null;
         }
         throw err;
       })
