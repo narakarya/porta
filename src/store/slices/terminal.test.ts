@@ -2,14 +2,17 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { usePortaStore } from "../index";
 
 const terminalClose = vi.hoisted(() => vi.fn(async (_paneId: string) => {}));
+const deleteApp = vi.hoisted(() => vi.fn(async (_id: string) => {}));
 vi.mock("../../lib/commands", async (orig) => ({
   ...(await orig<typeof import("../../lib/commands")>()),
   terminalClose,
+  deleteApp,
 }));
 
 function reset() {
-  usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+  usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {}, apps: [] });
   terminalClose.mockClear();
+  deleteApp.mockClear();
 }
 
 describe("terminal tabs are scoped per app", () => {
@@ -285,6 +288,33 @@ describe("app deletion", () => {
     await usePortaStore.getState().closeAppTerminals("a1");
 
     expect(terminalClose).toHaveBeenCalledWith(pane);
+  });
+
+  it("closes terminal sessions before deleting the app record", async () => {
+    // Seed an app with a terminal tab.
+    usePortaStore.setState({
+      apps: [{ id: "a1", name: "porta" } as any],
+    });
+    usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
+    const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+
+    // Track the order in which mocks are called.
+    const callOrder: string[] = [];
+    terminalClose.mockImplementationOnce(async (_paneId: string) => {
+      callOrder.push("terminalClose");
+    });
+    deleteApp.mockImplementationOnce(async (_id: string) => {
+      callOrder.push("deleteApp");
+    });
+
+    await usePortaStore.getState().deleteApp("a1");
+
+    // Both should be called.
+    expect(terminalClose).toHaveBeenCalledWith(paneId);
+    expect(deleteApp).toHaveBeenCalledWith("a1");
+
+    // terminalClose must be called before deleteApp.
+    expect(callOrder).toEqual(["terminalClose", "deleteApp"]);
   });
 });
 
