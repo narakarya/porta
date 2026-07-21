@@ -1,4 +1,4 @@
-import type { BundledLanguage, Highlighter, ThemeRegistration } from "shiki";
+import type { BundledLanguage, Highlighter, ThemeRegistration, ThemedToken } from "shiki";
 
 /**
  * Syntax highlighting for git file previews. Replaces the extension's
@@ -159,7 +159,12 @@ function ensureLanguage(highlighter: Highlighter, lang: string): Promise<boolean
   return pending;
 }
 
-function escapeHtml(s: string): string {
+/**
+ * Exported so callers that assemble their own markup out of tokenizeLines()
+ * escape identically to the fallback below — one escaping rule for this
+ * module's output, not one per consumer.
+ */
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -180,6 +185,92 @@ function plain(code: string): string {
     `style="background-color:var(--shiki-background);color:var(--shiki-foreground)" ` +
     `tabindex="0"><code>${lines.join("\n")}</code></pre>`
   );
+}
+
+/**
+ * One tokenised run of text: the characters and the inline style Shiki would
+ * have written for them. Deliberately not a Shiki type — callers assemble their
+ * own markup from these and should not have to know shiki's token vocabulary,
+ * nor pull shiki into their import graph to name the shape.
+ */
+export interface StyledToken {
+  /** Raw text, unescaped. */
+  content: string;
+  /** An inline style declaration list, or "" when the token is unstyled. */
+  style: string;
+}
+
+// Shiki's own getTokenStyleObject/stringifyTokenStyle, reimplemented rather
+// than imported: shiki is only ever loaded through the dynamic import above, so
+// naming it statically anywhere in this module would pull the whole engine —
+// WASM included — into the main bundle. The FontStyle bits are a stable enum in
+// @shikijs/vscode-textmate (Italic 1, Bold 2, Underline 4, Strikethrough 8).
+function tokenStyle(token: ThemedToken): string {
+  if (token.htmlStyle) {
+    return Object.entries(token.htmlStyle)
+      .map(([key, value]) => `${key}:${value}`)
+      .join(";");
+  }
+  const parts: string[] = [];
+  if (token.color) parts.push(`color:${token.color}`);
+  if (token.bgColor) parts.push(`background-color:${token.bgColor}`);
+  const fontStyle = token.fontStyle ?? 0;
+  if (fontStyle > 0) {
+    if (fontStyle & 1) parts.push("font-style:italic");
+    if (fontStyle & 2) parts.push("font-weight:bold");
+    const decorations: string[] = [];
+    if (fontStyle & 4) decorations.push("underline");
+    if (fontStyle & 8) decorations.push("line-through");
+    if (decorations.length) parts.push(`text-decoration:${decorations.join(" ")}`);
+  }
+  return parts.join(";");
+}
+
+/**
+ * Tokenises `code` in a single pass and hands back the token stream instead of
+ * finished HTML, for callers that render lines individually — a diff, say,
+ * where each line is its own row. Tokenising per line would be the obvious way
+ * to do that and is wrong: a line inside a multi-line string or a block comment
+ * is a fragment, and the grammar has no way to know what it is out of context.
+ * One pass over the whole file carries that state across line boundaries.
+ *
+ * Grouped per line as Shiki returns it, first line first. Callers must still
+ * handle a token whose content spans a newline: nothing in the vocabulary
+ * forbids one, and that is precisely the multi-line construct these callers
+ * exist to get right.
+ *
+ * Returns null — never throws — when the language is unsupported, the grammar
+ * will not load, or the highlighter fails, matching highlightCode's contract.
+ * Callers fall back to escaped plain text.
+ */
+export async function tokenizeLines(code: string, lang: string): Promise<StyledToken[][] | null> {
+  if (lang === "text" || !SUPPORTED_LANGS.has(lang)) return null;
+
+  const loading = getHighlighter();
+  let highlighter: Highlighter;
+  try {
+    highlighter = await loading;
+  } catch {
+    // Same reasoning as highlightCode: drop a failed load so a later call can
+    // retry, but only if nothing has replaced it with a working one since.
+    if (highlighterPromise === loading) highlighterPromise = null;
+    return null;
+  }
+
+  try {
+    if (!(await ensureLanguage(highlighter, lang))) return null;
+    const { tokens } = highlighter.codeToTokens(code, {
+      // Narrowed the same way ensureLanguage does: the id is validated against
+      // SUPPORTED_LANGS above, but that set is a plain string set.
+      lang: lang as BundledLanguage,
+      theme: SYN_THEME_NAME,
+    });
+    return tokens.map((line) =>
+      line.map((token) => ({ content: token.content, style: tokenStyle(token) })),
+    );
+  } catch {
+    return null;
+  }
 }
 
 export async function highlightCode(code: string, lang: string): Promise<string> {
