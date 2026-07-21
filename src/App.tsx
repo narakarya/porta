@@ -18,6 +18,7 @@ import SetupWizard from "./components/setup/SetupWizard";
 import SettingsPage from "./components/settings/SettingsPage";
 import CommandPalette from "./components/layout/CommandPalette";
 import UpdateToast from "./components/layout/UpdateToast";
+import Notices from "./components/layout/Notices";
 import ErrorBoundary from "./components/layout/ErrorBoundary";
 import HelpModal from "./components/layout/HelpModal";
 import { ExtensionHostProvider } from "./components/extension/ExtensionHostManager";
@@ -316,6 +317,7 @@ export default function App() {
           a download started from Settings stays visible after the user
           switches back to Main. */}
       <UpdateToast />
+      <Notices />
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       </ExtensionHostProvider>
     </ErrorBoundary>
