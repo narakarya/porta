@@ -49,6 +49,10 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
     options: Record<string, unknown>;
     writes: string[] = [];
     container: HTMLElement | undefined;
+    // Mirrors xterm's real (public, readonly) `textarea` property: the
+    // hidden input it focuses on click/Tab/programmatic focus, and the only
+    // reliable source of a real focus event — see Finding 3.
+    textarea: HTMLTextAreaElement = document.createElement("textarea");
     private onDataHandler: ((data: string) => void) | null = null;
 
     constructor(options: Record<string, unknown>) {
@@ -284,5 +288,22 @@ describe("TerminalTab lifecycle", () => {
     resolveOpen({ spawned: false, backlog: bytes("backlog-bytes") });
 
     await vi.waitFor(() => expect(lastTerminal().writes).toEqual(["backlog-bytes", "live-while-hidden"]));
+  });
+
+  // Finding 3: `Terminal.prototype.onFocus` isn't public API (it belongs to
+  // xterm's internal core terminal), so the previous cast-and-optional-call
+  // was a permanent no-op — `focusedPaneId` in TerminalWorkspace could never
+  // become non-null, which silently kills the split-view focus ring, pins
+  // Restart to pane 1 forever, and (pre Finding 4) pins the poll to pane 1
+  // too. `textarea` is the real, public, always-present focus target xterm
+  // uses; a native listener on it is what this test pins.
+  it("calls onFocus when the terminal's textarea receives a real focus event", async () => {
+    const onFocus = vi.fn();
+    render(<TerminalTab appId="pane-8" rootDir="/src/porta" visible onFocus={onFocus} />);
+    await vi.waitFor(() => expect(terminalOpen).toHaveBeenCalled());
+
+    lastTerminal().textarea.dispatchEvent(new FocusEvent("focus"));
+
+    expect(onFocus).toHaveBeenCalledTimes(1);
   });
 });

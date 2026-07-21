@@ -200,12 +200,18 @@ export default function TerminalTab({
       terminalWrite(appId, bytes).catch(console.error);
     });
 
-    // `onFocus` exists on Terminal at runtime but isn't in @xterm/xterm's
-    // public .d.ts, hence the cast. Optional-chained because the jsdom-mocked
-    // Terminal used in tests doesn't implement it.
-    (term as Terminal & { onFocus?: (cb: () => void) => void }).onFocus?.(() =>
-      onFocusRef.current?.(),
-    );
+    // Terminal itself has no public focus event — the `onFocus` getter that
+    // exists at runtime belongs to xterm's internal core terminal, not the
+    // public wrapper (`new Terminal().onFocus` is `undefined`), so calling it
+    // is a permanent no-op. `textarea` *is* public: it's the actual hidden
+    // input xterm focuses on click, Tab, or a programmatic `.focus()`, so a
+    // native listener on it is the most direct signal that this pane's
+    // terminal — specifically, not a sibling button like the pane's close
+    // control — took keyboard focus. (A `focus`-capture handler on the pane's
+    // wrapper `div` in TerminalWorkspace was the other option; it would also
+    // fire for that sibling chrome, which this doesn't.)
+    const focusListener = () => onFocusRef.current?.();
+    term.textarea?.addEventListener("focus", focusListener);
 
     let mounted = true;
     let unlistenData: (() => void) | undefined;
@@ -325,6 +331,7 @@ export default function TerminalTab({
         flushTimerRef.current = null;
       }
       ro.disconnect();
+      term.textarea?.removeEventListener("focus", focusListener);
       unlistenData?.();
       unlistenExit?.();
       term.dispose();

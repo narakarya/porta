@@ -17,11 +17,15 @@ vi.mock("../../lib/commands", async (orig) => ({
 const confirmDialog = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmDialog }));
 
-// Captured per pane id so tests can drive `onTranscriptStats` at will,
-// independent of mount timing — a real TerminalTab reports stats from its
-// xterm transcript, which this double doesn't have.
+// Captured per pane id so tests can drive `onTranscriptStats`/`onFocus` at
+// will, independent of mount timing — a real TerminalTab reports these from
+// its xterm instance, which this double doesn't have.
 const paneProps = vi.hoisted(
-  () => new Map<string, { onTranscriptStats?: (lineCount: number, matchCount: number | null) => void }>(),
+  () =>
+    new Map<
+      string,
+      { onTranscriptStats?: (lineCount: number, matchCount: number | null) => void; onFocus?: () => void }
+    >(),
 );
 // appId -> the instance token that currently owns that entry. A remount (a
 // `key` change on the pane's wrapping element) mounts the new instance
@@ -36,7 +40,11 @@ const paneOwners = vi.hoisted(() => new Map<string, symbol>());
 
 // xterm paints to a canvas jsdom can't render; the tab strip is what's under test.
 vi.mock("./TerminalTab", () => ({
-  default: (props: { appId: string; onTranscriptStats?: (lineCount: number, matchCount: number | null) => void }) => {
+  default: (props: {
+    appId: string;
+    onTranscriptStats?: (lineCount: number, matchCount: number | null) => void;
+    onFocus?: () => void;
+  }) => {
     const instanceToken = useRef<symbol | undefined>(undefined);
     if (instanceToken.current === undefined) instanceToken.current = Symbol(props.appId);
     paneProps.set(props.appId, props);
@@ -425,6 +433,63 @@ describe("restartFocusedPane", () => {
     const pane = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === paneId)!;
     expect(pane.state).toBe("idle");
     expect(pane.pid).toBeNull();
+  });
+});
+
+// Finding 3: TerminalTab's `onFocus` prop used to be wired to a call that was
+// a permanent no-op (`Terminal.prototype.onFocus` isn't public xterm API),
+// so `focusedPaneId` here could never become non-null — Restart was
+// permanently pinned to pane 1, and the split-view focus edge never
+// rendered, regardless of which pane the user actually typed into. These
+// tests drive the same `onFocus` prop a real (fixed) TerminalTab now calls
+// from a native `focus` listener on its xterm textarea (see
+// TerminalTab.test.tsx for that half), and check the downstream effects here
+// that would stay broken if this wiring ever regressed to a no-op.
+describe("focused pane tracking", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+    terminalClose.mockClear();
+  });
+
+  it("routes Restart to whichever pane last took focus, not always pane 1", async () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    act(() => {
+      usePortaStore.getState().splitTerminalTab("a1", tabId, "cols");
+    });
+    const [pane1, pane2] = usePortaStore.getState().terminalTabs["a1"][0].panes;
+
+    act(() => {
+      paneProps.get(pane2.id)?.onFocus?.();
+    });
+    act(() => {
+      usePortaStore.getState().setTerminalPaneState("a1", pane2.id, { state: "exited", exitCode: 1, pid: 9 });
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Restart" }));
+
+    await waitFor(() => expect(terminalClose).toHaveBeenCalledWith(pane2.id));
+    expect(terminalClose).not.toHaveBeenCalledWith(pane1.id);
+  });
+
+  it("renders the split-view focus edge on whichever pane last took focus", () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    act(() => {
+      usePortaStore.getState().splitTerminalTab("a1", tabId, "cols");
+    });
+    const [pane1, pane2] = usePortaStore.getState().terminalTabs["a1"][0].panes;
+
+    act(() => {
+      paneProps.get(pane2.id)?.onFocus?.();
+    });
+
+    // The mock's own div → the "relative flex-1 min-h-0" wrapper → the pane
+    // wrapper that actually carries the focus-edge class.
+    const pane1Wrapper = screen.getByTestId(`pane-${pane1.id}`).parentElement!.parentElement!;
+    const pane2Wrapper = screen.getByTestId(`pane-${pane2.id}`).parentElement!.parentElement!;
+    expect(pane2Wrapper.className).toMatch(/shadow-\[inset/);
+    expect(pane1Wrapper.className).not.toMatch(/shadow-\[inset/);
   });
 });
 
