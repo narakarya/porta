@@ -126,6 +126,57 @@ describe("hydrateMermaid", () => {
     vi.resetModules();
   });
 
+  // The per-write guard only stops *further* writes; it does not undo one
+  // already committed. Two blocks, abort landing while the second's render is
+  // still in flight: the first must stay hydrated and the second must stay a
+  // raw placeholder, proving the loop neither rolls back nor keeps going.
+  it("leaves an earlier commit in place and the next block untouched when cancelled mid-loop", async () => {
+    vi.resetModules();
+    const controller = new AbortController();
+    let renderCalls = 0;
+    vi.doMock("mermaid", () => ({
+      default: {
+        initialize: () => {},
+        render: async (id: string) => {
+          renderCalls++;
+          // Fires while the second block's render is still "in flight" from
+          // the loop's point of view — before this call returns control to
+          // hydrateMermaid's `await`, so the post-await check is what has to
+          // catch it, not the top-of-loop one.
+          if (renderCalls === 2) controller.abort();
+          return { svg: `<svg id="${id}"><g></g></svg>` };
+        },
+      },
+    }));
+
+    const { hydrateMermaid: fresh } = await import("./mermaid");
+    const src = [
+      "```mermaid",
+      "flowchart TD",
+      "  A[Start] --> B[End]",
+      "```",
+      "",
+      "```mermaid",
+      "flowchart TD",
+      "  C[Start] --> D[End]",
+      "```",
+    ].join("\n");
+
+    const root = mount(renderMarkdown(src));
+    await expect(fresh(root, { dark: true }, controller.signal)).resolves.toBeUndefined();
+
+    const blocks = root.querySelectorAll("pre.md-mermaid");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].querySelector("svg"), "first block hydrated").not.toBeNull();
+    expect(blocks[0].hasAttribute("data-mermaid"), "first block's placeholder consumed").toBe(false);
+    expect(blocks[1].querySelector("svg"), "second block left unhydrated").toBeNull();
+    expect(blocks[1].hasAttribute("data-mermaid"), "second block still a raw placeholder").toBe(true);
+    expect(renderCalls).toBe(2);
+
+    vi.doUnmock("mermaid");
+    vi.resetModules();
+  });
+
   // Parity for the mermaid fixtures lands here rather than in markdown.test.ts:
   // the extension rendered diagrams to SVG inside its markdown pass, so the
   // comparable point in core's pipeline is after hydration.

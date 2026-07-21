@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { renderPreview } from "./index";
+import { renderMarkdown } from "./markdown";
 
 // Same reason as mermaid.test.ts: jsdom answers neither SVG measurement API, so
 // Mermaid's layout throws before producing markup unless both are stubbed.
@@ -125,5 +126,61 @@ describe("renderPreview cancellation", () => {
     // Not just "resolved" — the DOM this render would have overwritten must
     // still hold whatever was there before the call.
     expect(root.innerHTML).toBe("<p>previous preview</p>");
+  });
+});
+
+// Same guarantee as hydrateMermaid's, for the other loop: a write already
+// committed earlier in the call is not undone when cancellation is observed
+// on a later iteration.
+describe("highlightFences cancellation", () => {
+  it("leaves an earlier replacement in place and the next fence untouched when cancelled mid-loop", async () => {
+    vi.resetModules();
+    const controller = new AbortController();
+    let calls = 0;
+    vi.doMock("./highlight", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./highlight")>();
+      return {
+        ...actual,
+        highlightCode: async (code: string, lang: string) => {
+          calls++;
+          const html = await actual.highlightCode(code, lang);
+          // Fires after the second fence's highlight work is done but before
+          // control returns to highlightFences's `await` — the post-await
+          // check has to be what catches it, not the top-of-loop one.
+          if (calls === 2) controller.abort();
+          return html;
+        },
+      };
+    });
+
+    const { highlightFences } = await import("./index");
+
+    const doc = [
+      "```elixir",
+      "IO.puts(1)",
+      "```",
+      "",
+      "```elixir",
+      "IO.puts(2)",
+      "```",
+      "",
+    ].join("\n");
+
+    const root = document.createElement("div");
+    root.innerHTML = renderMarkdown(doc);
+    document.body.appendChild(root);
+
+    await expect(highlightFences(root, controller.signal)).resolves.toBeUndefined();
+
+    const pres = root.querySelectorAll("pre");
+    expect(pres).toHaveLength(2);
+    expect(pres[0].classList.contains("shiki"), "first fence replaced").toBe(true);
+    expect(pres[1].classList.contains("md-pre"), "second fence left as markdown's placeholder").toBe(true);
+    expect(pres[1].classList.contains("shiki"), "second fence not replaced").toBe(false);
+    expect(pres[1].textContent).toContain("IO.puts(2)");
+    expect(calls).toBe(2);
+
+    vi.doUnmock("./highlight");
+    vi.resetModules();
   });
 });

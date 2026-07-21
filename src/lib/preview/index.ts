@@ -33,9 +33,11 @@ export interface PreviewOptions {
  *
  * `signal`, if given, lets a caller say "never mind" — a file-list click
  * faster than Shiki/Mermaid can finish must not paint an earlier file's
- * output over a later one. The signal is checked before every DOM write
- * (including inside hydrateMermaid/highlightFences); once it fires, `root` is
- * left exactly as this call found it — never half-hydrated.
+ * output over a later one. It is checked before every further write
+ * (including inside hydrateMermaid/highlightFences): once it fires, no more
+ * of `root` is touched, but whatever was already committed earlier in this
+ * same call is not rolled back. A caller that needs a clean slate resets
+ * `root` itself before rendering — as the DiffView consumer does.
  */
 export async function renderPreview(
   root: HTMLElement,
