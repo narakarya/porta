@@ -1,5 +1,7 @@
 import type { Hunk } from "../../../lib/git-diff";
 import { tokenDiff, type Span } from "../../../lib/word-diff";
+import type { StyledToken } from "../../../lib/diff-highlight";
+import { DiffLineContent, tokensForLine } from "./diffLines";
 
 /**
  * Split (side-by-side) rendering for one hunk's `lines`. Pairs consecutive
@@ -87,6 +89,7 @@ function Cell({
   side,
   bordered,
   spans,
+  fileTokens,
 }: {
   content: string | null;
   num: number | null;
@@ -95,6 +98,8 @@ function Cell({
   /** Word-diff spans for this side, when paired with the other side of a
    *  1:1 change row. Absent → render `content` with the whole-line color. */
   spans?: Span[];
+  /** This side's file, tokenised whole and indexed by line number. */
+  fileTokens?: StyledToken[][] | null;
 }) {
   const wrap = `flex${bordered ? " border-r border-subtle" : ""}`;
   if (content === null) {
@@ -110,17 +115,29 @@ function Cell({
     <div className={wrap}>
       <span className={GUTTER_NUM_CLASS}>{num ?? ""}</span>
       <span className={`whitespace-pre px-1 flex-1 ${dim}`}>
-        {spans
-          ? spans.map((s, si) => (
-              <span key={si} className={s.changed ? strong : undefined}>{s.text}</span>
-            ))
-          : content}
+        <DiffLineContent
+          text={content}
+          tokens={tokensForLine(fileTokens ?? null, num, content)}
+          spans={spans}
+          strongClass={strong}
+        />
       </span>
     </div>
   );
 }
 
-export default function SplitHunk({ hunk }: { hunk: Hunk }) {
+export default function SplitHunk({
+  hunk,
+  oldTokens,
+  newTokens,
+}: {
+  hunk: Hunk;
+  /** The old/new file tokenised whole (src/lib/diff-highlight.ts), indexed by
+   *  line number — the same two arrays the unified view uses, so both views
+   *  colour a line by its real context rather than by the row it sits in. */
+  oldTokens?: StyledToken[][] | null;
+  newTokens?: StyledToken[][] | null;
+}) {
   const rows = buildSplitRows(hunk);
   return (
     <div>
@@ -137,11 +154,21 @@ export default function SplitHunk({ hunk }: { hunk: Hunk }) {
             <div key={i} className="grid grid-cols-2">
               <div className="flex border-r border-subtle">
                 <span className={GUTTER_NUM_CLASS}>{row.leftNum}</span>
-                <span className="whitespace-pre text-ink-2 px-1 flex-1">{row.text}</span>
+                <span className="whitespace-pre text-ink-2 px-1 flex-1">
+                  <DiffLineContent
+                    text={row.text}
+                    tokens={tokensForLine(oldTokens ?? null, row.leftNum, row.text)}
+                  />
+                </span>
               </div>
               <div className="flex">
                 <span className={GUTTER_NUM_CLASS}>{row.rightNum}</span>
-                <span className="whitespace-pre text-ink-2 px-1 flex-1">{row.text}</span>
+                <span className="whitespace-pre text-ink-2 px-1 flex-1">
+                  <DiffLineContent
+                    text={row.text}
+                    tokens={tokensForLine(newTokens ?? null, row.rightNum, row.text)}
+                  />
+                </span>
               </div>
             </div>
           );
@@ -154,8 +181,21 @@ export default function SplitHunk({ hunk }: { hunk: Hunk }) {
           : null;
         return (
           <div key={i} className="grid grid-cols-2">
-            <Cell content={row.left} num={row.leftNum} side="del" bordered spans={diff?.old} />
-            <Cell content={row.right} num={row.rightNum} side="add" spans={diff?.new} />
+            <Cell
+              content={row.left}
+              num={row.leftNum}
+              side="del"
+              bordered
+              spans={diff?.old}
+              fileTokens={oldTokens}
+            />
+            <Cell
+              content={row.right}
+              num={row.rightNum}
+              side="add"
+              spans={diff?.new}
+              fileTokens={newTokens}
+            />
           </div>
         );
       })}

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { highlightFileLines, sliceTokenLines } from "./diff-highlight";
+import {
+  canHighlightPath,
+  highlightFileLines,
+  highlightFileTokens,
+  sliceTokenLines,
+  sliceTokenLinesToTokens,
+} from "./diff-highlight";
 
 /**
  * The whole reason this module exists is context. The extension tokenises each
@@ -244,5 +250,133 @@ describe("sliceTokenLines", () => {
 
   it("truncates to the requested line count when the tokens run long", () => {
     expect(sliceTokenLines([[{ content: "a\nb\nc", style: S }]], 2)).toHaveLength(2);
+  });
+});
+
+/**
+ * The token-level slice — the shape a consumer needs when it has to subdivide a
+ * line further, which finished markup cannot support. Same contract as
+ * `sliceTokenLines` (one entry per line, line 1 at index 0, exact count), one
+ * step earlier.
+ */
+describe("sliceTokenLinesToTokens", () => {
+  const S = "color:var(--shiki-token-string)";
+
+  it("splits a token that spans a newline across both lines, styling intact", () => {
+    expect(sliceTokenLinesToTokens([[{ content: "a\nb", style: S }]], 2)).toEqual([
+      [{ content: "a", style: S }],
+      [{ content: "b", style: S }],
+    ]);
+  });
+
+  it("gives a blank line an empty token list rather than an empty token", () => {
+    expect(sliceTokenLinesToTokens([[{ content: "a\n\nb", style: S }]], 3)).toEqual([
+      [{ content: "a", style: S }],
+      [],
+      [{ content: "b", style: S }],
+    ]);
+  });
+
+  it("pads and truncates to the requested line count", () => {
+    expect(sliceTokenLinesToTokens([[{ content: "a", style: S }]], 3)).toHaveLength(3);
+    expect(sliceTokenLinesToTokens([[{ content: "a\nb\nc", style: S }]], 2)).toHaveLength(2);
+  });
+
+  it("reconstructs each line's text exactly, which is what lets a caller trust it", () => {
+    // The diff surface compares the concatenated token content against the
+    // line the diff says is there and refuses to paint on a mismatch, so this
+    // property is load-bearing, not incidental.
+    const source = "const a = 1;\n  return a;\n";
+    const tokens = sliceTokenLinesToTokens(
+      [
+        [{ content: "const", style: S }, { content: " a = 1;", style: "" }],
+        [{ content: "  return a;", style: "" }],
+        [],
+      ],
+      3,
+    );
+    expect(tokens.map((line) => line.map((t) => t.content).join(""))).toEqual(
+      source.split("\n"),
+    );
+  });
+});
+
+describe("highlightFileTokens", () => {
+  it("colours a line by its real context, not by how the line reads alone", () => {
+    // The design, restated at the level the diff surface consumes.
+    const source = ["const sql = `", "const notCode = true;", "`;"].join("\n");
+    return highlightFileTokens(source, "src/db.ts").then((lines) => {
+      expect(lines).not.toBeNull();
+      const styles = lines![1].map((t) => t.style).join(" ");
+      expect(styles).toContain("--shiki-token-string-expression");
+      expect(styles).not.toContain("--shiki-token-keyword");
+    });
+  });
+
+  it("has exactly one entry per line, including the phantom one a trailing newline makes", async () => {
+    const lines = await highlightFileTokens("const a = 1;\n", "src/a.ts");
+    expect(lines).toHaveLength(2);
+    expect(lines![1]).toEqual([]);
+  });
+
+  it("answers null — not an empty highlight — when there is no grammar for the path", async () => {
+    // Distinct answers on purpose: null lets the caller leave its existing
+    // plain rendering alone instead of wrapping every line in styleless spans.
+    expect(await highlightFileTokens("plain text\n", "notes.xyz")).toBeNull();
+    expect(canHighlightPath("notes.xyz")).toBe(false);
+    expect(canHighlightPath("Makefile")).toBe(false);
+    expect(canHighlightPath("src/a.ts")).toBe(true);
+  });
+
+  it("answers null above the size cap rather than blocking on a huge file", async () => {
+    // codeToTokens is synchronous over the whole file; past the cap the honest
+    // trade is an uncoloured diff instead of a frozen window.
+    const huge = `const a = ${"1 + ".repeat(80_000)}1;\n`;
+    expect(huge.length).toBeGreaterThan(256 * 1024);
+    expect(await highlightFileTokens(huge, "src/a.ts")).toBeNull();
+  });
+
+  it("tokenises one file's contents once, however many times it is asked for", async () => {
+    vi.resetModules();
+    let tokenised = 0;
+    vi.doMock("shiki", () => ({
+      createCssVariablesTheme: vi.fn(() => ({ name: "porta-syn", tokenColors: [] })),
+      createHighlighter: vi.fn(() =>
+        Promise.resolve({
+          getLoadedLanguages: () => ["typescript"],
+          loadLanguage: () => Promise.resolve(),
+          codeToTokens: (code: string) => {
+            tokenised += 1;
+            return {
+              tokens: code.split("\n").map((line) => [{ content: line, color: "var(--x)" }]),
+            };
+          },
+        }),
+      ),
+    }));
+
+    const { highlightFileTokens: fresh } = await import("./diff-highlight");
+    const source = "const a = 1;\nconst b = 2;\n";
+
+    await fresh(source, "src/a.ts");
+    // A refetch that came back byte-identical: the pane regaining focus, a
+    // hunk action on the other side, a staged flip that left this side alone.
+    await fresh(source, "src/a.ts");
+    // Two rows of the same file asking at the same moment.
+    await Promise.all([fresh(source, "src/a.ts"), fresh(source, "src/a.ts")]);
+    expect(tokenised).toBe(1);
+
+    // …and content that genuinely moved — staging a hunk rewrites the index —
+    // is not served the stale entry. Colouring the new diff with the old
+    // file's tokens is exactly what a (path, revision) key would have done.
+    await fresh(source.replace("1", "3"), "src/a.ts");
+    expect(tokenised).toBe(2);
+
+    // The same bytes under a different path are a different language question.
+    await fresh(source, "src/b.ex");
+    expect(tokenised).toBe(3);
+
+    vi.doUnmock("shiki");
+    vi.resetModules();
   });
 });

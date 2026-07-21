@@ -4,14 +4,21 @@ import {
   gitDiffFile,
   gitApplyHunk,
   gitDiscardHunk,
+  gitFileAtRev,
   gitFilePreview,
   type GitFilePreview,
 } from "../../../lib/commands";
 import { parseUnifiedDiff, hunkToPatch, type DiffLine, type Hunk, type ParsedDiff } from "../../../lib/git-diff";
 import { tokenDiff, type Span } from "../../../lib/word-diff";
+import {
+  canHighlightPath,
+  highlightFileTokens,
+  type StyledToken,
+} from "../../../lib/diff-highlight";
 import { renderPreview, langFromPath } from "../../../lib/preview";
 import { usePortaStore } from "../../../store";
 import { Spinner } from "../../ui";
+import { DiffLineContent, tokensForLine } from "./diffLines";
 import MermaidControls from "./MermaidControls";
 import SplitHunk from "./SplitHunk";
 import { useActivePane } from "./ui/ActivePane";
@@ -168,6 +175,19 @@ function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: stri
   return <MarkdownPreview source={codeAsMarkdown(preview.data, path)} />;
 }
 
+/**
+ * The working-tree text of the file, out of the preview the pane already
+ * fetched. Every text preview kind (`code`, `markdown`, `csv`, `tsv`, `html`)
+ * carries the file's own bytes in `data`; only `image` carries base64 of
+ * something else. Reusing it is what keeps the unstaged case at one extra IPC
+ * call instead of two — there is no "read the worktree" command, and
+ * `gitFileAtRev` reads the object store, which the worktree is not in.
+ */
+function worktreeText(preview: GitFilePreview | null): string | null {
+  if (!preview || preview.kind === "image") return null;
+  return preview.data;
+}
+
 /** Corner affordance for a refetch that has previous content still on
  *  screen — deliberately small and `pointer-events-none` so it never steals a
  *  click from the diff underneath it. */
@@ -285,6 +305,24 @@ export default function DiffView({
   onChanged: () => void;
 }) {
   const [parsed, setParsed] = useState<ParsedDiff | null>(null);
+  // The two sides of the diff as whole files, and their tokens.
+  //
+  // Which revision each side is, is decided by what `git diff` is comparing —
+  // not by anything invented here:
+  //
+  //   unstaged (`staged === false`)  index (`""`)  →  working tree
+  //   staged   (`staged === true`)   `HEAD`        →  index (`""`)
+  //
+  // so the index is read either way, as the old side of one and the new side of
+  // the other, and the working tree is read only for the unstaged case — from
+  // the preview, which is already a read of exactly that file (see
+  // `worktreeText`). `null` for a side is normal, not a failure: a file added
+  // in this change has no `HEAD:` side at all, and the other side must still be
+  // coloured.
+  const [oldText, setOldText] = useState<string | null>(null);
+  const [newText, setNewText] = useState<string | null>(null);
+  const [oldTokens, setOldTokens] = useState<StyledToken[][] | null>(null);
+  const [newTokens, setNewTokens] = useState<StyledToken[][] | null>(null);
   // Raw fetched diff text — a binary-file diff ("Binary files a/x and b/x
   // differ") or a mode-only change produces no `@@` hunks but IS a real,
   // non-empty diff; gating "No changes." on this (rather than
@@ -325,15 +363,31 @@ export default function DiffView({
     const isFirstLoad = !hasLoadedOnce.current;
     setLoading(true);
     setError(null);
+    // A file with no grammar buys nothing from these reads, so it doesn't make
+    // them. `.catch(() => null)` for the ones it does make: a side that can't
+    // be read costs colour, and must never cost the diff itself.
+    const highlightable = canHighlightPath(path);
+    const oldSide = highlightable
+      ? gitFileAtRev(app.root_dir, staged ? "HEAD" : "", path).catch(() => null)
+      : Promise.resolve(null);
+    const indexSide = highlightable && staged
+      ? gitFileAtRev(app.root_dir, "", path).catch(() => null)
+      : Promise.resolve(null);
     Promise.all([
       gitDiffFile(app.root_dir, path, staged),
       gitFilePreview(app.root_dir, path).catch(() => null),
+      oldSide,
+      indexSide,
     ])
-      .then(([raw, nextPreview]) => {
+      .then(([raw, nextPreview, oldAtRev, indexAtRev]) => {
         if (cancelled) return;
         setRawDiff(raw);
         setParsed(parseUnifiedDiff(raw));
         setPreview(nextPreview);
+        setOldText(highlightable ? oldAtRev?.text ?? null : null);
+        setNewText(
+          !highlightable ? null : staged ? indexAtRev?.text ?? null : worktreeText(nextPreview),
+        );
         // Only auto-pick a surface on this instance's first load. A later
         // refetch — staged flipping, a hunk stage/unstage, or the pane coming
         // back into view — must not knock the user off the Preview/Diff
@@ -345,6 +399,33 @@ export default function DiffView({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [active, app.root_dir, path, staged, refreshKey]);
+
+  // Tokenising is deliberately *not* folded into the fetch above: it would put
+  // a grammar load and a whole-file tokenise in front of the diff appearing at
+  // all. The diff lands uncoloured and the colour arrives on top of it.
+  //
+  // Keyed on the texts rather than on the fetch, so a refetch that returns the
+  // same bytes doesn't re-run — and `highlightFileTokens` is content-addressed
+  // on top of that, so even a genuine re-run of this effect for content it has
+  // already seen resolves from cache without touching the tokeniser.
+  //
+  // Cancellation on unmount and on every re-run: a slow highlight for the file
+  // the user just navigated away from resolves into a closure that no longer
+  // sets anything. (Belt and braces — `tokensForLine` also refuses to paint a
+  // row whose text the tokens disagree with, so even a leaked result could not
+  // put one file's colours on another's lines.)
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      oldText === null ? null : highlightFileTokens(oldText, path),
+      newText === null ? null : highlightFileTokens(newText, path),
+    ]).then(([o, n]) => {
+      if (cancelled) return;
+      setOldTokens(o);
+      setNewTokens(n);
+    });
+    return () => { cancelled = true; };
+  }, [oldText, newText, path]);
 
   async function applyHunk(hunk: Hunk, index: number) {
     if (!parsed) return;
@@ -527,30 +608,41 @@ export default function DiffView({
           {view === "unified" ? (
             hunk.lines.map((line, li) => {
               const spans = line.kind === "del" || line.kind === "add" ? lineSpans.get(li) : undefined;
+              // A `del` line is a line of the *old* file; everything else that
+              // has a line number at all (`add`, `ctx`) is a line of the new
+              // one. `meta` has neither, and gets no tokens.
+              const side = line.kind === "del"
+                ? { tokens: oldTokens, num: nums[li].old }
+                : { tokens: newTokens, num: nums[li].new };
               return (
                 <div key={li} className="flex">
                   <span className={GUTTER_NUM_CLASS}>{nums[li].old ?? ""}</span>
                   <span className={GUTTER_NUM_CLASS}>{nums[li].new ?? ""}</span>
                   <span className={`whitespace-pre flex-1 ${lineClass(line.kind)}`}>
-                    {line.text === "" ? " " : spans ? (
+                    {line.text === "" ? " " : (
                       <>
+                        {/* The marker column stays outside the composition —
+                            it is the diff's own character, not the file's, so
+                            it has no line number, no token and no span. */}
                         {line.text.charAt(0)}
-                        {spans.map((s, si) => (
-                          <span
-                            key={si}
-                            className={s.changed ? strongLineClass(line.kind as "add" | "del") : undefined}
-                          >
-                            {s.text}
-                          </span>
-                        ))}
+                        <DiffLineContent
+                          text={line.text.slice(1)}
+                          tokens={tokensForLine(side.tokens, side.num, line.text.slice(1))}
+                          spans={spans}
+                          strongClass={
+                            line.kind === "add" || line.kind === "del"
+                              ? strongLineClass(line.kind)
+                              : undefined
+                          }
+                        />
                       </>
-                    ) : line.text}
+                    )}
                   </span>
                 </div>
               );
             })
           ) : (
-            <SplitHunk hunk={hunk} />
+            <SplitHunk hunk={hunk} oldTokens={oldTokens} newTokens={newTokens} />
           )}
         </div>
         );

@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { App } from "../../../types";
-import { gitDiffFile, gitFilePreview } from "../../../lib/commands";
+import { gitDiffFile, gitFileAtRev, gitFilePreview } from "../../../lib/commands";
+import { highlightFileLines } from "../../../lib/diff-highlight";
 import DiffView from "./DiffView";
 
 // Same reason as src/lib/preview/index.test.ts: jsdom answers neither SVG
@@ -26,6 +27,10 @@ vi.mock("../../../lib/commands", async (importOriginal) => {
     ...actual,
     gitDiffFile: vi.fn(),
     gitFilePreview: vi.fn(),
+    // Declared with a resolving default: DiffView awaits this, so a bare
+    // `vi.fn()` (returning undefined) would blow up in any test that doesn't
+    // stub it rather than simply skipping the highlight.
+    gitFileAtRev: vi.fn(async () => null),
     gitDiscardHunk: vi.fn(async () => {}),
   };
 });
@@ -89,6 +94,7 @@ describe("DiffView", () => {
       staged ? STAGED_DIFF : UNSTAGED_DIFF,
     );
     vi.mocked(gitFilePreview).mockResolvedValue(null);
+    vi.mocked(gitFileAtRev).mockResolvedValue(null);
   });
 
   it("keeps the split/unified choice across a staged flip, without remounting, and refetches the diff", async () => {
@@ -258,6 +264,7 @@ describe("DiffView preview surface", () => {
     diffViewMounts = 0;
     vi.mocked(gitDiffFile).mockResolvedValue(UNSTAGED_DIFF);
     vi.mocked(gitFilePreview).mockResolvedValue(null);
+    vi.mocked(gitFileAtRev).mockResolvedValue(null);
   });
 
   it("renders a markdown preview as markdown, not as text", async () => {
@@ -428,6 +435,7 @@ describe("DiffView code preview", () => {
     diffViewMounts = 0;
     vi.mocked(gitDiffFile).mockResolvedValue(UNSTAGED_DIFF);
     vi.mocked(gitFilePreview).mockResolvedValue(null);
+    vi.mocked(gitFileAtRev).mockResolvedValue(null);
   });
 
   it("previews an .ex file as highlighted code, coloured only through the palette's variables", async () => {
@@ -477,4 +485,287 @@ describe("DiffView code preview", () => {
     );
     expect(container.querySelector(".md-body pre")!.textContent).toContain("plain line one");
   }, PREVIEW_TIMEOUT);
+});
+
+// ── Syntax colour inside diff lines ────────────────────────────────────────
+//
+// Real Shiki again, for the same reason the preview tests use it: the thing
+// under test is whether a *rendered diff row* ends up carrying the colour its
+// line's real context calls for, and a mocked tokeniser can only prove that a
+// function was called.
+//
+// The fixture is the case the whole design exists for. `const notCode = …`
+// sits inside a template literal, so read alone it is a keyword-led statement
+// and read in context it is string content. A tokeniser fed one line at a time
+// — which is what the reference extension does — has no way to know that.
+
+const TEMPLATE_OLD = [
+  "const sql = `",
+  "SELECT * FROM users;",
+  "const notCode = false;",
+  "`;",
+  "",
+].join("\n");
+const TEMPLATE_NEW = TEMPLATE_OLD.replace("false", "true");
+
+const TEMPLATE_DIFF = [
+  "diff --git a/src/db.ts b/src/db.ts",
+  "--- a/src/db.ts",
+  "+++ b/src/db.ts",
+  "@@ -1,4 +1,4 @@",
+  " const sql = `",
+  " SELECT * FROM users;",
+  "-const notCode = false;",
+  "+const notCode = true;",
+  " `;",
+  "",
+].join("\n");
+
+const ADDED_FILE_SOURCE = ["const answer = 42;", "export default answer;", ""].join("\n");
+const ADDED_FILE_DIFF = [
+  "diff --git a/src/answer.ts b/src/answer.ts",
+  "new file mode 100644",
+  "--- /dev/null",
+  "+++ b/src/answer.ts",
+  "@@ -0,0 +1,2 @@",
+  "+const answer = 42;",
+  "+export default answer;",
+  "",
+].join("\n");
+
+function codeSide(data: string) {
+  return { kind: "code" as const, mime: "text/plain", data, truncated: false };
+}
+
+/** The rendered row for one unified-diff line, found by its exact text —
+ *  the innermost element whose textContent is the whole line, marker and all.
+ *  Asserting on `innerHTML` of that row is what distinguishes "the line is on
+ *  screen" from "the line is on screen wearing the right colours". */
+function rowFor(container: HTMLElement, lineText: string): HTMLElement {
+  const hits = [...container.querySelectorAll<HTMLElement>("span")].filter(
+    (el) => el.textContent === lineText,
+  );
+  expect(hits.length).toBeGreaterThan(0);
+  return hits[0];
+}
+
+async function openHighlightedDiff(
+  path: string,
+  diff: string,
+  newSide: string,
+  oldSide: string | null,
+) {
+  vi.mocked(gitDiffFile).mockResolvedValue(diff);
+  vi.mocked(gitFilePreview).mockResolvedValue(codeSide(newSide));
+  vi.mocked(gitFileAtRev).mockResolvedValue(oldSide === null ? null : { text: oldSide, truncated: false });
+  const view = renderDiff(path, false, vi.fn());
+  await waitFor(() => expect(view.container.querySelector("span[style*='--shiki-token-']")).not.toBeNull(), {
+    timeout: PREVIEW_TIMEOUT,
+  });
+  return view;
+}
+
+describe("DiffView syntax colour", () => {
+  beforeEach(() => {
+    diffViewMounts = 0;
+    vi.mocked(gitDiffFile).mockResolvedValue(UNSTAGED_DIFF);
+    vi.mocked(gitFilePreview).mockResolvedValue(null);
+    vi.mocked(gitFileAtRev).mockResolvedValue(null);
+    // Nothing in this config resets call history between tests, and two tests
+    // below assert on *which* revisions were asked for — leftovers from an
+    // earlier test would make either of them lie.
+    vi.mocked(gitFileAtRev).mockClear();
+  });
+
+  // THE test. Everything else here is a guard rail; this one is the design.
+  // A per-line tokeniser passes every "is there a token span?" assertion and
+  // fails this, because it cannot see the backtick three lines up.
+  it("colours a diff line inside a multi-line string as string content", async () => {
+    const { container } = await openHighlightedDiff("src/db.ts", TEMPLATE_DIFF, TEMPLATE_NEW, TEMPLATE_OLD);
+
+    const added = rowFor(container, "+const notCode = true;");
+    expect(added.innerHTML).toContain("--shiki-token-string-expression");
+    expect(added.innerHTML).not.toContain("--shiki-token-keyword");
+
+    // The straw man, stated rather than implied: highlighting that exact line
+    // on its own — all a per-line implementation ever sees — makes `const` a
+    // keyword. The row above must not look like this.
+    const [alone] = await highlightFileLines("const notCode = true;", "src/db.ts");
+    expect(alone).toContain("--shiki-token-keyword");
+
+    // The deleted side is read from the *revision*, not from disk, and gets
+    // the same treatment.
+    const deleted = rowFor(container, "-const notCode = false;");
+    expect(deleted.innerHTML).toContain("--shiki-token-string-expression");
+    expect(deleted.innerHTML).not.toContain("--shiki-token-keyword");
+  }, PREVIEW_TIMEOUT);
+
+  it("keeps a real keyword a keyword when the same file has string context elsewhere", async () => {
+    // Guards the inverse failure: a composition that simply never emits
+    // keywords would pass the test above for the wrong reason.
+    const source = ["const total = 1;", "const sql = `", "const notCode = true;", "`;", ""].join("\n");
+    const diff = [
+      "diff --git a/src/db.ts b/src/db.ts",
+      "--- a/src/db.ts",
+      "+++ b/src/db.ts",
+      "@@ -1,4 +1,4 @@",
+      "+const total = 1;",
+      " const sql = `",
+      " const notCode = true;",
+      " `;",
+      "",
+    ].join("\n");
+    const { container } = await openHighlightedDiff("src/db.ts", diff, source, source);
+
+    expect(rowFor(container, "+const total = 1;").innerHTML).toContain("--shiki-token-keyword");
+    expect(rowFor(container, " const notCode = true;").innerHTML).not.toContain("--shiki-token-keyword");
+  }, PREVIEW_TIMEOUT);
+
+  it("carries syntax colour and word-diff emphasis on the same changed line", async () => {
+    const { container } = await openHighlightedDiff("src/db.ts", TEMPLATE_DIFF, TEMPLATE_NEW, TEMPLATE_OLD);
+
+    const added = rowFor(container, "+const notCode = true;");
+    // Word-diff still marks only what actually changed…
+    const emphasised = [...added.querySelectorAll<HTMLElement>("span.bg-ok")];
+    expect(emphasised.map((el) => el.textContent)).toEqual(["true"]);
+    // …and the very same row is syntax-coloured. Neither replaced the other.
+    expect(added.querySelector("span[style*='--shiki-token-']")).not.toBeNull();
+
+    const deleted = rowFor(container, "-const notCode = false;");
+    expect([...deleted.querySelectorAll<HTMLElement>("span.bg-bad")].map((el) => el.textContent)).toEqual([
+      "false",
+    ]);
+    expect(deleted.querySelector("span[style*='--shiki-token-']")).not.toBeNull();
+  }, PREVIEW_TIMEOUT);
+
+  it("still colours the new side of an added file, which has no old side at all", async () => {
+    // gitFileAtRev answers null for a path absent at the revision — normal for
+    // a new file, not an error, and it must not disable the new side too.
+    const { container } = await openHighlightedDiff("src/answer.ts", ADDED_FILE_DIFF, ADDED_FILE_SOURCE, null);
+
+    expect(rowFor(container, "+const answer = 42;").innerHTML).toContain("--shiki-token-keyword");
+    expect(rowFor(container, "+export default answer;").innerHTML).toContain("--shiki-token-keyword");
+  }, PREVIEW_TIMEOUT);
+
+  it("leaves the later file's colours when the file switches mid-highlight", async () => {
+    // Stable key on purpose, as in the preview cancellation test: one DiffView
+    // instance across the switch is the case where an earlier highlight could
+    // still land on the later file's rows.
+    const elixir = ["defmodule Answer do", "  def run, do: 42", "end", ""].join("\n");
+    const elixirDiff = [
+      "diff --git a/lib/answer.ex b/lib/answer.ex",
+      "--- a/lib/answer.ex",
+      "+++ b/lib/answer.ex",
+      "@@ -1,3 +1,3 @@",
+      " defmodule Answer do",
+      "+  def run, do: 42",
+      " end",
+      "",
+    ].join("\n");
+
+    vi.mocked(gitDiffFile).mockImplementation(async (_root, p) =>
+      p === "src/db.ts" ? TEMPLATE_DIFF : elixirDiff,
+    );
+    vi.mocked(gitFilePreview).mockImplementation(async (_root, p) =>
+      codeSide(p === "src/db.ts" ? TEMPLATE_NEW : elixir),
+    );
+    vi.mocked(gitFileAtRev).mockImplementation(async (_root, _rev, p) => ({
+      text: p === "src/db.ts" ? TEMPLATE_OLD : elixir,
+      truncated: false,
+    }));
+
+    const onChanged = vi.fn();
+    const { container, rerender } = render(
+      <CountingDiffView key="stable" app={app} path="src/db.ts" staged={false} onChanged={onChanged} />,
+    );
+    await waitFor(() => expect(container.textContent).toContain("notCode"));
+
+    rerender(
+      <CountingDiffView key="stable" app={app} path="lib/answer.ex" staged={false} onChanged={onChanged} />,
+    );
+
+    await waitFor(
+      () => expect(rowFor(container, "+  def run, do: 42").innerHTML).toContain("--shiki-token-"),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(container.textContent).not.toContain("notCode");
+    expect(diffViewMounts).toBe(1);
+  }, PREVIEW_TIMEOUT);
+
+  it("emits no colour of its own — every one resolves through a palette variable", async () => {
+    const { container } = await openHighlightedDiff("src/db.ts", TEMPLATE_DIFF, TEMPLATE_NEW, TEMPLATE_OLD);
+
+    const html = container.innerHTML;
+    expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(html).not.toContain("rgb(");
+    expect(html).not.toContain("rgba(");
+    expect(html).not.toContain("hsl(");
+    // Every inline colour the composition writes is a var() — nothing else.
+    for (const el of container.querySelectorAll<HTMLElement>("span[style]")) {
+      if (el.style.color) expect(el.style.color).toMatch(/^var\(--shiki-/);
+    }
+  }, PREVIEW_TIMEOUT);
+
+  it("keeps source escaped — a file containing markup never emits live markup", async () => {
+    const source = ['const tag = "<script>alert(1)</script>";', ""].join("\n");
+    const diff = [
+      "diff --git a/src/db.ts b/src/db.ts",
+      "--- a/src/db.ts",
+      "+++ b/src/db.ts",
+      "@@ -1 +1 @@",
+      '-const tag = "<script>alert(0)</script>";',
+      '+const tag = "<script>alert(1)</script>";',
+      "",
+    ].join("\n");
+    const { container } = await openHighlightedDiff(
+      "src/db.ts",
+      diff,
+      source,
+      source.replace("alert(1)", "alert(0)"),
+    );
+
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.textContent).toContain('const tag = "<script>alert(1)</script>";');
+  }, PREVIEW_TIMEOUT);
+
+  it("colours the split view too, not only the unified one", async () => {
+    const { container } = await openHighlightedDiff("src/db.ts", TEMPLATE_DIFF, TEMPLATE_NEW, TEMPLATE_OLD);
+    await userEvent.click(screen.getByRole("button", { name: "Split" }));
+
+    // Split strips the diff marker, so the row text is the bare source line.
+    const added = rowFor(container, "const notCode = true;");
+    expect(added.innerHTML).toContain("--shiki-token-string-expression");
+    expect(added.innerHTML).not.toContain("--shiki-token-keyword");
+    expect([...added.querySelectorAll<HTMLElement>("span.bg-ok")].map((el) => el.textContent)).toEqual([
+      "true",
+    ]);
+  }, PREVIEW_TIMEOUT);
+
+  it("reads HEAD for the old side and the index for the new one when the diff is staged", async () => {
+    vi.mocked(gitDiffFile).mockResolvedValue(TEMPLATE_DIFF);
+    vi.mocked(gitFilePreview).mockResolvedValue(codeSide(TEMPLATE_NEW));
+    vi.mocked(gitFileAtRev).mockImplementation(async (_root, rev) => ({
+      text: rev === "HEAD" ? TEMPLATE_OLD : TEMPLATE_NEW,
+      truncated: false,
+    }));
+    const { container } = renderDiff("src/db.ts", true, vi.fn());
+    await waitFor(() => expect(container.querySelector("span[style*='--shiki-token-']")).not.toBeNull(), {
+      timeout: PREVIEW_TIMEOUT,
+    });
+
+    // A staged diff is HEAD → index. The worktree (what gitFilePreview reads)
+    // is not either side of it, so both sides come from the object store.
+    expect(vi.mocked(gitFileAtRev)).toHaveBeenCalledWith(app.root_dir, "HEAD", "src/db.ts");
+    expect(vi.mocked(gitFileAtRev)).toHaveBeenCalledWith(app.root_dir, "", "src/db.ts");
+  }, PREVIEW_TIMEOUT);
+
+  it("does not reach for a revision at all for a file it cannot highlight", async () => {
+    // foo.txt has no grammar; fetching two blobs to tokenise nothing is pure
+    // waste, and the rows must stay exactly as plain as they were.
+    const { container } = renderDiff("foo.txt", false, vi.fn());
+    await waitFor(() => expect(container.textContent).toContain("banana"));
+
+    expect(vi.mocked(gitFileAtRev)).not.toHaveBeenCalled();
+    expect(container.querySelector("span[style*='--shiki-token-']")).toBeNull();
+  });
 });
