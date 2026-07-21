@@ -4,6 +4,25 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.2]
+
+Fixes SSH connections to hosts on the local network, which macOS was blocking
+outright.
+
+### Fixed
+
+- **Local network access.** Tauri left the bundle linker-signed, so its
+  code-signing identifier was a per-build hash. macOS ties the Local Network
+  permission to that identity, so every rebuild registered as a different app:
+  the grant never stuck and the prompt never reappeared. Connecting to a LAN
+  host failed with `connect: No route to host (os error 65)` even when the host
+  answered fine from a shell. The bundle is now signed ad-hoc explicitly, which
+  takes the identifier from `CFBundleIdentifier` and keeps it stable across
+  builds. Still ad-hoc — no Apple Developer account required.
+- **SSH retry no longer stacks dead tabs.** Retry on the connection-failed card
+  opened an additional session instead of replacing the one that failed, so a
+  host that kept failing left a row of red tabs nobody had opened.
+
 ## [0.14.0-beta.1]
 
 Recovers the surfaces the Shell C redesign left behind when the workbench
