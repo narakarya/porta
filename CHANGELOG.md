@@ -4,6 +4,55 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.4]
+
+Makes starting an app stop freezing the rest of the window, and gives the
+lifecycle buttons something honest to show while they work. Also starts the
+native Git tab rebuild, beginning with themes.
+
+### Added
+
+- **The Git tab has its own theme.** Seven palettes — Dark, Graphite, Soft Dark,
+  Midnight, Paper, Forest, Sunset — picked from the tab's header and remembered
+  across restarts. The tab deliberately owns its full chrome, so the light
+  `Paper` palette sits inside Porta's dark window by design rather than by
+  accident.
+
+### Fixed
+
+- **Starting an app no longer freezes the whole window.** The backend emits one
+  event per log line, and each one was written straight to the store: an O(10k)
+  array copy, a spread of the entire logs map, a global state notification and a
+  React render pass — per line. A dev server booting at a few hundred lines a
+  second saturated the main thread, so every *other* app's controls went dead
+  too. Lines are now buffered per app and flushed on a timer, which caps render
+  pressure regardless of how loud the app is.
+- **Stop stays responsive while an app is starting or stopping.** Stopping marks
+  the app stopped optimistically while the command is still running — a compose
+  stack takes 5–30s to come down — which unmounted the very button the user had
+  just clicked. The card and the workbench both snapped back to "Start" with no
+  spinner, and a Start click in that window queued silently behind the per-app
+  lifecycle lock. Both surfaces now hold the in-flight state until the command
+  actually returns.
+- **Open and tunnel connect are inert until the app is running.** They used to be
+  live on a stopped app, where Open lands on a connection error and a tunnel
+  publishes a dead origin. Disconnect stays available so a tunnel whose origin
+  died can still be torn down, and copying a URL stays available throughout.
+- **The CPU readout stops resizing its tile.** Rounded to two decimals and
+  rendered at fixed width; at one decimal the value jittered between one and four
+  characters on every 2s sample.
+
+### Groundwork
+
+- **The native Git tab rebuild has begun.** The Workspace Git tab duplicates the
+  `porta-git-manager` extension and loses to it, so it is being rebuilt natively,
+  one tab at a time. This release lands the foundation and nothing more: a
+  preview subsystem (markdown, syntax highlighting, lazy mermaid) checked against
+  golden fixtures captured from the extension so core can never render less than
+  it does, shared filter/facet/context-menu primitives, and a split of the
+  911-line tab file into a shell plus its Status tab. The preview subsystem has
+  no user-facing surface yet — the Status tab port wires it up next.
+
 ## [0.14.0-beta.3]
 
 Makes "Check for updates" tell the truth while a beta is being built.
