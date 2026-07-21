@@ -1296,16 +1296,30 @@ export const caddyStatusCheck = (): Promise<boolean> =>
 
 // ── In-app terminal ───────────────────────────────────────────────────────────
 
+/** What `terminal_open` hands back: a fresh shell, or the retained output of
+ *  one that outlived its last view. */
+export interface TerminalAttach {
+  spawned: boolean;
+  backlog: number[];
+}
+
+export interface TerminalState {
+  alive: boolean;
+  running: boolean;
+  pid: number;
+  exitCode: number | null;
+}
+
 export const terminalOpen = (
   appId: string,
   rootDir: string,
   rows: number,
   cols: number,
   startupCmd?: string | null,
-): Promise<void> =>
+): Promise<TerminalAttach> =>
   isTauri
     ? invoke("terminal_open", { appId, rootDir, rows, cols, startupCmd: startupCmd ?? null })
-    : Promise.resolve();
+    : Promise.resolve({ spawned: true, backlog: [] });
 
 export const terminalWrite = (appId: string, data: number[]): Promise<void> =>
   isTauri ? invoke("terminal_write", { appId, data }) : Promise.resolve();
@@ -1315,6 +1329,36 @@ export const terminalResize = (appId: string, rows: number, cols: number): Promi
 
 export const terminalClose = (appId: string): Promise<void> =>
   isTauri ? invoke("terminal_close", { appId }) : Promise.resolve();
+
+/**
+ * Polled for the focused pane only — see TerminalWorkspace's status bar.
+ *
+ * Resolves `null` when Rust has no record of this session id at all — which
+ * is a *different fact* from the shell having exited. The caller (currently
+ * only TerminalWorkspace's poll) must not collapse the two: a pane whose
+ * `terminal_open` hasn't reached Rust yet (it's scheduled a frame later, see
+ * TerminalTab's mount effect) looks identical on the wire to one that
+ * genuinely exited unless this distinction is preserved end to end.
+ */
+export const terminalState = (appId: string): Promise<TerminalState | null> =>
+  isTauri
+    ? invoke<TerminalState>("terminal_state", { appId }).catch((err) => {
+        // A session the backend no longer knows is not an error here — a tab
+        // mid-close is removed from Rust's map before its poll stops, and a
+        // pane that hasn't attached yet hits the same `ok_or`. That's the
+        // exact string `terminal_state` returns; anything else (a broken IPC
+        // call, a Rust panic, a signature mismatch) is a real fault and must
+        // reject so the caller's `.catch` and the console see it, rather
+        // than presenting as a permanently idle terminal with nothing logged
+        // anywhere. Tauri's command errors arrive as a plain string, but
+        // check `.message` too in case a future runtime wraps it in an Error.
+        const message = err instanceof Error ? err.message : err;
+        if (message === "no such terminal session") {
+          return null;
+        }
+        throw err;
+      })
+    : Promise.resolve({ alive: true, running: false, pid: 0, exitCode: null });
 
 // ── Container observability (logs streaming + stats) ────────────────────────
 

@@ -235,6 +235,16 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
         ) {
           throw new Error(`cwd '${cwd}' is outside app root_dir '${app.root_dir}'`);
         }
+        // terminal_open is idempotent now — reattaching to a dead session
+        // would replay a frozen final screen. Extensions have no Restart
+        // affordance (unlike a terminal tab), so always force a live shell.
+        // This runs before the listeners below are registered: closing a
+        // still-live prior session SIGHUPs it, and its reader thread emits
+        // `terminal:exit:{termId}` asynchronously — often after the fresh
+        // `terminalOpen` below has already resolved. If a listener were
+        // already attached at that point, it would forward the old
+        // session's death as if it were the new shell's.
+        await terminalClose(termId).catch(() => {});
         const dataUn = await listen<number[]>(`terminal:data:${termId}`, (e) => {
           iframeRef.current?.contentWindow?.postMessage(
             { type: "porta:terminal-data", termId: rawId, bytes: e.payload } satisfies BridgeTerminalDataMessage,

@@ -313,6 +313,19 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
 
   deleteApp: async (id) => {
     await cmd.deleteApp(id);
+    // Drop the app from `apps` *before* touching its terminal sessions.
+    // TerminalWorkspace's autoSeed effect re-seeds a fresh tab the instant
+    // `terminalTabs[id]` empties out (`ensureTerminalTab` keys on
+    // `tabs.length`), and closeAppTerminals below is what empties it — if the
+    // app were still in `apps` when that happens, the workbench for it would
+    // still be mounted (App.tsx renders it off `apps.find`) and would re-seed
+    // a fresh pane for an app that's mid-delete, one nothing would ever go on
+    // to close. Filtering `apps` first means that component tree is already
+    // gone (App.tsx stops rendering the workbench the moment `apps` no
+    // longer has this id) well before closeAppTerminals's own await chain
+    // (a `cmd.terminalClose` IPC round trip per pane) gets anywhere near
+    // emptying `terminalTabs[id]` — there is no tick in between where a
+    // mounted autoSeed effect could observe the empty list.
     set((s) => ({
       apps: s.apps.filter((a) => a.id !== id),
       appLogs: Object.fromEntries(Object.entries(s.appLogs).filter(([k]) => k !== id)),
@@ -321,6 +334,9 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       portConflicts: Object.fromEntries(Object.entries(s.portConflicts).filter(([k]) => k !== id)),
       appTunnelLogs: Object.fromEntries(Object.entries(s.appTunnelLogs).filter(([k]) => k !== id)),
     }));
+    // Sessions are keyed by pane id in Rust and would otherwise outlive the
+    // app that owns them, with no UI left to close them from.
+    await get().closeAppTerminals(id);
   },
 
   startApp: async (id) => {

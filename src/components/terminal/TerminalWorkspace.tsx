@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { usePortaStore } from "../../store";
+import type { TabSession } from "../../store/slices/terminal";
 import TerminalTab from "./TerminalTab";
-
-interface PaneSession {
-  id: string;
-  rootDir: string;
-  startupCommand: string | null;
-  hasUnseenOutput: boolean;
-}
-
-interface TabSession {
-  id: string;
-  appId: string;
-  appName: string;
-  rootDir: string;
-  label: string;
-  panes: PaneSession[];
-}
+import TerminalStatusBar from "./TerminalStatusBar";
+import { terminalState, terminalClose } from "../../lib/commands";
 
 export interface SessionRequest {
   id: string;
@@ -46,10 +35,23 @@ interface Props {
   tabStripTrail?: ReactNode;
 }
 
-let _idCounter = 0;
-function newId(prefix: string) {
-  return `${prefix}-${Date.now()}-${++_idCounter}`;
+// Stable empty ref so the selector never returns a new array.
+const EMPTY_TABS: TabSession[] = [];
+
+/** One dot, one meaning: a tab is running if anything in it is, exited only
+ *  once nothing is left alive. Unseen output is carried by label brightness
+ *  instead, so the two signals never fight over the same pixel. */
+export function tabState(tab: TabSession): "idle" | "running" | "exited" {
+  if (tab.panes.some((p) => p.state === "running")) return "running";
+  if (tab.panes.length > 0 && tab.panes.every((p) => p.state === "exited")) return "exited";
+  return "idle";
 }
+
+const STATE_DOT: Record<"idle" | "running" | "exited", string> = {
+  idle: "bg-zinc-600",
+  running: "bg-emerald-400",
+  exited: "bg-amber-400",
+};
 
 /**
  * The multi-tab + split terminal surface: tab strip, 1–2 panes per tab, shared
@@ -72,19 +74,48 @@ export default function TerminalWorkspace({
   headerTrail,
   tabStripTrail,
 }: Props) {
-  const [tabs, setTabs] = useState<TabSession[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const tabs = usePortaStore(useShallow((s) => s.terminalTabs[appId] ?? EMPTY_TABS));
+  const activeId = usePortaStore((s) => s.terminalActiveTab[appId] ?? null);
+  const {
+    ensureTerminalTab,
+    addTerminalTab,
+    closeTerminalTab,
+    closeTerminalPane,
+    splitTerminalTab,
+    setActiveTerminalTab,
+    renameTerminalTab,
+    markTerminalPaneOutput,
+    setTerminalPaneState,
+  } = usePortaStore(
+    useShallow((s) => ({
+      ensureTerminalTab: s.ensureTerminalTab,
+      addTerminalTab: s.addTerminalTab,
+      closeTerminalTab: s.closeTerminalTab,
+      closeTerminalPane: s.closeTerminalPane,
+      splitTerminalTab: s.splitTerminalTab,
+      setActiveTerminalTab: s.setActiveTerminalTab,
+      renameTerminalTab: s.renameTerminalTab,
+      markTerminalPaneOutput: s.markTerminalPaneOutput,
+      setTerminalPaneState: s.setTerminalPaneState,
+    })),
+  );
+
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState<string>("");
   const [terminalQuery, setTerminalQuery] = useState("");
   const [filterOutput, setFilterOutput] = useState(false);
-  // Orientation of a split tab: "cols" = side-by-side (border-l between panes),
-  // "rows" = stacked vertically (border-t between panes).
-  const [splitOrientation, setSplitOrientation] = useState<"cols" | "rows">("cols");
+  // Which pane last took keyboard focus — drives the split-view focus edge.
+  // View state, not session state: it doesn't need to survive a reload.
+  const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
   const [transcriptStats, setTranscriptStats] = useState<Record<string, { lineCount: number; matchCount: number | null }>>({});
   const handledRequestIds = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
+  // A stable scalar the poll effect below depends on so it notices a pane
+  // being added (a new tab, or an existing one split) or removed, without
+  // depending on `tabs` itself — see that effect's comment for why the array
+  // reference is unsafe to depend on.
+  const paneCount = tabs.reduce((n, t) => n + t.panes.length, 0);
   const activeStats = activeTab
     ? activeTab.panes.reduce(
         (acc, pane) => {
@@ -99,152 +130,301 @@ export default function TerminalWorkspace({
       )
     : { lineCount: 0, matchCount: null };
 
-  // Build a tab for the source app. Kept as a factory so seeding, ⌘T and
-  // pendingSession all produce identically-shaped tabs.
-  const makeTab = useCallback(
-    (startup: string | null): TabSession => {
-      const tabId = newId("tab");
-      return {
-        id: tabId,
-        appId,
-        appName,
-        rootDir,
-        label: startup ? `${appName} · ${startup.split(/\s+/)[0]}` : appName,
-        panes: [{ id: newId("pane"), rootDir, startupCommand: startup, hasUnseenOutput: false }],
-      };
-    },
-    [appId, appName, rootDir]
-  );
+  const focusedPane =
+    activeTab?.panes.find((p) => p.id === focusedPaneId) ?? activeTab?.panes[0] ?? null;
+  // A stable primitive, not the pane object: the object is a fresh reference
+  // every time this same poll writes to the store (each tick's
+  // setTerminalPaneState produces a new pane), so depending on it below would
+  // restart the interval — and re-fire its immediate tick() — on every write,
+  // turning a 2s poll into a tight loop.
+  const focusedPaneKey = focusedPane?.id ?? null;
 
-  // Seed the first tab for hosts that are always present (the workbench tab) —
-  // the modal instead waits for the pendingSession that opened it.
+  // Bumped by Restart (below). Included in the poll effect's deps so a
+  // restart tears down and re-establishes the poll for its pane. `Ref`
+  // mirrors the same record so the poll's response handlers — which close
+  // over the generation captured when *their* request was issued — can
+  // compare against the *live* generation when the response actually lands.
+  // `cancelled` alone isn't enough for that (see the poll effect below).
+  // `restartFocusedPane` mutates this ref directly the instant it bumps the
+  // nonce, rather than relying solely on this render-body sync line — a
+  // response can land in the gap before React gets around to re-rendering
+  // (or, as importantly, before `setRestartNonce`'s updater function itself
+  // actually runs, which React does not guarantee happens synchronously).
+  // This line stays as the steady-state sync path for every other render.
+  const [restartNonce, setRestartNonce] = useState<Record<string, number>>({});
+  const restartNonceRef = useRef(restartNonce);
+  restartNonceRef.current = restartNonce;
+
+  // Poll every pane of every tab for this app, not just the one the user is
+  // looking at — a confirm-before-close that only knows the focused pane's
+  // state (Finding 4) leaves every background tab reading `idle` forever,
+  // no matter what's actually running in it. One `tcgetpgrp` per pane per 2s
+  // is cheap.
+  //
+  // The interval itself is deliberately stable across restarts and focus
+  // changes — deps are `active`/`appId`/`paneCount`/the store setter, none of
+  // which change on a poll write. This is what avoids the render-loop hazard
+  // a pane-object (or even a pane-*list*) dependency would reintroduce:
+  // either of those is a fresh reference on every single successful poll
+  // (each tick's `setTerminalPaneState` produces a new pane/tab array, with
+  // no value diff before the spread), so depending on one would restart the
+  // interval — and re-fire its immediate tick() — on every write, turning a
+  // 2s poll into an IPC-paced storm.
+  //
+  // `paneCount` (a stable scalar sum, not the array itself — see where it's
+  // computed above) is the one exception: without *something* to notice a
+  // pane appearing, a freshly split pane, or the workbench tab's very first
+  // pane (autoSeed's own effect creates it *after* this one — effects run in
+  // declaration order — so this effect's first run would otherwise poll an
+  // empty list and do nothing) wouldn't get its first poll until the
+  // interval's next natural 2s firing. Depending on `paneCount` means the
+  // effect re-runs — with its own fresh immediate tick — the moment a pane is
+  // actually added or removed, without re-running for the vastly more common
+  // case of a poll simply writing a new state onto an existing one.
+  //
+  // Each pane's restart generation is captured fresh at the moment *that
+  // pane's* request goes out (not once at effect setup, since one shared
+  // effect instance now issues requests for many panes over its lifetime) —
+  // see the staleness guard inside `tick` for why that still closes the same
+  // gap the single-pane version's effect-scoped generation used to.
+  //
+  // Guards against flapping with TerminalTab's onExit (which sets `exited`
+  // independently, off this same poll cadence): each pane's tick reads the
+  // store's current state for it right before *and* right after its IPC
+  // round trip, so neither a tick already in flight when that pane's shell
+  // exits nor a stale tick queued after can resurrect an `exited` pane back
+  // to `idle`.
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+
+    const paneIds = () =>
+      (usePortaStore.getState().terminalTabs[appId] ?? []).flatMap((t) => t.panes.map((p) => p.id));
+
+    const paneState = (paneId: string) =>
+      usePortaStore
+        .getState()
+        .terminalTabs[appId]?.flatMap((t) => t.panes)
+        .find((p) => p.id === paneId)?.state;
+
+    const pollOne = (paneId: string) => {
+      // This request's restart generation, captured at the moment it's
+      // issued — see the comment above the effect for why per-request (not
+      // per-effect-setup) is what a shared, long-lived interval needs.
+      const requestGeneration = restartNonceRef.current[paneId] ?? 0;
+      const isStaleRestart = () => (restartNonceRef.current[paneId] ?? 0) !== requestGeneration;
+
+      terminalState(paneId)
+        .then((s) => {
+          if (cancelled || isStaleRestart()) return;
+          if (s === null) {
+            // No record of this session yet — Rust hasn't seen terminal_open
+            // land. This is the ordinary open() race (TerminalTab defers it
+            // into a requestAnimationFrame, which can itself be delayed —
+            // e.g. an occluded/minimized window suspends rAF entirely while
+            // this interval keeps firing) and self-heals whenever the open
+            // reaches Rust, however many ticks that takes. There's no bound
+            // past which absence means the open failed: a real spawn failure
+            // is already surfaced by `terminal_open` itself rejecting, which
+            // the pane renders inline — this poll doesn't need to invent a
+            // terminal state to represent it. Never synthesize a state from
+            // an absent session; just leave the pane as is and keep polling.
+            return;
+          }
+          if (paneState(paneId) === "exited") return;
+          setTerminalPaneState(appId, paneId, {
+            state: !s.alive ? "exited" : s.running ? "running" : "idle",
+            exitCode: s.exitCode,
+            pid: s.pid,
+          });
+        })
+        .catch((err) => {
+          console.error(`[terminal] state poll failed for pane ${paneId}:`, err);
+        });
+    };
+
+    const tick = () => {
+      for (const paneId of paneIds()) {
+        // Don't poll a pane already known to have exited.
+        if (paneState(paneId) === "exited") continue;
+        pollOne(paneId);
+      }
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [active, appId, paneCount, setTerminalPaneState]);
+
+  // Guards restartFocusedPane against a second click landing while the first
+  // restart's terminalClose → store-reset → remount round trip is still in
+  // flight — without it, two fast clicks dispatch two terminalClose calls
+  // and two nonce bumps for the same pane, and if the second close resolves
+  // after the first restart's remount it closes the fresh PTY instead of the
+  // dead one it was meant for. Released once that remount has actually
+  // committed (see the `restartNonce` effect below), not the moment the
+  // store writes land — a click landing in that microtask gap could still
+  // issue a `terminalClose` that outlives the remount's `terminalOpen`.
+  const pendingRestarts = useRef<Set<string>>(new Set());
+  // paneIds whose nonce bump landed this render, waiting for the remount it
+  // triggers to commit before their `pendingRestarts` entry is released.
+  const pendingReleaseRef = useRef<Set<string>>(new Set());
+
+  // Restart drops the dead session so the pane starts clean rather than
+  // stacking a second shell's output under the first one's. Bumping the
+  // nonce remounts the pane's xterm, which is what reopens the PTY. Also
+  // drops this pane's cached transcript stats — otherwise the status bar
+  // would keep showing the previous (dead) shell's line count until the
+  // fresh TerminalTab mounts and reports its own (0-line) stats, which only
+  // happens once it's visible.
+  const restartFocusedPane = useCallback(() => {
+    const paneId = focusedPaneKey;
+    if (!paneId) return;
+    if (pendingRestarts.current.has(paneId)) return;
+    pendingRestarts.current.add(paneId);
+    void terminalClose(paneId)
+      .catch(() => {})
+      .then(() => {
+        setTerminalPaneState(appId, paneId, { state: "idle", exitCode: null, pid: null });
+        setTranscriptStats((prev) => {
+          if (!(paneId in prev)) return prev;
+          const next = { ...prev };
+          delete next[paneId];
+          return next;
+        });
+        // Mutate the ref as a plain, unconditional statement right here —
+        // NOT from inside the `setRestartNonce` updater function passed
+        // below. A `useState` updater is only guaranteed to run eagerly
+        // (synchronously, at call time) when it's the first update queued
+        // for an otherwise-idle fiber; the two `setState` calls just above
+        // already mark this component as having pending work, so by the
+        // time `setRestartNonce` runs its updater is deferred to the actual
+        // render pass instead — which happens asynchronously, leaving the
+        // exact gap this fix exists to close (confirmed empirically: with
+        // the mutation inside the updater, a poll response landing right
+        // here still read the stale generation because the updater hadn't
+        // run yet). Computing off the ref (not the possibly-stale
+        // `restartNonce` state closure) and writing it back immediately
+        // makes the ref genuinely live the instant this handler runs — the poll
+        // effect's staleness check reads this same ref from inside a
+        // response handler that can run in the gap between this synchronous
+        // write and React's next flush.
+        const nextNonce = {
+          ...restartNonceRef.current,
+          [paneId]: (restartNonceRef.current[paneId] ?? 0) + 1,
+        };
+        restartNonceRef.current = nextNonce;
+        setRestartNonce(nextNonce);
+        pendingReleaseRef.current.add(paneId);
+      });
+  }, [focusedPaneKey, appId, setTerminalPaneState]);
+
+  // Releases `pendingRestarts` entries once the remount their nonce bump
+  // triggered has committed. This effect's own commit happens after the
+  // just-remounted pane's mount effects have run (child effects fire before
+  // the parent's in the same commit), which is the earliest point a second
+  // Restart click can safely be allowed to close the fresh PTY.
+  useEffect(() => {
+    if (pendingReleaseRef.current.size === 0) return;
+    for (const id of pendingReleaseRef.current) pendingRestarts.current.delete(id);
+    pendingReleaseRef.current.clear();
+  }, [restartNonce]);
+
+  // Seed for hosts that are always present (the workbench tab) — the modal
+  // instead waits for the pendingSession that opened it. This also re-seeds
+  // after the last tab closes, which is why it keys on tabs.length.
   useEffect(() => {
     if (!autoSeed) return;
-    setTabs((prev) => {
-      if (prev.length > 0) return prev;
-      const tab = makeTab(null);
-      setActiveId(tab.id);
-      return [tab];
-    });
-  }, [autoSeed, makeTab]);
+    ensureTerminalTab(appId, appName, rootDir);
+  }, [autoSeed, appId, appName, rootDir, tabs.length, ensureTerminalTab]);
 
-  // When a tab becomes active, clear unseen-output flags on all its panes.
-  useEffect(() => {
-    if (!activeId) return;
-    setTabs((prev) => {
-      const tab = prev.find((t) => t.id === activeId);
-      if (!tab || !tab.panes.some((p) => p.hasUnseenOutput)) return prev;
-      return prev.map((t) =>
-        t.id !== activeId ? t : { ...t, panes: t.panes.map((p) => (p.hasUnseenOutput ? { ...p, hasUnseenOutput: false } : p)) }
-      );
-    });
-  }, [activeId]);
-
-  // Consume pendingSession: reuse active tab when no startup command; else add a new tab.
+  // Consume pendingSession: reuse the active tab when no startup command;
+  // else add a new one.
   useEffect(() => {
     if (!pendingSession) return;
     if (handledRequestIds.current.has(pendingSession.id)) return;
     handledRequestIds.current.add(pendingSession.id);
     const startup = pendingSession.startupCommand?.trim() || null;
-    setTabs((prev) => {
-      if (!startup && prev.length > 0) {
-        const keep = prev.find((t) => t.id === activeId) ?? prev[0];
-        setActiveId(keep.id);
-        return prev;
-      }
-      const tab = makeTab(startup);
-      setActiveId(tab.id);
-      return [...prev, tab];
-    });
-  }, [pendingSession, makeTab, activeId]);
+    if (!startup && tabs.length > 0) {
+      setActiveTerminalTab(appId, activeId ?? tabs[0].id);
+      return;
+    }
+    addTerminalTab(appId, appName, rootDir, startup);
+  }, [pendingSession, appId, appName, rootDir, tabs, activeId, addTerminalTab, setActiveTerminalTab]);
 
-  const addNewTab = useCallback(() => {
-    const tab = makeTab(null);
-    setTabs((prev) => [...prev, tab]);
-    setActiveId(tab.id);
-  }, [makeTab]);
+  // An empty surface has no way back, so a host that can close (the modal)
+  // gets told. The `hadTabs` guard matters: the modal mounts empty and waits
+  // for its pendingSession, and firing onEmpty then would close it on sight.
+  const hadTabs = useRef(false);
+  if (tabs.length > 0) hadTabs.current = true;
+  useEffect(() => {
+    if (!active || !onEmpty || autoSeed) return;
+    if (tabs.length === 0 && hadTabs.current) onEmpty();
+  }, [active, tabs.length, onEmpty, autoSeed]);
 
-  // Drop `tabId`; when it was the last one, hand off to `onEmpty` or reseed so
-  // an embedded surface never renders a blank pane area.
-  const dropTab = useCallback(
-    (prev: TabSession[], tabId: string): TabSession[] => {
-      const idx = prev.findIndex((t) => t.id === tabId);
-      if (idx < 0) return prev;
-      const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0) {
-        if (onEmpty) {
-          onEmpty();
-          return prev;
-        }
-        const seeded = makeTab(null);
-        setActiveId(seeded.id);
-        return [seeded];
-      }
-      if (activeId === tabId) setActiveId(next[Math.max(0, idx - 1)].id);
-      return next;
-    },
-    [activeId, onEmpty, makeTab]
+  const addNewTab = useCallback(
+    () => { addTerminalTab(appId, appName, rootDir, null); },
+    [addTerminalTab, appId, appName, rootDir],
   );
 
+  // A tab with a foreground process is the case that used to lose work
+  // silently. Ask; an idle prompt closes without ceremony.
   const closeTab = useCallback(
-    (tabId: string) => setTabs((prev) => dropTab(prev, tabId)),
-    [dropTab]
+    (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (!tab) return;
+      if (tabState(tab) !== "running") {
+        void closeTerminalTab(appId, tabId);
+        return;
+      }
+      void (async () => {
+        const { confirm } = await import("@tauri-apps/plugin-dialog");
+        const ok = await confirm(`"${tab.label}" is still running. Close it anyway?`, {
+          title: "Close terminal tab",
+          kind: "warning",
+        });
+        if (ok) await closeTerminalTab(appId, tabId);
+      })();
+    },
+    [tabs, closeTerminalTab, appId],
   );
 
-  const splitActiveTab = useCallback(() => {
-    if (!activeTab || activeTab.panes.length >= 2) return;
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id !== activeTab.id
-          ? t
-          : {
-              ...t,
-              panes: [
-                ...t.panes,
-                { id: newId("pane"), rootDir: t.rootDir, startupCommand: null, hasUnseenOutput: false },
-              ],
-            }
-      )
-    );
-  }, [activeTab]);
-
-  // Split (reuses the existing split wiring) and set the pane orientation. When
-  // the tab is already split, splitActiveTab is a no-op so this just flips the
-  // orientation of the two existing panes.
   const splitInto = useCallback(
     (orientation: "cols" | "rows") => {
-      setSplitOrientation(orientation);
-      splitActiveTab();
+      if (!activeId) return;
+      splitTerminalTab(appId, activeId, orientation);
     },
-    [splitActiveTab],
+    [splitTerminalTab, appId, activeId],
   );
 
+  const splitActiveTab = useCallback(
+    () => splitInto(activeTab?.splitOrientation ?? "cols"),
+    [splitInto, activeTab],
+  );
+
+  // Same confirmation `closeTab` gives a running tab — this button used to
+  // skip it entirely, closing a pane the poll above already knows is running
+  // with no prompt at all.
   const closePane = useCallback(
     (tabId: string, paneId: string) => {
-      setTabs((prev) => {
-        const tab = prev.find((t) => t.id === tabId);
-        if (!tab) return prev;
-        if (tab.panes.length <= 1) return dropTab(prev, tabId);
-        return prev.map((t) => (t.id !== tabId ? t : { ...t, panes: t.panes.filter((p) => p.id !== paneId) }));
-      });
+      const pane = tabs.find((t) => t.id === tabId)?.panes.find((p) => p.id === paneId);
+      if (pane?.state !== "running") {
+        void closeTerminalPane(appId, tabId, paneId);
+        return;
+      }
+      void (async () => {
+        const { confirm } = await import("@tauri-apps/plugin-dialog");
+        const ok = await confirm("This pane is still running. Close it anyway?", {
+          title: "Close terminal pane",
+          kind: "warning",
+        });
+        if (ok) await closeTerminalPane(appId, tabId, paneId);
+      })();
     },
-    [dropTab]
-  );
-
-  const markPaneBusy = useCallback(
-    (tabId: string, paneId: string) => {
-      if (tabId === activeId) return;
-      setTabs((prev) => {
-        const tab = prev.find((t) => t.id === tabId);
-        if (!tab) return prev;
-        const pane = tab.panes.find((p) => p.id === paneId);
-        if (!pane || pane.hasUnseenOutput) return prev;
-        return prev.map((t) =>
-          t.id !== tabId ? t : { ...t, panes: t.panes.map((p) => (p.id !== paneId ? p : { ...p, hasUnseenOutput: true })) }
-        );
-      });
-    },
-    [activeId]
+    [tabs, closeTerminalPane, appId],
   );
 
   const startRename = useCallback((tab: TabSession) => {
@@ -253,11 +433,10 @@ export default function TerminalWorkspace({
   }, []);
   const commitRename = useCallback(() => {
     if (!editingTabId) return;
-    const label = editingLabel.trim();
-    setTabs((prev) => prev.map((t) => (t.id !== editingTabId ? t : { ...t, label: label || t.appName })));
+    renameTerminalTab(appId, editingTabId, editingLabel);
     setEditingTabId(null);
     setEditingLabel("");
-  }, [editingTabId, editingLabel]);
+  }, [editingTabId, editingLabel, renameTerminalTab, appId]);
   const cancelRename = useCallback(() => {
     setEditingTabId(null);
     setEditingLabel("");
@@ -317,13 +496,13 @@ export default function TerminalWorkspace({
         const idx = parseInt(e.key, 10) - 1;
         if (tabs[idx]) {
           e.preventDefault();
-          setActiveId(tabs[idx].id);
+          setActiveTerminalTab(appId, tabs[idx].id);
         }
       }
     }
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId]);
+  }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId, appId, setActiveTerminalTab]);
 
   const isSplit = !!activeTab && activeTab.panes.length >= 2;
 
@@ -332,10 +511,6 @@ export default function TerminalWorkspace({
       {/* ── Header: title slot + transcript stats + search/filter ─────────── */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.08] shrink-0">
         {title}
-        <span className="text-[11px] text-zinc-600">
-          {activeStats.lineCount.toLocaleString()} lines
-          {activeStats.matchCount !== null ? ` · ${activeStats.matchCount.toLocaleString()} matches` : ""}
-        </span>
         <div className="flex-1" />
         <div className="relative w-[320px] max-w-[36vw]">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
@@ -384,24 +559,26 @@ export default function TerminalWorkspace({
           {tabs.map((tab) => {
             const isActive = activeId === tab.id;
             const isEditing = editingTabId === tab.id;
-            const busy = !isActive && tab.panes.some((p) => p.hasUnseenOutput);
+            const state = tabState(tab);
+            const unseen = !isActive && tab.panes.some((p) => p.hasUnseenOutput);
             return (
               <div
                 key={tab.id}
-                onClick={() => !isEditing && setActiveId(tab.id)}
+                onClick={() => !isEditing && setActiveTerminalTab(appId, tab.id)}
                 onDoubleClick={() => startRename(tab)}
                 className={`group flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[11px] cursor-pointer transition-colors ${
                   isActive
                     ? "bg-white/[0.08] text-ink"
-                    : "text-ink-2 hover:text-ink hover:bg-white/[0.05]"
+                    : unseen
+                      ? "text-ink hover:bg-white/[0.05]"
+                      : "text-ink-2 hover:text-ink hover:bg-white/[0.05]"
                 }`}
               >
-                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" className="shrink-0 text-ink-3" aria-hidden="true">
-                  <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
-                  <path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M7.5 9.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-                </svg>
-                {busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Activity" />}
+                <span
+                  data-testid="tab-state-dot"
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATE_DOT[state]}`}
+                  title={state === "exited" ? "Shell exited" : state === "running" ? "Running" : "Idle"}
+                />
                 {isEditing ? (
                   <input
                     autoFocus
@@ -456,7 +633,7 @@ export default function TerminalWorkspace({
           <div className="ml-auto flex items-center gap-3 text-ink-2">
             <button
               onClick={() => splitInto("cols")}
-              className={`transition-colors hover:text-ink ${isSplit && splitOrientation === "cols" ? "text-ink" : ""}`}
+              className={`transition-colors hover:text-ink ${isSplit && activeTab?.splitOrientation === "cols" ? "text-ink" : ""}`}
               title="Split vertically (⌘D)"
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -466,7 +643,7 @@ export default function TerminalWorkspace({
             </button>
             <button
               onClick={() => splitInto("rows")}
-              className={`transition-colors hover:text-ink ${isSplit && splitOrientation === "rows" ? "text-ink" : ""}`}
+              className={`transition-colors hover:text-ink ${isSplit && activeTab?.splitOrientation === "rows" ? "text-ink" : ""}`}
               title="Split horizontally"
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -482,7 +659,8 @@ export default function TerminalWorkspace({
         <div className="flex-1 overflow-hidden relative min-w-0">
           {tabs.map((tab) => {
             const isTabActive = tab.id === activeId && active;
-            const isRows = splitOrientation === "rows";
+            // "cols" = panes side by side; "rows" = panes stacked.
+            const isRows = tab.splitOrientation === "rows";
             return (
               <div
                 key={tab.id}
@@ -490,25 +668,33 @@ export default function TerminalWorkspace({
                 style={{ display: tab.id === activeId ? "flex" : "none" }}
               >
                 {tab.panes.map((pane, idx) => {
-                  // Prefer the pane's shell/session label (derived from its
-                  // startup command); fall back to the tab's app name.
-                  const paneShell = pane.startupCommand?.trim().split(/\s+/)[0] || "zsh";
-                  const paneLabel = `${tab.appName} · ${paneShell}`;
                   const sep = idx > 0 ? (isRows ? "border-t border-[rgba(255,255,255,0.12)]" : "border-l border-[rgba(255,255,255,0.12)]") : "";
+                  const isFocused = focusedPaneId === pane.id;
+                  const split = tab.panes.length > 1;
+                  // Inset box-shadow, not a border: a border toggled on/off adds
+                  // to the box size and would nudge xterm's fit() by a pixel.
+                  const focusEdge = split && isFocused
+                    ? (isRows
+                        ? "shadow-[inset_0_2px_0_0_rgba(59,130,246,0.6)]"
+                        : "shadow-[inset_2px_0_0_0_rgba(59,130,246,0.6)]")
+                    : "";
                   return (
                     <div
                       key={pane.id}
-                      className={`group/pane relative flex flex-col flex-1 min-w-0 min-h-0 ${sep}`}
+                      className={`group/pane relative flex flex-col flex-1 min-w-0 min-h-0 ${sep} ${focusEdge}`}
                     >
-                      {/* Per-pane header: activity dot + shell/session label */}
-                      <div className="flex items-center gap-1.5 px-3 pt-2 mb-[5px] text-[10px] text-zinc-500 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        <span className="truncate">{paneLabel}</span>
-                      </div>
-                      {tab.panes.length > 1 && (
+                      {split && (
+                        <span
+                          data-testid="pane-ordinal"
+                          className="absolute top-1.5 right-2 z-10 text-[9px] text-zinc-600 select-none pointer-events-none"
+                        >
+                          {idx + 1}
+                        </span>
+                      )}
+                      {split && (
                         <button
                           onClick={() => closePane(tab.id, pane.id)}
-                          className="absolute top-1.5 right-1.5 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
+                          className="absolute top-1.5 right-6 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
                           title="Close pane"
                         >
                           <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
@@ -518,13 +704,18 @@ export default function TerminalWorkspace({
                       )}
                       <div className="relative flex-1 min-h-0">
                         <TerminalTab
+                          key={`${pane.id}-${restartNonce[pane.id] ?? 0}`}
                           appId={pane.id}
                           rootDir={pane.rootDir}
                           visible={isTabActive}
                           startupCommand={pane.startupCommand}
                           searchQuery={terminalQuery}
                           filterOutput={filterOutput}
-                          onOutput={() => markPaneBusy(tab.id, pane.id)}
+                          onOutput={() => markTerminalPaneOutput(appId, tab.id, pane.id)}
+                          onFocus={() => setFocusedPaneId(pane.id)}
+                          onExit={(code) =>
+                            setTerminalPaneState(appId, pane.id, { state: "exited", exitCode: code })
+                          }
                           onTranscriptStats={(lineCount, matchCount) =>
                             setTranscriptStats((prev) => {
                               const current = prev[pane.id];
@@ -541,6 +732,13 @@ export default function TerminalWorkspace({
             );
           })}
         </div>
+
+        <TerminalStatusBar
+          pane={focusedPane}
+          lineCount={activeStats.lineCount}
+          matchCount={activeStats.matchCount}
+          onRestart={restartFocusedPane}
+        />
       </div>
     </div>
   );
