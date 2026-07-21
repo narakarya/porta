@@ -31,6 +31,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "markdown-it": "^14.3.0",
+    "mermaid": "^11.16.0",
     "psl": "^1.15.0",
     "qrcode": "^1.5.4",
     "react": "^19.1.0",
