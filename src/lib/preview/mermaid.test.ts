@@ -40,19 +40,51 @@ describe("hydrateMermaid", () => {
     ["er", "erDiagram\n  USER ||--o{ ORDER : places"],
   ])("renders an svg for a %s diagram", async (_name, src) => {
     const root = mount(renderMarkdown("```mermaid\n" + src + "\n```"));
-    await hydrateMermaid(root, "dark");
+    await hydrateMermaid(root, { dark: true });
     expect(root.querySelector(".md-mermaid svg")).not.toBeNull();
   });
 
   it("leaves an error message rather than throwing on invalid syntax", async () => {
     const root = mount(renderMarkdown("```mermaid\nnot a real diagram {{{\n```"));
-    await expect(hydrateMermaid(root, "dark")).resolves.toBeUndefined();
+    await expect(hydrateMermaid(root, { dark: true })).resolves.toBeUndefined();
     expect(root.querySelector(".md-mermaid")?.textContent).toBeTruthy();
   });
 
   it("does nothing when there are no diagrams", async () => {
     const root = mount(renderMarkdown("# just a heading"));
-    await expect(hydrateMermaid(root, "dark")).resolves.toBeUndefined();
+    await expect(hydrateMermaid(root, { dark: true })).resolves.toBeUndefined();
+  });
+
+  // Mermaid's config is global and set once at initialize(). Caching the
+  // instance without remembering which theme it was initialised with meant the
+  // first preview's palette stuck for the lifetime of the app — flip the tab to
+  // `paper` and diagrams stayed dark.
+  it("re-themes when the surface flips between dark and light", async () => {
+    const src = "```mermaid\nflowchart TD\n  A[Start] --> B[End]\n```";
+
+    const dark = mount(renderMarkdown(src));
+    await hydrateMermaid(dark, { dark: true });
+    const light = mount(renderMarkdown(src));
+    await hydrateMermaid(light, { dark: false });
+    const backToDark = mount(renderMarkdown(src));
+    await hydrateMermaid(backToDark, { dark: true });
+
+    // Mermaid bakes the active theme's colours into each diagram's <style>.
+    // Its per-diagram id prefixes every rule, so normalise those away — what is
+    // being compared is the palette, not which render produced it.
+    const styles = (root: HTMLElement) =>
+      [...root.querySelectorAll("svg style")]
+        .map((s) => s.textContent)
+        .join("")
+        .replace(/md-mermaid-\d+/g, "id");
+    expect(styles(light), "light diagram kept the dark theme").not.toBe(styles(dark));
+    expect(styles(backToDark)).toBe(styles(dark));
+
+    // A flip must not hand out an id already in the document, or a later
+    // mermaid render would target the wrong element.
+    const ids = [...document.querySelectorAll(".md-mermaid svg")].map((s) => s.id);
+    expect(ids.length).toBeGreaterThan(2);
+    expect(new Set(ids).size, "duplicate diagram ids").toBe(ids.length);
   });
 
   // Parity for the mermaid fixtures lands here rather than in markdown.test.ts:
@@ -73,7 +105,7 @@ describe("hydrateMermaid", () => {
       const blocks = (input.match(/^```mermaid\s*$/gm) ?? []).length;
 
       const root = mount(renderMarkdown(input));
-      await hydrateMermaid(root, "dark");
+      await hydrateMermaid(root, { dark: true });
 
       expect(root.querySelectorAll(".md-mermaid svg")).toHaveLength(blocks);
       expect(root.querySelector(".md-mermaid-error")).toBeNull();
