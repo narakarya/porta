@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:beta": "tauri build --features beta --config src-tauri/tauri.beta.conf.json"
+    "tauri:beta": "tauri build --features beta --config src-tauri/tauri.beta.conf.json",
+    "release": "node scripts/release.mjs",
+    "test:scripts": "node --test scripts/test/release.test.mjs"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
