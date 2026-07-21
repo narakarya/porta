@@ -48,6 +48,7 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
     cols = 80;
     options: Record<string, unknown>;
     writes: string[] = [];
+    container: HTMLElement | undefined;
     private onDataHandler: ((data: string) => void) | null = null;
 
     constructor(options: Record<string, unknown>) {
@@ -56,7 +57,9 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
     }
 
     loadAddon() {}
-    open() {}
+    open(el: HTMLElement) {
+      this.container = el;
+    }
     onData(cb: (data: string) => void) {
       this.onDataHandler = cb;
     }
@@ -77,16 +80,41 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
 });
 vi.mock("@xterm/xterm", () => ({ Terminal: MockTerminal }));
 
+// Controllable per-test: defaults to a normal measured size, but Finding 1's
+// test flips this to `undefined` to simulate a container that measures 0×0
+// because it mounted into a `display:none` subtree.
+const fitState = vi.hoisted(() => ({
+  dims: { rows: 24, cols: 80 } as { rows: number; cols: number } | undefined,
+}));
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     activate() {}
     dispose() {}
     fit() {}
     proposeDimensions() {
-      return { rows: 24, cols: 80 };
+      return fitState.dims;
     }
   },
 }));
+
+// Controllable ResizeObserver: the global stub in test/setup.ts is inert, but
+// Finding 1's fix relies on the component's own observer noticing a size
+// change, so this test file needs to be able to fire that callback by hand.
+const { MockResizeObserver, roInstances } = vi.hoisted(() => {
+  class MockResizeObserver {
+    cb: () => void;
+    constructor(cb: () => void) {
+      this.cb = cb;
+      roInstances.push(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  const roInstances: InstanceType<typeof MockResizeObserver>[] = [];
+  return { MockResizeObserver, roInstances };
+});
+globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
 
 function bytes(text: string): number[] {
   return Array.from(new TextEncoder().encode(text));
@@ -107,6 +135,8 @@ describe("TerminalTab lifecycle", () => {
     listenMock.mockClear();
     eventHandlers.clear();
     terminalInstances.length = 0;
+    roInstances.length = 0;
+    fitState.dims = { rows: 24, cols: 80 };
   });
 
   // The reported bug: navigating away unmounted this component, whose cleanup
@@ -174,5 +204,85 @@ describe("TerminalTab lifecycle", () => {
     eventHandlers.get("terminal:exit:pane-5")!({ payload: { code: 3 } });
 
     expect(onExit).toHaveBeenCalledWith(3);
+  });
+
+  // Finding 1: a pane mounted into a `display:none` subtree (e.g. a
+  // background app's auto-seeded tab, or a background split pane) measures
+  // 0×0, so `proposeDimensions()` returns undefined and the mount effect used
+  // to just give up — terminal_open was never called and nothing rescheduled
+  // it, leaving a permanently blank pane. The fix must not fabricate a size
+  // (that was tried and reverted — it spawns the shell at the wrong winsize
+  // and hard-wraps its startup output); it must retry once the container
+  // actually gets a real size, and open exactly once.
+  it("opens the session once the container gains real dimensions, having bailed at mount for lack of any", async () => {
+    fitState.dims = undefined;
+
+    render(<TerminalTab appId="pane-6" rootDir="/src/porta" visible={false} />);
+
+    // The listeners are registered up front regardless of dimensions — only
+    // the open call itself is deferred.
+    await vi.waitFor(() => expect(eventHandlers.has("terminal:data:pane-6")).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(terminalOpen).not.toHaveBeenCalled();
+
+    // The container gains a real size — in production this is what flips
+    // `getBoundingClientRect()` to non-zero and is what the ResizeObserver
+    // exists to notice.
+    const container = lastTerminal().container!;
+    Object.defineProperty(container, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        width: 800, height: 400, top: 0, left: 0, right: 800, bottom: 400, x: 0, y: 0,
+        toJSON() { return {}; },
+      }),
+    });
+    fitState.dims = { rows: 30, cols: 100 };
+
+    roInstances[roInstances.length - 1].cb();
+
+    await vi.waitFor(() => expect(terminalOpen).toHaveBeenCalledTimes(1));
+    expect(terminalOpen).toHaveBeenCalledWith("pane-6", "/src/porta", 30, 100, null);
+
+    // A later resize (the ordinary case ResizeObserver exists for) must not
+    // reopen an already-open session.
+    roInstances[roInstances.length - 1].cb();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(terminalOpen).toHaveBeenCalledTimes(1);
+  });
+
+  // Companion to the above: queued live chunks that arrived while the open
+  // was deferred (the reattach case — a session that was already running
+  // when this view mounted hidden) must still drain in order once the open
+  // finally happens, exactly as they would have if dimensions had been
+  // available immediately.
+  it("drains chunks queued while the open was deferred for lack of dimensions", async () => {
+    fitState.dims = undefined;
+    let resolveOpen!: (v: { spawned: boolean; backlog: number[] }) => void;
+    terminalOpen.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveOpen = resolve; }),
+    );
+
+    render(<TerminalTab appId="pane-7" rootDir="/src/porta" visible={false} />);
+    await vi.waitFor(() => expect(eventHandlers.has("terminal:data:pane-7")).toBe(true));
+
+    // A live chunk arrives while the pane is still hidden — before the open
+    // has even been attempted.
+    eventHandlers.get("terminal:data:pane-7")!({ payload: bytes("live-while-hidden") });
+
+    const container = lastTerminal().container!;
+    Object.defineProperty(container, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        width: 800, height: 400, top: 0, left: 0, right: 800, bottom: 400, x: 0, y: 0,
+        toJSON() { return {}; },
+      }),
+    });
+    fitState.dims = { rows: 30, cols: 100 };
+    roInstances[roInstances.length - 1].cb();
+
+    await vi.waitFor(() => expect(terminalOpen).toHaveBeenCalledTimes(1));
+    resolveOpen({ spawned: false, backlog: bytes("backlog-bytes") });
+
+    await vi.waitFor(() => expect(lastTerminal().writes).toEqual(["backlog-bytes", "live-while-hidden"]));
   });
 });

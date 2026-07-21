@@ -221,6 +221,40 @@ export default function TerminalTab({
       onOutputRef.current?.();
     }
 
+    // Guards `terminal_open` to run exactly once per mount. Set synchronously
+    // (before the first await) so a ResizeObserver callback firing again
+    // while the open is already in flight — or attach()'s own dims check
+    // racing the observer's initial callback — can't issue a second one.
+    let opened = false;
+
+    async function openSession(dims: { rows: number; cols: number }) {
+      if (opened || !mounted) return;
+      opened = true;
+
+      const { spawned, backlog } = await terminalOpen(
+        appId,
+        rootDir,
+        dims.rows,
+        dims.cols,
+        startupCommand ?? null,
+      );
+      if (!mounted) return;
+
+      if (backlog.length > 0) {
+        // Reattaching to a session that outlived its last view: replay what it
+        // printed while nothing was watching.
+        startTranscriptCapture();
+        consume(backlog);
+      }
+      backlogWritten = true;
+      for (const chunk of queued) consume(chunk);
+      queued.length = 0;
+
+      // The startup command is written by Rust only on a real spawn, so a
+      // reattach must not re-run it here either.
+      if (spawned && startupCommand?.trim()) startTranscriptCapture();
+    }
+
     async function attach() {
       if (!mounted) return;
       if (isTauri) {
@@ -248,35 +282,24 @@ export default function TerminalTab({
 
       fitAddon.fit();
       const dims = fitAddon.proposeDimensions();
+      // `proposeDimensions()` is undefined when the container measures 0×0 —
+      // exactly what a pane mounted into a `display:none` subtree looks like.
+      // Don't fabricate a size here: a fabricated 80×24 was tried and
+      // reverted because it spawns the real PTY at the wrong winsize and
+      // hard-wraps its startup output. Leave `opened` false and bail — the
+      // ResizeObserver below is what notices this container getting a real
+      // size later and retries the open then. The listeners above are
+      // already registered either way, so nothing the live session emits in
+      // the meantime is lost — it queues until the open completes.
       if (!dims) return;
-
-      const { spawned, backlog } = await terminalOpen(
-        appId,
-        rootDir,
-        dims.rows,
-        dims.cols,
-        startupCommand ?? null,
-      );
-      if (!mounted) return;
-
-      if (backlog.length > 0) {
-        // Reattaching to a session that outlived its last view: replay what it
-        // printed while nothing was watching.
-        startTranscriptCapture();
-        consume(backlog);
-      }
-      backlogWritten = true;
-      for (const chunk of queued) consume(chunk);
-      queued.length = 0;
-
-      // The startup command is written by Rust only on a real spawn, so a
-      // reattach must not re-run it here either.
-      if (spawned && startupCommand?.trim()) startTranscriptCapture();
+      await openSession(dims);
     }
 
     const attachRaf = requestAnimationFrame(() => { void attach().catch(console.error); });
 
-    // Resize observer — keep PTY in sync with container size changes.
+    // Resize observer — keep PTY in sync with container size changes, and —
+    // for a pane that mounted hidden — retry the deferred open the first
+    // time this container actually measures a real size.
     // IMPORTANT: check pixel dimensions before calling fitAddon.fit() — calling it on a
     // 0×0 container (e.g. when hidden via display:none) corrupts xterm's internal viewport.
     const ro = new ResizeObserver(() => {
@@ -285,8 +308,12 @@ export default function TerminalTab({
       if (width === 0 || height === 0) return;
       fitAddon.fit();
       const dims = fitAddon.proposeDimensions();
-      if (dims && dims.rows > 0 && dims.cols > 0)
-        terminalResize(appId, dims.rows, dims.cols).catch(() => {});
+      if (!dims || dims.rows <= 0 || dims.cols <= 0) return;
+      if (!opened) {
+        void openSession(dims).catch(console.error);
+        return;
+      }
+      terminalResize(appId, dims.rows, dims.cols).catch(() => {});
     });
     ro.observe(containerRef.current!);
 
