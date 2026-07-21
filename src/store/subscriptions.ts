@@ -16,6 +16,50 @@ type GetFn = () => AllSlices;
 const notifiedUpdateApps = new Set<string>();
 const SILENT_START_FAILED_PREFIX = "__porta_silent_start_failed__:";
 
+// ── Log batching ───────────────────────────────────────────────────────────
+// The backend emits one Tauri event per log line. Writing straight to the
+// store per line meant every single line of a booting dev server (hundreds per
+// second for Phoenix/Next/Vite) did an O(MAX_LOG_LINES) array copy, a spread of
+// the whole logs map, a full Zustand subscriber notification (including the
+// map/join id-diff below) and a React render pass. That's what froze the entire
+// window — not just the starting app's card — for the duration of a start.
+//
+// Buffering into a Map and flushing on a timer collapses a burst of N lines
+// into one store write, so render pressure is bounded at ~10/s regardless of
+// how loud the app is.
+const LOG_FLUSH_MS = 100;
+
+type LogKey = "appLogs" | "serviceLogs";
+
+function makeLogBatcher(set: SetFn, key: LogKey) {
+  const pending = new Map<string, string[]>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = () => {
+    timer = null;
+    if (pending.size === 0) return;
+    const batch = Array.from(pending.entries());
+    pending.clear();
+    set((s) => {
+      const next: Record<string, string[]> = { ...s[key] };
+      for (const [id, lines] of batch) {
+        const merged = (next[id] ?? []).concat(lines);
+        next[id] = merged.length > MAX_LOG_LINES ? merged.slice(-MAX_LOG_LINES) : merged;
+      }
+      return { [key]: next } as Partial<AllSlices>;
+    });
+  };
+
+  return (id: string, line: string) => {
+    const buf = pending.get(id);
+    if (buf) buf.push(line);
+    else pending.set(id, [line]);
+    // A burst longer than the buffer is pointless to keep — the tail wins.
+    if (buf && buf.length > MAX_LOG_LINES) buf.splice(0, buf.length - MAX_LOG_LINES);
+    if (timer === null) timer = setTimeout(flush, LOG_FLUSH_MS);
+  };
+}
+
 export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
   // In browser-only mode, use mock event system instead of Tauri events.
   if (!isTauri) {
@@ -74,6 +118,11 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
   // Cancels any still-pending listen() promises from the previous subscribeForApps call
   let cancelPending = () => {};
 
+  // Instances reuse the appLogs map (ids are UUIDs, no collision), so they
+  // share the same batcher.
+  const pushAppLog = makeLogBatcher(set, "appLogs");
+  const pushServiceLog = makeLogBatcher(set, "serviceLogs");
+
   const subscribeForApps = async (apps: App[]) => {
     const { listen } = await import("@tauri-apps/api/event");
     // Cancel any promises that haven't resolved yet from the last call
@@ -87,16 +136,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
 
     apps.forEach((app) => {
       listen<string>(`app:log:${app.id}`, (e) => {
-        set((s) => {
-          const prev = s.appLogs[app.id] ?? [];
-          const next = [...prev, e.payload];
-          return {
-            appLogs: {
-              ...s.appLogs,
-              [app.id]: next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next,
-            },
-          };
-        });
+        pushAppLog(app.id, e.payload);
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       listen<number>(`app:exit:${app.id}`, (e) => {
@@ -305,16 +345,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
 
     instances.forEach((inst) => {
       listen<string>(`instance:log:${inst.id}`, (e) => {
-        set((s) => {
-          const prev = s.appLogs[inst.id] ?? [];
-          const next = [...prev, e.payload];
-          return {
-            appLogs: {
-              ...s.appLogs,
-              [inst.id]: next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next,
-            },
-          };
-        });
+        pushAppLog(inst.id, e.payload);
       }).then((fn) => cancelled ? fn() : instanceUnlisteners.push(fn));
 
       listen<number>(`instance:exit:${inst.id}`, (e) => {
@@ -382,16 +413,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       ).then((fn) => unlisteners.push(fn));
 
       listen<string>(`service:log:${svc.id}`, (e) => {
-        set((s) => {
-          const prev = s.serviceLogs[svc.id] ?? [];
-          const next = [...prev, e.payload];
-          return {
-            serviceLogs: {
-              ...s.serviceLogs,
-              [svc.id]: next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next,
-            },
-          };
-        });
+        pushServiceLog(svc.id, e.payload);
       }).then((fn) => unlisteners.push(fn));
     });
   };
@@ -445,21 +467,36 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
   // the module will already be in the ES module cache so this is effectively synchronous.
   let unsub: () => void = () => {};
   import("./index").then(({ usePortaStore }) => {
+    // This fires on EVERY store write (logs, metrics, tunnel lines…). Diffing
+    // by id string meant three map+join passes per write; gate on array
+    // identity first so the common case is three reference compares.
+    let lastAppsRef = get().apps;
+    let lastSvcRef = get().services;
+    let lastInstancesRef = get().instances;
     unsub = usePortaStore.subscribe((state) => {
-      const ids = state.apps.map((a) => a.id).join(",");
-      if (ids !== lastIds) {
-        lastIds = ids;
-        subscribeForApps(state.apps);
+      if (state.apps !== lastAppsRef) {
+        lastAppsRef = state.apps;
+        const ids = state.apps.map((a) => a.id).join(",");
+        if (ids !== lastIds) {
+          lastIds = ids;
+          subscribeForApps(state.apps);
+        }
       }
-      const svcIds = state.services.map((s) => s.id).join(",");
-      if (svcIds !== lastSvcIds) {
-        lastSvcIds = svcIds;
-        subscribeForServices(state.services);
+      if (state.services !== lastSvcRef) {
+        lastSvcRef = state.services;
+        const svcIds = state.services.map((s) => s.id).join(",");
+        if (svcIds !== lastSvcIds) {
+          lastSvcIds = svcIds;
+          subscribeForServices(state.services);
+        }
       }
-      const instanceIds = flattenInstances(state.instances).map((i) => i.id).join(",");
-      if (instanceIds !== lastInstanceIds) {
-        lastInstanceIds = instanceIds;
-        subscribeForInstances(flattenInstances(state.instances));
+      if (state.instances !== lastInstancesRef) {
+        lastInstancesRef = state.instances;
+        const instanceIds = flattenInstances(state.instances).map((i) => i.id).join(",");
+        if (instanceIds !== lastInstanceIds) {
+          lastInstanceIds = instanceIds;
+          subscribeForInstances(flattenInstances(state.instances));
+        }
       }
       // Run first image check once apps are loaded, then schedule repeating interval
       if (!hasRunInitialImageCheck && state.apps.length > 0) {
