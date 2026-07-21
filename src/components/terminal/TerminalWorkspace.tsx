@@ -1,21 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { usePortaStore } from "../../store";
+import type { TabSession } from "../../store/slices/terminal";
 import TerminalTab from "./TerminalTab";
-
-interface PaneSession {
-  id: string;
-  rootDir: string;
-  startupCommand: string | null;
-  hasUnseenOutput: boolean;
-}
-
-interface TabSession {
-  id: string;
-  appId: string;
-  appName: string;
-  rootDir: string;
-  label: string;
-  panes: PaneSession[];
-}
 
 export interface SessionRequest {
   id: string;
@@ -46,10 +33,8 @@ interface Props {
   tabStripTrail?: ReactNode;
 }
 
-let _idCounter = 0;
-function newId(prefix: string) {
-  return `${prefix}-${Date.now()}-${++_idCounter}`;
-}
+// Stable empty ref so the selector never returns a new array.
+const EMPTY_TABS: TabSession[] = [];
 
 /**
  * The multi-tab + split terminal surface: tab strip, 1–2 panes per tab, shared
@@ -72,15 +57,36 @@ export default function TerminalWorkspace({
   headerTrail,
   tabStripTrail,
 }: Props) {
-  const [tabs, setTabs] = useState<TabSession[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const tabs = usePortaStore(useShallow((s) => s.terminalTabs[appId] ?? EMPTY_TABS));
+  const activeId = usePortaStore((s) => s.terminalActiveTab[appId] ?? null);
+  const {
+    ensureTerminalTab,
+    addTerminalTab,
+    closeTerminalTab,
+    closeTerminalPane,
+    splitTerminalTab,
+    setActiveTerminalTab,
+    renameTerminalTab,
+    markTerminalPaneOutput,
+    setTerminalPaneState,
+  } = usePortaStore(
+    useShallow((s) => ({
+      ensureTerminalTab: s.ensureTerminalTab,
+      addTerminalTab: s.addTerminalTab,
+      closeTerminalTab: s.closeTerminalTab,
+      closeTerminalPane: s.closeTerminalPane,
+      splitTerminalTab: s.splitTerminalTab,
+      setActiveTerminalTab: s.setActiveTerminalTab,
+      renameTerminalTab: s.renameTerminalTab,
+      markTerminalPaneOutput: s.markTerminalPaneOutput,
+      setTerminalPaneState: s.setTerminalPaneState,
+    })),
+  );
+
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState<string>("");
   const [terminalQuery, setTerminalQuery] = useState("");
   const [filterOutput, setFilterOutput] = useState(false);
-  // Orientation of a split tab: "cols" = side-by-side (border-l between panes),
-  // "rows" = stacked vertically (border-t between panes).
-  const [splitOrientation, setSplitOrientation] = useState<"cols" | "rows">("cols");
   const [transcriptStats, setTranscriptStats] = useState<Record<string, { lineCount: number; matchCount: number | null }>>({});
   const handledRequestIds = useRef<Set<string>>(new Set());
 
@@ -99,152 +105,64 @@ export default function TerminalWorkspace({
       )
     : { lineCount: 0, matchCount: null };
 
-  // Build a tab for the source app. Kept as a factory so seeding, ⌘T and
-  // pendingSession all produce identically-shaped tabs.
-  const makeTab = useCallback(
-    (startup: string | null): TabSession => {
-      const tabId = newId("tab");
-      return {
-        id: tabId,
-        appId,
-        appName,
-        rootDir,
-        label: startup ? `${appName} · ${startup.split(/\s+/)[0]}` : appName,
-        panes: [{ id: newId("pane"), rootDir, startupCommand: startup, hasUnseenOutput: false }],
-      };
-    },
-    [appId, appName, rootDir]
-  );
-
-  // Seed the first tab for hosts that are always present (the workbench tab) —
-  // the modal instead waits for the pendingSession that opened it.
+  // Seed for hosts that are always present (the workbench tab) — the modal
+  // instead waits for the pendingSession that opened it. This also re-seeds
+  // after the last tab closes, which is why it keys on tabs.length.
   useEffect(() => {
     if (!autoSeed) return;
-    setTabs((prev) => {
-      if (prev.length > 0) return prev;
-      const tab = makeTab(null);
-      setActiveId(tab.id);
-      return [tab];
-    });
-  }, [autoSeed, makeTab]);
+    ensureTerminalTab(appId, appName, rootDir);
+  }, [autoSeed, appId, appName, rootDir, tabs.length, ensureTerminalTab]);
 
-  // When a tab becomes active, clear unseen-output flags on all its panes.
-  useEffect(() => {
-    if (!activeId) return;
-    setTabs((prev) => {
-      const tab = prev.find((t) => t.id === activeId);
-      if (!tab || !tab.panes.some((p) => p.hasUnseenOutput)) return prev;
-      return prev.map((t) =>
-        t.id !== activeId ? t : { ...t, panes: t.panes.map((p) => (p.hasUnseenOutput ? { ...p, hasUnseenOutput: false } : p)) }
-      );
-    });
-  }, [activeId]);
-
-  // Consume pendingSession: reuse active tab when no startup command; else add a new tab.
+  // Consume pendingSession: reuse the active tab when no startup command;
+  // else add a new one.
   useEffect(() => {
     if (!pendingSession) return;
     if (handledRequestIds.current.has(pendingSession.id)) return;
     handledRequestIds.current.add(pendingSession.id);
     const startup = pendingSession.startupCommand?.trim() || null;
-    setTabs((prev) => {
-      if (!startup && prev.length > 0) {
-        const keep = prev.find((t) => t.id === activeId) ?? prev[0];
-        setActiveId(keep.id);
-        return prev;
-      }
-      const tab = makeTab(startup);
-      setActiveId(tab.id);
-      return [...prev, tab];
-    });
-  }, [pendingSession, makeTab, activeId]);
+    if (!startup && tabs.length > 0) {
+      setActiveTerminalTab(appId, activeId ?? tabs[0].id);
+      return;
+    }
+    addTerminalTab(appId, appName, rootDir, startup);
+  }, [pendingSession, appId, appName, rootDir, tabs, activeId, addTerminalTab, setActiveTerminalTab]);
 
-  const addNewTab = useCallback(() => {
-    const tab = makeTab(null);
-    setTabs((prev) => [...prev, tab]);
-    setActiveId(tab.id);
-  }, [makeTab]);
+  // An empty surface has no way back, so a host that can close (the modal)
+  // gets told. The `hadTabs` guard matters: the modal mounts empty and waits
+  // for its pendingSession, and firing onEmpty then would close it on sight.
+  const hadTabs = useRef(false);
+  if (tabs.length > 0) hadTabs.current = true;
+  useEffect(() => {
+    if (!onEmpty || autoSeed) return;
+    if (tabs.length === 0 && hadTabs.current) onEmpty();
+  }, [tabs.length, onEmpty, autoSeed]);
 
-  // Drop `tabId`; when it was the last one, hand off to `onEmpty` or reseed so
-  // an embedded surface never renders a blank pane area.
-  const dropTab = useCallback(
-    (prev: TabSession[], tabId: string): TabSession[] => {
-      const idx = prev.findIndex((t) => t.id === tabId);
-      if (idx < 0) return prev;
-      const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0) {
-        if (onEmpty) {
-          onEmpty();
-          return prev;
-        }
-        const seeded = makeTab(null);
-        setActiveId(seeded.id);
-        return [seeded];
-      }
-      if (activeId === tabId) setActiveId(next[Math.max(0, idx - 1)].id);
-      return next;
-    },
-    [activeId, onEmpty, makeTab]
+  const addNewTab = useCallback(
+    () => { addTerminalTab(appId, appName, rootDir, null); },
+    [addTerminalTab, appId, appName, rootDir],
   );
 
   const closeTab = useCallback(
-    (tabId: string) => setTabs((prev) => dropTab(prev, tabId)),
-    [dropTab]
+    (tabId: string) => { void closeTerminalTab(appId, tabId); },
+    [closeTerminalTab, appId],
   );
 
-  const splitActiveTab = useCallback(() => {
-    if (!activeTab || activeTab.panes.length >= 2) return;
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id !== activeTab.id
-          ? t
-          : {
-              ...t,
-              panes: [
-                ...t.panes,
-                { id: newId("pane"), rootDir: t.rootDir, startupCommand: null, hasUnseenOutput: false },
-              ],
-            }
-      )
-    );
-  }, [activeTab]);
-
-  // Split (reuses the existing split wiring) and set the pane orientation. When
-  // the tab is already split, splitActiveTab is a no-op so this just flips the
-  // orientation of the two existing panes.
   const splitInto = useCallback(
     (orientation: "cols" | "rows") => {
-      setSplitOrientation(orientation);
-      splitActiveTab();
+      if (!activeId) return;
+      splitTerminalTab(appId, activeId, orientation);
     },
-    [splitActiveTab],
+    [splitTerminalTab, appId, activeId],
+  );
+
+  const splitActiveTab = useCallback(
+    () => splitInto(activeTab?.splitOrientation ?? "cols"),
+    [splitInto, activeTab],
   );
 
   const closePane = useCallback(
-    (tabId: string, paneId: string) => {
-      setTabs((prev) => {
-        const tab = prev.find((t) => t.id === tabId);
-        if (!tab) return prev;
-        if (tab.panes.length <= 1) return dropTab(prev, tabId);
-        return prev.map((t) => (t.id !== tabId ? t : { ...t, panes: t.panes.filter((p) => p.id !== paneId) }));
-      });
-    },
-    [dropTab]
-  );
-
-  const markPaneBusy = useCallback(
-    (tabId: string, paneId: string) => {
-      if (tabId === activeId) return;
-      setTabs((prev) => {
-        const tab = prev.find((t) => t.id === tabId);
-        if (!tab) return prev;
-        const pane = tab.panes.find((p) => p.id === paneId);
-        if (!pane || pane.hasUnseenOutput) return prev;
-        return prev.map((t) =>
-          t.id !== tabId ? t : { ...t, panes: t.panes.map((p) => (p.id !== paneId ? p : { ...p, hasUnseenOutput: true })) }
-        );
-      });
-    },
-    [activeId]
+    (tabId: string, paneId: string) => { void closeTerminalPane(appId, tabId, paneId); },
+    [closeTerminalPane, appId],
   );
 
   const startRename = useCallback((tab: TabSession) => {
@@ -253,11 +171,10 @@ export default function TerminalWorkspace({
   }, []);
   const commitRename = useCallback(() => {
     if (!editingTabId) return;
-    const label = editingLabel.trim();
-    setTabs((prev) => prev.map((t) => (t.id !== editingTabId ? t : { ...t, label: label || t.appName })));
+    renameTerminalTab(appId, editingTabId, editingLabel);
     setEditingTabId(null);
     setEditingLabel("");
-  }, [editingTabId, editingLabel]);
+  }, [editingTabId, editingLabel, renameTerminalTab, appId]);
   const cancelRename = useCallback(() => {
     setEditingTabId(null);
     setEditingLabel("");
@@ -317,13 +234,13 @@ export default function TerminalWorkspace({
         const idx = parseInt(e.key, 10) - 1;
         if (tabs[idx]) {
           e.preventDefault();
-          setActiveId(tabs[idx].id);
+          setActiveTerminalTab(appId, tabs[idx].id);
         }
       }
     }
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId]);
+  }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId, appId, setActiveTerminalTab]);
 
   const isSplit = !!activeTab && activeTab.panes.length >= 2;
 
@@ -388,7 +305,7 @@ export default function TerminalWorkspace({
             return (
               <div
                 key={tab.id}
-                onClick={() => !isEditing && setActiveId(tab.id)}
+                onClick={() => !isEditing && setActiveTerminalTab(appId, tab.id)}
                 onDoubleClick={() => startRename(tab)}
                 className={`group flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[11px] cursor-pointer transition-colors ${
                   isActive
@@ -456,7 +373,7 @@ export default function TerminalWorkspace({
           <div className="ml-auto flex items-center gap-3 text-ink-2">
             <button
               onClick={() => splitInto("cols")}
-              className={`transition-colors hover:text-ink ${isSplit && splitOrientation === "cols" ? "text-ink" : ""}`}
+              className={`transition-colors hover:text-ink ${isSplit && activeTab?.splitOrientation === "cols" ? "text-ink" : ""}`}
               title="Split vertically (⌘D)"
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -466,7 +383,7 @@ export default function TerminalWorkspace({
             </button>
             <button
               onClick={() => splitInto("rows")}
-              className={`transition-colors hover:text-ink ${isSplit && splitOrientation === "rows" ? "text-ink" : ""}`}
+              className={`transition-colors hover:text-ink ${isSplit && activeTab?.splitOrientation === "rows" ? "text-ink" : ""}`}
               title="Split horizontally"
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -482,7 +399,7 @@ export default function TerminalWorkspace({
         <div className="flex-1 overflow-hidden relative min-w-0">
           {tabs.map((tab) => {
             const isTabActive = tab.id === activeId && active;
-            const isRows = splitOrientation === "rows";
+            const isRows = tab.splitOrientation === "rows";
             return (
               <div
                 key={tab.id}
@@ -524,7 +441,10 @@ export default function TerminalWorkspace({
                           startupCommand={pane.startupCommand}
                           searchQuery={terminalQuery}
                           filterOutput={filterOutput}
-                          onOutput={() => markPaneBusy(tab.id, pane.id)}
+                          onOutput={() => markTerminalPaneOutput(appId, tab.id, pane.id)}
+                          onExit={(code) =>
+                            setTerminalPaneState(appId, pane.id, { state: "exited", exitCode: code })
+                          }
                           onTranscriptStats={(lineCount, matchCount) =>
                             setTranscriptStats((prev) => {
                               const current = prev[pane.id];
