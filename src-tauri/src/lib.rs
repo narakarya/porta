@@ -186,6 +186,20 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        // Must be registered FIRST (plugin requirement). A second launch of the
+        // same build would otherwise open a second window onto the SAME
+        // `porta_dir()` SQLite file, each with its own in-memory app/host list
+        // that never sees the other's writes — edits appear to "not save".
+        // Debug/beta/release keep separate data dirs, so they stay independent;
+        // this only collapses duplicates of one build.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())

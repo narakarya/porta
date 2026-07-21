@@ -35,6 +35,12 @@ impl Database {
     pub(crate) fn migrate(&self) -> Result<()> {
         self.conn.execute_batch("
             PRAGMA journal_mode=WAL;
+            -- Two Porta processes on one data dir is a real scenario (a local
+            -- build alongside the installed app). WAL lets them both read, but
+            -- a writer still takes an exclusive lock; with the default zero
+            -- busy timeout the loser gets SQLITE_BUSY instantly and the write
+            -- just fails. Wait it out instead.
+            PRAGMA busy_timeout=5000;
 
             CREATE TABLE IF NOT EXISTS workspaces (
                 id TEXT PRIMARY KEY,
