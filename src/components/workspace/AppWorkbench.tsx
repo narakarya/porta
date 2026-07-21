@@ -1,15 +1,20 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
-import { isTauri, openExternalUrl, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel } from "../../lib/commands";
+import { MAX_PINNED_EXTENSIONS } from "../../store/slices/ui";
+import { errorText } from "../../store/slices/notify";
+import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
+import { isTauri, openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Skeleton, type Status, type TabItem } from "../ui";
-import TerminalTab from "../terminal/TerminalTab";
+import TerminalWorkspace from "../terminal/TerminalWorkspace";
 import GitTab from "./GitTab";
 import AppAccessPopover, { type LocalDestination } from "./AppAccessPopover";
 import GitBadge from "../app/GitBadge";
+import LogToast from "../app/LogToast";
 import DockerUpdateBadge from "../app/DockerUpdateBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
+import { ExtensionIcon } from "../extension/ExtensionIcon";
 import RunOnBranchPicker from "./RunOnBranchPicker";
 import type { ExtensionInfo } from "../../types/extension";
 
@@ -18,6 +23,7 @@ const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"))
 const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
 const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
 const AccessSettingsDrawer = lazy(() => import("../app/AccessSettingsDrawer"));
+const ExtensionPanel = lazy(() => import("../app/ExtensionPanel"));
 type ConfigSection = import("../app/AppSettingsModal").Section;
 type AccessSettingsSection = import("../app/AccessSettingsDrawer").AccessSettingsSection;
 type AppInstance = import("../../lib/commands").AppInstance;
@@ -27,9 +33,13 @@ const EMPTY_INSTANCES: AppInstance[] = [];
 // would make useShallow see a change every render → infinite update loop).
 const EMPTY: string[] = [];
 
-function toStatus(s: string): Status {
+// `App["status"]` only ever holds stopped/running/starting — a crash is carried
+// out-of-band by `appExitCode` (non-zero), exactly like the grid card derives
+// it. So the caller passes that flag in; mapping a "crashed" status string here
+// would never fire.
+function toStatus(s: string, crashed = false): Status {
+  if (crashed) return "error";
   if (s === "running") return "running";
-  if (s === "crashed") return "error";
   if (s === "starting") return "connecting";
   return "stopped";
 }
@@ -61,6 +71,37 @@ function Sparkline({ points, className = "" }: { points: number[]; className?: s
     <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none" className={className} aria-hidden>
       <polyline points={d} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/**
+ * Copy-to-clipboard affordance with a brief confirmation. The Overview's URL
+ * and domain rows only opened their target — copying meant selecting the text
+ * by hand, which the truncated/`user-select: none` chrome makes awkward.
+ */
+function CopyButton({ value, label, className = "" }: { value: string; label: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(() => setCopied(true)).catch(() => {});
+      }}
+      title={copied ? "Copied" : `Copy ${value}`}
+      aria-label={`Copy ${label}`}
+      className={`shrink-0 rounded p-0.5 transition-colors ${copied ? "text-ok" : "text-ink-3 hover:text-ink"} ${className}`}
+    >
+      {copied ? (
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6.2l2.6 2.6L10 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      ) : (
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><rect x="4" y="4" width="6.5" height="6.5" rx="1.3" stroke="currentColor" strokeWidth="1.1"/><path d="M8 3.4V2.8A1.3 1.3 0 0 0 6.7 1.5H2.8A1.3 1.3 0 0 0 1.5 2.8v3.9A1.3 1.3 0 0 0 2.8 8h.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+      )}
+    </button>
   );
 }
 
@@ -204,9 +245,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const [tunnelBusy, setTunnelBusy] = useState(false);
 
   const {
-    startApp, stopApp, restartApp, clearAppLogs, logs, health, branch, restarting, setupStatus,
+    startApp, stopApp, restartApp, clearAppLogs, logs, exitCode, health, branch, restarting, setupStatus,
     instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
     openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
+    pinnedExtensions, togglePinnedExtension, notifyError,
     clearTunnelLog, selectInstance,
   } = usePortaStore(
     useShallow((s) => ({
@@ -215,6 +257,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       restartApp: s.restartApp,
       clearAppLogs: s.clearAppLogs,
       logs: s.appLogs[app.id] ?? EMPTY,
+      exitCode: s.appExitCode[app.id] ?? null,
       health: s.healthStatuses[app.id],
       branch: s.appGit[app.id]?.branch,
       restarting: s.appRestarting[app.id] ?? false,
@@ -227,6 +270,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       openExtensionSidebar: s.openExtensionSidebar,
       closeExtensionSidebar: s.closeExtensionSidebar,
       cacheAppExtensions: s.cacheAppExtensions,
+      pinnedExtensions: s.pinnedExtensions,
+      togglePinnedExtension: s.togglePinnedExtension,
+      notifyError: s.notifyError,
       extSidebarActive: s.extensionSidebar?.appId === app.id,
       clearTunnelLog: s.clearTunnelLog,
       selectInstance: s.selectInstance,
@@ -258,7 +304,13 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // otherwise the local `busy` flag clears the instant the IPC returns (before
   // the process is actually up) and the button flickers back to plain "Start".
   const isStarting = app.status === "starting";
-  const st = toStatus(app.status);
+  // Process is alive (running or booting) — drives the log toast's open/close
+  // transitions, same signal the grid card uses.
+  const isActive = running || isStarting;
+  // A non-zero exit code is the only crash signal the backend emits; without
+  // reading it the workbench showed a plain grey "stopped" for a failed start.
+  const crashed = exitCode !== null && exitCode !== 0;
+  const st = toStatus(app.status, crashed);
   // Every host Caddy serves this app under — the primary subdomain plus
   // any extra_subdomains, resolved against the app's custom domain or the
   // workspace domain (mirrors the card's allHosts in main).
@@ -327,6 +379,58 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     }
   }, [app.status, waitingForReady]);
 
+  // ── Log toast (restored from the grid card) ──────────────────────────────
+  // Opening an app hides the whole WorkspaceView subtree (App.tsx wraps it in
+  // `hidden`), which took the card's LogToast — and therefore every start /
+  // crash log preview — with it. The workbench owns its own copy so starting
+  // from here surfaces the same output.
+  const [logToastOpen, setLogToastOpen] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const prevActive = useRef(isActive);
+  const prevCrashed = useRef(crashed);
+
+  // The Logs tab already streams this output full-height; a toast on top of it
+  // is pure noise, so suppress it while the user is looking at the logger.
+  const inLogger = tab === "logs";
+
+  useEffect(() => {
+    if (isActive !== prevActive.current) {
+      if (!inLogger) setLogToastOpen(true);
+      if (isActive) setBannerDismissed(false);
+    }
+    prevActive.current = isActive;
+  }, [isActive, inLogger]);
+
+  useEffect(() => {
+    if (crashed && !prevCrashed.current) {
+      setBannerDismissed(false);
+      if (!inLogger) setLogToastOpen(true);
+    }
+    prevCrashed.current = crashed;
+  }, [crashed, inLogger]);
+
+  // Switching to the logger supersedes the preview.
+  useEffect(() => { if (inLogger) setLogToastOpen(false); }, [inLogger]);
+
+  // Switching apps/instances reuses this component — don't carry the previous
+  // app's toast or crash banner over.
+  useEffect(() => {
+    setLogToastOpen(false);
+    setBannerDismissed(false);
+  }, [app.id]);
+
+  // Unpinning the extension whose tab is open (or switching to an app it
+  // doesn't activate for) would leave `tab` pointing at a tab that no longer
+  // exists — blank content with nothing selected in the strip.
+  const pinnedTabIds = pinnedExtensions.map((id) => `ext:${id}`).join(",");
+  useEffect(() => {
+    if (!tab.startsWith("ext:")) return;
+    const stillThere = appExtensions.some(
+      (e) => `ext:${e.id}` === tab && pinnedExtensions.includes(e.id)
+    );
+    if (!stillThere) setTab("overview");
+  }, [tab, appExtensions, pinnedTabIds, pinnedExtensions]);
+
   // Run a lifecycle action with a local in-flight flag so its Button shows a
   // spinner + disables until the round-trip settles.
   async function runLifecycle(kind: "start" | "stop" | "restart", fn: () => Promise<void>) {
@@ -341,8 +445,14 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
         if (status === "starting") setWaitingForReady(kind);
       }
     } catch (error) {
+      // This used to rethrow into an unhandled rejection — no call site catches
+      // it, so a failed start/stop/restart from the workbench was completely
+      // silent. Docker-runtime-down is the one case the user can't act on from
+      // here, and `app:start-failed` already reports it.
       setWaitingForReady(null);
-      throw error;
+      if (!isDockerRuntimeUnavailable(errorText(error))) {
+        notifyError(`Failed to ${kind} ${isInstance ? instance!.branch : app.name}`, error);
+      }
     } finally {
       setBusy(null);
     }
@@ -406,8 +516,22 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v5.5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg> },
   ];
 
+  // Pinned extensions become tabs right after Config. Driven off the global pin
+  // order and intersected with this app's matching extensions, so a pin only
+  // materialises where the extension actually activates.
+  const pinnedExts = pinnedExtensions
+    .map((id) => appExtensions.find((e) => e.id === id))
+    .filter((e): e is ExtensionInfo => !!e);
+
   // Instance mode hides Config because a branch instance inherits its parent.
-  const visibleTabs = isInstance ? TABS.filter((t) => t.id !== "config") : TABS;
+  const visibleTabs: TabItem[] = [
+    ...(isInstance ? TABS.filter((t) => t.id !== "config") : TABS),
+    ...pinnedExts.map((e) => ({
+      id: `ext:${e.id}`,
+      label: e.name,
+      icon: <ExtensionIcon extension={e} size="sm" />,
+    })),
+  ];
 
   return (
     <div className="flex flex-col h-screen -mx-6 -mt-6 -mb-6">
@@ -448,7 +572,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             </h1>
           </div>
           <div className="mt-1 flex items-center gap-2 min-w-0 text-[11px] text-ink-3">
-            <Badge tone={running ? "ok" : st === "error" ? "bad" : "neutral"}>{app.status}</Badge>
+            <Badge tone={running ? "ok" : crashed ? "bad" : "neutral"}>
+              {crashed ? `crashed (${exitCode})` : app.status}
+            </Badge>
             {running && health === "healthy" && (
               <Badge tone="ok"><svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="inline-block -mt-px mr-0.5"><path d="M8 14s-5.5-3.5-5.5-7.2A3 3 0 018 5.2 3 3 0 0113.5 6.8C13.5 10.5 8 14 8 14z"/></svg>healthy</Badge>
             )}
@@ -471,28 +597,13 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {startLoading || restartLoading ? (
-            <>
-              <Button
-                variant={restartLoading ? "ghost" : "accent"}
-                className={restartLoading ? "border border-subtle" : ""}
-                loading
-                disabled
-                icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-              >
-                {restartLoading ? "Restarting" : "Starting"}
-              </Button>
-              <Button
-                variant="secondary"
-                loading={busy === "stop"}
-                disabled={busy !== null}
-                icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>}
-                onClick={() => runLifecycle("stop", stopFn)}
-              >
-                Stop
-              </Button>
-            </>
-          ) : running ? (
+          {/* One button per lifecycle action, never swapped for a separate
+              "Starting…" / "Restarting…" pill: the control the user just
+              clicked stays in place and turns into its own spinner. Previously
+              the loading branch rendered a different button set in a different
+              order, so Restart jumped slots mid-click. Stop is appended (never
+              prepended) while starting, so the Start button keeps its slot. */}
+          {running || restartLoading ? (
             <>
               {/* Lifecycle actions: Stop is the more prominent neutral (border-strong),
                   Restart the lighter subtle border — per mockup 05, neither is red. */}
@@ -500,7 +611,28 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               <Button variant="ghost" className="border border-subtle" loading={restartLoading} disabled={restartLoading} icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 0 1 6.9-2.8M9 1.2v2.4H6.6M10 6a4 4 0 0 1-6.9 2.8M3 10.8V8.4h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>} onClick={() => runLifecycle("restart", restartFn)}>{restartLoading ? "Restarting" : "Restart"}</Button>
             </>
           ) : (
-            <Button variant="accent" icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>} onClick={() => runLifecycle("start", startFn)}>Start</Button>
+            <>
+              <Button
+                variant="accent"
+                loading={startLoading}
+                icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>}
+                onClick={() => runLifecycle("start", startFn)}
+              >
+                {startLoading ? "Starting" : crashed ? "Restart" : "Start"}
+              </Button>
+              {/* Abort a boot that's hanging — only meaningful while starting. */}
+              {startLoading && (
+                <Button
+                  variant="secondary"
+                  loading={busy === "stop"}
+                  disabled={busy === "stop"}
+                  icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>}
+                  onClick={() => runLifecycle("stop", stopFn)}
+                >
+                  Stop
+                </Button>
+              )}
+            </>
           )}
           {/* Thin divider separates lifecycle actions from the Open action (mockup 05). */}
           <span className="w-px h-5 self-center bg-[var(--border-subtle)] mx-0.5" aria-hidden />
@@ -556,6 +688,31 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
         </div>
       </div>
 
+      {/* ── Crash banner ── mirrors the grid card: a non-zero exit is the only
+           signal the app died, and without it the workbench read as a plain
+           "stopped". */}
+      {crashed && !bannerDismissed && (
+        <div className="mx-4 mt-2 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+            <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+            <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
+          </svg>
+          <p className="text-[11px] text-red-400 flex-1">Exited with code {exitCode}</p>
+          {!inLogger && (
+            <button onClick={() => select("logs")} className="text-[10px] text-red-300 hover:text-red-200 transition-colors">
+              view logs
+            </button>
+          )}
+          <button
+            onClick={() => setBannerDismissed(true)}
+            className="text-[10px] text-red-400/50 hover:text-red-300 transition-colors"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+
       <Tabs tabs={visibleTabs} active={tab} onSelect={select} />
 
       <div className="flex-1 min-h-0">
@@ -567,7 +724,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 <div className="px-4">
                   <div className={row}>
                     <span className={key}>Status</span>
-                    <span className="text-ink flex items-center gap-1.5"><StatusDot status={st} />{app.status}</span>
+                    <span className="text-ink flex items-center gap-1.5">
+                      <StatusDot status={st} />
+                      {crashed ? `crashed (exit ${exitCode})` : app.status}
+                    </span>
                   </div>
                   <div className={row}>
                     <span className={key}>Port</span>
@@ -579,33 +739,61 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                   </div>
                   <div className={row}>
                     <span className={key}>Root</span>
-                    <span className="text-ink-2 font-mono truncate max-w-[20rem]" title={app.root_dir}>{app.root_dir}</span>
+                    {/* Reveal in Finder — the path was inert text, so the only
+                        way to reach the folder was copying it by hand. */}
+                    <button
+                      onClick={() => revealInFinder(app.root_dir)}
+                      title={`Show ${app.root_dir} in Finder`}
+                      // Content is just the path, so without this the button
+                      // announces as "/Users/…" and never says what it does.
+                      aria-label={`Show ${app.root_dir} in Finder`}
+                      className="group min-w-0 inline-flex items-center gap-1.5 text-ink-2 font-mono hover:text-accent-ink transition-colors"
+                    >
+                      <span className="truncate max-w-[20rem]">{app.root_dir}</span>
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" className="shrink-0 text-ink-3 group-hover:text-accent-ink transition-colors">
+                        <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v5.5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
                   </div>
                   <div className={row}>
                     <span className={key}>URL</span>
-                    <button
-                      onClick={() => openExternalUrl(url)}
-                      className="text-accent-ink font-mono truncate max-w-[20rem] hover:underline"
-                      title={`Open ${url}`}
-                    >
-                      {url}
-                    </button>
+                    <span className="min-w-0 inline-flex items-center gap-1.5">
+                      <button
+                        onClick={() => openExternalUrl(url)}
+                        className="text-accent-ink font-mono truncate max-w-[20rem] hover:underline"
+                        title={`Open ${url}`}
+                      >
+                        {url}
+                      </button>
+                      <CopyButton value={url} label="URL" />
+                    </span>
                   </div>
                   {/* Every Caddy host this app answers on — the primary
                       subdomain plus any extra_subdomains (restored from the card). */}
                   <div className={row}>
                     <span className={`${key} self-start pt-0.5`}>Domains</span>
                     <span className="flex flex-wrap gap-1.5 min-w-0">
+                      {/* Chip = open + copy. Two sibling buttons rather than a
+                          nested one (invalid HTML) sharing the chip border. */}
                       {allHosts.map((h) => (
-                        <button
+                        <span
                           key={h}
-                          onClick={() => openExternalUrl(`${scheme}://${h}`)}
-                          title={`Open ${scheme}://${h}`}
-                          className="inline-flex items-center gap-1 text-[11px] text-ink-2 font-mono border border-subtle rounded-[5px] px-1.5 py-0.5 hover:text-accent-ink hover:border-strong transition-colors"
+                          className="group inline-flex items-center text-[11px] font-mono border border-subtle rounded-[5px] overflow-hidden hover:border-strong transition-colors"
                         >
-                          {h}
-                          <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </button>
+                          <button
+                            onClick={() => openExternalUrl(`${scheme}://${h}`)}
+                            title={`Open ${scheme}://${h}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-ink-2 hover:text-accent-ink transition-colors"
+                          >
+                            {h}
+                            <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          </button>
+                          <CopyButton
+                            value={`${scheme}://${h}`}
+                            label={h}
+                            className="mr-1 -ml-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                          />
+                        </span>
                       ))}
                     </span>
                   </div>
@@ -656,6 +844,44 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                     Open panel
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
+                </div>
+                {/* Pin picker — which extensions get their own workbench tab.
+                    Global, so a pin follows the extension to every app it
+                    activates for. Capped: past the cap the un-pinned rows go
+                    inert rather than silently dropping a pin. */}
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {appExtensions.map((ext) => {
+                    const isPinned = pinnedExtensions.includes(ext.id);
+                    const capped = !isPinned && pinnedExtensions.length >= MAX_PINNED_EXTENSIONS;
+                    return (
+                      <button
+                        key={ext.id}
+                        onClick={() => togglePinnedExtension(ext.id)}
+                        disabled={capped}
+                        title={
+                          isPinned
+                            ? `Unpin ${ext.name} — removes its tab`
+                            : capped
+                              ? `Pin limit reached (${MAX_PINNED_EXTENSIONS}) — unpin one first`
+                              : `Pin ${ext.name} as a tab`
+                        }
+                        aria-pressed={isPinned}
+                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-control border text-[11px] transition-colors ${
+                          isPinned
+                            ? "border-[rgba(96,165,250,0.4)] bg-accent-bg text-accent-ink"
+                            : capped
+                              ? "border-subtle text-ink-3 opacity-40 cursor-not-allowed"
+                              : "border-subtle text-ink-2 hover:text-ink hover:border-strong"
+                        }`}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                          <path d="M6.2 2h3.6l-.5 4 2.2 1.9v1.2H4.5V7.9L6.7 6l-.5-4Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" fill={isPinned ? "currentColor" : "none"} fillOpacity="0.25" />
+                          <path d="M8 9.1V14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                        {ext.name}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <ExtensionActionButtons
@@ -787,15 +1013,38 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           </div>
         )}
 
+        {/* Terminal — the shared multi-tab/split surface, not a bare single
+            pane. The workbench hides the grid (and with it the TerminalModal),
+            so this tab is the only terminal reachable once an app is open and
+            must carry the same ⌘T / ⌘D / split affordances. */}
         {termSeen && (
-          <div hidden={tab !== "terminal"} className="h-full p-2">
-            <TerminalTab appId={app.id} rootDir={app.root_dir} visible={tab === "terminal"} />
+          <div hidden={tab !== "terminal"} className="h-full">
+            <TerminalWorkspace
+              appId={app.id}
+              appName={isInstance ? instance!.branch : app.name}
+              rootDir={app.root_dir}
+              active={tab === "terminal"}
+              autoSeed
+            />
           </div>
         )}
 
         <div hidden={tab !== "git"} className="h-full">
           <GitTab app={app} />
         </div>
+
+        {/* Pinned extensions — the extension's own panel inline, same treatment
+            as Config. Mounted only while active so an unopened extension never
+            boots its iframe (and its bridge/PTYs) in the background. */}
+        {pinnedExts.map((ext) =>
+          tab === `ext:${ext.id}` ? (
+            <div key={ext.id} className="h-full flex flex-col">
+              <Suspense fallback={null}>
+                <ExtensionPanel app={app} extension={ext} />
+              </Suspense>
+            </div>
+          ) : null
+        )}
 
         {/* Config (mockup 20) — app settings inline, not a full-screen modal.
             Mounted only while active (like the old modal); keyed by section so
@@ -831,6 +1080,20 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             onClose={() => setOverlay(null)}
           />
         </Suspense>
+      )}
+
+      {/* ── Log toast — auto-opens on start/stop, turns red on crash. Silent
+           while the Logs tab is active (the logger already shows this). ── */}
+      {logToastOpen && !inLogger && (
+        <LogToast
+          appName={isInstance ? instance!.branch : app.name}
+          logs={logs}
+          isRunning={running}
+          isStarting={isStarting}
+          crashed={crashed}
+          onExpand={() => { setLogToastOpen(false); select("logs"); }}
+          onClose={() => setLogToastOpen(false)}
+        />
       )}
 
       {accessSettingsSection && !isInstance && (
