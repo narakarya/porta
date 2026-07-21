@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import FilterBox from "./FilterBox";
 import FacetChips from "./FacetChips";
-import ContextMenu from "./ContextMenu";
+import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 describe("FilterBox", () => {
   it("reports each keystroke without losing focus", async () => {
@@ -37,14 +37,41 @@ describe("FacetChips", () => {
   });
 });
 
-describe("ContextMenu", () => {
+
+/**
+ * The consumer the old wrapper API could not serve: the row *is* a `<tr>`, so
+ * any element injected around it would be illegal inside a `<tbody>`. The hook
+ * hands back a prop instead, so the row stays the tbody's direct child and the
+ * menu renders as a sibling of the table.
+ */
+function TableRow({ items }: { items: ContextMenuItem[] }) {
+  const { onContextMenu, menu } = useContextMenu(items);
+  return (
+    <>
+      <table>
+        <tbody>
+          <tr onContextMenu={onContextMenu}>
+            <td>row</td>
+          </tr>
+        </tbody>
+      </table>
+      {menu}
+    </>
+  );
+}
+
+describe("useContextMenu", () => {
+  it("imposes no element of its own on the row", () => {
+    render(<TableRow items={[{ id: "copy", label: "Copy path", onSelect: vi.fn() }]} />);
+    const cell = screen.getByText("row");
+    expect(cell.tagName).toBe("TD");
+    expect(cell.parentElement?.tagName).toBe("TR");
+    expect(cell.parentElement?.parentElement?.tagName).toBe("TBODY");
+  });
+
   it("opens on right-click and runs the chosen item", async () => {
     const onSelect = vi.fn();
-    render(
-      <ContextMenu items={[{ id: "copy", label: "Copy path", onSelect }]}>
-        <div>row</div>
-      </ContextMenu>,
-    );
+    render(<TableRow items={[{ id: "copy", label: "Copy path", onSelect }]} />);
     expect(screen.queryByText("Copy path")).toBeNull();
     await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("row") });
     await userEvent.click(screen.getByText("Copy path"));
@@ -53,21 +80,47 @@ describe("ContextMenu", () => {
 
   it("closes on Escape without running anything", async () => {
     const onSelect = vi.fn();
-    render(
-      <ContextMenu items={[{ id: "copy", label: "Copy path", onSelect }]}>
-        <div>row</div>
-      </ContextMenu>,
-    );
+    render(<TableRow items={[{ id: "copy", label: "Copy path", onSelect }]} />);
     await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("row") });
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByText("Copy path")).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("closes on a click outside the menu without running anything", async () => {
+    const onSelect = vi.fn();
+    render(<TableRow items={[{ id: "copy", label: "Copy path", onSelect }]} />);
+    await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("row") });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText("Copy path")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("takes its global listeners back down when it unmounts while open", async () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    try {
+      const { unmount } = render(
+        <TableRow items={[{ id: "copy", label: "Copy path", onSelect: vi.fn() }]} />,
+      );
+      await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("row") });
+      const count = (spy: typeof add, type: string) =>
+        spy.mock.calls.filter((c) => c[0] === type).length;
+      expect(count(add, "keydown")).toBeGreaterThan(0);
+      unmount();
+      expect(count(remove, "keydown")).toBe(count(add, "keydown"));
+      expect(count(remove, "mousedown")).toBe(count(add, "mousedown"));
+    } finally {
+      add.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   describe("viewport clamping", () => {
     // jsdom always reports a zero-size getBoundingClientRect, which leaves the
-    // clamping branch in ContextMenu's useLayoutEffect permanently inert. Stub
-    // a realistic menu size and viewport so the clamp path actually runs.
+    // clamping branch in the hook's useLayoutEffect permanently inert. Stub a
+    // realistic menu size and viewport so the clamp path actually runs.
     const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
@@ -97,11 +150,7 @@ describe("ContextMenu", () => {
 
     it("clamps the menu back inside the viewport near the bottom-right corner", () => {
       stubViewport();
-      render(
-        <ContextMenu items={[{ id: "copy", label: "Copy path", onSelect: vi.fn() }]}>
-          <div>row</div>
-        </ContextMenu>,
-      );
+      render(<TableRow items={[{ id: "copy", label: "Copy path", onSelect: vi.fn() }]} />);
 
       fireEvent.contextMenu(screen.getByText("row"), { clientX: 780, clientY: 580 });
 
@@ -114,11 +163,7 @@ describe("ContextMenu", () => {
 
     it("does not clamp a click in open space", () => {
       stubViewport();
-      render(
-        <ContextMenu items={[{ id: "copy", label: "Copy path", onSelect: vi.fn() }]}>
-          <div>row</div>
-        </ContextMenu>,
-      );
+      render(<TableRow items={[{ id: "copy", label: "Copy path", onSelect: vi.fn() }]} />);
 
       fireEvent.contextMenu(screen.getByText("row"), { clientX: 100, clientY: 100 });
 
