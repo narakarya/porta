@@ -17,21 +17,25 @@ const md = new MarkdownIt({
 
 const MERMAID_INFO = /^mermaid\b/;
 
-// Fenced blocks: mermaid becomes a placeholder, everything else keeps
-// markdown-it's default rendering plus a language badge the extension also showed.
-const defaultFence =
-  md.renderer.rules.fence ??
-  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
-
-md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+// Fenced blocks: mermaid becomes a placeholder, everything else becomes a
+// <pre class="md-pre"> carrying the fence's language on the element itself.
+//
+// The language rides as `data-lang` on the <pre> rather than as a sibling
+// <span> badge, for two reasons. It is the shape the extension emitted (see
+// fixtures/markdown/fenced-code.expected.html), and it survives composition:
+// ./index.ts replaces this <pre> wholesale with Shiki's output and carries the
+// attribute across, where a sibling span would have been left pointing at an
+// element that no longer exists.
+md.renderer.rules.fence = (tokens, idx) => {
   const token = tokens[idx];
   const info = token.info.trim();
   if (MERMAID_INFO.test(info)) {
     return `<pre class="md-mermaid" data-mermaid="${md.utils.escapeHtml(token.content)}"></pre>`;
   }
   const lang = info.split(/\s+/)[0] || "";
-  const badge = lang ? `<span class="md-lang">${md.utils.escapeHtml(lang)}</span>` : "";
-  return badge + defaultFence(tokens, idx, options, env, self);
+  const cls = lang ? "md-pre md-pre-lang" : "md-pre";
+  const attr = lang ? ` data-lang="${md.utils.escapeHtml(lang)}"` : "";
+  return `<pre class="${cls}"${attr}><code>${md.utils.escapeHtml(token.content)}</code></pre>\n`;
 };
 
 // GFM task lists ("- [ ] foo" / "- [x] foo"): markdown-it has no built-in
