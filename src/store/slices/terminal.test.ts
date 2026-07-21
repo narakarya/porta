@@ -290,31 +290,41 @@ describe("app deletion", () => {
     expect(terminalClose).toHaveBeenCalledWith(pane);
   });
 
-  it("closes terminal sessions before deleting the app record", async () => {
-    // Seed an app with a terminal tab.
+  // Finding 5: this test used to pin `terminalClose` firing *before*
+  // `cmd.deleteApp` — that ordering is exactly what caused the bug. Closing
+  // terminal sessions empties `terminalTabs[id]`, and if the app were still
+  // in `apps` at that moment, TerminalWorkspace's autoSeed effect (keyed on
+  // `tabs.length` going to 0) would re-seed a fresh tab — and spawn a real
+  // PTY — for an app that's mid-delete, one nothing would ever go on to
+  // close. The invariant that actually matters is `apps` losing this id
+  // *before* any session gets closed, which is what stops that re-seed from
+  // ever being possible, regardless of which IPC call happens to land first.
+  it("removes the app from `apps` before closing its terminal sessions, so nothing can re-seed a tab for it", async () => {
     usePortaStore.setState({
       apps: [{ id: "a1", name: "porta" } as any],
     });
     usePortaStore.getState().ensureTerminalTab("a1", "porta", "/src/porta");
     const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
 
-    // Track the order in which mocks are called.
-    const callOrder: string[] = [];
+    let appsStillHadItWhenClosed: boolean | null = null;
     terminalClose.mockImplementationOnce(async (_paneId: string) => {
-      callOrder.push("terminalClose");
-    });
-    deleteApp.mockImplementationOnce(async (_id: string) => {
-      callOrder.push("deleteApp");
+      appsStillHadItWhenClosed = usePortaStore.getState().apps.some((a) => a.id === "a1");
     });
 
     await usePortaStore.getState().deleteApp("a1");
 
-    // Both should be called.
+    // Both still get called — this isn't about skipping either step.
     expect(terminalClose).toHaveBeenCalledWith(paneId);
     expect(deleteApp).toHaveBeenCalledWith("a1");
 
-    // terminalClose must be called before deleteApp.
-    expect(callOrder).toEqual(["terminalClose", "deleteApp"]);
+    // The pinned invariant: by the time this pane's session actually closes,
+    // `apps` must already lack the app. `appsStillHadItWhenClosed` staying
+    // `null` (rather than becoming `false`) is what this assertion would
+    // catch if `closeAppTerminals` were dropped from `deleteApp` entirely —
+    // `terminalClose` would never fire, the mock body above would never run,
+    // and this fails on `null !== false` instead of a false positive.
+    expect(appsStillHadItWhenClosed).toBe(false);
+    expect(usePortaStore.getState().apps.some((a) => a.id === "a1")).toBe(false);
   });
 });
 

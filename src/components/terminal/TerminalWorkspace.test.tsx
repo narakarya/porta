@@ -819,3 +819,42 @@ describe("reporting an empty surface", () => {
     expect(onEmpty).not.toHaveBeenCalled();
   });
 });
+
+// Finding 5: `deleteApp` used to close terminal sessions — which empties
+// `terminalTabs[appId]` — *before* removing the app from `apps`. While the
+// app was still in `apps`, the real app (App.tsx renders the workbench off
+// `apps.find(...)`) would still have this component mounted, its autoSeed
+// effect would see `tabs.length` drop to 0, and it would spawn a brand-new
+// tab — and a real PTY — for an app that was mid-delete, one nothing would
+// ever go on to close. `AppGatedMount` below reproduces that same
+// apps-gated mount/unmount App.tsx actually uses, rather than asserting
+// against an isolated TerminalWorkspace that (unlike production) never
+// unmounts on its own.
+function AppGatedMount({ appId }: { appId: string }) {
+  const exists = usePortaStore((s) => s.apps.some((a) => a.id === appId));
+  if (!exists) return null;
+  return <TerminalWorkspace appId={appId} appName="porta" rootDir="/src/porta" active autoSeed />;
+}
+
+describe("app deletion does not re-seed the app it is deleting", () => {
+  beforeEach(() => {
+    usePortaStore.setState({
+      terminalTabs: {},
+      terminalActiveTab: {},
+      apps: [{ id: "a1", name: "porta" } as any],
+    });
+    terminalClose.mockClear();
+  });
+
+  it("leaves the deleted app with no terminal tabs, not a freshly re-seeded one", async () => {
+    render(<AppGatedMount appId="a1" />);
+    await waitFor(() => expect(usePortaStore.getState().terminalTabs["a1"]).toHaveLength(1));
+
+    await act(async () => {
+      await usePortaStore.getState().deleteApp("a1");
+    });
+
+    expect(usePortaStore.getState().terminalTabs["a1"]).toBeUndefined();
+    expect(usePortaStore.getState().apps.some((a) => a.id === "a1")).toBe(false);
+  });
+});
