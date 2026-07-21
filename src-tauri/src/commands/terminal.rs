@@ -46,14 +46,6 @@ fn push_backlog(buf: &mut VecDeque<u8>, chunk: &[u8]) {
     buf.extend(chunk);
 }
 
-/// Snapshot an existing session's backlog, or `None` if the id is unknown.
-fn attach_existing(map: &HashMap<String, TerminalHandle>, id: &str) -> Option<TerminalAttach> {
-    map.get(id).map(|h| TerminalAttach {
-        spawned: false,
-        backlog: h.backlog.iter().copied().collect(),
-    })
-}
-
 /// Map a raw `waitpid` status to the code a shell would report: the exit
 /// status for a normal exit, `128 + signal` for a signalled death.
 fn exit_code_from_status(status: libc::c_int) -> i32 {
@@ -68,6 +60,18 @@ fn exit_code_from_status(status: libc::c_int) -> i32 {
 /// descriptor; write/resize must not touch the recycled number.
 fn is_writable(h: &TerminalHandle) -> bool {
     h.master_fd >= 0
+}
+
+/// Retire a session in place: the descriptor is gone, but the backlog is the
+/// shell's final screen and `child_pid` still identifies what ran.
+///
+/// Returns the fd that was in the handle before this call, so a caller that
+/// still owns it (i.e. hasn't already taken it via `mem::replace`) can close
+/// it. Idempotent: calling this on an already-retired handle just returns
+/// `-1` again.
+fn mark_exited(h: &mut TerminalHandle, code: i32) -> RawFd {
+    h.exit_code = Some(code);
+    std::mem::replace(&mut h.master_fd, -1)
 }
 
 /// Ensure the spawned shell sees a UTF-8 locale.
@@ -124,19 +128,21 @@ pub fn terminal_open(
     // Bound the guard to a local so the lock is released before we spawn.
     let existing = {
         let map = terminals().lock().unwrap();
-        let attach = attach_existing(&map, &app_id);
         // The reattaching view usually has different dimensions than the one
         // that left; push the new size to the still-live PTY in the same lock
         // acquisition. A no-op for an exited session, whose fd is invalidated.
-        if attach.is_some() {
-            if let Some(h) = map.get(&app_id) {
-                if is_writable(h) {
-                    let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-                    unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
-                }
+        if let Some(h) = map.get(&app_id) {
+            if is_writable(h) {
+                let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+                unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
             }
+            Some(TerminalAttach {
+                spawned: false,
+                backlog: h.backlog.iter().copied().collect(),
+            })
+        } else {
+            None
         }
-        attach
     };
     if let Some(attach) = existing {
         return Ok(attach);
@@ -248,25 +254,43 @@ pub fn terminal_open(
             app_clone.emit(&format!("terminal:data:{}", id_clone), chunk.to_vec()).ok();
             drop(map);
         }
-        unsafe { libc::close(master_fd); }
+
+        // Single owner of the fd: whoever takes it out of the handle is the
+        // one that closes it. Publish the `-1` sentinel *before* the
+        // descriptor number is freed, so `is_writable` can never advertise a
+        // number the kernel has already reused — closing it first and
+        // marking `-1` after (the previous approach) left exactly that gap
+        // open for the whole duration of the blocking `waitpid` below. If
+        // the handle is already gone, `terminal_close` won the race and
+        // owns whatever fd it held; there's nothing left to take or close.
+        let taken_fd = match terminals().lock().unwrap().get_mut(&id_clone) {
+            Some(h) => std::mem::replace(&mut h.master_fd, -1),
+            None => -1,
+        };
+        if taken_fd >= 0 {
+            unsafe { libc::close(taken_fd); }
+        }
 
         let mut status: libc::c_int = 0;
         let code = unsafe {
             if libc::waitpid(child_pid as i32, &mut status, 0) > 0 {
                 exit_code_from_status(status)
             } else {
+                // ECHILD (already reaped elsewhere) or EINTR (not retried
+                // here) both fall through to 0 — indistinguishable from a
+                // genuinely clean exit. Known limitation: the frontend
+                // contract expects *a* code either way, so this can't
+                // surface as an error, only as a possibly-wrong 0.
                 0
             }
         };
 
-        // Keep the handle: its backlog is the shell's final screen, and the UI
-        // shows an `exited` tab until the user closes or restarts it. Record
-        // the sentinel fd alongside the exit code in one lock acquisition so
-        // a concurrent write/resize can't observe a closed-but-not-yet-marked
-        // descriptor and land on whatever number the kernel reused.
+        // Keep the handle: its backlog is the shell's final screen, and the
+        // UI shows an `exited` tab until the user closes or restarts it.
+        // The handle may already be gone if `terminal_close` won the race —
+        // fine, there's nothing left to record.
         if let Some(h) = terminals().lock().unwrap().get_mut(&id_clone) {
-            h.exit_code = Some(code);
-            h.master_fd = -1;
+            mark_exited(h, code);
         }
         app_clone
             .emit(&format!("terminal:exit:{}", id_clone), serde_json::json!({ "code": code }))
@@ -308,15 +332,20 @@ pub fn terminal_resize(app_id: String, rows: u16, cols: u16) -> Result<(), Strin
 #[tauri::command]
 pub fn terminal_close(app_id: String) -> Result<(), String> {
     if let Some(h) = terminals().lock().unwrap().remove(&app_id) {
-        // An exited session's fd was already closed by its reader thread;
-        // closing it twice could take out an unrelated reused descriptor.
+        // `remove` gives this call sole ownership of whatever fd the handle
+        // held: the reader thread always takes the fd out of the handle
+        // (mem::replace to -1) before it ever closes it, so once the handle
+        // is out of the map there is no other path holding this number.
         if h.exit_code.is_none() {
             unsafe {
                 libc::kill(h.child_pid as i32, libc::SIGHUP);
                 libc::kill(h.child_pid as i32, libc::SIGTERM);
-                // Close master fd — causes the read thread to get EIO and stop.
-                libc::close(h.master_fd);
             }
+        }
+        // An exited session's fd was already taken (and closed) by its
+        // reader thread, leaving -1 here; only close a fd we actually own.
+        if h.master_fd >= 0 {
+            unsafe { libc::close(h.master_fd); }
         }
     }
     Ok(())
@@ -324,7 +353,10 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{attach_existing, push_backlog, utf8_locale_overrides, TerminalHandle, BACKLOG_CAP};
+    use super::{
+        exit_code_from_status, is_writable, mark_exited, push_backlog, utf8_locale_overrides,
+        TerminalAttach, TerminalHandle, BACKLOG_CAP,
+    };
     use std::collections::{HashMap, VecDeque};
 
     fn handle(backlog: &[u8], exit_code: Option<i32>) -> TerminalHandle {
@@ -334,6 +366,16 @@ mod tests {
             backlog: backlog.iter().copied().collect(),
             exit_code,
         }
+    }
+
+    /// Mirrors the single-lookup snapshot `terminal_open` builds from a live
+    /// map entry — kept local to the tests so they don't need production's
+    /// ioctl side effect.
+    fn attach_existing(map: &HashMap<String, TerminalHandle>, id: &str) -> Option<TerminalAttach> {
+        map.get(id).map(|h| TerminalAttach {
+            spawned: false,
+            backlog: h.backlog.iter().copied().collect(),
+        })
     }
 
     #[test]
@@ -419,8 +461,6 @@ mod tests {
         assert!(!utf8_locale_overrides(env(&[("LC_ALL", "POSIX")])).is_empty());
     }
 
-    use super::exit_code_from_status;
-
     #[test]
     fn normal_exit_reports_its_status_code() {
         // WIFEXITED with WEXITSTATUS == 0 → clean exit.
@@ -439,20 +479,36 @@ mod tests {
     }
 
     #[test]
-    fn an_exited_session_keeps_its_backlog_but_not_its_descriptor() {
-        // The reader thread closes the fd; leaving the number in the handle
-        // would let a later write land in whatever reopened it.
-        let h = TerminalHandle {
-            master_fd: -1,
-            child_pid: 4242,
-            backlog: b"final output".iter().copied().collect(),
-            exit_code: Some(1),
-        };
+    fn mark_exited_retires_the_descriptor_but_keeps_the_rest() {
+        // Simulates a still-live handle at the moment the reader thread's
+        // read loop exits: real fd, no exit code yet.
+        let mut h = handle(b"final output", None);
+        h.master_fd = 42;
+        h.child_pid = 4242;
+
+        let taken = mark_exited(&mut h, 1);
+
+        // The old fd comes back so a caller that still owns it can close it
+        // — leaving the number in the handle would let a later write land
+        // in whatever the kernel reused it for.
+        assert_eq!(taken, 42);
         assert!(h.master_fd < 0);
-        assert_eq!(h.backlog.len(), 12);
+        assert_eq!(h.exit_code, Some(1));
+        assert_eq!(h.backlog, b"final output".iter().copied().collect::<VecDeque<u8>>());
+        assert_eq!(h.child_pid, 4242);
     }
 
-    use super::is_writable;
+    #[test]
+    fn mark_exited_is_idempotent_when_the_fd_is_already_gone() {
+        // The production reader thread calls this a second time (to record
+        // the exit code) after already taking the fd out via mem::replace.
+        let mut h = handle(b"", None);
+        h.master_fd = -1;
+
+        assert_eq!(mark_exited(&mut h, 0), -1);
+        assert_eq!(h.master_fd, -1);
+        assert_eq!(h.exit_code, Some(0));
+    }
 
     #[test]
     fn a_live_session_is_writable_and_a_closed_one_is_not() {
