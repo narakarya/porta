@@ -51,8 +51,12 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
     container: HTMLElement | undefined;
     // Mirrors xterm's real (public, readonly) `textarea` property: the
     // hidden input it focuses on click/Tab/programmatic focus, and the only
-    // reliable source of a real focus event — see Finding 3.
-    textarea: HTMLTextAreaElement = document.createElement("textarea");
+    // reliable source of a real focus event — see Finding 3. Real xterm only
+    // populates this inside `open()`, not before — undefined here until then
+    // is what makes a test relying on the `term.textarea?.addEventListener`
+    // fallback (rather than the real open()-then-listen order) fail instead
+    // of silently passing.
+    textarea: HTMLTextAreaElement | undefined;
     private onDataHandler: ((data: string) => void) | null = null;
 
     constructor(options: Record<string, unknown>) {
@@ -63,6 +67,7 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
     loadAddon() {}
     open(el: HTMLElement) {
       this.container = el;
+      this.textarea = document.createElement("textarea");
     }
     onData(cb: (data: string) => void) {
       this.onDataHandler = cb;
@@ -347,7 +352,7 @@ describe("TerminalTab lifecycle", () => {
     render(<TerminalTab appId="pane-8" rootDir="/src/porta" visible onFocus={onFocus} />);
     await vi.waitFor(() => expect(terminalOpen).toHaveBeenCalled());
 
-    lastTerminal().textarea.dispatchEvent(new FocusEvent("focus"));
+    lastTerminal().textarea!.dispatchEvent(new FocusEvent("focus"));
 
     expect(onFocus).toHaveBeenCalledTimes(1);
   });

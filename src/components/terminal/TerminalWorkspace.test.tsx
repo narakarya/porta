@@ -857,4 +857,34 @@ describe("app deletion does not re-seed the app it is deleting", () => {
     expect(usePortaStore.getState().terminalTabs["a1"]).toBeUndefined();
     expect(usePortaStore.getState().apps.some((a) => a.id === "a1")).toBe(false);
   });
+
+  // The test above only checks the state after `act` has settled — but
+  // `deleteApp`'s `apps` filter and its `closeAppTerminals` await both run
+  // inside the same `await act(async () => …)`, so nothing here ever
+  // observes an intermediate render. Under the *old*, buggy ordering
+  // (`closeAppTerminals` awaited before the `apps` filter — see the comment
+  // above `deleteApp` in `store/slices/app.ts`), `terminalTabs["a1"]` would
+  // empty out while `a1` was still in `apps`, this component would still be
+  // mounted to see it, and its autoSeed effect would re-seed a fresh tab —
+  // yet by the time `act` resolves, `apps` has since been filtered too, so
+  // the final state above looks identical either way. Spying on
+  // `ensureTerminalTab` — the call autoSeed makes to re-seed — is what
+  // actually distinguishes the two orderings, regardless of what the last
+  // render looks like.
+  it("never re-seeds the app being deleted, even mid-delete", async () => {
+    const ensureTerminalTabSpy = vi.fn(usePortaStore.getState().ensureTerminalTab);
+    usePortaStore.setState({ ensureTerminalTab: ensureTerminalTabSpy });
+
+    render(<AppGatedMount appId="a1" />);
+    await waitFor(() => expect(usePortaStore.getState().terminalTabs["a1"]).toHaveLength(1));
+    ensureTerminalTabSpy.mockClear(); // Drop the initial autoSeed call from mount.
+
+    await act(async () => {
+      await usePortaStore.getState().deleteApp("a1");
+    });
+
+    expect(ensureTerminalTabSpy).not.toHaveBeenCalled();
+    expect(usePortaStore.getState().terminalTabs["a1"]).toBeUndefined();
+    expect(usePortaStore.getState().apps.some((a) => a.id === "a1")).toBe(false);
+  });
 });
