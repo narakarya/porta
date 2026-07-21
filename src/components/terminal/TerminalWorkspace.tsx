@@ -3,6 +3,8 @@ import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { TabSession } from "../../store/slices/terminal";
 import TerminalTab from "./TerminalTab";
+import TerminalStatusBar from "./TerminalStatusBar";
+import { terminalState, terminalClose } from "../../lib/commands";
 
 export interface SessionRequest {
   id: string;
@@ -122,6 +124,89 @@ export default function TerminalWorkspace({
         { lineCount: 0, matchCount: terminalQuery.trim() ? 0 : null as number | null }
       )
     : { lineCount: 0, matchCount: null };
+
+  const focusedPane =
+    activeTab?.panes.find((p) => p.id === focusedPaneId) ?? activeTab?.panes[0] ?? null;
+  // A stable primitive, not the pane object: the object is a fresh reference
+  // every time this same poll writes to the store (each tick's
+  // setTerminalPaneState produces a new pane), so depending on it below would
+  // restart the interval — and re-fire its immediate tick() — on every write,
+  // turning a 2s poll into a tight loop.
+  const focusedPaneKey = focusedPane?.id ?? null;
+
+  // Bumped by Restart (below). Included in the poll effect's deps so a
+  // restart tears down and re-establishes the poll for its pane, rather than
+  // leaving the old effect instance's in-flight IPC call free to resolve
+  // after the restart and write over the fresh `idle` state with the exited
+  // session it was actually asking about.
+  const [restartNonce, setRestartNonce] = useState<Record<string, number>>({});
+
+  // Poll only the pane the user is looking at. Guards against flapping with
+  // TerminalTab's onExit (which sets `exited` independently, off this same
+  // poll cadence): a tick reads the store's current state for this pane right
+  // before *and* right after its IPC round trip, so neither a tick already in
+  // flight when the shell exits nor a stale tick queued after can resurrect
+  // an `exited` pane back to `idle`.
+  useEffect(() => {
+    if (!active || !focusedPaneKey) return;
+    const paneId = focusedPaneKey;
+    let cancelled = false;
+    let intervalId: number | undefined;
+
+    const currentState = () =>
+      usePortaStore
+        .getState()
+        .terminalTabs[appId]?.flatMap((t) => t.panes)
+        .find((p) => p.id === paneId)?.state;
+
+    const tick = () => {
+      if (currentState() === "exited") {
+        if (intervalId !== undefined) window.clearInterval(intervalId);
+        return;
+      }
+      terminalState(paneId)
+        .then((s) => {
+          if (cancelled) return;
+          if (currentState() === "exited") return;
+          setTerminalPaneState(appId, paneId, {
+            state: !s.alive ? "exited" : s.running ? "running" : "idle",
+            exitCode: s.exitCode,
+            pid: s.pid,
+          });
+        })
+        .catch(() => {});
+    };
+    tick();
+    intervalId = window.setInterval(tick, 2000);
+    return () => {
+      cancelled = true;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [active, appId, focusedPaneKey, restartNonce[focusedPaneKey ?? ""], setTerminalPaneState]);
+
+  // Restart drops the dead session so the pane starts clean rather than
+  // stacking a second shell's output under the first one's. Bumping the
+  // nonce remounts the pane's xterm, which is what reopens the PTY. Also
+  // drops this pane's cached transcript stats — otherwise the status bar
+  // would keep showing the previous (dead) shell's line count until the
+  // fresh TerminalTab mounts and reports its own (0-line) stats, which only
+  // happens once it's visible.
+  const restartFocusedPane = useCallback(() => {
+    const paneId = focusedPaneKey;
+    if (!paneId) return;
+    void terminalClose(paneId)
+      .catch(() => {})
+      .then(() => {
+        setTerminalPaneState(appId, paneId, { state: "idle", exitCode: null, pid: null });
+        setTranscriptStats((prev) => {
+          if (!(paneId in prev)) return prev;
+          const next = { ...prev };
+          delete next[paneId];
+          return next;
+        });
+        setRestartNonce((n) => ({ ...n, [paneId]: (n[paneId] ?? 0) + 1 }));
+      });
+  }, [focusedPaneKey, appId, setTerminalPaneState]);
 
   // Seed for hosts that are always present (the workbench tab) — the modal
   // instead waits for the pendingSession that opened it. This also re-seeds
@@ -267,10 +352,6 @@ export default function TerminalWorkspace({
       {/* ── Header: title slot + transcript stats + search/filter ─────────── */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.08] shrink-0">
         {title}
-        <span className="text-[11px] text-zinc-600">
-          {activeStats.lineCount.toLocaleString()} lines
-          {activeStats.matchCount !== null ? ` · ${activeStats.matchCount.toLocaleString()} matches` : ""}
-        </span>
         <div className="flex-1" />
         <div className="relative w-[320px] max-w-[36vw]">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
@@ -464,6 +545,7 @@ export default function TerminalWorkspace({
                       )}
                       <div className="relative flex-1 min-h-0">
                         <TerminalTab
+                          key={`${pane.id}-${restartNonce[pane.id] ?? 0}`}
                           appId={pane.id}
                           rootDir={pane.rootDir}
                           visible={isTabActive}
@@ -491,6 +573,13 @@ export default function TerminalWorkspace({
             );
           })}
         </div>
+
+        <TerminalStatusBar
+          pane={focusedPane}
+          lineCount={activeStats.lineCount}
+          matchCount={activeStats.matchCount}
+          onRestart={restartFocusedPane}
+        />
       </div>
     </div>
   );

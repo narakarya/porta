@@ -1333,11 +1333,22 @@ export const terminalClose = (appId: string): Promise<void> =>
 /** Polled for the focused pane only — see TerminalWorkspace's status bar. */
 export const terminalState = (appId: string): Promise<TerminalState> =>
   isTauri
-    ? invoke<TerminalState>("terminal_state", { appId }).catch(() => ({
+    ? invoke<TerminalState>("terminal_state", { appId }).catch((err) => {
         // A session the backend no longer knows is not an error here — a tab
-        // mid-close is removed from Rust's map before its poll stops.
-        alive: false, running: false, pid: 0, exitCode: null,
-      }))
+        // mid-close is removed from Rust's map before its poll stops. That's
+        // the exact string `terminal_state` returns via `ok_or`; anything
+        // else (a broken IPC call, a Rust panic, a signature mismatch) is a
+        // real fault and must reject so the caller's `.catch` and the
+        // console see it, rather than presenting as a permanently idle
+        // terminal with nothing logged anywhere. Tauri's command errors
+        // arrive as a plain string, but check `.message` too in case a
+        // future runtime wraps it in an Error.
+        const message = err instanceof Error ? err.message : err;
+        if (message === "no such terminal session") {
+          return { alive: false, running: false, pid: 0, exitCode: null };
+        }
+        throw err;
+      })
     : Promise.resolve({ alive: true, running: false, pid: 0, exitCode: null });
 
 // ── Container observability (logs streaming + stats) ────────────────────────
