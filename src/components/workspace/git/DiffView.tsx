@@ -328,7 +328,7 @@ export default function DiffView({
           {preview && (
             <button
               onClick={() => setSurface("preview")}
-              className="border-r border-strong px-2 py-0.5 text-ink-2 hover:bg-white/[0.05]"
+              className="border-r border-strong px-2 py-0.5 text-ink-2 hover:bg-[var(--hover)]"
             >
               Preview
             </button>
@@ -336,7 +336,7 @@ export default function DiffView({
           <button
             onClick={() => setView("unified")}
             className={`px-2 py-0.5 transition-colors duration-fast ${
-              view === "unified" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-white/[0.05]"
+              view === "unified" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-[var(--hover)]"
             }`}
           >
             Unified
@@ -344,7 +344,7 @@ export default function DiffView({
           <button
             onClick={() => setView("split")}
             className={`px-2 py-0.5 transition-colors duration-fast ${
-              view === "split" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-white/[0.05]"
+              view === "split" ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-[var(--hover)]"
             }`}
           >
             Split
@@ -383,7 +383,7 @@ export default function DiffView({
                   <button
                     onClick={() => setConfirmDiscard(hi)}
                     disabled={applying !== null}
-                    className="text-[11px] text-bad border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                    className="text-[11px] text-bad border border-strong rounded-control px-2 py-0.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
                   >
                     Discard hunk
                   </button>
@@ -391,7 +391,7 @@ export default function DiffView({
                 <button
                   onClick={() => applyHunk(hunk, hi)}
                   disabled={applying !== null}
-                  className="text-[11px] text-ink-2 border border-strong rounded-control px-2 py-0.5 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                  className="text-[11px] text-ink-2 border border-strong rounded-control px-2 py-0.5 hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
                 >
                   {applying === hi ? <Spinner size={11} /> : staged ? "Unstage hunk" : "Stage hunk"}
                 </button>

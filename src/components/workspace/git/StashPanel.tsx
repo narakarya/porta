@@ -283,7 +283,7 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
               <div
                 key={s.index}
                 onClick={() => showStash(s.index)}
-                className={`mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition-colors duration-fast ${selected === s.index ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+                className={`mx-1 mb-0.5 flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition-colors duration-fast ${selected === s.index ? "bg-accent-bg" : "hover:bg-[var(--hover)]"}`}
               >
                 <input
                   type="checkbox"
@@ -320,14 +320,14 @@ export default function StashPanel({ app, onChanged }: { app: App; onChanged?: (
                     <button
                       onClick={(e) => { e.stopPropagation(); doApply(s.index); }}
                       disabled={busyIndex !== null}
-                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-white/[0.06] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
+                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-[var(--hover)] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
                     >
                       Apply
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); doPop(s.index); }}
                       disabled={busyIndex !== null}
-                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-white/[0.06] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
+                      className="text-[11px] text-ink-2 hover:text-ink hover:bg-[var(--hover)] rounded-control px-2 py-1 transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none"
                     >
                       Pop
                     </button>

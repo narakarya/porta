@@ -261,7 +261,7 @@ export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: 
                   <button
                     onClick={() => move(index, -1)}
                     disabled={index === 0 || busy}
-                    className="rounded-control px-1.5 py-1 text-[11px] text-ink-3 hover:bg-white/[0.05] hover:text-ink disabled:opacity-25"
+                    className="rounded-control px-1.5 py-1 text-[11px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink disabled:opacity-25"
                     title="Move up"
                   >
                     ↑
@@ -269,7 +269,7 @@ export default function RebasePanel({ app, onChanged }: { app: App; onChanged?: 
                   <button
                     onClick={() => move(index, 1)}
                     disabled={index === plan.length - 1 || busy}
-                    className="rounded-control px-1.5 py-1 text-[11px] text-ink-3 hover:bg-white/[0.05] hover:text-ink disabled:opacity-25"
+                    className="rounded-control px-1.5 py-1 text-[11px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink disabled:opacity-25"
                     title="Move down"
                   >
                     ↓

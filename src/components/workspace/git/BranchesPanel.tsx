@@ -38,7 +38,7 @@ function facetMatches(branch: BranchInfo, facet: Facet): boolean {
 
 function BranchBadge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "ok" | "warn" | "bad" | "accent" }) {
   const tones = {
-    neutral: "bg-white/[0.04] text-ink-3",
+    neutral: "bg-[var(--hover)] text-ink-3",
     ok: "bg-ok-bg text-ok",
     warn: "bg-warn-bg text-warn",
     bad: "bg-bad-bg text-bad",
@@ -331,7 +331,7 @@ export default function BranchesPanel({
             key={item.id}
             onClick={() => setFacet(item.id)}
             className={`rounded-full px-2 py-1 text-[10px] ${
-              facet === item.id ? "bg-accent-bg text-accent" : "text-ink-3 hover:bg-white/[0.04] hover:text-ink"
+              facet === item.id ? "bg-accent-bg text-accent" : "text-ink-3 hover:bg-[var(--hover)] hover:text-ink"
             }`}
           >
             {item.label} {item.count}
@@ -390,7 +390,7 @@ export default function BranchesPanel({
                         key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
                         title={worktreePath ? `Checked out in ${worktreePath}` : branch.name}
                         className={`group mx-1 mb-0.5 rounded-control px-2 py-1.5 ${
-                          selected?.name === branch.name ? "bg-accent-bg" : "hover:bg-white/[0.04]"
+                          selected?.name === branch.name ? "bg-accent-bg" : "hover:bg-[var(--hover)]"
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -443,7 +443,7 @@ export default function BranchesPanel({
                               {branch.name !== compareBase && (
                                 <button
                                   onClick={() => selectBranch(branch, "compare")}
-                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-white/[0.05] hover:text-ink"
+                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink"
                                 >
                                   Compare
                                 </button>
@@ -451,7 +451,7 @@ export default function BranchesPanel({
                               {!branch.current && (
                                 <button
                                   onClick={() => selectBranch(branch, "commits")}
-                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-white/[0.05] hover:text-ink"
+                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink"
                                 >
                                   Commits
                                 </button>
@@ -460,7 +460,7 @@ export default function BranchesPanel({
                                 <button
                                   onClick={() => mutate(`switch:${branch.name}`, () => gitSwitchBranch(app.root_dir, branch.name, false)).catch(() => {})}
                                   disabled={busy !== null}
-                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-white/[0.05] hover:text-ink"
+                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink"
                                 >
                                   Switch
                                 </button>
@@ -469,7 +469,7 @@ export default function BranchesPanel({
                                 <button
                                   onClick={() => mutate(`track:${branch.name}`, () => gitTrackRemoteBranch(app.root_dir, branch.name)).catch(() => {})}
                                   disabled={busy !== null}
-                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-white/[0.05] hover:text-ink"
+                                  className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink"
                                 >
                                   Track
                                 </button>
@@ -485,7 +485,7 @@ export default function BranchesPanel({
                               )}
                               <button
                                 onClick={() => navigator.clipboard?.writeText(branch.name)}
-                                className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-white/[0.05] hover:text-ink"
+                                className="rounded-control px-1.5 py-1 text-[10px] text-ink-3 hover:bg-[var(--hover)] hover:text-ink"
                                 title="Copy branch name"
                               >
                                 Copy

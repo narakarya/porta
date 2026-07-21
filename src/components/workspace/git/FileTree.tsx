@@ -108,7 +108,7 @@ function FileRow({
     <div
       onClick={onSelect}
       style={indent ? { paddingLeft: indent } : undefined}
-      className={`group relative flex items-center gap-2 mx-1 px-2 py-1 rounded-control cursor-pointer transition-colors duration-fast ${active ? "bg-accent-bg" : "hover:bg-white/[0.04]"}`}
+      className={`group relative flex items-center gap-2 mx-1 px-2 py-1 rounded-control cursor-pointer transition-colors duration-fast ${active ? "bg-accent-bg" : "hover:bg-[var(--hover)]"}`}
     >
       {onCheck && (
         <input
@@ -190,7 +190,7 @@ function FileRow({
           {onRename && (
             <button
               onClick={() => { setMenuOpen(false); onRename(); }}
-              className="w-full rounded-control px-2 py-1 text-left text-[11px] text-ink-2 hover:bg-white/[0.05]"
+              className="w-full rounded-control px-2 py-1 text-left text-[11px] text-ink-2 hover:bg-[var(--hover)]"
             >
               Rename…
             </button>
@@ -198,7 +198,7 @@ function FileRow({
           {onCopy && (
             <button
               onClick={() => { setMenuOpen(false); onCopy(); }}
-              className="w-full rounded-control px-2 py-1 text-left text-[11px] text-ink-2 hover:bg-white/[0.05]"
+              className="w-full rounded-control px-2 py-1 text-left text-[11px] text-ink-2 hover:bg-[var(--hover)]"
             >
               Copy path
             </button>
