@@ -212,6 +212,12 @@ export default function DiffView({
     return () => { mounted.current = false; };
   }, []);
 
+  // Set once this mounted instance's first fetch has landed. `path` is keyed
+  // by the caller (StatusTab), so a new file is always a fresh instance and
+  // this starts over at `false` — but a stage/unstage flip on the *same*
+  // file reuses this instance, and must not look like a first load.
+  const hasLoadedOnce = useRef(false);
+
   // Idle while the pane is hidden: the Status tab stays mounted behind another
   // tab, and re-reading a diff (plus its file preview) for a surface nobody can
   // see is pure background work. `active` is a dependency, so the diff is
@@ -220,6 +226,7 @@ export default function DiffView({
     if (!active) return;
     if (!app.root_dir || path === "") { setParsed(null); return; }
     let cancelled = false;
+    const isFirstLoad = !hasLoadedOnce.current;
     setLoading(true);
     setError(null);
     Promise.all([
@@ -231,7 +238,12 @@ export default function DiffView({
         setRawDiff(raw);
         setParsed(parseUnifiedDiff(raw));
         setPreview(nextPreview);
-        setSurface(nextPreview?.kind === "image" ? "preview" : "diff");
+        // Only auto-pick a surface on this instance's first load. A later
+        // refetch — staged flipping, a hunk stage/unstage, or the pane coming
+        // back into view — must not knock the user off the Preview/Diff
+        // surface they'd already chosen.
+        if (isFirstLoad) setSurface(nextPreview?.kind === "image" ? "preview" : "diff");
+        hasLoadedOnce.current = true;
       })
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });

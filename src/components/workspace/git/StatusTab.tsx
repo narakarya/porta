@@ -477,8 +477,13 @@ export default function StatusTab({
                   Select a file to view its diff
                 </div>
               ) : (
+                // Keyed on the path alone — a stage/unstage flip is a prop
+                // update, not a new identity, so DiffView keeps its
+                // unified/split choice, its Preview/Diff toggle and its
+                // scroll position across it. A different path is still a
+                // fresh identity, which is what resets that view state.
                 <DiffView
-                  key={`${selected.path}:${selected.staged}`}
+                  key={selected.path}
                   app={app}
                   path={selected.path}
                   staged={selected.staged}
