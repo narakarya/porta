@@ -290,6 +290,51 @@ describe("TerminalTab lifecycle", () => {
     await vi.waitFor(() => expect(lastTerminal().writes).toEqual(["backlog-bytes", "live-while-hidden"]));
   });
 
+  // Finding A (blocker, review pass 2): `requestAnimationFrame(attach)` and
+  // `ro.observe()` are armed in the same commit, but per the HTML rendering
+  // steps, animation-frame callbacks run *before* resize observations are
+  // broadcast in the same frame. `attach()` starts, immediately suspends at
+  // `await Promise.all([listen(...), listen(...)])` (listener registration is
+  // never synchronous — it's a real IPC round trip), and the observer's first
+  // delivery — which for a *visible* pane already sees a non-zero rect, no
+  // `display:none` deferral needed — must not race ahead and open the session
+  // itself before those listeners exist. If it did, whatever the reader
+  // thread emits in that window reaches neither the (not-yet-taken) backlog
+  // snapshot nor a listener: silently dropped output.
+  it("does not let the observer's first delivery call terminal_open before both listeners are registered, even on a visible pane", async () => {
+    render(<TerminalTab appId="pane-9" rootDir="/src/porta" visible />);
+
+    // Real dimensions from the very first delivery — this is the ordinary
+    // visible-mount case, not Finding 1's hidden-pane deferral.
+    const container = lastTerminal().container!;
+    Object.defineProperty(container, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        width: 800, height: 400, top: 0, left: 0, right: 800, bottom: 400, x: 0, y: 0,
+        toJSON() { return {}; },
+      }),
+    });
+
+    // Fire the observer's callback synchronously, before `attach()` (queued
+    // via `requestAnimationFrame`, a real timer in jsdom) has even started —
+    // a strictly earlier-arriving delivery than the same-frame race this
+    // finding describes, so if this doesn't call terminal_open, neither does
+    // the real race.
+    roInstances[roInstances.length - 1].cb();
+
+    expect(terminalOpen).not.toHaveBeenCalled();
+
+    // The open must still happen — once, through attach()'s own normal path
+    // once its listeners are actually up.
+    await vi.waitFor(() => expect(terminalOpen).toHaveBeenCalledTimes(1));
+    expect(terminalOpen).toHaveBeenCalledWith("pane-9", "/src/porta", 24, 80, null);
+
+    // A later, ordinary resize delivery must not reopen it.
+    roInstances[roInstances.length - 1].cb();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(terminalOpen).toHaveBeenCalledTimes(1);
+  });
+
   // Finding 3: `Terminal.prototype.onFocus` isn't public API (it belongs to
   // xterm's internal core terminal), so the previous cast-and-optional-call
   // was a permanent no-op — `focusedPaneId` in TerminalWorkspace could never

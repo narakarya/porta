@@ -220,6 +220,20 @@ export default function TerminalTab({
     // ahead of it. Hold them, then flush in order.
     let backlogWritten = false;
     const queued: number[][] = [];
+    // Set synchronously right after both `listen()` calls actually land (or,
+    // in the non-Tauri branch, immediately — there's nothing to wait for).
+    // Guards the ResizeObserver's own retry path below: per the HTML
+    // rendering steps, animation-frame callbacks run *before* resize
+    // observations are broadcast in the same frame, so `attach()` — queued
+    // via `requestAnimationFrame` — starts and immediately suspends at
+    // `await Promise.all([listen(...), listen(...)])` before the observer's
+    // first delivery arrives, on every *visible* mount (a hidden pane is the
+    // only case that needs the observer's retry at all). Without this guard
+    // the observer would call `terminal_open` itself before either listener
+    // exists, and anything the reader thread emits in that window reaches
+    // neither the not-yet-taken backlog snapshot nor a listener — silently
+    // dropped output.
+    let listenersReady = false;
 
     function consume(bytes: number[]) {
       appendTranscript(bytes);
@@ -279,11 +293,13 @@ export default function TerminalTab({
         if (!mounted) { d(); x(); return; }
         unlistenData = d;
         unlistenExit = x;
+        listenersReady = true;
       } else {
         // Browser mock: no IPC bridge to listen on, but terminalOpen below
         // still resolves (commands.ts falls back to a mock) so tests and the
         // web preview keep working.
         term.writeln("\x1b[90m(Terminal unavailable outside Tauri app)\x1b[0m");
+        listenersReady = true;
       }
 
       fitAddon.fit();
@@ -316,6 +332,12 @@ export default function TerminalTab({
       const dims = fitAddon.proposeDimensions();
       if (!dims || dims.rows <= 0 || dims.cols <= 0) return;
       if (!opened) {
+        // Don't race attach(): only open from here once its listeners are
+        // actually registered (see `listenersReady` above). If they aren't
+        // yet, attach() itself is still mid-flight and will perform the open
+        // via its own dims check once it resumes — this retry exists solely
+        // for the case attach() genuinely bailed for lack of any dimensions.
+        if (!listenersReady) return;
         void openSession(dims).catch(console.error);
         return;
       }
