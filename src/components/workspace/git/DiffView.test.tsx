@@ -138,4 +138,47 @@ describe("DiffView", () => {
     // not knock them back to Diff.
     await waitFor(() => expect(container.textContent).toContain("PREVIEWDATA123"));
   });
+
+  // Regression test for the scroll-position contract: DiffView is meant to
+  // keep its scroll offset across a staged flip too, but the container that
+  // actually scrolls lives one level up in StatusTab and never unmounts.
+  // jsdom doesn't lay out, so it never clamps a stale `scrollTop` against a
+  // shrunk `scrollHeight` the way a real browser does — a probe confirmed
+  // that stubbing `scrollHeight`/`clientHeight` on the element prototype
+  // (the pattern `useContextMenu`'s viewport-clamp test uses for
+  // `getBoundingClientRect`) has no effect on `scrollTop` here: jsdom just
+  // stores whatever value is assigned, unconditionally, so a
+  // set-scrollTop-then-assert-it-survived test would pass identically on the
+  // unfixed code — a false negative, not real coverage. So this asserts the
+  // actual mechanism instead: a full "Loading diff…" replacement is exactly
+  // what collapses the container's content (which is what makes a real
+  // browser clamp `scrollTop`), so the fix's contract is that the
+  // previously-rendered diff must stay mounted, unreplaced, for the entire
+  // span a same-instance refetch is in flight.
+  it("keeps the previous diff mounted — never a blank 'Loading diff…' swap — while a staged flip refetches", async () => {
+    const onChanged = vi.fn();
+    let resolveSecondFetch: ((diff: string) => void) | undefined;
+    let calls = 0;
+    vi.mocked(gitDiffFile).mockImplementation((_root, _path, staged) => {
+      calls += 1;
+      if (calls === 1) return Promise.resolve(staged ? STAGED_DIFF : UNSTAGED_DIFF);
+      return new Promise<string>((resolve) => { resolveSecondFetch = resolve; });
+    });
+
+    const { container, rerender } = renderDiff("foo.txt", false, onChanged);
+    await waitFor(() => expect(container.textContent).toContain("banana"));
+
+    rerender(<CountingDiffView key="foo.txt" app={app} path="foo.txt" staged={true} onChanged={onChanged} />);
+
+    // The staged-flip refetch is now in flight (its promise deliberately left
+    // unresolved above) — this is the exact window where the old code
+    // replaced the whole tree with the one-line loading state.
+    await waitFor(() => expect(calls).toBe(2));
+    expect(container.textContent).toContain("banana");
+    expect(container.textContent).not.toContain("Loading diff…");
+
+    resolveSecondFetch?.(STAGED_DIFF);
+    await waitFor(() => expect(container.textContent).toContain("mango"));
+    expect(container.textContent).not.toContain("banana");
+  });
 });

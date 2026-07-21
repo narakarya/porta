@@ -83,6 +83,17 @@ function PreviewSurface({ preview, path }: { preview: GitFilePreview; path: stri
   );
 }
 
+/** Corner affordance for a refetch that has previous content still on
+ *  screen — deliberately small and `pointer-events-none` so it never steals a
+ *  click from the diff underneath it. */
+function RefetchIndicator() {
+  return (
+    <div className="pointer-events-none absolute right-1.5 top-1.5 z-10">
+      <Spinner size={11} className="text-ink-3" />
+    </div>
+  );
+}
+
 function lineClass(kind: DiffLine["kind"]): string {
   if (kind === "add") return "bg-ok-bg text-ok";
   if (kind === "del") return "bg-bad-bg text-bad";
@@ -287,11 +298,19 @@ export default function DiffView({
     }
   }
 
-  if (loading) return <div className="text-ink-3">Loading diff…</div>;
+  // Blank the pane only on this instance's genuine first load — `parsed` is
+  // still null then because nothing has ever landed. A later refetch on the
+  // same instance (staged flip, hunk stage/unstage, the pane regaining focus)
+  // sets `loading` back to true too, but `parsed`/`rawDiff`/`preview` still
+  // hold the last successful fetch: keep rendering those so the container
+  // one level up (StatusTab) never sees its content collapse to a single
+  // line and back, which is what was resetting the user's scroll position.
+  if (loading && parsed === null) return <div className="text-ink-3">Loading diff…</div>;
   if (error) return <div className="text-bad whitespace-pre-wrap break-words">{error}</div>;
   if (preview && surface === "preview") {
     return (
-      <div className="flex h-full min-h-[280px] flex-col font-sans">
+      <div className="relative flex h-full min-h-[280px] flex-col font-sans">
+        {loading && <RefetchIndicator />}
         <div className="flex shrink-0 items-center gap-2 border-b border-subtle bg-surface-1 px-2.5 py-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">{path}</span>
           {preview.truncated && <span className="text-[10px] text-warn">Preview limited to 512 KB</span>}
@@ -311,7 +330,8 @@ export default function DiffView({
   // mode-only change comes back non-empty but with zero `@@` hunks.
   if (!parsed || rawDiff.trim() === "") {
     return (
-      <div className="flex items-center justify-between gap-2 text-ink-3">
+      <div className="relative flex items-center justify-between gap-2 text-ink-3">
+        {loading && <RefetchIndicator />}
         <span>No changes.</span>
         {preview && (
           <button onClick={() => setSurface("preview")} className="rounded-control border border-strong px-2 py-0.5 font-sans text-[11px] text-ink-2">
@@ -323,7 +343,8 @@ export default function DiffView({
   }
   if (parsed.hunks.length === 0) {
     return (
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
+        {loading && <RefetchIndicator />}
         {parsed.fileHeader.map((line, i) => (
           <div key={`h${i}`} className="whitespace-pre text-ink-3">
             {line === "" ? " " : line}
@@ -334,7 +355,8 @@ export default function DiffView({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
+      {loading && <RefetchIndicator />}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           {parsed.fileHeader.map((line, i) => (
