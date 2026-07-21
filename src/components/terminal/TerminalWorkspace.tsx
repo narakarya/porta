@@ -140,6 +140,12 @@ export default function TerminalWorkspace({
   // over the generation captured when *their* request was issued — can
   // compare against the *live* generation when the response actually lands.
   // `cancelled` alone isn't enough for that (see the poll effect below).
+  // `restartFocusedPane` mutates this ref directly the instant it bumps the
+  // nonce, rather than relying solely on this render-body sync line — a
+  // response can land in the gap before React gets around to re-rendering
+  // (or, as importantly, before `setRestartNonce`'s updater function itself
+  // actually runs, which React does not guarantee happens synchronously).
+  // This line stays as the steady-state sync path for every other render.
   const [restartNonce, setRestartNonce] = useState<Record<string, number>>({});
   const restartNonceRef = useRef(restartNonce);
   restartNonceRef.current = restartNonce;
@@ -172,17 +178,6 @@ export default function TerminalWorkspace({
     const requestGeneration = focusedPaneRestartNonce;
     let cancelled = false;
     let intervalId: number | undefined;
-    // Consecutive "Rust has no record of this session" responses in a row.
-    // One or two of these are the ordinary terminal_open race (a pane that
-    // hasn't attached in Rust yet) and self-heal within a tick or two. A
-    // session that never shows up after several ticks means terminalOpen
-    // itself failed — polling forever with nothing to show would strand the
-    // pane at its initial state with no way back, so past this bound treat
-    // it as a failed open and surface Restart instead.
-    let consecutiveAbsent = 0;
-    const MAX_CONSECUTIVE_ABSENT = 5; // ~8s of ticks: far past the single-
-    // frame open() race, short enough not to leave the user staring at a
-    // silently stuck pane.
 
     const currentState = () =>
       usePortaStore
@@ -202,16 +197,18 @@ export default function TerminalWorkspace({
           if (cancelled || isStaleRestart()) return;
           if (s === null) {
             // No record of this session yet — Rust hasn't seen terminal_open
-            // land, or (past the bound) it never will. Never synthesize a
-            // state from an absent session; just leave the pane as is and
-            // keep polling until it either shows up or we give up.
-            consecutiveAbsent += 1;
-            if (consecutiveAbsent >= MAX_CONSECUTIVE_ABSENT) {
-              setTerminalPaneState(appId, paneId, { state: "exited", exitCode: null, pid: null });
-            }
+            // land. This is the ordinary open() race (TerminalTab defers it
+            // into a requestAnimationFrame, which can itself be delayed —
+            // e.g. an occluded/minimized window suspends rAF entirely while
+            // this interval keeps firing) and self-heals whenever the open
+            // reaches Rust, however many ticks that takes. There's no bound
+            // past which absence means the open failed: a real spawn failure
+            // is already surfaced by `terminal_open` itself rejecting, which
+            // the pane renders inline — this poll doesn't need to invent a
+            // terminal state to represent it. Never synthesize a state from
+            // an absent session; just leave the pane as is and keep polling.
             return;
           }
-          consecutiveAbsent = 0;
           if (currentState() === "exited") return;
           setTerminalPaneState(appId, paneId, {
             state: !s.alive ? "exited" : s.running ? "running" : "idle",
@@ -238,12 +235,18 @@ export default function TerminalWorkspace({
   }, [active, appId, focusedPaneKey, focusedPaneRestartNonce, setTerminalPaneState]);
 
   // Guards restartFocusedPane against a second click landing while the first
-  // restart's terminalClose → store-reset round trip is still in flight —
-  // without it, two fast clicks dispatch two terminalClose calls and two
-  // nonce bumps for the same pane, and if the second close resolves after
-  // the first restart's remount it closes the fresh PTY instead of the dead
-  // one it was meant for.
+  // restart's terminalClose → store-reset → remount round trip is still in
+  // flight — without it, two fast clicks dispatch two terminalClose calls
+  // and two nonce bumps for the same pane, and if the second close resolves
+  // after the first restart's remount it closes the fresh PTY instead of the
+  // dead one it was meant for. Released once that remount has actually
+  // committed (see the `restartNonce` effect below), not the moment the
+  // store writes land — a click landing in that microtask gap could still
+  // issue a `terminalClose` that outlives the remount's `terminalOpen`.
   const pendingRestarts = useRef<Set<string>>(new Set());
+  // paneIds whose nonce bump landed this render, waiting for the remount it
+  // triggers to commit before their `pendingRestarts` entry is released.
+  const pendingReleaseRef = useRef<Set<string>>(new Set());
 
   // Restart drops the dead session so the pane starts clean rather than
   // stacking a second shell's output under the first one's. Bumping the
@@ -267,12 +270,43 @@ export default function TerminalWorkspace({
           delete next[paneId];
           return next;
         });
-        setRestartNonce((n) => ({ ...n, [paneId]: (n[paneId] ?? 0) + 1 }));
-      })
-      .finally(() => {
-        pendingRestarts.current.delete(paneId);
+        // Mutate the ref as a plain, unconditional statement right here —
+        // NOT from inside the `setRestartNonce` updater function passed
+        // below. A `useState` updater is only guaranteed to run eagerly
+        // (synchronously, at call time) when it's the first update queued
+        // for an otherwise-idle fiber; the two `setState` calls just above
+        // already mark this component as having pending work, so by the
+        // time `setRestartNonce` runs its updater is deferred to the actual
+        // render pass instead — which happens asynchronously, leaving the
+        // exact gap this fix exists to close (confirmed empirically: with
+        // the mutation inside the updater, a poll response landing right
+        // here still read the stale generation because the updater hadn't
+        // run yet). Computing off the ref (not the possibly-stale
+        // `restartNonce` state closure) and writing it back immediately
+        // makes the ref genuinely live the instant this handler runs — the poll
+        // effect's staleness check reads this same ref from inside a
+        // response handler that can run in the gap between this synchronous
+        // write and React's next flush.
+        const nextNonce = {
+          ...restartNonceRef.current,
+          [paneId]: (restartNonceRef.current[paneId] ?? 0) + 1,
+        };
+        restartNonceRef.current = nextNonce;
+        setRestartNonce(nextNonce);
+        pendingReleaseRef.current.add(paneId);
       });
   }, [focusedPaneKey, appId, setTerminalPaneState]);
+
+  // Releases `pendingRestarts` entries once the remount their nonce bump
+  // triggered has committed. This effect's own commit happens after the
+  // just-remounted pane's mount effects have run (child effects fire before
+  // the parent's in the same commit), which is the earliest point a second
+  // Restart click can safely be allowed to close the fresh PTY.
+  useEffect(() => {
+    if (pendingReleaseRef.current.size === 0) return;
+    for (const id of pendingReleaseRef.current) pendingRestarts.current.delete(id);
+    pendingReleaseRef.current.clear();
+  }, [restartNonce]);
 
   // Seed for hosts that are always present (the workbench tab) — the modal
   // instead waits for the pendingSession that opened it. This also re-seeds

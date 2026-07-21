@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePortaStore } from "../../store";
 import TerminalWorkspace, { tabState } from "./TerminalWorkspace";
 import type { TerminalState } from "../../lib/commands";
@@ -20,14 +20,32 @@ vi.mock("../../lib/commands", async (orig) => ({
 const paneProps = vi.hoisted(
   () => new Map<string, { onTranscriptStats?: (lineCount: number, matchCount: number | null) => void }>(),
 );
+// appId -> the instance token that currently owns that entry. A remount (a
+// `key` change on the pane's wrapping element) mounts the new instance
+// before the old one's cleanup commits — the new instance's render (which
+// calls `paneProps.set` below) runs first, then only later does the old
+// instance's `useEffect` cleanup fire. Without this, that cleanup would
+// unconditionally delete the entry the new instance already wrote, leaving
+// `paneProps` empty after every remount. Each instance only deletes its own
+// entry — recognized by still owning it at cleanup time — never one a newer
+// instance has since claimed.
+const paneOwners = vi.hoisted(() => new Map<string, symbol>());
 
 // xterm paints to a canvas jsdom can't render; the tab strip is what's under test.
 vi.mock("./TerminalTab", () => ({
   default: (props: { appId: string; onTranscriptStats?: (lineCount: number, matchCount: number | null) => void }) => {
+    const instanceToken = useRef<symbol | undefined>(undefined);
+    if (instanceToken.current === undefined) instanceToken.current = Symbol(props.appId);
     paneProps.set(props.appId, props);
+    paneOwners.set(props.appId, instanceToken.current);
     // Runs once per mount *and* once per remount (a `key` change forces a
     // fresh instance) — nothing else in this double depends on appId.
-    useEffect(() => () => { paneProps.delete(props.appId); }, [props.appId]);
+    useEffect(() => () => {
+      if (paneOwners.get(props.appId) === instanceToken.current) {
+        paneProps.delete(props.appId);
+        paneOwners.delete(props.appId);
+      }
+    }, [props.appId]);
     return <div data-testid={`pane-${props.appId}`} />;
   },
 }));
@@ -197,23 +215,65 @@ describe("focused-pane poll", () => {
     expect(terminalState.mock.calls.length).toBeLessThanOrEqual(7);
   });
 
-  // Finding 1's bound: a session that never shows up (terminalOpen itself
-  // failed) shouldn't poll forever reporting nothing — past a threshold of
-  // consecutive "no record" responses, the pane is surfaced as exited so
-  // Restart is available instead of a silent, permanently "idle" dead end.
-  it("gives up and surfaces Restart after the session stays absent past the bound", async () => {
+  // Finding 2 (fix pass 2): absence used to be bounded — past enough
+  // consecutive `null` responses the poll gave up and wrote `exited`. That
+  // turned a merely-slow-to-attach session into a dead end with no way to
+  // heal, and it's reachable without any real failure: `TerminalTab` defers
+  // its `terminal_open` call into a `requestAnimationFrame`, which is
+  // suspended entirely while the window is occluded or minimized — so
+  // cmd-tabbing away for ten seconds and back would trip the old bound on a
+  // perfectly live pane. There is no bound anymore: absence alone must never
+  // produce a terminal state, no matter how long it persists. A genuine
+  // spawn failure is surfaced separately by `terminal_open` itself.
+  it("never gives up on an absent session, however many ticks it stays absent", async () => {
     vi.useFakeTimers();
     terminalState.mockResolvedValue(null);
 
     render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
     const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
 
+    // Comfortably past the old 5-tick (~8s) bound this finding removes.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(60_000);
     });
 
     const pane = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === paneId)!;
-    expect(pane.state).toBe("exited");
+    expect(pane.state).toBe("idle");
+    expect(pane.exitCode).toBeNull();
+    expect(pane.pid).toBeNull();
+    // Still polling, not stuck — a regressed early-return (e.g. treating
+    // `null` as fatal) would have stopped issuing calls well before 60s.
+    expect(terminalState.mock.calls.length).toBeGreaterThan(20);
+  });
+
+  // Companion to the above: absence is genuinely transient, not just
+  // tolerated forever in a vacuum — once Rust actually reports the session
+  // (after however many `null`s), the poll picks that response up normally
+  // on the very next tick, same as if it had never been absent.
+  it("resumes normally once a real response follows one or more nulls", async () => {
+    vi.useFakeTimers();
+    terminalState.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+
+    // Mount tick + 2 more ticks (4s) all resolve null.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    let pane = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === paneId)!;
+    expect(pane.state).toBe("idle");
+    expect(pane.pid).toBeNull();
+
+    // The session finally shows up as running.
+    terminalState.mockResolvedValue({ alive: true, running: true, pid: 77, exitCode: null } satisfies TerminalState);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    pane = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === paneId)!;
+    expect(pane.state).toBe("running");
+    expect(pane.pid).toBe(77);
   });
 });
 
@@ -262,6 +322,12 @@ describe("restartFocusedPane", () => {
     // identity is what actually distinguishes a remount from a re-render.
     const nodeAfter = screen.getByTestId(`pane-${paneId}`);
     expect(nodeAfter).not.toBe(nodeBefore);
+
+    // Finding 5: the double's bookkeeping must survive the remount — the
+    // new instance registers before the old instance's cleanup fires, so a
+    // naive unconditional delete on cleanup would wipe the entry the new
+    // instance just wrote, leaving `paneProps` empty here.
+    expect(paneProps.has(paneId)).toBe(true);
   });
 
   // Finding 2: without a pending-restart guard, two fast clicks dispatch two
@@ -291,5 +357,123 @@ describe("restartFocusedPane", () => {
     });
 
     expect(terminalClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Finding 1 (fix pass 2): the staleness guard compares the live restart
+  // generation (via a ref) against the generation a poll response's request
+  // was issued under. The bug was that the ref only got updated in the
+  // render body, so it lagged one render behind `restartFocusedPane`'s
+  // synchronous zustand store write — a poll response landing in that exact
+  // gap read the pre-restart generation as still "current" and clobbered the
+  // freshly-reset pane. This test drives that interleaving directly instead
+  // of relying on timing: resolve the restart's `terminalClose` (which does
+  // the store writes + nonce bump) first, then resolve a poll response that
+  // was already in flight *before* the restart — simulating it landing right
+  // after the store write but before anything else has re-rendered.
+  it("does not let a poll response already in flight before Restart clobber the freshly-reset pane", async () => {
+    let resolveStalePoll!: (v: TerminalState | null) => void;
+    terminalState.mockImplementationOnce(
+      () => new Promise<TerminalState | null>((resolve) => { resolveStalePoll = resolve; }),
+    );
+    // Any *later* call — notably the fresh tick the post-restart effect
+    // instance fires immediately once it's installed — must not resolve
+    // during this test, or it would write its own (correct) state and mask
+    // whether the stale response above was actually discarded.
+    terminalState.mockImplementation(() => new Promise<TerminalState | null>(() => {}));
+
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+
+    // The mount's immediate tick already called terminalState and is now
+    // in flight (its promise held open by `resolveStalePoll` above). Mark
+    // the pane exited out of band (as `onExit` would) so Restart appears —
+    // this does not touch the poll effect's deps or generation.
+    act(() => {
+      // pid 999 here vs. 555 in the stale response below so a clobber is
+      // unambiguous in either direction — if the guard fails, the final pid
+      // is the stale response's 555; if it never even applied, it'd be 999.
+      usePortaStore.getState().setTerminalPaneState("a1", paneId, { state: "exited", exitCode: 1, pid: 999 });
+    });
+
+    let resolveClose!: () => void;
+    terminalClose.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveClose = resolve; }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Restart" }));
+
+    // Timing chosen empirically to land the stale response in the exact gap
+    // the fix closes: one microtask turn after `resolveClose()` gets past
+    // the `terminalClose(...).catch(() => {})` no-op stage and *into*
+    // `restartFocusedPane`'s real `.then()` handler (confirmed by
+    // instrumenting both handlers directly) — i.e. the store's `idle` write
+    // has already landed by the time the stale response's own `.then()`
+    // runs. Resolving any later loses the race to the poll effect's own
+    // cleanup/re-setup (which tears down on the nonce bump), and would then
+    // pass via the unrelated `cancelled` guard instead of exercising the
+    // generation check this test targets.
+    await act(async () => {
+      resolveClose();
+      await Promise.resolve();
+
+      resolveStalePoll({ alive: false, running: false, pid: 555, exitCode: 1 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const pane = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === paneId)!;
+    expect(pane.state).toBe("idle");
+    expect(pane.pid).toBeNull();
+  });
+});
+
+// Finding 4 (fix pass 2): the previous pass's regression test for the "no
+// such terminal session" mapping mocked `terminalState` wholesale (see the
+// `beforeEach`/`vi.mock` at the top of this file), so it never actually
+// exercised the mapping in `commands.ts` — reverting that file's `.catch`
+// handler to its old `{ alive: false, ... }` behavior leaves every test in
+// this file green. These tests call the *real*, unmocked `terminalState` to
+// pin that contract directly: `vi.importActual` bypasses this file's own
+// `vi.mock` for "../../lib/commands", and `@tauri-apps/api/core` is mocked
+// per test (via `vi.doMock` + `vi.resetModules`) so `isTauri` evaluates
+// `true` and the `invoke(...).catch(...)` branch under test actually runs —
+// in jsdom there's no real Tauri bridge, so without this the module's
+// `isTauri` is `false` and `terminalState` never reaches that branch at all.
+describe("terminalState contract (commands.ts)", () => {
+  afterEach(() => {
+    vi.doUnmock("@tauri-apps/api/core");
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    vi.resetModules();
+  });
+
+  async function loadRealCommandsWithInvoke(
+    invokeImpl: (cmd: string, args?: unknown) => Promise<unknown>,
+  ) {
+    vi.doMock("@tauri-apps/api/core", () => ({ invoke: invokeImpl }));
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    vi.resetModules();
+    return vi.importActual<typeof import("../../lib/commands")>("../../lib/commands");
+  }
+
+  it("resolves null for the exact 'no such terminal session' error", async () => {
+    const real = await loadRealCommandsWithInvoke(async () => {
+      // Tauri command errors arrive as a plain string, not an Error.
+      throw "no such terminal session";
+    });
+
+    await expect(real.terminalState("p1")).resolves.toBeNull();
+  });
+
+  it("rejects for any other error instead of collapsing it to absence", async () => {
+    const real = await loadRealCommandsWithInvoke(async () => {
+      throw "terminal session panicked mid-write";
+    });
+
+    await expect(real.terminalState("p1")).rejects.toBeTruthy();
+  });
+
+  it("resolves the live TerminalState unchanged when the session exists", async () => {
+    const state: TerminalState = { alive: true, running: true, pid: 42, exitCode: null };
+    const real = await loadRealCommandsWithInvoke(async () => state);
+
+    await expect(real.terminalState("p1")).resolves.toEqual(state);
   });
 });
