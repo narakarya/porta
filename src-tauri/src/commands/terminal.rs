@@ -62,16 +62,29 @@ fn is_writable(h: &TerminalHandle) -> bool {
     h.master_fd >= 0
 }
 
-/// Retire a session in place: the descriptor is gone, but the backlog is the
-/// shell's final screen and `child_pid` still identifies what ran.
-///
-/// Returns the fd that was in the handle before this call, so a caller that
-/// still owns it (i.e. hasn't already taken it via `mem::replace`) can close
-/// it. Idempotent: calling this on an already-retired handle just returns
-/// `-1` again.
-fn mark_exited(h: &mut TerminalHandle, code: i32) -> RawFd {
-    h.exit_code = Some(code);
+/// Take the descriptor out of a session's handle, replacing it with the
+/// closed sentinel (`-1`). The caller now owns the returned fd and is
+/// responsible for closing it — normally after releasing the map lock, so a
+/// blocking close can't hold up other sessions. Idempotent: calling this on
+/// an already-retired handle just returns `-1` again.
+fn take_fd(h: &mut TerminalHandle) -> RawFd {
     std::mem::replace(&mut h.master_fd, -1)
+}
+
+/// Record the shell's exit code on an already-retired handle. The backlog is
+/// the shell's final screen and `child_pid` still identifies what ran; only
+/// `exit_code` changes here. Callers must retire the descriptor first (via
+/// `take_fd`) — this never touches `master_fd`.
+fn record_exit(h: &mut TerminalHandle, code: i32) {
+    h.exit_code = Some(code);
+}
+
+/// Snapshot a session's retained output for a view that is (re)attaching.
+fn attach_existing(h: &TerminalHandle) -> TerminalAttach {
+    TerminalAttach {
+        spawned: false,
+        backlog: h.backlog.iter().copied().collect(),
+    }
 }
 
 /// Ensure the spawned shell sees a UTF-8 locale.
@@ -131,18 +144,13 @@ pub fn terminal_open(
         // The reattaching view usually has different dimensions than the one
         // that left; push the new size to the still-live PTY in the same lock
         // acquisition. A no-op for an exited session, whose fd is invalidated.
-        if let Some(h) = map.get(&app_id) {
+        map.get(&app_id).map(|h| {
             if is_writable(h) {
                 let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
                 unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
             }
-            Some(TerminalAttach {
-                spawned: false,
-                backlog: h.backlog.iter().copied().collect(),
-            })
-        } else {
-            None
-        }
+            attach_existing(h)
+        })
     };
     if let Some(attach) = existing {
         return Ok(attach);
@@ -264,7 +272,7 @@ pub fn terminal_open(
         // the handle is already gone, `terminal_close` won the race and
         // owns whatever fd it held; there's nothing left to take or close.
         let taken_fd = match terminals().lock().unwrap().get_mut(&id_clone) {
-            Some(h) => std::mem::replace(&mut h.master_fd, -1),
+            Some(h) => take_fd(h),
             None => -1,
         };
         if taken_fd >= 0 {
@@ -290,7 +298,7 @@ pub fn terminal_open(
         // The handle may already be gone if `terminal_close` won the race —
         // fine, there's nothing left to record.
         if let Some(h) = terminals().lock().unwrap().get_mut(&id_clone) {
-            mark_exited(h, code);
+            record_exit(h, code);
         }
         app_clone
             .emit(&format!("terminal:exit:{}", id_clone), serde_json::json!({ "code": code }))
@@ -354,8 +362,8 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        exit_code_from_status, is_writable, mark_exited, push_backlog, utf8_locale_overrides,
-        TerminalAttach, TerminalHandle, BACKLOG_CAP,
+        attach_existing, exit_code_from_status, is_writable, push_backlog, record_exit, take_fd,
+        utf8_locale_overrides, TerminalHandle, BACKLOG_CAP,
     };
     use std::collections::{HashMap, VecDeque};
 
@@ -366,16 +374,6 @@ mod tests {
             backlog: backlog.iter().copied().collect(),
             exit_code,
         }
-    }
-
-    /// Mirrors the single-lookup snapshot `terminal_open` builds from a live
-    /// map entry — kept local to the tests so they don't need production's
-    /// ioctl side effect.
-    fn attach_existing(map: &HashMap<String, TerminalHandle>, id: &str) -> Option<TerminalAttach> {
-        map.get(id).map(|h| TerminalAttach {
-            spawned: false,
-            backlog: h.backlog.iter().copied().collect(),
-        })
     }
 
     #[test]
@@ -406,29 +404,27 @@ mod tests {
 
     #[test]
     fn attaching_to_a_live_session_replays_without_spawning() {
-        let mut map = HashMap::new();
-        map.insert("pane-1".to_string(), handle(b"prompt$ ", None));
+        let h = handle(b"prompt$ ", None);
 
-        let attach = attach_existing(&map, "pane-1").expect("live session attaches");
+        let attach = attach_existing(&h);
         assert!(!attach.spawned);
         assert_eq!(attach.backlog, b"prompt$ ");
     }
 
     #[test]
     fn attaching_to_an_exited_session_still_replays_its_last_screen() {
-        let mut map = HashMap::new();
-        map.insert("pane-1".to_string(), handle(b"boom\n", Some(1)));
+        let h = handle(b"boom\n", Some(1));
 
-        let attach = attach_existing(&map, "pane-1").expect("exited session attaches");
+        let attach = attach_existing(&h);
         assert!(!attach.spawned);
         assert_eq!(attach.backlog, b"boom\n");
     }
 
-    #[test]
-    fn attaching_to_an_unknown_session_asks_for_a_spawn() {
-        let map = HashMap::new();
-        assert!(attach_existing(&map, "pane-1").is_none());
-    }
+    // No test for "unknown session id" against `attach_existing`: that case
+    // never reaches the helper. `terminal_open` handles it via
+    // `map.get(&app_id)` returning `None`, which is `HashMap::get`'s own
+    // documented behavior, not logic this file owns. A test here would only
+    // restate the standard library's contract.
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let map: HashMap<String, String> =
@@ -479,35 +475,49 @@ mod tests {
     }
 
     #[test]
-    fn mark_exited_retires_the_descriptor_but_keeps_the_rest() {
+    fn take_fd_retires_the_descriptor_but_keeps_the_rest() {
         // Simulates a still-live handle at the moment the reader thread's
         // read loop exits: real fd, no exit code yet.
         let mut h = handle(b"final output", None);
         h.master_fd = 42;
         h.child_pid = 4242;
 
-        let taken = mark_exited(&mut h, 1);
+        let taken = take_fd(&mut h);
 
         // The old fd comes back so a caller that still owns it can close it
         // — leaving the number in the handle would let a later write land
         // in whatever the kernel reused it for.
         assert_eq!(taken, 42);
         assert!(h.master_fd < 0);
-        assert_eq!(h.exit_code, Some(1));
+        assert_eq!(h.exit_code, None);
         assert_eq!(h.backlog, b"final output".iter().copied().collect::<VecDeque<u8>>());
         assert_eq!(h.child_pid, 4242);
     }
 
     #[test]
-    fn mark_exited_is_idempotent_when_the_fd_is_already_gone() {
-        // The production reader thread calls this a second time (to record
-        // the exit code) after already taking the fd out via mem::replace.
+    fn take_fd_is_idempotent_when_the_fd_is_already_gone() {
+        // The production reader thread only ever calls `take_fd` once per
+        // session, but the fd may already be -1 if the handle was never
+        // fully live; this pins that a repeat call is still safe.
         let mut h = handle(b"", None);
         h.master_fd = -1;
 
-        assert_eq!(mark_exited(&mut h, 0), -1);
+        assert_eq!(take_fd(&mut h), -1);
         assert_eq!(h.master_fd, -1);
-        assert_eq!(h.exit_code, Some(0));
+    }
+
+    #[test]
+    fn record_exit_sets_the_code_without_touching_the_descriptor() {
+        // Production always calls this after `take_fd` has already retired
+        // the descriptor; the fd should be left untouched here.
+        let mut h = handle(b"final output", None);
+        h.master_fd = -1;
+
+        record_exit(&mut h, 1);
+
+        assert_eq!(h.exit_code, Some(1));
+        assert_eq!(h.master_fd, -1);
+        assert_eq!(h.backlog, b"final output".iter().copied().collect::<VecDeque<u8>>());
     }
 
     #[test]
