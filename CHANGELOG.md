@@ -4,6 +4,27 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.3]
+
+Makes "Check for updates" tell the truth while a beta is being built.
+
+### Fixed
+
+- **The beta channel stays readable during a build.** The release pipeline
+  opened by deleting the `beta` release and recreating it as a draft, then spent
+  the whole build with `releases/download/beta/latest.json` returning a 404 — so
+  checking for updates in that window reported `Could not fetch a valid release
+  JSON from the remote`. Build artifacts now live on the per-version
+  `beta-v<version>` release, whose urls are unique and never overwritten, while
+  `beta` holds only `latest.json` and is never deleted. The manifest is written
+  last, in one step: until then clients keep seeing the previous beta intact.
+  A failed build no longer takes the channel down with it.
+- **An unreachable manifest no longer reads as a crash.** A manual check that
+  couldn't fetch the manifest showed the updater plugin's internal wording under
+  a red "Update failed". That case is now neutral — "No update available yet" —
+  with a Retry. Genuine faults (a malformed manifest, a signature mismatch) stay
+  red and still show their message.
+
 ## [0.14.0-beta.2]
 
 Fixes SSH connections to hosts on the local network, which macOS was blocking
