@@ -41,6 +41,10 @@ describe("renderMarkdown", () => {
 
   it("escapes raw HTML instead of executing it", () => {
     const html = renderMarkdown("<img src=x onerror=alert(1)>");
-    expect(html).not.toContain("onerror=alert");
+    // The payload text may survive as inert escaped characters — that is fine
+    // and expected. What must never happen is a live element reaching the DOM,
+    // so assert on the tag, not on the substring "onerror=alert".
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
   });
 });

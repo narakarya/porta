@@ -34,18 +34,6 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return badge + defaultFence(tokens, idx, options, env, self);
 };
 
-// Defense in depth for raw HTML in prose. With html:false, markdown-it never
-// parses "<img ... onerror=...>" as a tag — the whole line becomes one text
-// token, escaped only for &<>"' (angle brackets are enough to stop it from
-// ever being parsed as a tag). That leaves attribute-shaped substrings like
-// "onerror=alert(...)" sitting in the output as inert text; encode "=" too
-// so no attribute-shaped fragment survives verbatim, even inertly.
-const defaultText =
-  md.renderer.rules.text ?? ((tokens, idx) => md.utils.escapeHtml(tokens[idx].content));
-
-md.renderer.rules.text = (tokens, idx, options, env, self) =>
-  defaultText(tokens, idx, options, env, self).replace(/=/g, "&#61;");
-
 // GFM task lists ("- [ ] foo" / "- [x] foo"): markdown-it has no built-in
 // support for these, so the extension's rendered checkboxes would otherwise
 // come out as literal "[ ]"/"[x]" text, violating the <input> floor. This
