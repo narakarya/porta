@@ -257,11 +257,13 @@ export default function UpdateToast() {
       onClose={dismissUpdater}
       variant="card"
       closeOnEscape={escDismiss}
-      panelClassName="fixed left-[60px] bottom-[14px] z-[60]"
+      // Anchored to the rail's version dot (rail bottom padding 12 + Settings
+      // 36 + gap 8 + half the dot button 18 = 74px), not the removed avatar.
+      panelClassName="fixed left-[60px] bottom-[60px] z-[60]"
     >
       <div role="status" aria-live="polite">
         {/* Connecting caret — a rotated square whose left/bottom edges face the
-            rail, so the card reads as anchored to the account button. */}
+            rail, so the card reads as anchored to the version dot. */}
         <span
           aria-hidden="true"
           className="absolute left-[-5px] bottom-[9px] w-[10px] h-[10px] rotate-45 bg-[#202024] border-l border-b border-strong"

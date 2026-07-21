@@ -1,4 +1,5 @@
 import { usePortaStore } from "../../store";
+import { checkForUpdate } from "../../lib/updater";
 
 type Domain = "workspaces" | "hosts" | "services" | "activity" | "extensions";
 
@@ -52,8 +53,6 @@ const DOMAINS: { id: Domain; label: string }[] = [
 export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsActive }: Props) {
   const activeDomain = usePortaStore((s) => s.activeDomain);
   const setActiveDomain = usePortaStore((s) => s.setActiveDomain);
-  const updaterPhase = usePortaStore((s) => s.updaterPhase);
-  const updateReady = updaterPhase === "available" || updaterPhase === "ready";
 
   return (
     <nav className="drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-3 pb-3 z-20">
@@ -80,6 +79,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
       </div>
 
       <div className="no-drag mt-auto flex flex-col items-center gap-2">
+        <VersionDot />
         <button
           onClick={onOpenSettings}
           title="Settings"
@@ -95,17 +95,75 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
             <path d="M19.4 13a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
-        <button
-          title="Account"
-          aria-label="Account"
-          className="relative w-[26px] h-[26px] rounded-full bg-accent-bg text-[11px] font-medium text-accent-ink flex items-center justify-center transition-colors"
-        >
-          NG
-          {updateReady && (
-            <span className="absolute -top-px -right-px w-[9px] h-[9px] rounded-full bg-accent border-[1.5px] border-surface-1" title="Update available" />
-          )}
-        </button>
       </div>
     </nav>
+  );
+}
+
+/**
+ * Version indicator — the app's only version surface, sitting directly above
+ * Settings. Replaces both the inert `v0.0.0` row in the Workspaces sidebar
+ * footer (which could never be clicked) and the "NG" account initial the update
+ * popover used to anchor to, which had nothing to do with versions.
+ *
+ * Dot colour carries setup health, the tooltip carries the version plus any
+ * setup issues, and clicking runs a manual update check — which is what puts
+ * the update popover on screen (UpdateToast renders on any non-idle phase).
+ */
+function VersionDot() {
+  const setupStatus = usePortaStore((s) => s.setupStatus);
+  const updaterPhase = usePortaStore((s) => s.updaterPhase);
+  const updateReady = updaterPhase === "available" || updaterPhase === "ready";
+  const checking = updaterPhase === "checking";
+
+  const issues: string[] = [];
+  if (setupStatus) {
+    if (!setupStatus.caddy_installed) issues.push("Caddy not installed");
+    else if (!setupStatus.caddy_running) issues.push("Caddy stopped");
+    if (!setupStatus.dnsmasq_installed) issues.push("dnsmasq not installed");
+    if (!setupStatus.mkcert_installed) issues.push("mkcert not installed");
+    if (!setupStatus.certs_generated) issues.push("TLS certs not generated");
+  }
+
+  const tone: "unknown" | "ok" | "warn" | "bad" = !setupStatus
+    ? "unknown"
+    : !setupStatus.caddy_installed || !setupStatus.dnsmasq_installed || !setupStatus.mkcert_installed
+      ? "bad"
+      : issues.length > 0
+        ? "warn"
+        : "ok";
+
+  // An available update outranks setup health on the dot — it's the only state
+  // that asks the user to act on *this* control.
+  const dotClass = updateReady
+    ? "bg-accent pulse-dot"
+    : checking
+      ? "bg-accent pulse-dot"
+      : tone === "ok"
+        ? "bg-emerald-400"
+        : tone === "warn"
+          ? "bg-amber-400 pulse-dot"
+          : tone === "bad"
+            ? "bg-red-400 pulse-dot"
+            : "bg-zinc-600";
+
+  const tooltip = [
+    `Porta v${__BUILD_TAG__}`,
+    updateReady ? "Update available" : null,
+    ...(tone === "ok" || tone === "unknown" ? [] : issues),
+    "Click to check for updates",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return (
+    <button
+      onClick={() => void checkForUpdate({ silent: false, source: "menu" })}
+      title={tooltip}
+      aria-label={`Porta v${__BUILD_TAG__} — check for updates`}
+      className="w-9 h-9 flex items-center justify-center rounded-[9px] text-ink-3 hover:bg-white/[0.05] transition-colors"
+    >
+      <span className={`w-2 h-2 rounded-full shrink-0 transition-colors ${dotClass}`} />
+    </button>
   );
 }

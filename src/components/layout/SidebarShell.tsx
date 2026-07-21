@@ -1,4 +1,6 @@
 import type { ReactNode, HTMLAttributes } from "react";
+import { usePortaStore } from "../../store";
+import { SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../store/slices/ui";
 
 /**
  * SidebarShell — one source of truth for the sidebar frame + its repeated
@@ -17,11 +19,47 @@ import type { ReactNode, HTMLAttributes } from "react";
  * which callers place as the first child here.
  */
 export function SidebarFrame({ className, children }: { className?: string; children: ReactNode }) {
+  const width = usePortaStore((s) => s.sidebarWidth);
+  const setWidth = usePortaStore((s) => s.setSidebarWidth);
+
+  // Drag-to-resize on the right edge. The running width is written straight to
+  // the store (which clamps to [SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH] and
+  // persists), so a drag can't collapse the sidebar to an unusable sliver.
+  function beginResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const onMove = (ev: MouseEvent) => setWidth(startW + (ev.clientX - startX));
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
   return (
     <aside
-      className={`w-[216px] bg-[#0d0d0f] border-r border-white/[0.07] flex flex-col pb-2 shrink-0 ${className ?? ""}`}
+      style={{ width }}
+      // surface-1, same as the rail: the sidebar is chrome, so sharing
+      // surface-0 with the content area left the two indistinguishable apart
+      // from a hairline border.
+      className={`relative bg-surface-1 border-r border-white/[0.07] flex flex-col pb-2 shrink-0 ${className ?? ""}`}
     >
       {children}
+      <div
+        onMouseDown={beginResize}
+        onDoubleClick={() => setWidth(216)}
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={width}
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        title="Drag to resize · double-click to reset"
+        className="absolute top-0 right-0 h-full w-1.5 translate-x-1/2 cursor-col-resize z-30 hover:bg-accent/30 transition-colors"
+      />
     </aside>
   );
 }

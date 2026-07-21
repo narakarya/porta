@@ -104,6 +104,9 @@ export interface UiSlice {
   terminalPlacement: TerminalPlacement;
   /** Panel-mode height as a fraction of the viewport (0.15 – 0.92). */
   terminalPanelHeight: number;
+  /** Shared width of the Workspaces / Hosts sidebar in px. Persisted. */
+  sidebarWidth: number;
+  setSidebarWidth: (px: number) => void;
   /** Sidebar workspace headers currently collapsed. Persisted to localStorage. */
   collapsedWorkspaces: Set<string>;
   /** App ids whose worktree-instance sub-tree is collapsed. Persisted. */
@@ -117,6 +120,15 @@ export interface UiSlice {
    * sidebar showed stale version numbers until reload.
    */
   extensionListVersion: number;
+  /**
+   * Extension ids pinned as workbench tabs, in tab order. Global (not per app):
+   * a pinned extension shows up in every app it activates for, so pinning is a
+   * one-time choice instead of per-app bookkeeping. Capped at
+   * {@link MAX_PINNED_EXTENSIONS} so the tab bar stays readable. Persisted.
+   */
+  pinnedExtensions: string[];
+  /** Pin/unpin an extension. Pinning past the cap is a no-op. */
+  togglePinnedExtension: (id: string) => void;
   /** Which top-level surface the main content area renders. */
   activeDomain: "workspaces" | "hosts" | "services" | "activity" | "extensions";
   /** App opened in the Workspaces workbench (null = app list). */
@@ -190,6 +202,38 @@ function saveStringSet(key: string, value: Set<string>): void {
   if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify([...value]));
 }
 
+const LS_SIDEBAR_WIDTH = "porta.sidebar.width";
+/** Below this the two-line host rows and app rows start truncating to nothing;
+ *  above it the sidebar starts crowding the workbench. */
+export const SIDEBAR_MIN_WIDTH = 180;
+export const SIDEBAR_MAX_WIDTH = 420;
+const SIDEBAR_DEFAULT_WIDTH = 216;
+
+function loadSidebarWidth(): number {
+  if (typeof localStorage === "undefined") return SIDEBAR_DEFAULT_WIDTH;
+  const n = parseFloat(localStorage.getItem(LS_SIDEBAR_WIDTH) || "");
+  return Number.isFinite(n) && n >= SIDEBAR_MIN_WIDTH && n <= SIDEBAR_MAX_WIDTH
+    ? n
+    : SIDEBAR_DEFAULT_WIDTH;
+}
+
+const LS_PINNED_EXTENSIONS = "porta.workbench.pinnedExtensions";
+/** Tab bar already carries Overview/Logs/Git/Terminal/Config — two more fit
+ *  without scrolling on a narrow window. */
+export const MAX_PINNED_EXTENSIONS = 2;
+
+function loadPinnedExtensions(): string[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const arr: unknown = JSON.parse(localStorage.getItem(LS_PINNED_EXTENSIONS) || "[]");
+    return Array.isArray(arr)
+      ? arr.filter((x): x is string => typeof x === "string").slice(0, MAX_PINNED_EXTENSIONS)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get) => ({
   setupStatus: null,
   loading: false,
@@ -199,6 +243,8 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   imageUpdateNotifyEnabled: true,
   gitAdvancedEnabled: true,
   extensionSidebar: null,
+  pinnedExtensions: loadPinnedExtensions(),
+  sidebarWidth: loadSidebarWidth(),
   appExtensions: {},
   settingsSection: null,
   updaterPhase: "idle",
@@ -264,6 +310,28 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     set({ extensionSidebar: { appId, extensions, focusExtensionId, focusNonce: ++extensionFocusNonce } }),
 
   closeExtensionSidebar: () => set({ extensionSidebar: null }),
+
+  setSidebarWidth: (px) => {
+    const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(px)));
+    set({ sidebarWidth: clamped });
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(LS_SIDEBAR_WIDTH, String(clamped));
+    }
+  },
+
+  togglePinnedExtension: (id) =>
+    set((s) => {
+      const pinned = s.pinnedExtensions.includes(id)
+        ? s.pinnedExtensions.filter((x) => x !== id)
+        : s.pinnedExtensions.length >= MAX_PINNED_EXTENSIONS
+          ? s.pinnedExtensions
+          : [...s.pinnedExtensions, id];
+      if (pinned === s.pinnedExtensions) return {};
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(LS_PINNED_EXTENSIONS, JSON.stringify(pinned));
+      }
+      return { pinnedExtensions: pinned };
+    }),
 
   cacheAppExtensions: (appId, extensions) =>
     set((s) => ({ appExtensions: { ...s.appExtensions, [appId]: extensions } })),

@@ -741,9 +741,6 @@ export default function Sidebar() {
         </button>
       </SidebarFooter>
 
-      <SidebarFooter>
-        <SidebarStatusRow />
-      </SidebarFooter>
 
       {contextMenu && (
         <WorkspaceContextMenu
@@ -889,61 +886,3 @@ function TrashMenuIcon() {
   );
 }
 
-/**
- * Compact status/version row. The dot carries system (setup) health via
- * tooltip; the text stays focused on the app version. Self-update state is NOT
- * shown here — that lives in the single update popover (UpdateToast, anchored to
- * the rail avatar) plus the avatar's update dot, so there's exactly one update
- * surface instead of a redundant second popover.
- */
-function SidebarStatusRow() {
-  const setupStatus = usePortaStore((s) => s.setupStatus);
-
-  if (!setupStatus) {
-    return (
-      <div
-        title={`System status unavailable\nPorta ${__BUILD_TAG__}`}
-        className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 font-mono select-text"
-      >
-        <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-600" />
-        <span className="truncate">v{__BUILD_TAG__}</span>
-      </div>
-    );
-  }
-
-  // Order matters: missing > installed-but-stopped > all-green. The first
-  // condition that matches wins, so a critical issue surfaces first.
-  const issues: string[] = [];
-  if (!setupStatus.caddy_installed)     issues.push("Caddy not installed");
-  else if (!setupStatus.caddy_running)  issues.push("Caddy stopped");
-  if (!setupStatus.dnsmasq_installed)   issues.push("dnsmasq not installed");
-  if (!setupStatus.mkcert_installed)    issues.push("mkcert not installed");
-  if (!setupStatus.certs_generated)     issues.push("TLS certs not generated");
-
-  const tone: "ok" | "warn" | "bad" =
-    !setupStatus.caddy_installed || !setupStatus.dnsmasq_installed || !setupStatus.mkcert_installed
-      ? "bad"
-      : issues.length > 0
-        ? "warn"
-        : "ok";
-
-  const dotClass =
-    tone === "ok"   ? "bg-emerald-400" :
-    tone === "warn" ? "bg-amber-400 pulse-dot" :
-                      "bg-red-400 pulse-dot";
-
-  // Only surface system status as text when there's a problem; a healthy stack
-  // is conveyed by the green dot alone.
-  const systemIssues = tone === "ok" ? null : issues.join("\n");
-  const tooltip = `Porta ${__BUILD_TAG__}${systemIssues ? `\n${systemIssues}` : ""}`;
-
-  return (
-    <div
-      title={tooltip}
-      className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[9px] text-zinc-700 font-mono select-text"
-    >
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
-      <span className="truncate">v{__BUILD_TAG__}</span>
-    </div>
-  );
-}
