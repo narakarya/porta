@@ -657,6 +657,31 @@ describe("DiffView syntax colour", () => {
     expect(deleted.querySelector("span[style*='--shiki-token-']")).not.toBeNull();
   }, PREVIEW_TIMEOUT);
 
+  it("nests the emphasis inside the syntax span, the only order the cascade allows", async () => {
+    // The composition's one real decision, and the one the two assertions
+    // above cannot see: both of them pass just as happily with the nesting
+    // inverted. It has to be this way round because Shiki's colour is an
+    // *inline* style and beats any class: with the syntax span innermost, its
+    // colour overrides the emphasis pair's `text-surface-0` on exactly the
+    // changed run — white on the bright success/danger fill, ~1.9:1 — and the
+    // emphasis silently loses the half of itself that made it legible.
+    const { container } = await openHighlightedDiff("src/db.ts", TEMPLATE_DIFF, TEMPLATE_NEW, TEMPLATE_OLD);
+
+    for (const [row, strong] of [
+      [rowFor(container, "+const notCode = true;"), "bg-ok"],
+      [rowFor(container, "-const notCode = false;"), "bg-bad"],
+    ] as const) {
+      const emphasised = [...row.querySelectorAll<HTMLElement>(`span.${strong}`)];
+      expect(emphasised).toHaveLength(1);
+      // Nothing styled *inside* an emphasis span — inverted, the changed run's
+      // syntax span would sit right here.
+      expect(emphasised[0].querySelector("span[style*='--shiki-token-']")).toBeNull();
+      // …and the emphasis span really is under a syntax-coloured one, rather
+      // than the pair having simply come apart onto separate branches.
+      expect(row.querySelector(`span[style*='--shiki-token-'] span.${strong}`)).not.toBeNull();
+    }
+  }, PREVIEW_TIMEOUT);
+
   it("still colours the new side of an added file, which has no old side at all", async () => {
     // gitFileAtRev answers null for a path absent at the revision — normal for
     // a new file, not an error, and it must not disable the new side too.
