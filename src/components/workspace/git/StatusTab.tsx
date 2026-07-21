@@ -65,7 +65,9 @@ function deriveSelected(
  * The Status tab's two-pane working surface: a Staged/Changes file list on the
  * left, a unified diff plus the commit box on the right. Split out of GitTab
  * so the shell stays a shell; the behaviour is unchanged from when it lived
- * there. Only ever rendered once the shell knows the app is a git repo.
+ * there. The shell keeps this mounted (hidden) on every other tab and while a
+ * repo is unreadable or missing, so the commit draft survives; the effects
+ * below therefore no-op until the store has a GitStatus for the app.
  */
 export default function StatusTab({ app }: { app: App }) {
   const status = usePortaStore((s) => s.appGit[app.id]);

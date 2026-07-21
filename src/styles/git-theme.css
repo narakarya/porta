@@ -15,15 +15,8 @@
   --md-table-head-bg: rgba(255, 255, 255, 0.06);
   --hover: rgba(255, 255, 255, 0.05);
 
-  /* Derived state tokens. Each palette below only redefines the base
-     --accent/--success/--warning/--danger; these mixes keep the tinted
-     backgrounds and the accent ink in step with whichever palette is active,
-     so a light palette like `paper` can't inherit Porta's dark-chrome values. */
-  --accent-bg: color-mix(in srgb, var(--accent) 16%, transparent);
-  --accent-ink: color-mix(in srgb, var(--accent) 70%, var(--ink-1));
-  --success-bg: color-mix(in srgb, var(--success) 15%, transparent);
-  --warning-bg: color-mix(in srgb, var(--warning) 15%, transparent);
-  --danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+  /* Derived state tokens live in the @supports block at the foot of this file
+     — see the note there for why they can't sit here. */
 
   background: var(--surface-0);
   color: var(--ink-1);
@@ -107,4 +100,40 @@
   --syn-keyword: #fdba74; --syn-string: #fda4af; --syn-number: #fbbf24;
   --syn-comment: #c9ad9d; --syn-type: #fed7aa; --syn-function: #fcd9bd; --syn-atom: #fbbf24;
   --hover: rgba(251,146,60,.07);
+}
+
+/* Derived state tokens. Each palette above only redefines the base
+   --accent/--success/--warning/--danger; these mixes keep the tinted
+   backgrounds and the accent ink in step with whichever palette is active, so
+   a light palette like `paper` can't inherit Porta's dark-chrome values.
+
+   The @supports guard is load-bearing, not decoration. color-mix() needs
+   WKWebView/Safari 16.2 (macOS 13), and tauri.conf.json sets no
+   minimumSystemVersion. On an older engine the custom property still *parses*
+   — custom properties take arbitrary token streams — so it would shadow
+   Porta's :root value and only fail at substitution time, as
+   invalid-at-computed-value-time → `unset` → transparent. Sync, Commit and the
+   active sub-nav pill would lose their fill entirely. Behind @supports an
+   engine that can't do the mix simply never sees the declaration and keeps
+   inheriting :root. */
+@supports (color: color-mix(in srgb, red, blue)) {
+  .git-tab-root {
+    --accent-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+    --success-bg: color-mix(in srgb, var(--success) 15%, transparent);
+    --warning-bg: color-mix(in srgb, var(--warning) 15%, transparent);
+    --danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+  }
+
+  /* --accent-ink only for the non-default palettes. `dark` is Porta's own
+     chrome, where :root already defines an --accent-ink tuned by hand; mixing
+     one here would change the default look for no reason. The six below have
+     no correct :root value to inherit. */
+  .git-tab-root[data-git-theme="graphite"],
+  .git-tab-root[data-git-theme="soft-dark"],
+  .git-tab-root[data-git-theme="midnight"],
+  .git-tab-root[data-git-theme="paper"],
+  .git-tab-root[data-git-theme="forest"],
+  .git-tab-root[data-git-theme="sunset"] {
+    --accent-ink: color-mix(in srgb, var(--accent) 70%, var(--ink-1));
+  }
 }

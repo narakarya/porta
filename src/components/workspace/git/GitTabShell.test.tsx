@@ -161,4 +161,36 @@ describe("GitTab shell", () => {
     expect(draft).toHaveValue("fix(git): keep the draft");
     expect(statusMounts).toBe(1);
   });
+
+  // `appGitError` is written by the Rust poller and retracted on its next
+  // successful tick (~15s), so it is a transient state, not a terminal one. If
+  // the shell swapped the whole subtree for the error card the user would lose
+  // an in-progress commit message to one failed poll — the same draft the test
+  // above protects across tab switches.
+  it("keeps the Status tab mounted — and its draft intact — through a transient poll error", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByLabelText("Commit message"), "fix(git): survive a bad poll");
+    expect(statusMounts).toBe(1);
+
+    // Poller reports a failure.
+    await act(async () => {
+      usePortaStore.setState({ appGitError: { demo: "fatal: not a git repository" } });
+    });
+    // The message still gets the whole tab, at full prominence…
+    expect(screen.getByText("Porta couldn't read this repo")).toBeVisible();
+    expect(screen.getByText(/fatal: not a git repository/)).toBeVisible();
+    // …but the draft is only hidden, not destroyed.
+    expect(screen.getByLabelText("Commit message")).not.toBeVisible();
+    expect(statusMounts).toBe(1);
+
+    // Next successful poll retracts it.
+    await act(async () => {
+      usePortaStore.setState({ appGitError: { demo: "" } });
+    });
+    expect(screen.queryByText("Porta couldn't read this repo")).not.toBeInTheDocument();
+    const draft = screen.getByLabelText("Commit message");
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("fix(git): survive a bad poll");
+    expect(statusMounts).toBe(1);
+  });
 });

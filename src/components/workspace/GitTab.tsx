@@ -222,31 +222,16 @@ export default function GitTab({ app }: { app: App }) {
     }
   }
 
-  if (pollError) {
-    return (
-      <div className="git-tab-root h-full" data-git-theme={gitTheme}>
-        <div className="p-6 max-w-xl">
-          <Card>
-            <div className="text-[13px] text-ink mb-1.5">Porta couldn't read this repo</div>
-            <pre className="text-[11px] font-mono text-warn whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{pollError}</pre>
-          </Card>
-        </div>
-      </div>
-    );
-  }
+  // Both "can't read this repo" and "not a repo" take over the whole tab, but
+  // neither may be an early return: the poll error is transient (the Rust
+  // poller retracts it on the next successful 15s tick) and an early return
+  // would unmount the persistent StatusTab below, throwing away the commit
+  // draft the user was typing. So they render *inside* the one tree, replacing
+  // the chrome and the other panels while Status stays mounted-but-hidden.
+  const blocked = pollError ? "unreadable" : !status ? "non-repo" : null;
 
-  if (!status) {
-    return (
-      <div className="git-tab-root h-full" data-git-theme={gitTheme}>
-        <EmptyState
-          title="Not a git repository"
-          hint={`No .git found under ${app.root_dir || "this app's root"}.`}
-        />
-      </div>
-    );
-  }
-
-  const { branch, ahead, behind, dirty, upstream, detached } = status;
+  const { branch, ahead, behind, dirty, upstream, detached } =
+    status ?? { branch: "", ahead: 0, behind: 0, dirty: 0, upstream: null, detached: false };
 
   // Merge local + unambiguous remote-only branches into a switch list.
   const rows: Array<{ name: string; kind: "local" | "remote" }> = [];
@@ -277,209 +262,229 @@ export default function GitTab({ app }: { app: App }) {
   const visibleTabs = GIT_TABS.filter((t) => t.tier === "core" || gitAdvancedEnabled);
 
   return (
-    <div className="git-tab-root h-full p-3" data-git-theme={gitTheme}>
-      <div className="h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden">
-        {/* Sub-nav — core and advanced native Git workflows. */}
-        <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
-          {visibleTabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === t.id ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
-            >
-              {t.label}
-              {t.id === "changes" && dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
-              {t.id === "branches" && branches && <span className="text-ink-3"> {branches.local.length}</span>}
-            </button>
-          ))}
-          <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
-            {upstream ? `↕ ${upstream}` : "no upstream"}
-          </span>
-        </div>
-
-        {/* Branch pill + sync / overflow ops. */}
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-subtle bg-surface-1">
-          <Popover
-            open={branchOpen}
-            onClose={() => setBranchOpen(false)}
-            width="w-72"
-            anchor={
-              <button
-                onClick={() => setBranchOpen((v) => !v)}
-                className="inline-flex items-center gap-1.5 text-[12px] border border-strong rounded-control px-2 py-1 text-ink hover:bg-[var(--hover)] transition-colors duration-fast"
-              >
-                <GitBranchIcon className="text-ink-3 shrink-0" />
-                <span className="font-mono truncate max-w-[18ch]">{branch}</span>
-                {detached && <Badge tone="warn">detached</Badge>}
-                <ChevronDown className="text-ink-3 shrink-0" />
-              </button>
-            }
-          >
-            <div className="text-[11px] text-ink-3 px-1 pb-1.5">Switch branch</div>
-            <Input
-              value={branchQuery}
-              onChange={(e) => setBranchQuery(e.target.value)}
-              placeholder="Search or create branch…"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <div className="mt-2 flex flex-col gap-0.5 max-h-56 overflow-y-auto">
-              {filtered.length === 0 && !showCreate && (
-                <div className="text-[11px] text-ink-3 px-1 py-1">No matching branch.</div>
-              )}
-              {filtered.map((r) => {
-                const isCurrent = branches?.current === r.name;
-                const worktreePath = branchWorktrees.get(r.name);
-                const disabled = isCurrent || !!worktreePath || switching !== null;
-                return (
-                  <button
-                    key={`${r.kind}:${r.name}`}
-                    disabled={disabled}
-                    onClick={() => switchTo(r.name, false)}
-                    title={worktreePath ? `Checked out in ${worktreePath}` : r.name}
-                    className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-[var(--hover)] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
-                  >
-                    <span className="font-mono text-ink flex-1 truncate">
-                      {isCurrent && <span className="text-ok">● </span>}
-                      {r.name}
-                      {r.kind === "remote" && <span className="text-ink-3"> ↗</span>}
-                    </span>
-                    {isCurrent ? (
-                      <span className="text-[10px] text-ink-3">current</span>
-                    ) : worktreePath ? (
-                      <span className="text-[10px] text-warn shrink-0">in worktree</span>
-                    ) : switching === r.name ? (
-                      <span className="text-[10px] text-ink-3">…</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-              {showCreate && (
-                <button
-                  disabled={switching !== null}
-                  onClick={() => switchTo(q, true)}
-                  className="mt-1 w-full text-left text-[11px] text-ok hover:bg-[var(--hover)] rounded-control px-1.5 py-1.5 disabled:opacity-40"
-                >
-                  {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
-                </button>
-              )}
-            </div>
-          </Popover>
-
-          {/* Inline ahead/behind/dirty indicators. */}
-          {clean ? (
-            <span className="text-[11px] text-ink-3">in sync</span>
-          ) : (
-            <span className="inline-flex items-center gap-2 text-[11px] font-mono">
-              {ahead > 0 && <span className="text-ink-2" title={`${ahead} to push`}>↑{ahead}</span>}
-              {behind > 0 && <span className="text-ink-2" title={`${behind} to pull`}>↓{behind}</span>}
-              {dirty > 0 && <span className="text-warn" title={`${dirty} uncommitted`}>●{dirty}</span>}
-            </span>
-          )}
-
-          <div className="ml-auto flex items-center gap-1.5">
-            {/* Single accent Sync — fetch, or pull when behind. */}
-            <button
-              onClick={() => run(behind > 0 ? "pull" : "fetch")}
-              disabled={busy !== null}
-              className="inline-flex items-center gap-1.5 text-[11px] text-accent-ink bg-accent-bg rounded-control px-2.5 py-1 hover:brightness-110 disabled:opacity-40 disabled:pointer-events-none transition duration-fast"
-            >
-              <RefreshIcon className={syncBusy ? "animate-spin" : ""} />
-              {syncBusy ? "Syncing…" : "Sync"}
-            </button>
-
-            {/* Palette picker — scoped to this tab via `.git-tab-root`. */}
-            <Popover
-              open={themeOpen}
-              onClose={() => setThemeOpen(false)}
-              align="right"
-              width="w-40"
-              anchor={
-                <button
-                  onClick={() => setThemeOpen((v) => !v)}
-                  className="inline-flex items-center gap-1.5 text-[11px] border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
-                >
-                  Theme
-                  <ChevronDown className="text-ink-3 shrink-0" />
-                </button>
-              }
-            >
-              <div role="menu" aria-label="Git tab theme">
-                {GIT_THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    role="menuitem"
-                    onClick={() => { setThemeOpen(false); void pickTheme(t.id); }}
-                    className={`w-full text-left text-[12px] px-2 py-1.5 rounded-lg hover:bg-[var(--hover)] transition-colors ${t.id === gitTheme ? "text-accent" : "text-ink"}`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </Popover>
-
-            {/* Overflow: explicit Fetch / Pull / Push. */}
-            <Popover
-              open={opsOpen}
-              onClose={() => setOpsOpen(false)}
-              align="right"
-              width="w-40"
-              anchor={
-                <button
-                  onClick={() => setOpsOpen((v) => !v)}
-                  className="inline-flex items-center border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
-                  aria-label="More git actions"
-                >
-                  <DotsIcon />
-                </button>
-              }
-            >
-              <button
-                onClick={() => { setOpsOpen(false); run("fetch"); }}
-                disabled={busy !== null}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-              >
-                {busy === "fetch" ? "Fetching…" : "Fetch"}
-              </button>
-              <button
-                onClick={() => { setOpsOpen(false); run("pull"); }}
-                disabled={busy !== null || behind === 0}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-              >
-                {busy === "pull" ? "Pulling…" : "Pull"}
-              </button>
-              <button
-                onClick={() => { setOpsOpen(false); run("push"); }}
-                disabled={busy !== null || ahead === 0}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-              >
-                {busy === "push" ? "Pushing…" : "Push"}
-              </button>
-            </Popover>
+    <div className={blocked ? "git-tab-root h-full" : "git-tab-root h-full p-3"} data-git-theme={gitTheme}>
+      <div className={blocked ? "h-full" : "h-full flex flex-col rounded-card border border-subtle bg-surface-2 overflow-hidden"}>
+        {blocked === "unreadable" ? (
+          <div className="p-6 max-w-xl">
+            <Card>
+              <div className="text-[13px] text-ink mb-1.5">Porta couldn't read this repo</div>
+              <pre className="text-[11px] font-mono text-warn whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{pollError}</pre>
+            </Card>
           </div>
-        </div>
+        ) : blocked === "non-repo" ? (
+          <EmptyState
+            title="Not a git repository"
+            hint={`No .git found under ${app.root_dir || "this app's root"}.`}
+          />
+        ) : (
+          <>
+            {/* Sub-nav — core and advanced native Git workflows. */}
+            <div className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px]">
+              {visibleTabs.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`px-2.5 py-1 rounded-control transition-colors duration-fast ${tab === t.id ? "bg-accent-bg text-ink" : "text-ink-2 hover:bg-surface-1"}`}
+                >
+                  {t.label}
+                  {t.id === "changes" && dirty > 0 && <span className="text-ink-3"> {dirty}</span>}
+                  {t.id === "branches" && branches && <span className="text-ink-3"> {branches.local.length}</span>}
+                </button>
+              ))}
+              <span className="ml-auto text-[11px] text-ink-3 font-mono truncate max-w-[22ch]" title={upstream ?? undefined}>
+                {upstream ? `↕ ${upstream}` : "no upstream"}
+              </span>
+            </div>
 
-        {/* Shell-level failures (sync ops, branch switch). */}
-        {error && (
-          <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
+            {/* Branch pill + sync / overflow ops. */}
+            <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-subtle bg-surface-1">
+              <Popover
+                open={branchOpen}
+                onClose={() => setBranchOpen(false)}
+                width="w-72"
+                anchor={
+                  <button
+                    onClick={() => setBranchOpen((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-[12px] border border-strong rounded-control px-2 py-1 text-ink hover:bg-[var(--hover)] transition-colors duration-fast"
+                  >
+                    <GitBranchIcon className="text-ink-3 shrink-0" />
+                    <span className="font-mono truncate max-w-[18ch]">{branch}</span>
+                    {detached && <Badge tone="warn">detached</Badge>}
+                    <ChevronDown className="text-ink-3 shrink-0" />
+                  </button>
+                }
+              >
+                <div className="text-[11px] text-ink-3 px-1 pb-1.5">Switch branch</div>
+                <Input
+                  value={branchQuery}
+                  onChange={(e) => setBranchQuery(e.target.value)}
+                  placeholder="Search or create branch…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <div className="mt-2 flex flex-col gap-0.5 max-h-56 overflow-y-auto">
+                  {filtered.length === 0 && !showCreate && (
+                    <div className="text-[11px] text-ink-3 px-1 py-1">No matching branch.</div>
+                  )}
+                  {filtered.map((r) => {
+                    const isCurrent = branches?.current === r.name;
+                    const worktreePath = branchWorktrees.get(r.name);
+                    const disabled = isCurrent || !!worktreePath || switching !== null;
+                    return (
+                      <button
+                        key={`${r.kind}:${r.name}`}
+                        disabled={disabled}
+                        onClick={() => switchTo(r.name, false)}
+                        title={worktreePath ? `Checked out in ${worktreePath}` : r.name}
+                        className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-[var(--hover)] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
+                      >
+                        <span className="font-mono text-ink flex-1 truncate">
+                          {isCurrent && <span className="text-ok">● </span>}
+                          {r.name}
+                          {r.kind === "remote" && <span className="text-ink-3"> ↗</span>}
+                        </span>
+                        {isCurrent ? (
+                          <span className="text-[10px] text-ink-3">current</span>
+                        ) : worktreePath ? (
+                          <span className="text-[10px] text-warn shrink-0">in worktree</span>
+                        ) : switching === r.name ? (
+                          <span className="text-[10px] text-ink-3">…</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                  {showCreate && (
+                    <button
+                      disabled={switching !== null}
+                      onClick={() => switchTo(q, true)}
+                      className="mt-1 w-full text-left text-[11px] text-ok hover:bg-[var(--hover)] rounded-control px-1.5 py-1.5 disabled:opacity-40"
+                    >
+                      {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
+                    </button>
+                  )}
+                </div>
+              </Popover>
+
+              {/* Inline ahead/behind/dirty indicators. */}
+              {clean ? (
+                <span className="text-[11px] text-ink-3">in sync</span>
+              ) : (
+                <span className="inline-flex items-center gap-2 text-[11px] font-mono">
+                  {ahead > 0 && <span className="text-ink-2" title={`${ahead} to push`}>↑{ahead}</span>}
+                  {behind > 0 && <span className="text-ink-2" title={`${behind} to pull`}>↓{behind}</span>}
+                  {dirty > 0 && <span className="text-warn" title={`${dirty} uncommitted`}>●{dirty}</span>}
+                </span>
+              )}
+
+              <div className="ml-auto flex items-center gap-1.5">
+                {/* Single accent Sync — fetch, or pull when behind. */}
+                <button
+                  onClick={() => run(behind > 0 ? "pull" : "fetch")}
+                  disabled={busy !== null}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-accent-ink bg-accent-bg rounded-control px-2.5 py-1 hover:brightness-110 disabled:opacity-40 disabled:pointer-events-none transition duration-fast"
+                >
+                  <RefreshIcon className={syncBusy ? "animate-spin" : ""} />
+                  {syncBusy ? "Syncing…" : "Sync"}
+                </button>
+
+                {/* Palette picker — scoped to this tab via `.git-tab-root`. */}
+                <Popover
+                  open={themeOpen}
+                  onClose={() => setThemeOpen(false)}
+                  align="right"
+                  width="w-40"
+                  anchor={
+                    <button
+                      onClick={() => setThemeOpen((v) => !v)}
+                      className="inline-flex items-center gap-1.5 text-[11px] border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
+                    >
+                      Theme
+                      <ChevronDown className="text-ink-3 shrink-0" />
+                    </button>
+                  }
+                >
+                  <div role="menu" aria-label="Git tab theme">
+                    {GIT_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        role="menuitem"
+                        onClick={() => { setThemeOpen(false); void pickTheme(t.id); }}
+                        className={`w-full text-left text-[12px] px-2 py-1.5 rounded-lg hover:bg-[var(--hover)] transition-colors ${t.id === gitTheme ? "text-accent" : "text-ink"}`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </Popover>
+
+                {/* Overflow: explicit Fetch / Pull / Push. */}
+                <Popover
+                  open={opsOpen}
+                  onClose={() => setOpsOpen(false)}
+                  align="right"
+                  width="w-40"
+                  anchor={
+                    <button
+                      onClick={() => setOpsOpen((v) => !v)}
+                      className="inline-flex items-center border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
+                      aria-label="More git actions"
+                    >
+                      <DotsIcon />
+                    </button>
+                  }
+                >
+                  <button
+                    onClick={() => { setOpsOpen(false); run("fetch"); }}
+                    disabled={busy !== null}
+                    className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {busy === "fetch" ? "Fetching…" : "Fetch"}
+                  </button>
+                  <button
+                    onClick={() => { setOpsOpen(false); run("pull"); }}
+                    disabled={busy !== null || behind === 0}
+                    className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {busy === "pull" ? "Pulling…" : "Pull"}
+                  </button>
+                  <button
+                    onClick={() => { setOpsOpen(false); run("push"); }}
+                    disabled={busy !== null || ahead === 0}
+                    className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {busy === "push" ? "Pushing…" : "Push"}
+                  </button>
+                </Popover>
+              </div>
+            </div>
+
+            {/* Shell-level failures (sync ops, branch switch). */}
+            {error && (
+              <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
+            )}
+          </>
         )}
 
         {/* Body — one component per tab.
             Status is deliberately outside the switch: it holds user-authored
             draft state (commit message, staged selection, an in-progress
             rename) plus an already-loaded changed-file list, none of which may
-            be thrown away by a trip to History and back. It stays mounted and
-            is hidden while another tab is active; the `hidden` attribute keeps
-            it out of the a11y tree, the class does the layout. Every other tab
-            keeps its mount-on-demand behaviour — none of them holds a draft. */}
+            be thrown away by a trip to History and back — nor by a poll error
+            blanking the tab for one 15s tick. It stays mounted for every tab
+            and every `blocked` state, and is hidden whenever it isn't the
+            thing on screen; the `hidden` attribute keeps it out of the a11y
+            tree, the class does the layout. This slot has to stay at a fixed
+            position among its siblings — that, not the JSX being written once,
+            is what makes React keep the mount. Every other tab keeps its
+            mount-on-demand behaviour — none of them holds a draft. */}
         <div
-          className={tab === "changes" ? "flex-1 min-h-0 flex flex-col" : "hidden"}
-          hidden={tab !== "changes"}
+          className={!blocked && tab === "changes" ? "flex-1 min-h-0 flex flex-col" : "hidden"}
+          hidden={!!blocked || tab !== "changes"}
         >
           <StatusTab app={app} />
         </div>
 
-        {tab === "sync" ? (
+        {blocked || !status ? null : tab === "sync" ? (
           <SyncPanel app={app} status={status} onChanged={refreshStatus} />
         ) : tab === "history" ? (
           <HistoryPanel app={app} onChanged={refreshStatus} />
