@@ -273,7 +273,7 @@ export default function StatusTab({ app }: { app: App }) {
 
       {changed.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-8">
-          <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-ink-3">
+          <div className="w-10 h-10 rounded-xl bg-[var(--hover)] flex items-center justify-center text-ink-3">
             <GitBranchIcon className="scale-125" />
           </div>
           <div className="text-[13px] text-ink">Working tree clean</div>
@@ -513,13 +513,13 @@ export default function StatusTab({ app }: { app: App }) {
                 <button
                   onClick={() => doCommit(true)}
                   disabled={!canCommit}
-                  className="text-[11px] text-ink border border-strong rounded-control px-3 py-1 hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
+                  className="text-[11px] text-ink border border-strong rounded-control px-3 py-1 hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors duration-fast"
                 >
                   Commit &amp; push
                 </button>
                 <button
                   onClick={() => setAmend((v) => !v)}
-                  className={`ml-auto inline-flex items-center gap-1.5 text-[11px] rounded-control px-2 py-1 transition-colors duration-fast ${amend ? "text-accent" : "text-ink-2 hover:bg-white/[0.05]"}`}
+                  className={`ml-auto inline-flex items-center gap-1.5 text-[11px] rounded-control px-2 py-1 transition-colors duration-fast ${amend ? "text-accent" : "text-ink-2 hover:bg-[var(--hover)]"}`}
                   aria-pressed={amend}
                 >
                   <CheckboxIcon checked={amend} />

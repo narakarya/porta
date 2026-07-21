@@ -11,7 +11,7 @@ import {
   type BranchList,
   type WorktreeEntry,
 } from "../../lib/commands";
-import { GIT_THEMES } from "../../lib/git-theme";
+import { GIT_THEMES, type GitTheme } from "../../lib/git-theme";
 import { Card, Input, EmptyState, Badge, Popover } from "../ui";
 import type { App } from "../../types";
 import HistoryPanel from "./git/HistoryPanel";
@@ -87,7 +87,8 @@ const GIT_TABS: { id: GitTabId; label: string; tier: "core" | "advanced" }[] = [
  * and the body switch. Every tab's content lives in its own component under
  * ./git/ — Status included (`StatusTab`). The History/PR/Stash/Tags/Rebase tabs
  * are "advanced" — hidden from the sub-nav (see `GIT_TABS`) unless the user has
- * opted into advanced git tools.
+ * opted into advanced git tools. Status is the one tab that stays mounted while
+ * another tab is showing, so a commit draft survives the round trip.
  *
  * The whole tree hangs off `.git-tab-root`, which is what scopes the seven git
  * palettes (src/styles/git-theme.css) to this tab and nothing else.
@@ -122,6 +123,12 @@ export default function GitTab({ app }: { app: App }) {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => { probedNonRepo.current = false; }, [app.root_dir]);
+
+  // The error surface sits above the body, so it is on screen for every tab.
+  // Nothing else clears it on navigation, and a stale sync failure trailing the
+  // user through Branches/Tags/History reads as a fresh failure there — so
+  // changing tabs dismisses it.
+  useEffect(() => { setError(null); }, [tab]);
 
   // If advanced tools get disabled while an advanced tab is open, snap back
   // to Changes so the active tab is never hidden from the sub-nav.
@@ -177,6 +184,20 @@ export default function GitTab({ app }: { app: App }) {
       if (mounted.current) setError(String(e));
     } finally {
       if (mounted.current) setBusy(null);
+    }
+  }
+
+  // The store applies the palette immediately and then writes it to the Tauri
+  // config; if that write fails the picker would otherwise look like it stuck
+  // while silently reverting on the next launch. Surface it on the shell's
+  // error line instead. No revert: the store setter is the only writer and
+  // calling it again would just fail the same way.
+  async function pickTheme(id: GitTheme) {
+    setError(null);
+    try {
+      await setGitTheme(id);
+    } catch (e) {
+      if (mounted.current) setError(`Couldn't save the theme: ${String(e)}`);
     }
   }
 
@@ -285,7 +306,7 @@ export default function GitTab({ app }: { app: App }) {
             anchor={
               <button
                 onClick={() => setBranchOpen((v) => !v)}
-                className="inline-flex items-center gap-1.5 text-[12px] border border-strong rounded-control px-2 py-1 text-ink hover:bg-white/[0.05] transition-colors duration-fast"
+                className="inline-flex items-center gap-1.5 text-[12px] border border-strong rounded-control px-2 py-1 text-ink hover:bg-[var(--hover)] transition-colors duration-fast"
               >
                 <GitBranchIcon className="text-ink-3 shrink-0" />
                 <span className="font-mono truncate max-w-[18ch]">{branch}</span>
@@ -316,7 +337,7 @@ export default function GitTab({ app }: { app: App }) {
                     disabled={disabled}
                     onClick={() => switchTo(r.name, false)}
                     title={worktreePath ? `Checked out in ${worktreePath}` : r.name}
-                    className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-white/[0.05] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
+                    className="w-full flex items-center gap-1 py-1 px-1.5 rounded-control text-left text-[12px] hover:bg-[var(--hover)] disabled:cursor-default disabled:hover:bg-transparent transition-colors"
                   >
                     <span className="font-mono text-ink flex-1 truncate">
                       {isCurrent && <span className="text-ok">● </span>}
@@ -337,7 +358,7 @@ export default function GitTab({ app }: { app: App }) {
                 <button
                   disabled={switching !== null}
                   onClick={() => switchTo(q, true)}
-                  className="mt-1 w-full text-left text-[11px] text-ok hover:bg-white/[0.05] rounded-control px-1.5 py-1.5 disabled:opacity-40"
+                  className="mt-1 w-full text-left text-[11px] text-ok hover:bg-[var(--hover)] rounded-control px-1.5 py-1.5 disabled:opacity-40"
                 >
                   {switching === q ? "Creating…" : <>Create <span className="font-mono">{q}</span></>}
                 </button>
@@ -376,7 +397,7 @@ export default function GitTab({ app }: { app: App }) {
               anchor={
                 <button
                   onClick={() => setThemeOpen((v) => !v)}
-                  className="inline-flex items-center gap-1.5 text-[11px] border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-white/[0.05] transition-colors duration-fast"
+                  className="inline-flex items-center gap-1.5 text-[11px] border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
                 >
                   Theme
                   <ChevronDown className="text-ink-3 shrink-0" />
@@ -388,8 +409,8 @@ export default function GitTab({ app }: { app: App }) {
                   <button
                     key={t.id}
                     role="menuitem"
-                    onClick={() => { setThemeOpen(false); void setGitTheme(t.id); }}
-                    className={`w-full text-left text-[12px] px-2 py-1.5 rounded-lg hover:bg-white/[0.05] transition-colors ${t.id === gitTheme ? "text-accent" : "text-ink"}`}
+                    onClick={() => { setThemeOpen(false); void pickTheme(t.id); }}
+                    className={`w-full text-left text-[12px] px-2 py-1.5 rounded-lg hover:bg-[var(--hover)] transition-colors ${t.id === gitTheme ? "text-accent" : "text-ink"}`}
                   >
                     {t.label}
                   </button>
@@ -406,7 +427,7 @@ export default function GitTab({ app }: { app: App }) {
               anchor={
                 <button
                   onClick={() => setOpsOpen((v) => !v)}
-                  className="inline-flex items-center border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-white/[0.05] transition-colors duration-fast"
+                  className="inline-flex items-center border border-subtle rounded-control px-2 py-1 text-ink-2 hover:bg-[var(--hover)] transition-colors duration-fast"
                   aria-label="More git actions"
                 >
                   <DotsIcon />
@@ -416,21 +437,21 @@ export default function GitTab({ app }: { app: App }) {
               <button
                 onClick={() => { setOpsOpen(false); run("fetch"); }}
                 disabled={busy !== null}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
               >
                 {busy === "fetch" ? "Fetching…" : "Fetch"}
               </button>
               <button
                 onClick={() => { setOpsOpen(false); run("pull"); }}
                 disabled={busy !== null || behind === 0}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
               >
                 {busy === "pull" ? "Pulling…" : "Pull"}
               </button>
               <button
                 onClick={() => { setOpsOpen(false); run("push"); }}
                 disabled={busy !== null || ahead === 0}
-                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-white/[0.05] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                className="w-full text-left text-[12px] px-2 py-1.5 rounded-lg text-ink hover:bg-[var(--hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
               >
                 {busy === "push" ? "Pushing…" : "Push"}
               </button>
@@ -443,7 +464,21 @@ export default function GitTab({ app }: { app: App }) {
           <pre className="shrink-0 text-[11px] font-mono text-bad whitespace-pre-wrap break-words max-h-32 overflow-y-auto rounded-control border border-subtle bg-surface-code px-2.5 py-2 m-3 mb-0">{error}</pre>
         )}
 
-        {/* Body — one component per tab. */}
+        {/* Body — one component per tab.
+            Status is deliberately outside the switch: it holds user-authored
+            draft state (commit message, staged selection, an in-progress
+            rename) plus an already-loaded changed-file list, none of which may
+            be thrown away by a trip to History and back. It stays mounted and
+            is hidden while another tab is active; the `hidden` attribute keeps
+            it out of the a11y tree, the class does the layout. Every other tab
+            keeps its mount-on-demand behaviour — none of them holds a draft. */}
+        <div
+          className={tab === "changes" ? "flex-1 min-h-0 flex flex-col" : "hidden"}
+          hidden={tab !== "changes"}
+        >
+          <StatusTab app={app} />
+        </div>
+
         {tab === "sync" ? (
           <SyncPanel app={app} status={status} onChanged={refreshStatus} />
         ) : tab === "history" ? (
@@ -469,9 +504,7 @@ export default function GitTab({ app }: { app: App }) {
             if (fresh) setAppGit(app.id, fresh);
             setBranches(list);
           }} />
-        ) : (
-          <StatusTab app={app} />
-        )}
+        ) : null}
       </div>
     </div>
   );

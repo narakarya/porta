@@ -15,6 +15,16 @@
   --md-table-head-bg: rgba(255, 255, 255, 0.06);
   --hover: rgba(255, 255, 255, 0.05);
 
+  /* Derived state tokens. Each palette below only redefines the base
+     --accent/--success/--warning/--danger; these mixes keep the tinted
+     backgrounds and the accent ink in step with whichever palette is active,
+     so a light palette like `paper` can't inherit Porta's dark-chrome values. */
+  --accent-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-ink: color-mix(in srgb, var(--accent) 70%, var(--ink-1));
+  --success-bg: color-mix(in srgb, var(--success) 15%, transparent);
+  --warning-bg: color-mix(in srgb, var(--warning) 15%, transparent);
+  --danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+
   background: var(--surface-0);
   color: var(--ink-1);
 }
