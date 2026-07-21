@@ -20,6 +20,11 @@ export default function HostFormModal({ host, onClose }: Props) {
   const [workspaceIds, setWorkspaceIds] = useState<string[]>(host?.workspace_ids ?? []);
   const [wsOpen, setWsOpen] = useState(false);
   const [wsQuery, setWsQuery] = useState("");
+  // Save used to `await addSshHost(...)` bare: any backend rejection escaped as
+  // an unhandled promise rejection, `onClose()` never ran, and the form just sat
+  // there — indistinguishable from a dead button. Surface the failure instead.
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const wsName = useMemo(() => new Map(workspaces.map((w) => [w.id, w.name])), [workspaces]);
   const wsFiltered = useMemo(
@@ -81,10 +86,24 @@ export default function HostFormModal({ host, onClose }: Props) {
       workspace_ids: workspaceIds,
       detected_os: host?.detected_os ?? null,
     };
-    if (host) await updateSshHost(payload);
-    else await addSshHost(payload);
-    onClose();
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (host) await updateSshHost(payload);
+      else await addSshHost(payload);
+      onClose();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
   }
+
+  const missing = [
+    !label.trim() && "a label",
+    !hostname.trim() && "a hostname",
+    !username.trim() && "a user",
+  ].filter(Boolean) as string[];
 
   const field =
     "bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
@@ -206,16 +225,30 @@ export default function HostFormModal({ host, onClose }: Props) {
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <button className="px-3 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 transition-colors" onClick={onClose}>
+        {saveError && (
+          <div className="px-2.5 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p className="text-[11px] text-red-400 break-words">{saveError}</p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-1">
+          {/* Say *why* Save is inert — a silently disabled button reads as a
+              broken feature. */}
+          {missing.length > 0 && (
+            <p className="text-[11px] text-zinc-600 flex-1 min-w-0">Fill in {missing.join(", ")}</p>
+          )}
+          <button
+            className="ml-auto px-3 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 transition-colors"
+            onClick={onClose}
+          >
             Cancel
           </button>
           <button
             className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
-            disabled={!label || !hostname || !username}
+            disabled={missing.length > 0 || saving}
             onClick={save}
           >
-            Save
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>

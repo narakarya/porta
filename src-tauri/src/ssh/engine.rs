@@ -404,8 +404,33 @@ impl SshManager {
             serde_json::json!({ "phase": "authenticating" }),
         );
         let agent_available = std::env::var_os("SSH_AUTH_SOCK").is_some();
+        let plan = auth_plan(&host.auth, agent_available);
+        // `auth_plan(Agent, false)` is empty by design — but running zero
+        // attempts and reporting "all authentication methods failed" hid the
+        // real cause (no agent) behind a generic auth error.
+        if plan.is_empty() {
+            let msg = "SSH agent auth is selected but no agent is available (SSH_AUTH_SOCK is \
+                       unset). Load a key with `ssh-add`, or switch this host to a key file or \
+                       password.";
+            Self::emit(
+                &app,
+                &session_id,
+                "auth-failed",
+                serde_json::json!({ "message": msg }),
+            );
+            return Err(msg.into());
+        }
+        let tried = plan
+            .iter()
+            .map(|a| match a {
+                AuthAttempt::Agent => "agent".to_string(),
+                AuthAttempt::KeyFile(p) => format!("key file {p}"),
+                AuthAttempt::Password => "password".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         let mut authed = false;
-        for attempt in auth_plan(&host.auth, agent_available) {
+        for attempt in plan {
             let ok = match attempt {
                 AuthAttempt::Agent => try_agent_auth(&mut handle, &host.username).await,
                 AuthAttempt::KeyFile(path) => {
@@ -423,13 +448,21 @@ impl SshManager {
             }
         }
         if !authed {
+            // Name the user and the methods tried — the server rejects the
+            // username as readily as the credential, and a bare "auth failed"
+            // gives no way to tell those apart.
+            let msg = format!(
+                "Authentication failed for user \"{}\" (tried: {tried}). Check the username and \
+                 that the server accepts this credential.",
+                host.username
+            );
             Self::emit(
                 &app,
                 &session_id,
                 "auth-failed",
-                serde_json::json!({ "message": "all authentication methods failed" }),
+                serde_json::json!({ "message": msg }),
             );
-            return Err("authentication failed".into());
+            return Err(msg);
         }
 
         // 4. Open channel, request a PTY + shell.

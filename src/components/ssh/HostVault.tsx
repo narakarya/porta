@@ -15,6 +15,8 @@ export default function HostVault() {
   const connectOrFocusSsh = usePortaStore((s) => s.connectOrFocusSsh);
   const connectSsh = usePortaStore((s) => s.connectSsh);
   const deleteSshHost = usePortaStore((s) => s.deleteSshHost);
+  const notify = usePortaStore((s) => s.notify);
+  const notifyError = usePortaStore((s) => s.notifyError);
 
   const [query, setQuery] = useState("");
   const [wsFilter, setWsFilter] = useState(""); // "" = all
@@ -83,7 +85,15 @@ export default function HostVault() {
     } catch {
       ok = window.confirm(`Delete "${h.label}"?`);
     }
-    if (ok) deleteSshHost(h.id);
+    if (!ok) return;
+    // Was a bare `deleteSshHost(h.id)` — a rejected delete vanished into an
+    // unhandled rejection and the row just stayed put with no explanation.
+    try {
+      await deleteSshHost(h.id);
+      notify({ kind: "success", message: `Deleted host "${h.label}"` });
+    } catch (e) {
+      notifyError(`Couldn't delete "${h.label}"`, e);
+    }
   }
 
   // Open the row context menu, anchored at the cursor and clamped to viewport.

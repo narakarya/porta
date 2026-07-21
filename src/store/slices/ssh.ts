@@ -17,6 +17,10 @@ export interface SshSession {
   label: string;
   status: "connecting" | "connected" | "disconnected" | "error";
   keyType?: string;
+  /** Why the session failed. Every backend failure path returns a real string
+   *  (`connect: …`, `authentication failed`, `host key changed`, …); without
+   *  keeping it the tab could only show a red dot over a blank terminal. */
+  error?: string | null;
 }
 
 export type SshPrompt =
@@ -40,7 +44,7 @@ export interface SshSlice {
   disconnectSsh: (sessionId: string) => Promise<void>;
   setActiveSession: (id: string | null) => void;
   upsertSession: (s: SshSession) => void;
-  setSessionStatus: (id: string, status: SshSession["status"], keyType?: string) => void;
+  setSessionStatus: (id: string, status: SshSession["status"], keyType?: string, error?: string | null) => void;
   answerTrust: () => Promise<void>;
   answerSecret: (value: string, remember: boolean) => Promise<void>;
   dismissPrompt: () => void;
@@ -68,9 +72,20 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   },
 
   upsertSession: (s) => set({ sshSessions: [...get().sshSessions.filter((x) => x.id !== s.id), s] }),
-  setSessionStatus: (id, status, keyType) =>
+  setSessionStatus: (id, status, keyType, error) =>
     set({
-      sshSessions: get().sshSessions.map((s) => (s.id === id ? { ...s, status, keyType: keyType ?? s.keyType } : s)),
+      sshSessions: get().sshSessions.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              status,
+              keyType: keyType ?? s.keyType,
+              // A retry/reconnect must clear the previous failure; an explicit
+              // message always wins over the one already on the session.
+              error: error !== undefined ? error : status === "error" ? s.error : null,
+            }
+          : s
+      ),
     }),
   setActiveSession: (id) => set({ activeSessionId: id }),
 
@@ -114,9 +129,12 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
       listen(`ssh:host-key-changed:${sessionId}`, (e) => {
         const p = e.payload as { fingerprint: string };
         set({ sshPrompt: { sessionId, type: "host-key-changed", fingerprint: p.fingerprint } });
-        get().setSessionStatus(sessionId, "error");
+        get().setSessionStatus(sessionId, "error", undefined, `Host key changed (${p.fingerprint})`);
       }),
-      listen(`ssh:auth-failed:${sessionId}`, () => get().setSessionStatus(sessionId, "error")),
+      listen(`ssh:auth-failed:${sessionId}`, (e) => {
+        const msg = (e.payload as { message?: string } | null)?.message;
+        get().setSessionStatus(sessionId, "error", undefined, msg || "Authentication failed");
+      }),
       listen(`ssh:host-os:${sessionId}`, (e) => {
         const os = (e.payload as { os: string }).os;
         set({ sshHosts: get().sshHosts.map((h) => (h.id === hostId ? { ...h, detected_os: os } : h)) });
@@ -129,11 +147,13 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
 
     try {
       await cmd.sshConnect(hostId, sessionId);
-    } catch {
-      // auth-failed / status events already drive UI state; this just
-      // prevents an unhandled promise rejection when the backend command
-      // itself errors out (e.g. host not found).
-      get().setSessionStatus(sessionId, "error");
+    } catch (e) {
+      // `ssh_connect` returns a real reason on every failure path ("connect:
+      // Connection refused", "authentication failed", "host key not trusted",
+      // …). Discarding it left the tab as a red dot over a blank terminal with
+      // nothing to act on — keep it and let the session tab render it.
+      const msg = e instanceof Error ? e.message : String(e);
+      get().setSessionStatus(sessionId, "error", undefined, msg || "Connection failed");
     }
   },
 
