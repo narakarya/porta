@@ -87,6 +87,9 @@ export default function TerminalWorkspace({
   const [editingLabel, setEditingLabel] = useState<string>("");
   const [terminalQuery, setTerminalQuery] = useState("");
   const [filterOutput, setFilterOutput] = useState(false);
+  // Which pane last took keyboard focus — drives the split-view focus edge.
+  // View state, not session state: it doesn't need to survive a reload.
+  const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
   const [transcriptStats, setTranscriptStats] = useState<Record<string, { lineCount: number; matchCount: number | null }>>({});
   const handledRequestIds = useRef<Set<string>>(new Set());
 
@@ -399,6 +402,7 @@ export default function TerminalWorkspace({
         <div className="flex-1 overflow-hidden relative min-w-0">
           {tabs.map((tab) => {
             const isTabActive = tab.id === activeId && active;
+            // "cols" = panes side by side; "rows" = panes stacked.
             const isRows = tab.splitOrientation === "rows";
             return (
               <div
@@ -407,25 +411,33 @@ export default function TerminalWorkspace({
                 style={{ display: tab.id === activeId ? "flex" : "none" }}
               >
                 {tab.panes.map((pane, idx) => {
-                  // Prefer the pane's shell/session label (derived from its
-                  // startup command); fall back to the tab's app name.
-                  const paneShell = pane.startupCommand?.trim().split(/\s+/)[0] || "zsh";
-                  const paneLabel = `${tab.appName} · ${paneShell}`;
                   const sep = idx > 0 ? (isRows ? "border-t border-[rgba(255,255,255,0.12)]" : "border-l border-[rgba(255,255,255,0.12)]") : "";
+                  const isFocused = focusedPaneId === pane.id;
+                  const split = tab.panes.length > 1;
+                  // Inset box-shadow, not a border: a border toggled on/off adds
+                  // to the box size and would nudge xterm's fit() by a pixel.
+                  const focusEdge = split && isFocused
+                    ? (isRows
+                        ? "shadow-[inset_0_2px_0_0_rgba(59,130,246,0.6)]"
+                        : "shadow-[inset_2px_0_0_0_rgba(59,130,246,0.6)]")
+                    : "";
                   return (
                     <div
                       key={pane.id}
-                      className={`group/pane relative flex flex-col flex-1 min-w-0 min-h-0 ${sep}`}
+                      className={`group/pane relative flex flex-col flex-1 min-w-0 min-h-0 ${sep} ${focusEdge}`}
                     >
-                      {/* Per-pane header: activity dot + shell/session label */}
-                      <div className="flex items-center gap-1.5 px-3 pt-2 mb-[5px] text-[10px] text-zinc-500 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        <span className="truncate">{paneLabel}</span>
-                      </div>
-                      {tab.panes.length > 1 && (
+                      {split && (
+                        <span
+                          data-testid="pane-ordinal"
+                          className="absolute top-1.5 right-2 z-10 text-[9px] text-zinc-600 select-none pointer-events-none"
+                        >
+                          {idx + 1}
+                        </span>
+                      )}
+                      {split && (
                         <button
                           onClick={() => closePane(tab.id, pane.id)}
-                          className="absolute top-1.5 right-1.5 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
+                          className="absolute top-1.5 right-6 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
                           title="Close pane"
                         >
                           <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
@@ -442,6 +454,7 @@ export default function TerminalWorkspace({
                           searchQuery={terminalQuery}
                           filterOutput={filterOutput}
                           onOutput={() => markTerminalPaneOutput(appId, tab.id, pane.id)}
+                          onFocus={() => setFocusedPaneId(pane.id)}
                           onExit={(code) =>
                             setTerminalPaneState(appId, pane.id, { state: "exited", exitCode: code })
                           }

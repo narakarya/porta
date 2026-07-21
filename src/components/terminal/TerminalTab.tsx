@@ -19,6 +19,8 @@ interface Props {
   onTranscriptStats?: (lineCount: number, matchCount: number | null) => void;
   /** Shell exited — carries the code so the status bar can show `exited (1)`. */
   onExit?: (code: number) => void;
+  /** The pane took keyboard focus — drives the split-view focus ring. */
+  onFocus?: () => void;
 }
 
 function bytesToTranscriptText(bytes: number[], decoder: TextDecoder): string {
@@ -69,6 +71,7 @@ export default function TerminalTab({
   onOutput,
   onTranscriptStats,
   onExit,
+  onFocus,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -82,9 +85,11 @@ export default function TerminalTab({
   const onOutputRef = useRef(onOutput);
   const onTranscriptStatsRef = useRef(onTranscriptStats);
   const onExitRef = useRef(onExit);
+  const onFocusRef = useRef(onFocus);
   onOutputRef.current = onOutput;
   onTranscriptStatsRef.current = onTranscriptStats;
   onExitRef.current = onExit;
+  onFocusRef.current = onFocus;
 
   const query = searchQuery.trim();
   const lowerQuery = query.toLowerCase();
@@ -194,6 +199,13 @@ export default function TerminalTab({
       const bytes = Array.from(new TextEncoder().encode(data));
       terminalWrite(appId, bytes).catch(console.error);
     });
+
+    // `onFocus` exists on Terminal at runtime but isn't in @xterm/xterm's
+    // public .d.ts, hence the cast. Optional-chained because the jsdom-mocked
+    // Terminal used in tests doesn't implement it.
+    (term as Terminal & { onFocus?: (cb: () => void) => void }).onFocus?.(() =>
+      onFocusRef.current?.(),
+    );
 
     let mounted = true;
     let unlistenData: (() => void) | undefined;

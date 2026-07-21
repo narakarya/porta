@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import { usePortaStore } from "../../store";
 import TerminalWorkspace from "./TerminalWorkspace";
 
@@ -58,5 +58,29 @@ describe("TerminalWorkspace", () => {
 
     expect(usePortaStore.getState().terminalTabs["a1"][0].id).toBe(original);
     expect(usePortaStore.getState().terminalTabs["a1"]).toHaveLength(1);
+  });
+});
+
+describe("pane chrome", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+  });
+
+  // The duplicated row: the tab already says `zsh` directly above it.
+  it("renders no pane label for a single-pane tab", () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    expect(screen.queryByText("porta · zsh")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pane-ordinal")).not.toBeInTheDocument();
+  });
+
+  it("numbers the panes once a tab is split", () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    act(() => {
+      usePortaStore.getState().splitTerminalTab("a1", tabId, "cols");
+    });
+
+    const ordinals = screen.getAllByTestId("pane-ordinal");
+    expect(ordinals.map((o) => o.textContent)).toEqual(["1", "2"]);
   });
 });
