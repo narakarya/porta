@@ -56,11 +56,23 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function plain(code: string): string {
+  return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+}
+
 export async function highlightCode(code: string, lang: string): Promise<string> {
-  if (lang === "text") return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
-  const highlighter = await getHighlighter();
-  if (!highlighter.getLoadedLanguages().includes(lang)) {
-    return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+  if (lang === "text") return plain(code);
+  try {
+    const highlighter = await getHighlighter();
+    if (!highlighter.getLoadedLanguages().includes(lang)) return plain(code);
+    return highlighter.codeToHtml(code, { lang, theme: "github-dark-default" });
+  } catch {
+    // Highlighting is a nicety; showing the file is not. Any failure — a WASM
+    // load that never resolves in the webview, a grammar that blows up — falls
+    // back to escaped text rather than propagating out of a preview render.
+    // Clearing the cache lets a later call retry instead of one bad load
+    // disabling highlighting for the lifetime of the app.
+    highlighterPromise = null;
+    return plain(code);
   }
-  return highlighter.codeToHtml(code, { lang, theme: "github-dark-default" });
 }
