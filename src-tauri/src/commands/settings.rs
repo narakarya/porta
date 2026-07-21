@@ -175,6 +175,21 @@ pub fn set_git_advanced_enabled(enabled: bool) {
 }
 
 #[tauri::command]
+pub fn get_git_theme() -> String {
+    read_porta_config()["git_theme"]
+        .as_str()
+        .unwrap_or("dark")
+        .to_string()
+}
+
+#[tauri::command]
+pub fn set_git_theme(theme: String) {
+    let mut cfg = read_porta_config();
+    cfg["git_theme"] = serde_json::json!(theme);
+    write_porta_config(&cfg);
+}
+
+#[tauri::command]
 pub fn notify_image_updates_found(app: tauri::AppHandle, app_names: Vec<String>) {
     if !image_update_notify_enabled() { return; }
     let body = match app_names.len() {

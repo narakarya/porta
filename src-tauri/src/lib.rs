@@ -301,6 +301,8 @@ pub fn run() {
             commands::set_git_autofetch_interval_secs,
             commands::get_git_advanced_enabled,
             commands::set_git_advanced_enabled,
+            commands::get_git_theme,
+            commands::set_git_theme,
             commands::git_worktree_list,
             commands::git_worktree_add,
             commands::git_log,

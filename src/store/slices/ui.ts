@@ -3,6 +3,7 @@ import type { SetupStatus } from "../../types";
 import type { AllSlices } from "../index";
 import type { ExtensionInfo } from "../../types/extension";
 import * as cmd from "../../lib/commands";
+import { type GitTheme, DEFAULT_GIT_THEME, isGitTheme } from "../../lib/git-theme";
 
 export type ExtensionSidebarState = {
   appId: string;
@@ -83,6 +84,8 @@ export interface UiSlice {
   imageUpdateNotifyEnabled: boolean;
   /** Advanced Git tools (stage/unstage/commit/branch ops) toggle; persisted in Rust config. */
   gitAdvancedEnabled: boolean;
+  /** Git tab colour palette; persisted in Rust config. Applied by Task 7's shell. */
+  gitTheme: GitTheme;
   extensionSidebar: ExtensionSidebarState | null;
   /**
    * Per-app cache of extensions matching each app's kind+tags, keyed by app id.
@@ -150,6 +153,7 @@ export interface UiSlice {
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
   setGitAdvancedEnabled: (enabled: boolean) => void;
+  setGitTheme: (theme: GitTheme) => Promise<void>;
   setBetaUpdates: (enabled: boolean) => void;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
@@ -246,6 +250,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
   gitAdvancedEnabled: true,
+  gitTheme: DEFAULT_GIT_THEME,
   extensionSidebar: null,
   pinnedExtensions: loadPinnedExtensions(),
   sidebarWidth: loadSidebarWidth(),
@@ -272,12 +277,18 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   loadSettings: async () => {
     try {
-      const [enabled, imageUpdateEnabled, gitAdvancedEnabled] = await Promise.all([
+      const [enabled, imageUpdateEnabled, gitAdvancedEnabled, gitThemeLoaded] = await Promise.all([
         cmd.getNotificationsEnabled(),
         cmd.getImageUpdateNotifyEnabled(),
         cmd.getGitAdvancedEnabled(),
+        cmd.getGitTheme(),
       ]);
-      set({ notificationsEnabled: enabled, imageUpdateNotifyEnabled: imageUpdateEnabled, gitAdvancedEnabled });
+      set({
+        notificationsEnabled: enabled,
+        imageUpdateNotifyEnabled: imageUpdateEnabled,
+        gitAdvancedEnabled,
+        gitTheme: isGitTheme(gitThemeLoaded) ? gitThemeLoaded : DEFAULT_GIT_THEME,
+      });
     } catch {}
   },
 
@@ -302,6 +313,11 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   },
 
   setGitAdvancedEnabled: (enabled) => set({ gitAdvancedEnabled: enabled }),
+
+  setGitTheme: async (theme) => {
+    set({ gitTheme: theme });
+    await cmd.setGitThemeCmd(theme);
+  },
 
   setBetaUpdates: (enabled) => {
     if (typeof localStorage !== "undefined") {

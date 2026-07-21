@@ -1,0 +1,86 @@
+/* Git tab palettes. The tab owns its chrome (spec decision), so these override
+   Porta's semantic tokens *inside the tab only*. Adding a palette means adding a
+   block here and an entry to GIT_THEMES in src/lib/git-theme.ts. */
+
+.git-tab-root {
+  /* git-specific tokens with no core equivalent */
+  --diff-add-bg: rgba(52, 211, 153, 0.08);
+  --diff-del-bg: rgba(248, 113, 113, 0.08);
+  --diff-add-word: rgba(52, 211, 153, 0.26);
+  --diff-del-word: rgba(248, 113, 113, 0.26);
+  --syn-keyword: #c4b5fd; --syn-string: #86efac; --syn-number: #fbbf24;
+  --syn-comment: #8b93a1; --syn-type: #7dd3fc; --syn-function: #93c5fd; --syn-atom: #facc15;
+  --md-heading: #f4f4f5; --md-link: #7dd3fc; --md-code-bg: rgba(255, 255, 255, 0.055);
+  --md-quote: #b9b9c1; --md-quote-border: rgba(125, 211, 252, 0.45);
+  --md-table-head-bg: rgba(255, 255, 255, 0.06);
+
+  background: var(--surface-0);
+  color: var(--ink-1); }
+
+.git-tab-root[data-git-theme="graphite"] {
+  --surface-0: #111318; --surface-1: #171922; --surface-2: #1e212a;
+  --surface-input: #10131a; --surface-code: #0d1016;
+  --ink-1: #eef1f5; --ink-2: #a3aab7; --ink-3: #747d8d;
+  --border-subtle: rgba(255,255,255,.07); --border-strong: rgba(255,255,255,.12);
+  --accent: #8ab4f8; --success: #58d6a1; --warning: #f7c768; --danger: #f78c8c;
+  --md-heading: #ffffff; --md-link: #9bd0ff; --md-code-bg: rgba(255,255,255,.06);
+  --md-quote: #c3c9d4; --md-quote-border: rgba(155,208,255,.38); --md-table-head-bg: rgba(255,255,255,.06);
+  --syn-keyword: #c4b5fd; --syn-string: #8ddfb1; --syn-number: #f7c768;
+  --syn-comment: #9ba4b3; --syn-type: #9bd0ff; --syn-function: #a5d8ff; --syn-atom: #f7c768; }
+
+.git-tab-root[data-git-theme="soft-dark"] {
+  --surface-0: #111214; --surface-1: #17191d; --surface-2: #1f2227;
+  --surface-input: #0f1115; --surface-code: #0d0f13;
+  --ink-1: #eceff4; --ink-2: #9aa3b2; --ink-3: #707a88;
+  --border-subtle: rgba(255,255,255,.07); --border-strong: rgba(255,255,255,.12);
+  --accent: #7db7ff; --success: #44d19a; --warning: #f5c969; --danger: #f38989;
+  --md-heading: #f8fafc; --md-link: #8cc0ff; --md-code-bg: rgba(255,255,255,.06);
+  --md-quote: #c5ced8; --md-quote-border: rgba(140,192,255,.36); --md-table-head-bg: rgba(255,255,255,.06);
+  --syn-keyword: #c4b5fd; --syn-string: #8ddfb1; --syn-number: #f7c768;
+  --syn-comment: #a3adbb; --syn-type: #8cc0ff; --syn-function: #9bd0ff; --syn-atom: #f7c768; }
+
+.git-tab-root[data-git-theme="midnight"] {
+  --surface-0: #081018; --surface-1: #0d1621; --surface-2: #132131;
+  --surface-input: #09111a; --surface-code: #07101a;
+  --ink-1: #e3f0fb; --ink-2: #86a4ba; --ink-3: #5a738a;
+  --border-subtle: rgba(125,211,252,.09); --border-strong: rgba(125,211,252,.16);
+  --accent: #7dd3fc; --success: #4ade80; --warning: #fbbf24; --danger: #f87171;
+  --md-heading: #f8fbff; --md-link: #7dd3fc; --md-code-bg: rgba(125,211,252,.06);
+  --md-quote: #bdd7ea; --md-quote-border: rgba(125,211,252,.42); --md-table-head-bg: rgba(125,211,252,.06);
+  --syn-keyword: #bfdbfe; --syn-string: #86efac; --syn-number: #fbbf24;
+  --syn-comment: #9bb4c8; --syn-type: #7dd3fc; --syn-function: #93c5fd; --syn-atom: #fde047; }
+
+.git-tab-root[data-git-theme="paper"] {
+  --surface-0: #f2eee7; --surface-1: #fbf9f4; --surface-2: #ffffff;
+  --surface-input: #f7f3eb; --surface-code: #f7f4ee;
+  --ink-1: #202733; --ink-2: #5f6b7a; --ink-3: #8a96a6;
+  --border-subtle: rgba(15,23,42,.10); --border-strong: rgba(15,23,42,.16);
+  --accent: #2563eb; --success: #0f766e; --warning: #b45309; --danger: #b91c1c;
+  --diff-add-bg: rgba(15,118,110,.10); --diff-del-bg: rgba(185,28,28,.10);
+  --diff-add-word: rgba(15,118,110,.24); --diff-del-word: rgba(185,28,28,.24);
+  --md-heading: #111827; --md-link: #1d4ed8; --md-code-bg: rgba(15,23,42,.04);
+  --md-quote: #526071; --md-quote-border: rgba(37,99,235,.35); --md-table-head-bg: rgba(15,23,42,.05);
+  --syn-keyword: #6d28d9; --syn-string: #166534; --syn-number: #b45309;
+  --syn-comment: #64748b; --syn-type: #1d4ed8; --syn-function: #0369a1; --syn-atom: #a16207; }
+
+.git-tab-root[data-git-theme="forest"] {
+  --surface-0: #0b1712; --surface-1: #12211a; --surface-2: #182a22;
+  --surface-input: #0d1a15; --surface-code: #0a1511;
+  --ink-1: #edf8ef; --ink-2: #a2b8aa; --ink-3: #6f8a7b;
+  --border-subtle: rgba(148,210,172,.09); --border-strong: rgba(148,210,172,.16);
+  --accent: #8ddfb1; --success: #4ade80; --warning: #f7c768; --danger: #f87171;
+  --md-heading: #ffffff; --md-link: #8ddfb1; --md-code-bg: rgba(148,210,172,.06);
+  --md-quote: #c2d9cd; --md-quote-border: rgba(148,210,172,.38); --md-table-head-bg: rgba(148,210,172,.06);
+  --syn-keyword: #bbf7d0; --syn-string: #86efac; --syn-number: #f7c768;
+  --syn-comment: #a5b9ad; --syn-type: #8ddfb1; --syn-function: #bae6fd; --syn-atom: #f7c768; }
+
+.git-tab-root[data-git-theme="sunset"] {
+  --surface-0: #15100d; --surface-1: #211915; --surface-2: #2b201a;
+  --surface-input: #18110d; --surface-code: #120d0b;
+  --ink-1: #f8eee6; --ink-2: #c2aa99; --ink-3: #8a7363;
+  --border-subtle: rgba(251,146,60,.09); --border-strong: rgba(251,146,60,.17);
+  --accent: #fdba74; --success: #86efac; --warning: #fbbf24; --danger: #fb7185;
+  --md-heading: #ffffff; --md-link: #fdba74; --md-code-bg: rgba(251,146,60,.06);
+  --md-quote: #ddc6b7; --md-quote-border: rgba(251,146,60,.38); --md-table-head-bg: rgba(251,146,60,.06);
+  --syn-keyword: #fdba74; --syn-string: #fda4af; --syn-number: #fbbf24;
+  --syn-comment: #c9ad9d; --syn-type: #fed7aa; --syn-function: #fcd9bd; --syn-atom: #fbbf24; }
