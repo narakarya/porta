@@ -4,6 +4,68 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.1]
+
+Recovers the surfaces the Shell C redesign left behind when the workbench
+replaced the app grid, and gives failures somewhere to go. Opening an app hides
+the whole grid subtree with `hidden`, and `display: none` takes fixed-position
+descendants with it — three separate features were unreachable that way.
+
+### Added
+
+- **Notice surface.** An app-wide, non-blocking stack for successes and
+  failures, mounted at the App root. Errors persist until dismissed and carry
+  the backend's own message; successes fade.
+- **Resizable sidebar.** Drag the right edge, clamped to 180–420px so it cannot
+  collapse; double-click resets. Width is shared by Workspaces and Hosts and
+  persists. The sidebar also moves to the raised surface, which previously matched
+  the content area exactly and read as flat.
+- **Pinned extension tabs.** Up to two extensions can be pinned as workbench
+  tabs beside Config, rendering their panel inline. Pins are global, so an
+  extension follows every app it activates for.
+- **Version indicator** as a dot above Settings: setup health by colour, version
+  on hover, click to check for updates. It replaces an inert version row that
+  could never be clicked and an account initial the update popover anchored to.
+- **Frontend test suite** (vitest + testing-library) covering the regressions
+  fixed here.
+
+### Changed
+
+- **Terminal tabs and splits reach the workbench.** The tabbed/split surface,
+  transcript search and ⌘T/⌘W/⌘D/⌘1-9 shortcuts were owned by the grid's
+  terminal modal; the workbench's Terminal tab was a bare single pane. Both now
+  share one surface. ⌘F no longer focuses the wrong search box when both are
+  mounted.
+- **No more alert walls.** Nine `window.alert` call sites — two on the app-start
+  path — became notices instead of modal dialogs that block the whole WebView.
+- **Lifecycle buttons keep their slot.** Start/Restart become their own spinner
+  rather than being swapped for a separate disabled pill, and Stop is appended
+  while starting rather than prepended, so no control shifts under the cursor.
+
+### Fixed
+
+- **Crashes are visible again in the workbench.** A crash rides on a non-zero
+  exit code, which the workbench never read, so a died app showed a neutral
+  "stopped". Restores the crash badge, exit-code banner and Restart label.
+- **The start/crash log toast** works from the workbench, and stays quiet while
+  the Logs tab is already showing the same output.
+- **SSH connect failures explain themselves.** A failed connect showed a red dot
+  over a blank terminal; the reason was dropped in three places. Failed sessions
+  now render the reason with a retry. Agent auth with no `SSH_AUTH_SOCK` ran zero
+  methods yet reported "all authentication methods failed"; that case is named,
+  and auth errors quote the username and methods tried.
+- **Silent failures.** A failed start/stop/restart from the workbench, a failed
+  SSH host save or delete, and Activity's start/stop all rejected into nothing.
+  They report now.
+- **Two copies of one build no longer fight over the database.** A single-instance
+  guard focuses the existing window instead of opening a second one onto the same
+  SQLite file with its own stale in-memory state, and `busy_timeout` replaces the
+  default of failing a contended write immediately.
+
+### Internal
+
+- Two-phase release driver for the beta and stable lines.
+
 ## [0.13.0] — 2026-07-21
 
 Promotes the whole "Shell C" line to stable. This is the largest release since
