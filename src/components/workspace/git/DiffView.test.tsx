@@ -318,6 +318,42 @@ describe("DiffView preview surface", () => {
     expect(container.querySelector("pre.md-mermaid[data-mermaid]")).toBeNull();
   }, PREVIEW_TIMEOUT);
 
+  // MermaidControls' own unit tests drive a fabricated hydrated diagram; this
+  // is the one place the controls meet the real pipeline, and the only thing
+  // that would catch them being wired to a surface the diagram never lands in.
+  it("offers zoom and fullscreen once a diagram is on screen, and not before", async () => {
+    const { container } = await openPreview(MERMAID_DOC);
+
+    await waitFor(
+      () => expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument(),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(screen.getByRole("button", { name: "Enter fullscreen" })).toBeInTheDocument();
+    // The controls are a sibling of the rendered document, never inside it —
+    // md-body is the stylesheet's only hook and stays the renderer's alone.
+    expect(container.querySelector(".md-body button")).toBeNull();
+
+    // Mermaid's real output carries a viewBox, which is what the controls
+    // scale from — a unit test on fabricated markup can't confirm that.
+    const svg = container.querySelector<SVGSVGElement>(".md-mermaid svg")!;
+    const intrinsic = parseFloat(svg.style.width);
+    expect(intrinsic).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(parseFloat(svg.style.width)).toBeGreaterThan(intrinsic);
+    expect(svg.style.transform).toBe("");
+  }, PREVIEW_TIMEOUT);
+
+  it("shows no diagram controls for a markdown preview without one", async () => {
+    const { container } = await openPreview(MARKDOWN_DOC);
+
+    await waitFor(
+      () => expect(container.querySelector(".md-body h1")?.textContent).toBe("Release notes"),
+      { timeout: PREVIEW_TIMEOUT },
+    );
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter fullscreen" })).toBeNull();
+  }, PREVIEW_TIMEOUT);
+
   // The cancellation contract from Task 2, seen from the consumer's side. The
   // key is held stable here on purpose: that keeps one DiffView instance and
   // one preview host element across the switch, which is the case where an

@@ -12,6 +12,7 @@ import { tokenDiff, type Span } from "../../../lib/word-diff";
 import { renderPreview, langFromPath } from "../../../lib/preview";
 import { usePortaStore } from "../../../store";
 import { Spinner } from "../../ui";
+import MermaidControls from "./MermaidControls";
 import SplitHunk from "./SplitHunk";
 import { useActivePane } from "./ui/ActivePane";
 
@@ -95,7 +96,15 @@ function MarkdownPreview({ source }: { source: string }) {
     return () => controller.abort();
   }, [source, dark]);
 
-  return <div ref={hostRef} className="md-body mx-auto max-w-4xl p-5" />;
+  // The wrapper is MermaidControls' own; the `md-body` node below is untouched
+  // by it, class and all — every rule in src/styles/git-preview.css hangs off
+  // that class, and the controls are a sibling of the rendered document rather
+  // than anything inside it.
+  return (
+    <MermaidControls>
+      <div ref={hostRef} className="md-body mx-auto max-w-4xl p-5" />
+    </MermaidControls>
+  );
 }
 
 /**
