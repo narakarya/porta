@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { App } from "../../../types";
 import { gitDiffFile, gitFileAtRev, gitFilePreview } from "../../../lib/commands";
-import { highlightFileLines } from "../../../lib/diff-highlight";
+import { highlightFileTokens } from "../../../lib/diff-highlight";
 import DiffView from "./DiffView";
 
 // Same reason as src/lib/preview/index.test.ts: jsdom answers neither SVG
@@ -590,8 +590,8 @@ describe("DiffView syntax colour", () => {
     // The straw man, stated rather than implied: highlighting that exact line
     // on its own — all a per-line implementation ever sees — makes `const` a
     // keyword. The row above must not look like this.
-    const [alone] = await highlightFileLines("const notCode = true;", "src/db.ts");
-    expect(alone).toContain("--shiki-token-keyword");
+    const alone = await highlightFileTokens("const notCode = true;", "src/db.ts");
+    expect(alone![0].map((t) => t.style).join(" ")).toContain("--shiki-token-keyword");
 
     // The deleted side is read from the *revision*, not from disk, and gets
     // the same treatment.
