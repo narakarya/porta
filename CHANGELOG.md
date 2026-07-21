@@ -4,6 +4,39 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Terminal sessions now outlive the view that shows them, and the chrome around
+them stops repeating itself.
+
+### Fixed
+
+- **The terminal follows the app you selected.** `AppWorkbench` is reused
+  across apps rather than remounted, so the tab strip — which kept its state in
+  the component — stayed on screen under the next app, still pointed at the
+  previous app's directory. Tab state now lives in a store slice keyed by app.
+- **Navigating away no longer kills a running shell.** The PTY's lifetime was
+  bound to a React component whose lifetime was bound to navigation, so
+  deselecting an app SIGHUPed whatever was running, silently. Rust owns the
+  session now: it keeps the last 256 KB of output, `terminal_open` reattaches
+  instead of respawning, and only closing a tab, closing a pane, or deleting
+  the app tears a shell down.
+- **An exited shell keeps its last screen.** It used to leave a line of text in
+  the scrollback and an inert tab with no way back.
+
+### Changed
+
+- **The tab dot reports whether the shell is alive** — running, idle, or
+  exited — instead of whether it has output you haven't looked at. Unseen
+  output now shows as a brighter tab label. One dot, one meaning.
+- **The per-pane header row is gone.** It repeated the tab's own label directly
+  beneath it. Split panes get an ordinal and a focus edge; a single-pane tab
+  gets no chrome at all.
+- **A status bar under the terminal** shows the focused pane's state, its pid,
+  and line and match counts, and offers Restart once a shell exits.
+- **Closing a tab with a process still running asks first.** Sessions survive
+  navigation now, so closing is the only way left to lose work.
+
 ## [0.14.0-beta.3]
 
 Makes "Check for updates" tell the truth while a beta is being built.
