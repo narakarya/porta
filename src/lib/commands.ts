@@ -1296,16 +1296,30 @@ export const caddyStatusCheck = (): Promise<boolean> =>
 
 // ── In-app terminal ───────────────────────────────────────────────────────────
 
+/** What `terminal_open` hands back: a fresh shell, or the retained output of
+ *  one that outlived its last view. */
+export interface TerminalAttach {
+  spawned: boolean;
+  backlog: number[];
+}
+
+export interface TerminalState {
+  alive: boolean;
+  running: boolean;
+  pid: number;
+  exitCode: number | null;
+}
+
 export const terminalOpen = (
   appId: string,
   rootDir: string,
   rows: number,
   cols: number,
   startupCmd?: string | null,
-): Promise<void> =>
+): Promise<TerminalAttach> =>
   isTauri
     ? invoke("terminal_open", { appId, rootDir, rows, cols, startupCmd: startupCmd ?? null })
-    : Promise.resolve();
+    : Promise.resolve({ spawned: true, backlog: [] });
 
 export const terminalWrite = (appId: string, data: number[]): Promise<void> =>
   isTauri ? invoke("terminal_write", { appId, data }) : Promise.resolve();
@@ -1315,6 +1329,16 @@ export const terminalResize = (appId: string, rows: number, cols: number): Promi
 
 export const terminalClose = (appId: string): Promise<void> =>
   isTauri ? invoke("terminal_close", { appId }) : Promise.resolve();
+
+/** Polled for the focused pane only — see TerminalWorkspace's status bar. */
+export const terminalState = (appId: string): Promise<TerminalState> =>
+  isTauri
+    ? invoke<TerminalState>("terminal_state", { appId }).catch(() => ({
+        // A session the backend no longer knows is not an error here — a tab
+        // mid-close is removed from Rust's map before its poll stops.
+        alive: false, running: false, pid: 0, exitCode: null,
+      }))
+    : Promise.resolve({ alive: true, running: false, pid: 0, exitCode: null });
 
 // ── Container observability (logs streaming + stats) ────────────────────────
 
