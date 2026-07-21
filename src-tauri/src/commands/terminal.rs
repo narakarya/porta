@@ -54,6 +54,22 @@ fn attach_existing(map: &HashMap<String, TerminalHandle>, id: &str) -> Option<Te
     })
 }
 
+/// Map a raw `waitpid` status to the code a shell would report: the exit
+/// status for a normal exit, `128 + signal` for a signalled death.
+fn exit_code_from_status(status: libc::c_int) -> i32 {
+    if status & 0x7f == 0 {
+        (status >> 8) & 0xff
+    } else {
+        128 + (status & 0x7f)
+    }
+}
+
+/// A session whose reader thread has closed the PTY has no usable
+/// descriptor; write/resize must not touch the recycled number.
+fn is_writable(h: &TerminalHandle) -> bool {
+    h.master_fd >= 0
+}
+
 /// Ensure the spawned shell sees a UTF-8 locale.
 ///
 /// macOS GUI apps are launched (Finder/Dock) without the terminal's locale
@@ -108,7 +124,19 @@ pub fn terminal_open(
     // Bound the guard to a local so the lock is released before we spawn.
     let existing = {
         let map = terminals().lock().unwrap();
-        attach_existing(&map, &app_id)
+        let attach = attach_existing(&map, &app_id);
+        // The reattaching view usually has different dimensions than the one
+        // that left; push the new size to the still-live PTY in the same lock
+        // acquisition. A no-op for an exited session, whose fd is invalidated.
+        if attach.is_some() {
+            if let Some(h) = map.get(&app_id) {
+                if is_writable(h) {
+                    let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+                    unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
+                }
+            }
+        }
+        attach
     };
     if let Some(attach) = existing {
         return Ok(attach);
@@ -171,10 +199,6 @@ pub fn terminal_open(
 
     unsafe { libc::close(slave_fd); }
 
-    // Detach child so we don't leave a zombie — we wait in a background thread.
-    let wait_pid = child_pid;
-    thread::spawn(move || unsafe { libc::waitpid(wait_pid as i32, std::ptr::null_mut(), 0); });
-
     terminals().lock().unwrap().insert(
         app_id.clone(),
         TerminalHandle {
@@ -225,7 +249,28 @@ pub fn terminal_open(
             drop(map);
         }
         unsafe { libc::close(master_fd); }
-        app_clone.emit(&format!("terminal:exit:{}", id_clone), ()).ok();
+
+        let mut status: libc::c_int = 0;
+        let code = unsafe {
+            if libc::waitpid(child_pid as i32, &mut status, 0) > 0 {
+                exit_code_from_status(status)
+            } else {
+                0
+            }
+        };
+
+        // Keep the handle: its backlog is the shell's final screen, and the UI
+        // shows an `exited` tab until the user closes or restarts it. Record
+        // the sentinel fd alongside the exit code in one lock acquisition so
+        // a concurrent write/resize can't observe a closed-but-not-yet-marked
+        // descriptor and land on whatever number the kernel reused.
+        if let Some(h) = terminals().lock().unwrap().get_mut(&id_clone) {
+            h.exit_code = Some(code);
+            h.master_fd = -1;
+        }
+        app_clone
+            .emit(&format!("terminal:exit:{}", id_clone), serde_json::json!({ "code": code }))
+            .ok();
     });
 
     Ok(TerminalAttach { spawned: true, backlog: Vec::new() })
@@ -236,8 +281,10 @@ pub fn terminal_open(
 pub fn terminal_write(app_id: String, data: Vec<u8>) -> Result<(), String> {
     let map = terminals().lock().unwrap();
     if let Some(h) = map.get(&app_id) {
-        unsafe {
-            libc::write(h.master_fd, data.as_ptr() as *const libc::c_void, data.len());
+        if is_writable(h) {
+            unsafe {
+                libc::write(h.master_fd, data.as_ptr() as *const libc::c_void, data.len());
+            }
         }
     }
     Ok(())
@@ -248,21 +295,28 @@ pub fn terminal_write(app_id: String, data: Vec<u8>) -> Result<(), String> {
 pub fn terminal_resize(app_id: String, rows: u16, cols: u16) -> Result<(), String> {
     let map = terminals().lock().unwrap();
     if let Some(h) = map.get(&app_id) {
-        let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-        unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
+        if is_writable(h) {
+            let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+            unsafe { libc::ioctl(h.master_fd, libc::TIOCSWINSZ, &ws); }
+        }
     }
     Ok(())
 }
 
-/// Close (and kill) a terminal session.
+/// Close (and kill) a terminal session. The only path that removes a session —
+/// called from closing a tab, closing a pane, or deleting the app.
 #[tauri::command]
 pub fn terminal_close(app_id: String) -> Result<(), String> {
     if let Some(h) = terminals().lock().unwrap().remove(&app_id) {
-        unsafe {
-            libc::kill(h.child_pid as i32, libc::SIGHUP);
-            libc::kill(h.child_pid as i32, libc::SIGTERM);
-            // Close master fd — causes the read thread to get EIO and stop.
-            libc::close(h.master_fd);
+        // An exited session's fd was already closed by its reader thread;
+        // closing it twice could take out an unrelated reused descriptor.
+        if h.exit_code.is_none() {
+            unsafe {
+                libc::kill(h.child_pid as i32, libc::SIGHUP);
+                libc::kill(h.child_pid as i32, libc::SIGTERM);
+                // Close master fd — causes the read thread to get EIO and stop.
+                libc::close(h.master_fd);
+            }
         }
     }
     Ok(())
@@ -363,5 +417,49 @@ mod tests {
     fn injects_utf8_when_locale_is_non_utf8() {
         assert!(!utf8_locale_overrides(env(&[("LANG", "C")])).is_empty());
         assert!(!utf8_locale_overrides(env(&[("LC_ALL", "POSIX")])).is_empty());
+    }
+
+    use super::exit_code_from_status;
+
+    #[test]
+    fn normal_exit_reports_its_status_code() {
+        // WIFEXITED with WEXITSTATUS == 0 → clean exit.
+        assert_eq!(exit_code_from_status(0x0000), 0);
+        // WEXITSTATUS == 1 lives in the high byte.
+        assert_eq!(exit_code_from_status(0x0100), 1);
+        assert_eq!(exit_code_from_status(0x7f00), 127);
+    }
+
+    #[test]
+    fn a_signalled_shell_reports_the_shell_convention_code() {
+        // Low 7 bits carry the signal; SIGKILL (9) → 128 + 9.
+        assert_eq!(exit_code_from_status(9), 137);
+        // SIGHUP (1) — what terminal_close sends.
+        assert_eq!(exit_code_from_status(1), 129);
+    }
+
+    #[test]
+    fn an_exited_session_keeps_its_backlog_but_not_its_descriptor() {
+        // The reader thread closes the fd; leaving the number in the handle
+        // would let a later write land in whatever reopened it.
+        let h = TerminalHandle {
+            master_fd: -1,
+            child_pid: 4242,
+            backlog: b"final output".iter().copied().collect(),
+            exit_code: Some(1),
+        };
+        assert!(h.master_fd < 0);
+        assert_eq!(h.backlog.len(), 12);
+    }
+
+    use super::is_writable;
+
+    #[test]
+    fn a_live_session_is_writable_and_a_closed_one_is_not() {
+        let mut h = handle(b"", None);
+        h.master_fd = 7;
+        assert!(is_writable(&h));
+        h.master_fd = -1;
+        assert!(!is_writable(&h));
     }
 }

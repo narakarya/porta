@@ -248,6 +248,10 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
           );
         });
         termUnlistenRef.current.set(termId, [dataUn, exitUn]);
+        // terminal_open is idempotent now — reattaching to a dead session
+        // would replay a frozen final screen. Extensions have no Restart
+        // affordance (unlike a terminal tab), so always force a live shell.
+        await terminalClose(termId).catch(() => {});
         await terminalOpen(termId, cwd, opts.rows ?? 24, opts.cols ?? 80);
       } else if (method === "write") {
         await terminalWrite(termId, args[1] as number[]);
