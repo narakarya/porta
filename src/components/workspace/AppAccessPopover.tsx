@@ -40,6 +40,9 @@ interface Props {
   quickOnly?: boolean;
   externalBusy?: boolean;
   onToggleExternalTunnel?: () => Promise<void>;
+  /** App isn't serving yet — Open would land on a connection error and a tunnel
+   *  would publish a dead origin, so both actions go inert. */
+  offline?: boolean;
 }
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -80,7 +83,7 @@ function namedPublicHosts(app: App): { host: string; kind: "primary" | "alias" |
   ]);
 }
 
-function DestinationActions({ url, label }: { url: string; label: string }) {
+function DestinationActions({ url, label, offline = false }: { url: string; label: string; offline?: boolean }) {
   return (
     <span className="ml-auto flex shrink-0 items-center gap-2 text-ink-3">
       <button
@@ -95,9 +98,10 @@ function DestinationActions({ url, label }: { url: string; label: string }) {
       <button
         type="button"
         onClick={() => void openExternalUrl(url)}
-        title={`Open ${url}`}
+        disabled={offline}
+        title={offline ? "App is not running" : `Open ${url}`}
         aria-label={`Open ${label}`}
-        className="rounded p-1 transition-colors hover:bg-white/[0.04] hover:text-ink"
+        className="rounded p-1 transition-colors hover:bg-white/[0.04] hover:text-ink disabled:pointer-events-none disabled:opacity-40"
       >
         <ArrowSquareOut size={15} weight="regular" />
       </button>
@@ -127,6 +131,7 @@ export default function AppAccessPopover({
   quickOnly = false,
   externalBusy = false,
   onToggleExternalTunnel,
+  offline = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const configuredMode: TunnelMode =
@@ -164,6 +169,9 @@ export default function AppAccessPopover({
   const provider = app.tunnel_provider ?? "cloudflare";
   const providerIsCloudflare = provider === "cloudflare";
   const modeLocked = tunnelHasUrl || connectingNow || quickOnly;
+  // A live tunnel must stay disconnectable even if the origin died, so only
+  // *connecting* is blocked while the app is down.
+  const tunnelToggleDisabled = connectingNow || (offline && !tunnelHasUrl);
   const namedConfigured = !!(app.tunnel_name?.trim() && app.tunnel_custom_hostname?.trim());
 
   useEffect(() => {
@@ -214,7 +222,7 @@ export default function AppAccessPopover({
   }
 
   async function toggleTunnel() {
-    if (connectingNow) return;
+    if (tunnelToggleDisabled) return;
     setConfigError(null);
 
     if (quickOnly) {
@@ -289,12 +297,13 @@ export default function AppAccessPopover({
       width="w-[680px] max-w-[calc(100vw-2rem)]"
       panelClassName="!max-h-[calc(100vh-6rem)] !overflow-y-auto !p-0"
       anchor={
-        <span className="inline-flex self-center overflow-hidden rounded-control border border-[rgba(96,165,250,0.30)]">
+        <span className={`inline-flex self-center overflow-hidden rounded-control border border-[rgba(96,165,250,0.30)] ${offline ? "opacity-50" : ""}`}>
           <button
             type="button"
             onClick={() => void openExternalUrl(primaryUrl)}
-            title={`Open ${primaryUrl}`}
-            className="inline-flex items-center gap-1.5 bg-accent-bg px-2.5 py-[5px] text-[12px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)]"
+            disabled={offline}
+            title={offline ? "App is not running" : `Open ${primaryUrl}`}
+            className="inline-flex items-center gap-1.5 bg-accent-bg px-2.5 py-[5px] text-[12px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
           >
             <ArrowSquareOut size={14} weight="regular" />
             Open
@@ -347,7 +356,7 @@ export default function AppAccessPopover({
                   <ModePill tone={destination.kind === "default" ? "accent" : "neutral"}>
                     {destination.kind}
                   </ModePill>
-                  <DestinationActions url={destination.url} label={`${destination.host} URL`} />
+                  <DestinationActions url={destination.url} label={`${destination.host} URL`} offline={offline} />
                 </div>
               ))}
             </div>
@@ -403,9 +412,12 @@ export default function AppAccessPopover({
               role="switch"
               aria-checked={tunnelHasUrl}
               aria-label={tunnelHasUrl ? "Disconnect tunnel" : `Connect ${mode} tunnel`}
-              disabled={connectingNow}
+              disabled={tunnelToggleDisabled}
+              title={offline && !tunnelHasUrl ? "Start the app before connecting a tunnel" : undefined}
               onClick={() => void toggleTunnel()}
-              className={`relative ml-auto h-[18px] w-8 rounded-full transition-colors disabled:cursor-wait disabled:opacity-60 ${
+              className={`relative ml-auto h-[18px] w-8 rounded-full transition-colors disabled:opacity-60 ${
+                connectingNow ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+              } ${
                 tunnelHasUrl ? "bg-accent" : "border border-strong bg-surface-1"
               }`}
             >
