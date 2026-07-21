@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import { usePortaStore } from "../../store";
-import TerminalWorkspace from "./TerminalWorkspace";
+import TerminalWorkspace, { tabState } from "./TerminalWorkspace";
 
 const terminalClose = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("../../lib/commands", async (orig) => ({
@@ -82,5 +82,29 @@ describe("pane chrome", () => {
 
     const ordinals = screen.getAllByTestId("pane-ordinal");
     expect(ordinals.map((o) => o.textContent)).toEqual(["1", "2"]);
+  });
+});
+
+describe("tabState", () => {
+  const base = {
+    id: "t1", appId: "a1", appName: "porta", rootDir: "/src/porta",
+    label: "zsh", splitOrientation: "cols" as const,
+  };
+  const pane = (state: "idle" | "running" | "exited") => ({
+    id: `p-${state}`, rootDir: "/src/porta", startupCommand: null,
+    hasUnseenOutput: false, state, exitCode: null, pid: null,
+  });
+
+  it("is running when any pane has work in flight", () => {
+    expect(tabState({ ...base, panes: [pane("idle"), pane("running")] })).toBe("running");
+  });
+
+  it("is exited only when every pane has exited", () => {
+    expect(tabState({ ...base, panes: [pane("exited"), pane("exited")] })).toBe("exited");
+    expect(tabState({ ...base, panes: [pane("exited"), pane("idle")] })).toBe("idle");
+  });
+
+  it("is idle at a bare prompt", () => {
+    expect(tabState({ ...base, panes: [pane("idle")] })).toBe("idle");
   });
 });

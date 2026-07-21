@@ -36,6 +36,21 @@ interface Props {
 // Stable empty ref so the selector never returns a new array.
 const EMPTY_TABS: TabSession[] = [];
 
+/** One dot, one meaning: a tab is running if anything in it is, exited only
+ *  once nothing is left alive. Unseen output is carried by label brightness
+ *  instead, so the two signals never fight over the same pixel. */
+export function tabState(tab: TabSession): "idle" | "running" | "exited" {
+  if (tab.panes.some((p) => p.state === "running")) return "running";
+  if (tab.panes.length > 0 && tab.panes.every((p) => p.state === "exited")) return "exited";
+  return "idle";
+}
+
+const STATE_DOT: Record<"idle" | "running" | "exited", string> = {
+  idle: "bg-zinc-600",
+  running: "bg-emerald-400",
+  exited: "bg-amber-400",
+};
+
 /**
  * The multi-tab + split terminal surface: tab strip, 1–2 panes per tab, shared
  * search/filter over the panes' transcripts, and the ⌘T/⌘W/⌘D/⌘1-9 shortcuts.
@@ -304,7 +319,8 @@ export default function TerminalWorkspace({
           {tabs.map((tab) => {
             const isActive = activeId === tab.id;
             const isEditing = editingTabId === tab.id;
-            const busy = !isActive && tab.panes.some((p) => p.hasUnseenOutput);
+            const state = tabState(tab);
+            const unseen = !isActive && tab.panes.some((p) => p.hasUnseenOutput);
             return (
               <div
                 key={tab.id}
@@ -313,15 +329,16 @@ export default function TerminalWorkspace({
                 className={`group flex items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[11px] cursor-pointer transition-colors ${
                   isActive
                     ? "bg-white/[0.08] text-ink"
-                    : "text-ink-2 hover:text-ink hover:bg-white/[0.05]"
+                    : unseen
+                      ? "text-ink hover:bg-white/[0.05]"
+                      : "text-ink-2 hover:text-ink hover:bg-white/[0.05]"
                 }`}
               >
-                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" className="shrink-0 text-ink-3" aria-hidden="true">
-                  <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
-                  <path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M7.5 9.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-                </svg>
-                {busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Activity" />}
+                <span
+                  data-testid="tab-state-dot"
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATE_DOT[state]}`}
+                  title={state === "exited" ? "Shell exited" : state === "running" ? "Running" : "Idle"}
+                />
                 {isEditing ? (
                   <input
                     autoFocus
