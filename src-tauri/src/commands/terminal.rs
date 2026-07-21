@@ -1,17 +1,57 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::os::unix::io::RawFd;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use tauri::Emitter;
 
+/// Most recent output retained per session, replayed when a UI reattaches.
+/// Roughly a full screen of dense scrollback; bounds memory across sessions.
+pub const BACKLOG_CAP: usize = 256 * 1024;
+
 pub(super) struct TerminalHandle {
     pub master_fd: RawFd,
     pub child_pid: u32,
+    /// Rolling tail of everything the shell has written.
+    pub backlog: VecDeque<u8>,
+    /// `Some(code)` once the shell exits. The handle is deliberately kept so a
+    /// later reattach can still replay the final screen; only `terminal_close`
+    /// removes it.
+    pub exit_code: Option<i32>,
+}
+
+/// What a UI gets when it opens a session id: either a freshly spawned shell
+/// (empty backlog) or the retained output of one that was already running.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalAttach {
+    pub spawned: bool,
+    pub backlog: Vec<u8>,
 }
 
 pub(super) fn terminals() -> &'static Mutex<HashMap<String, TerminalHandle>> {
     static T: OnceLock<Mutex<HashMap<String, TerminalHandle>>> = OnceLock::new();
     T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Append `chunk`, dropping from the front so the buffer never exceeds
+/// `BACKLOG_CAP`.
+fn push_backlog(buf: &mut VecDeque<u8>, chunk: &[u8]) {
+    if chunk.len() >= BACKLOG_CAP {
+        buf.clear();
+        buf.extend(&chunk[chunk.len() - BACKLOG_CAP..]);
+        return;
+    }
+    let overflow = (buf.len() + chunk.len()).saturating_sub(BACKLOG_CAP);
+    buf.drain(..overflow);
+    buf.extend(chunk);
+}
+
+/// Snapshot an existing session's backlog, or `None` if the id is unknown.
+fn attach_existing(map: &HashMap<String, TerminalHandle>, id: &str) -> Option<TerminalAttach> {
+    map.get(id).map(|h| TerminalAttach {
+        spawned: false,
+        backlog: h.backlog.iter().copied().collect(),
+    })
 }
 
 /// Ensure the spawned shell sees a UTF-8 locale.
@@ -59,12 +99,20 @@ pub fn terminal_open(
     rows: u16,
     cols: u16,
     startup_cmd: Option<String>,
-) -> Result<(), String> {
+) -> Result<TerminalAttach, String> {
     use std::os::unix::io::FromRawFd;
     use std::os::unix::process::CommandExt;
 
-    // Close any existing terminal for this app first.
-    terminal_close(app_id.clone())?;
+    // Reattach rather than respawn. This is what lets the UI unmount freely:
+    // navigating away disposes the xterm, coming back replays the buffer.
+    // Bound the guard to a local so the lock is released before we spawn.
+    let existing = {
+        let map = terminals().lock().unwrap();
+        attach_existing(&map, &app_id)
+    };
+    if let Some(attach) = existing {
+        return Ok(attach);
+    }
 
     let (master_fd, slave_fd) = unsafe {
         let mut m: libc::c_int = -1;
@@ -127,7 +175,15 @@ pub fn terminal_open(
     let wait_pid = child_pid;
     thread::spawn(move || unsafe { libc::waitpid(wait_pid as i32, std::ptr::null_mut(), 0); });
 
-    terminals().lock().unwrap().insert(app_id.clone(), TerminalHandle { master_fd, child_pid });
+    terminals().lock().unwrap().insert(
+        app_id.clone(),
+        TerminalHandle {
+            master_fd,
+            child_pid,
+            backlog: VecDeque::new(),
+            exit_code: None,
+        },
+    );
 
     // If a startup command was requested, write it to the PTY after a short
     // delay so the interactive shell has a chance to print its prompt first.
@@ -158,17 +214,21 @@ pub fn terminal_open(
                 libc::read(master_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
             };
             if n <= 0 { break; }
-            // Send raw bytes as a Vec<u8> — Tauri serialises to JSON array.
-            let chunk: Vec<u8> = buf[..n as usize].to_vec();
-            app_clone.emit(&format!("terminal:data:{}", id_clone), chunk).ok();
+            let chunk = &buf[..n as usize];
+            // Hold the map lock across append + emit so `terminal_open`'s
+            // snapshot can't interleave and duplicate (or drop) a chunk.
+            let mut map = terminals().lock().unwrap();
+            if let Some(h) = map.get_mut(&id_clone) {
+                push_backlog(&mut h.backlog, chunk);
+            }
+            app_clone.emit(&format!("terminal:data:{}", id_clone), chunk.to_vec()).ok();
+            drop(map);
         }
-        // Shell exited or fd closed — clean up.
-        terminals().lock().unwrap().remove(&id_clone);
         unsafe { libc::close(master_fd); }
         app_clone.emit(&format!("terminal:exit:{}", id_clone), ()).ok();
     });
 
-    Ok(())
+    Ok(TerminalAttach { spawned: true, backlog: Vec::new() })
 }
 
 /// Write bytes from the frontend keyboard input into the PTY master.
@@ -210,8 +270,69 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::utf8_locale_overrides;
-    use std::collections::HashMap;
+    use super::{attach_existing, push_backlog, utf8_locale_overrides, TerminalHandle, BACKLOG_CAP};
+    use std::collections::{HashMap, VecDeque};
+
+    fn handle(backlog: &[u8], exit_code: Option<i32>) -> TerminalHandle {
+        TerminalHandle {
+            master_fd: -1,
+            child_pid: 0,
+            backlog: backlog.iter().copied().collect(),
+            exit_code,
+        }
+    }
+
+    #[test]
+    fn backlog_keeps_recent_bytes_under_the_cap() {
+        let mut buf = VecDeque::new();
+        push_backlog(&mut buf, b"hello ");
+        push_backlog(&mut buf, b"world");
+        assert_eq!(buf.iter().copied().collect::<Vec<u8>>(), b"hello world");
+    }
+
+    #[test]
+    fn backlog_drops_from_the_front_once_full() {
+        let mut buf = VecDeque::new();
+        push_backlog(&mut buf, &vec![b'a'; BACKLOG_CAP]);
+        push_backlog(&mut buf, b"tail");
+        assert_eq!(buf.len(), BACKLOG_CAP);
+        let tail: Vec<u8> = buf.iter().rev().take(4).rev().copied().collect();
+        assert_eq!(tail, b"tail");
+    }
+
+    #[test]
+    fn backlog_handles_a_chunk_larger_than_the_cap() {
+        let mut buf = VecDeque::new();
+        let huge = vec![b'x'; BACKLOG_CAP + 512];
+        push_backlog(&mut buf, &huge);
+        assert_eq!(buf.len(), BACKLOG_CAP);
+    }
+
+    #[test]
+    fn attaching_to_a_live_session_replays_without_spawning() {
+        let mut map = HashMap::new();
+        map.insert("pane-1".to_string(), handle(b"prompt$ ", None));
+
+        let attach = attach_existing(&map, "pane-1").expect("live session attaches");
+        assert!(!attach.spawned);
+        assert_eq!(attach.backlog, b"prompt$ ");
+    }
+
+    #[test]
+    fn attaching_to_an_exited_session_still_replays_its_last_screen() {
+        let mut map = HashMap::new();
+        map.insert("pane-1".to_string(), handle(b"boom\n", Some(1)));
+
+        let attach = attach_existing(&map, "pane-1").expect("exited session attaches");
+        assert!(!attach.spawned);
+        assert_eq!(attach.backlog, b"boom\n");
+    }
+
+    #[test]
+    fn attaching_to_an_unknown_session_asks_for_a_spawn() {
+        let map = HashMap::new();
+        assert!(attach_existing(&map, "pane-1").is_none());
+    }
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let map: HashMap<String, String> =
