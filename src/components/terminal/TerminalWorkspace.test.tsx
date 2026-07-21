@@ -594,6 +594,195 @@ describe("closing a busy tab", () => {
     expect(confirmDialog).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(terminalClose).toHaveBeenCalled());
   });
+
+  // Finding 4: `tabState` (what decides whether to confirm) reads `pane.state`,
+  // which used to only ever get written by the poll for the *focused* pane on
+  // the *active* tab. A background tab's panes therefore stayed `idle` forever
+  // regardless of what was actually running in them, so its close button
+  // could kill a mid-build shell with no prompt at all — silently, since nothing
+  // else about the tab looked any different from a genuinely idle one.
+  it("still asks before closing a background tab that is actually running", async () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const foregroundTabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    const foregroundPaneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+    // Configured *before* the second pane exists — keying on the foreground
+    // pane's already-known id rather than the not-yet-created background
+    // one — so the very first poll tick to ever see the new pane (which the
+    // paneCount-triggered effect re-run fires synchronously as part of the
+    // `addTerminalTab` act() below, well before this test could otherwise
+    // react to the new id) already reports it running, instead of racing a
+    // separately-configured mock and losing.
+    terminalState.mockImplementation((paneId: string) =>
+      Promise.resolve(
+        paneId === foregroundPaneId
+          ? ({ alive: true, running: false, pid: 1, exitCode: null } satisfies TerminalState)
+          : ({ alive: true, running: true, pid: 2, exitCode: null } satisfies TerminalState),
+      ),
+    );
+
+    act(() => {
+      usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+    });
+    const bgPaneId = usePortaStore.getState().terminalTabs["a1"][1].panes[0].id;
+    // The newly added tab became active; switch back so the running one is
+    // the *background* tab under test.
+    act(() => {
+      usePortaStore.getState().setActiveTerminalTab("a1", foregroundTabId);
+    });
+
+    // Let the poll (which now covers every tab, not just the active one)
+    // actually observe the background pane as running.
+    await waitFor(() => {
+      expect(
+        usePortaStore.getState().terminalTabs["a1"][1].panes[0].state,
+      ).toBe("running");
+    });
+
+    const closeButtons = screen.getAllByTitle("Close tab (⌘W)");
+    await userEvent.click(closeButtons[1]);
+
+    expect(confirmDialog).toHaveBeenCalled();
+    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalledWith(bgPaneId));
+  });
+});
+
+describe("closing a busy pane", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+    terminalClose.mockClear();
+    confirmDialog.mockClear();
+    confirmDialog.mockResolvedValue(true);
+  });
+
+  // Split, then let the (now app-wide) poll itself observe pane 2 as running
+  // — same reasoning as `seedRunning()` above: configuring the mock to key
+  // on pane 1's already-known id, before pane 2 exists, means the first tick
+  // to ever see pane 2 (fired synchronously off the paneCount-triggered
+  // effect re-run inside the `splitTerminalTab` act() below) already reports
+  // it running. Setting `pane.state` directly instead would race that same
+  // tick, which polls unconditionally and would clobber a manually-set
+  // "running" back to "idle" moments later.
+  function seedSplitWithRunningSecondPane() {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    const pane1Id = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+    terminalState.mockImplementation((paneId: string) =>
+      Promise.resolve(
+        paneId === pane1Id
+          ? ({ alive: true, running: false, pid: 1, exitCode: null } satisfies TerminalState)
+          : ({ alive: true, running: true, pid: 2, exitCode: null } satisfies TerminalState),
+      ),
+    );
+    act(() => {
+      usePortaStore.getState().splitTerminalTab("a1", tabId, "cols");
+    });
+    const pane2Id = usePortaStore.getState().terminalTabs["a1"][0].panes[1].id;
+    return pane2Id;
+  }
+
+  it("asks before closing a pane the poll knows is running", async () => {
+    const pane2Id = seedSplitWithRunningSecondPane();
+    await waitFor(() => {
+      const pane2 = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === pane2Id);
+      expect(pane2?.state).toBe("running");
+    });
+
+    const closeButtons = screen.getAllByTitle("Close pane");
+    await userEvent.click(closeButtons[1]);
+
+    expect(confirmDialog).toHaveBeenCalled();
+    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalledWith(pane2Id));
+  });
+
+  it("leaves a running pane alone when the user declines", async () => {
+    confirmDialog.mockResolvedValue(false);
+    const pane2Id = seedSplitWithRunningSecondPane();
+    await waitFor(() => {
+      const pane2 = usePortaStore.getState().terminalTabs["a1"][0].panes.find((p) => p.id === pane2Id);
+      expect(pane2?.state).toBe("running");
+    });
+
+    const closeButtons = screen.getAllByTitle("Close pane");
+    await userEvent.click(closeButtons[1]);
+
+    await vi.waitFor(() => expect(confirmDialog).toHaveBeenCalled());
+    expect(terminalClose).not.toHaveBeenCalled();
+  });
+
+  it("closes an idle pane without asking", async () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    act(() => {
+      usePortaStore.getState().splitTerminalTab("a1", tabId, "cols");
+    });
+    const [, pane2] = usePortaStore.getState().terminalTabs["a1"][0].panes;
+
+    const closeButtons = screen.getAllByTitle("Close pane");
+    await userEvent.click(closeButtons[1]);
+
+    expect(confirmDialog).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalledWith(pane2.id));
+  });
+});
+
+// Finding 4: the poll used to cover only the focused pane. These pin that it
+// now covers every pane of every tab for the app — a background tab's pane,
+// and a non-focused pane in a split — which is what makes the confirmation
+// tests above (and the tab-strip dot for a background tab) trustworthy.
+describe("polling covers every pane, not just the focused one", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+    terminalState.mockReset();
+    terminalState.mockResolvedValue({ alive: true, running: false, pid: 0, exitCode: null } satisfies TerminalState);
+  });
+
+  it("polls both panes of a split tab, not only the focused one", async () => {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const tabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    act(() => {
+      usePortaStore.getState().splitTerminalTab("a1", tabId, "cols");
+    });
+    const [pane1, pane2] = usePortaStore.getState().terminalTabs["a1"][0].panes;
+
+    // Cumulative since mount — the split fires an immediate tick over both
+    // panes synchronously as part of the act() above, so no further waiting
+    // is even strictly required, but waitFor keeps this robust either way.
+    await waitFor(() => {
+      const polled = terminalState.mock.calls.map((c) => c[0]);
+      expect(polled).toContain(pane1.id);
+      expect(polled).toContain(pane2.id);
+    });
+  });
+
+  it("polls a background tab's pane on the ongoing cadence, not just transiently", async () => {
+    vi.useFakeTimers();
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const foregroundTabId = usePortaStore.getState().terminalTabs["a1"][0].id;
+    act(() => {
+      usePortaStore.getState().addTerminalTab("a1", "porta", "/src/porta", null);
+    });
+    const backgroundPaneId = usePortaStore.getState().terminalTabs["a1"][1].panes[0].id;
+    // `addTerminalTab` makes the new tab active on creation, so switch back
+    // — the tab under test must be genuinely in the background (not active)
+    // for the whole window being measured below, not just transiently active
+    // a moment ago (which even the single-focused-pane poll this replaces
+    // would have covered once, coincidentally, while creating it).
+    act(() => {
+      usePortaStore.getState().setActiveTerminalTab("a1", foregroundTabId);
+    });
+    terminalState.mockClear();
+
+    // Neither pane's id changed, so nothing here re-triggers the poll effect
+    // itself — this only proves out its *ongoing* 2s cadence, deterministically,
+    // rather than a real-time wait racing the interval.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+
+    const polled = terminalState.mock.calls.map((c) => c[0]);
+    expect(polled).toContain(backgroundPaneId);
+    vi.useRealTimers();
+  });
 });
 
 // ADDENDUM: TerminalModal never unmounts on close (just `display: none`), so

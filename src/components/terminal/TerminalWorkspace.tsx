@@ -111,6 +111,11 @@ export default function TerminalWorkspace({
   const handledRequestIds = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
+  // A stable scalar the poll effect below depends on so it notices a pane
+  // being added (a new tab, or an existing one split) or removed, without
+  // depending on `tabs` itself — see that effect's comment for why the array
+  // reference is unsafe to depend on.
+  const paneCount = tabs.reduce((n, t) => n + t.panes.length, 0);
   const activeStats = activeTab
     ? activeTab.panes.reduce(
         (acc, pane) => {
@@ -150,48 +155,65 @@ export default function TerminalWorkspace({
   const restartNonceRef = useRef(restartNonce);
   restartNonceRef.current = restartNonce;
 
-  // Named so the poll effect's dep array holds a value, not a computed
-  // expression — statically checkable even without a lint script to catch a
-  // future mistake here.
-  const focusedPaneRestartNonce = restartNonce[focusedPaneKey ?? ""] ?? 0;
-
-  // Poll only the pane the user is looking at. Guards against flapping with
-  // TerminalTab's onExit (which sets `exited` independently, off this same
-  // poll cadence): a tick reads the store's current state for this pane right
-  // before *and* right after its IPC round trip, so neither a tick already in
-  // flight when the shell exits nor a stale tick queued after can resurrect
-  // an `exited` pane back to `idle`.
+  // Poll every pane of every tab for this app, not just the one the user is
+  // looking at — a confirm-before-close that only knows the focused pane's
+  // state (Finding 4) leaves every background tab reading `idle` forever,
+  // no matter what's actually running in it. One `tcgetpgrp` per pane per 2s
+  // is cheap.
+  //
+  // The interval itself is deliberately stable across restarts and focus
+  // changes — deps are `active`/`appId`/`paneCount`/the store setter, none of
+  // which change on a poll write. This is what avoids the render-loop hazard
+  // a pane-object (or even a pane-*list*) dependency would reintroduce:
+  // either of those is a fresh reference on every single successful poll
+  // (each tick's `setTerminalPaneState` produces a new pane/tab array, with
+  // no value diff before the spread), so depending on one would restart the
+  // interval — and re-fire its immediate tick() — on every write, turning a
+  // 2s poll into an IPC-paced storm.
+  //
+  // `paneCount` (a stable scalar sum, not the array itself — see where it's
+  // computed above) is the one exception: without *something* to notice a
+  // pane appearing, a freshly split pane, or the workbench tab's very first
+  // pane (autoSeed's own effect creates it *after* this one — effects run in
+  // declaration order — so this effect's first run would otherwise poll an
+  // empty list and do nothing) wouldn't get its first poll until the
+  // interval's next natural 2s firing. Depending on `paneCount` means the
+  // effect re-runs — with its own fresh immediate tick — the moment a pane is
+  // actually added or removed, without re-running for the vastly more common
+  // case of a poll simply writing a new state onto an existing one.
+  //
+  // Each pane's restart generation is captured fresh at the moment *that
+  // pane's* request goes out (not once at effect setup, since one shared
+  // effect instance now issues requests for many panes over its lifetime) —
+  // see the staleness guard inside `tick` for why that still closes the same
+  // gap the single-pane version's effect-scoped generation used to.
+  //
+  // Guards against flapping with TerminalTab's onExit (which sets `exited`
+  // independently, off this same poll cadence): each pane's tick reads the
+  // store's current state for it right before *and* right after its IPC
+  // round trip, so neither a tick already in flight when that pane's shell
+  // exits nor a stale tick queued after can resurrect an `exited` pane back
+  // to `idle`.
   useEffect(() => {
-    if (!active || !focusedPaneKey) return;
-    const paneId = focusedPaneKey;
-    // This effect instance's restart generation, captured once at setup.
-    // `restartFocusedPane`'s store writes (idle reset) land, then only later
-    // does React actually run this effect's cleanup (which flips
-    // `cancelled`) — child-before-parent effect ordering plus the async
-    // `terminalClose` round trip mean a response already in flight when
-    // Restart is clicked can resolve *inside* that window, while `cancelled`
-    // is still false. Comparing the live nonce (via the ref, since a plain
-    // closure over `restartNonce` would also be stale) against the
-    // generation this request was issued under discards that response
-    // instead of writing the dead session's state over the freshly reset
-    // pane.
-    const requestGeneration = focusedPaneRestartNonce;
+    if (!active) return;
     let cancelled = false;
-    let intervalId: number | undefined;
 
-    const currentState = () =>
+    const paneIds = () =>
+      (usePortaStore.getState().terminalTabs[appId] ?? []).flatMap((t) => t.panes.map((p) => p.id));
+
+    const paneState = (paneId: string) =>
       usePortaStore
         .getState()
         .terminalTabs[appId]?.flatMap((t) => t.panes)
         .find((p) => p.id === paneId)?.state;
 
-    const isStaleRestart = () => (restartNonceRef.current[paneId] ?? 0) !== requestGeneration;
+    const pollOne = (paneId: string) => {
+      // This request's restart generation, captured at the moment it's
+      // issued — see the comment above the effect for why per-request (not
+      // per-effect-setup) is what a shared, long-lived interval needs.
+      const requestGeneration = restartNonceRef.current[paneId] ?? 0;
+      const isStaleRestart = () => (restartNonceRef.current[paneId] ?? 0) !== requestGeneration;
 
-    const tick = () => {
-      if (currentState() === "exited") {
-        if (intervalId !== undefined) window.clearInterval(intervalId);
-        return;
-      }
       terminalState(paneId)
         .then((s) => {
           if (cancelled || isStaleRestart()) return;
@@ -209,7 +231,7 @@ export default function TerminalWorkspace({
             // an absent session; just leave the pane as is and keep polling.
             return;
           }
-          if (currentState() === "exited") return;
+          if (paneState(paneId) === "exited") return;
           setTerminalPaneState(appId, paneId, {
             state: !s.alive ? "exited" : s.running ? "running" : "idle",
             exitCode: s.exitCode,
@@ -220,19 +242,22 @@ export default function TerminalWorkspace({
           console.error(`[terminal] state poll failed for pane ${paneId}:`, err);
         });
     };
-    // Skip installing anything for a pane that's already exited when this
-    // effect sets up — otherwise the interval still gets created (only to
-    // fire once at 2s and immediately clear itself), which doesn't match
-    // what the guard above reads as preventing.
-    if (currentState() !== "exited") {
-      tick();
-      intervalId = window.setInterval(tick, 2000);
-    }
+
+    const tick = () => {
+      for (const paneId of paneIds()) {
+        // Don't poll a pane already known to have exited.
+        if (paneState(paneId) === "exited") continue;
+        pollOne(paneId);
+      }
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 2000);
     return () => {
       cancelled = true;
-      if (intervalId !== undefined) window.clearInterval(intervalId);
+      window.clearInterval(intervalId);
     };
-  }, [active, appId, focusedPaneKey, focusedPaneRestartNonce, setTerminalPaneState]);
+  }, [active, appId, paneCount, setTerminalPaneState]);
 
   // Guards restartFocusedPane against a second click landing while the first
   // restart's terminalClose → store-reset → remount round trip is still in
@@ -380,9 +405,26 @@ export default function TerminalWorkspace({
     [splitInto, activeTab],
   );
 
+  // Same confirmation `closeTab` gives a running tab — this button used to
+  // skip it entirely, closing a pane the poll above already knows is running
+  // with no prompt at all.
   const closePane = useCallback(
-    (tabId: string, paneId: string) => { void closeTerminalPane(appId, tabId, paneId); },
-    [closeTerminalPane, appId],
+    (tabId: string, paneId: string) => {
+      const pane = tabs.find((t) => t.id === tabId)?.panes.find((p) => p.id === paneId);
+      if (pane?.state !== "running") {
+        void closeTerminalPane(appId, tabId, paneId);
+        return;
+      }
+      void (async () => {
+        const { confirm } = await import("@tauri-apps/plugin-dialog");
+        const ok = await confirm("This pane is still running. Close it anyway?", {
+          title: "Close terminal pane",
+          kind: "warning",
+        });
+        if (ok) await closeTerminalPane(appId, tabId, paneId);
+      })();
+    },
+    [tabs, closeTerminalPane, appId],
   );
 
   const startRename = useCallback((tab: TabSession) => {
