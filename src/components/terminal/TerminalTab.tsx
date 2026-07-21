@@ -8,11 +8,6 @@ import "@xterm/xterm/css/xterm.css";
 
 const MAX_TRANSCRIPT_LINES = 100_000;
 
-// Fallback used when the container can't be measured yet (e.g. cell metrics
-// depend on canvas text measurement, which jsdom doesn't implement). A real
-// WebView always has real dimensions here; this only matters for tests.
-const DEFAULT_DIMS = { rows: 24, cols: 80 };
-
 interface Props {
   appId: string;
   rootDir: string;
@@ -215,6 +210,7 @@ export default function TerminalTab({
     }
 
     async function attach() {
+      if (!mounted) return;
       if (isTauri) {
         const [d, x] = await Promise.all([
           listen<number[]>(`terminal:data:${appId}`, (e) => {
@@ -239,7 +235,8 @@ export default function TerminalTab({
       }
 
       fitAddon.fit();
-      const dims = fitAddon.proposeDimensions() ?? DEFAULT_DIMS;
+      const dims = fitAddon.proposeDimensions();
+      if (!dims) return;
 
       const { spawned, backlog } = await terminalOpen(
         appId,
@@ -265,7 +262,7 @@ export default function TerminalTab({
       if (spawned && startupCommand?.trim()) startTranscriptCapture();
     }
 
-    requestAnimationFrame(() => { void attach().catch(console.error); });
+    const attachRaf = requestAnimationFrame(() => { void attach().catch(console.error); });
 
     // Resize observer — keep PTY in sync with container size changes.
     // IMPORTANT: check pixel dimensions before calling fitAddon.fit() — calling it on a
@@ -283,6 +280,7 @@ export default function TerminalTab({
 
     return () => {
       mounted = false;
+      cancelAnimationFrame(attachRaf);
       if (flushTimerRef.current !== null) {
         window.clearTimeout(flushTimerRef.current);
         flushTimerRef.current = null;
