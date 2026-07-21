@@ -60,6 +60,11 @@ export default function ContextMenu({
 
   return (
     <>
+      {/* Renders a block-level `<div>` wrapper around `children`. Fine for the
+          current callers, but a row that is itself a `<tr>` or a flex/grid
+          item will have this wrapper break its layout — revisit the API
+          (e.g. an `as`/render-prop escape hatch) when the Status-tab phase
+          brings the first consumer that needs one. */}
       <div
         onContextMenu={(e) => {
           e.preventDefault();
@@ -85,7 +90,7 @@ export default function ContextMenu({
                 item.onSelect();
               }}
               className={
-                "block w-full px-3 py-1.5 text-left text-[12px] hover:bg-white/5 " +
+                "block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--hover)] " +
                 (item.danger ? "text-[var(--danger)]" : "text-[var(--ink-1)]")
               }
             >

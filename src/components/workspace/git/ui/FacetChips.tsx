@@ -25,7 +25,7 @@ export default function FacetChips<T extends string>({
               "px-2 py-1 rounded-[var(--radius-control)] text-[12px] transition-colors " +
               (on
                 ? "bg-[var(--accent-bg)] text-[var(--accent-ink)]"
-                : "text-[var(--ink-2)] hover:bg-white/5")
+                : "text-[var(--ink-2)] hover:bg-[var(--hover)]")
             }
           >
             {f.label}

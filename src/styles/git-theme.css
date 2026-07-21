@@ -13,6 +13,7 @@
   --md-heading: #f4f4f5; --md-link: #7dd3fc; --md-code-bg: rgba(255, 255, 255, 0.055);
   --md-quote: #b9b9c1; --md-quote-border: rgba(125, 211, 252, 0.45);
   --md-table-head-bg: rgba(255, 255, 255, 0.06);
+  --hover: rgba(255, 255, 255, 0.05);
 
   background: var(--surface-0);
   color: var(--ink-1);
@@ -28,6 +29,7 @@
   --md-quote: #c3c9d4; --md-quote-border: rgba(155,208,255,.38); --md-table-head-bg: rgba(255,255,255,.06);
   --syn-keyword: #c4b5fd; --syn-string: #8ddfb1; --syn-number: #f7c768;
   --syn-comment: #9ba4b3; --syn-type: #9bd0ff; --syn-function: #a5d8ff; --syn-atom: #f7c768;
+  --hover: rgba(255,255,255,.055);
 }
 
 .git-tab-root[data-git-theme="soft-dark"] {
@@ -40,6 +42,7 @@
   --md-quote: #c5ced8; --md-quote-border: rgba(140,192,255,.36); --md-table-head-bg: rgba(255,255,255,.06);
   --syn-keyword: #c4b5fd; --syn-string: #8ddfb1; --syn-number: #f7c768;
   --syn-comment: #a3adbb; --syn-type: #8cc0ff; --syn-function: #9bd0ff; --syn-atom: #f7c768;
+  --hover: rgba(255,255,255,.06);
 }
 
 .git-tab-root[data-git-theme="midnight"] {
@@ -52,6 +55,7 @@
   --md-quote: #bdd7ea; --md-quote-border: rgba(125,211,252,.42); --md-table-head-bg: rgba(125,211,252,.06);
   --syn-keyword: #bfdbfe; --syn-string: #86efac; --syn-number: #fbbf24;
   --syn-comment: #9bb4c8; --syn-type: #7dd3fc; --syn-function: #93c5fd; --syn-atom: #fde047;
+  --hover: rgba(125,211,252,.06);
 }
 
 .git-tab-root[data-git-theme="paper"] {
@@ -66,6 +70,7 @@
   --md-quote: #526071; --md-quote-border: rgba(37,99,235,.35); --md-table-head-bg: rgba(15,23,42,.05);
   --syn-keyword: #6d28d9; --syn-string: #166534; --syn-number: #b45309;
   --syn-comment: #64748b; --syn-type: #1d4ed8; --syn-function: #0369a1; --syn-atom: #a16207;
+  --hover: rgba(15,23,42,.05);
 }
 
 .git-tab-root[data-git-theme="forest"] {
@@ -78,6 +83,7 @@
   --md-quote: #c2d9cd; --md-quote-border: rgba(148,210,172,.38); --md-table-head-bg: rgba(148,210,172,.06);
   --syn-keyword: #bbf7d0; --syn-string: #86efac; --syn-number: #f7c768;
   --syn-comment: #a5b9ad; --syn-type: #8ddfb1; --syn-function: #bae6fd; --syn-atom: #f7c768;
+  --hover: rgba(148,210,172,.06);
 }
 
 .git-tab-root[data-git-theme="sunset"] {
@@ -90,4 +96,5 @@
   --md-quote: #ddc6b7; --md-quote-border: rgba(251,146,60,.38); --md-table-head-bg: rgba(251,146,60,.06);
   --syn-keyword: #fdba74; --syn-string: #fda4af; --syn-number: #fbbf24;
   --syn-comment: #c9ad9d; --syn-type: #fed7aa; --syn-function: #fcd9bd; --syn-atom: #fbbf24;
+  --hover: rgba(251,146,60,.07);
 }
