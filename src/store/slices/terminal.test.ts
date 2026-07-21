@@ -342,6 +342,30 @@ describe("pane state", () => {
     expect(p.pid).toBe(4242);
   });
 
+  // Finding C: the poll now covers every pane on a ~2s cadence, so a patch
+  // that changes nothing is the common case, not the rare one. Manufacturing
+  // a fresh pane/tab/array identity on every such tick means every consumer
+  // downstream of `terminalTabs[appId]` — including memoized ones — re-derives
+  // for no reason, forever.
+  it("returns the same pane/tab/array identities when the patch changes nothing", () => {
+    const { addTerminalTab, setTerminalPaneState } = usePortaStore.getState();
+    addTerminalTab("a1", "porta", "/src/porta", null);
+    const pane = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+    setTerminalPaneState("a1", pane, { state: "running", pid: 4242 });
+
+    const tabsBefore = usePortaStore.getState().terminalTabs["a1"];
+    const paneBefore = tabsBefore[0].panes[0];
+
+    // Same values the pane already has — a real repeat of what the poll
+    // sends every tick once nothing has changed.
+    setTerminalPaneState("a1", pane, { state: "running", exitCode: null, pid: 4242 });
+
+    const tabsAfter = usePortaStore.getState().terminalTabs["a1"];
+    expect(tabsAfter).toBe(tabsBefore);
+    expect(tabsAfter[0]).toBe(tabsBefore[0]);
+    expect(tabsAfter[0].panes[0]).toBe(paneBefore);
+  });
+
   it("preserves object identity for tabs that don't contain the target pane", () => {
     const { addTerminalTab, setTerminalPaneState } = usePortaStore.getState();
     addTerminalTab("a1", "porta", "/src/porta", null);

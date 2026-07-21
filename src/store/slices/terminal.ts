@@ -67,6 +67,21 @@ function makePane(rootDir: string, startup: string | null): PaneSession {
   };
 }
 
+/** True when every key `patch` actually sets already matches `pane`'s current
+ *  value — i.e. applying it would be a no-op. A key simply absent from
+ *  `patch` (as opposed to present and `undefined`) never counts against this:
+ *  callers only ever pass the fields they mean to change. */
+function paneStateUnchanged(
+  pane: PaneSession,
+  patch: Partial<Pick<PaneSession, "state" | "exitCode" | "pid">>,
+): boolean {
+  return (
+    (!("state" in patch) || patch.state === pane.state) &&
+    (!("exitCode" in patch) || patch.exitCode === pane.exitCode) &&
+    (!("pid" in patch) || patch.pid === pane.pid)
+  );
+}
+
 /** A tab is named for what runs in it. The app name is already the workbench
  *  title directly above the strip, so repeating it here reads as noise. */
 function makeTab(appId: string, appName: string, rootDir: string, startup: string | null): TabSession {
@@ -219,19 +234,33 @@ export const createTerminalSlice: StateCreator<AllSlices, [], [], TerminalSlice>
   },
 
   setTerminalPaneState: (appId, paneId, patch) =>
-    set((s) => ({
-      terminalTabs: {
-        ...s.terminalTabs,
-        [appId]: (s.terminalTabs[appId] ?? []).map((t) => {
-          // This mirrors a 2-second poll, so short-circuit like every
-          // sibling action does — otherwise every tick invalidates the
-          // identity of every tab object for the app, defeating memoization
-          // downstream.
-          if (!t.panes.some((p) => p.id === paneId)) return t;
-          return { ...t, panes: t.panes.map((p) => (p.id !== paneId ? p : { ...p, ...patch })) };
-        }),
-      },
-    })),
+    set((s) => {
+      const tabs = s.terminalTabs[appId] ?? [];
+      let appChanged = false;
+      const nextTabs = tabs.map((t) => {
+        // This mirrors a 2-second poll, so short-circuit like every
+        // sibling action does — otherwise every tick invalidates the
+        // identity of every tab object for the app, defeating memoization
+        // downstream.
+        if (!t.panes.some((p) => p.id === paneId)) return t;
+        let tabChanged = false;
+        const nextPanes = t.panes.map((p) => {
+          if (p.id !== paneId || paneStateUnchanged(p, patch)) return p;
+          tabChanged = true;
+          return { ...p, ...patch };
+        });
+        if (!tabChanged) return t;
+        appChanged = true;
+        return { ...t, panes: nextPanes };
+      });
+      // The poll now covers every pane every ~2s, so this is the common
+      // case, not the rare one — returning `{}` here keeps `terminalTabs`
+      // (and everything downstream keyed off its identity, e.g. closePane's
+      // `[tabs]` dependency) untouched rather than manufacturing a fresh
+      // pane/tab/array identity for a patch that changed nothing.
+      if (!appChanged) return {};
+      return { terminalTabs: { ...s.terminalTabs, [appId]: nextTabs } };
+    }),
 
   closeAppTerminals: async (appId) => {
     // Re-snapshot after every await round and close whatever showed up in
