@@ -4,6 +4,31 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.6]
+
+Diffs are syntax-coloured now, and diagram previews can be zoomed.
+
+### Added
+
+- **Diff lines are coloured by syntax**, and coloured *correctly*: each side of
+  the file is tokenised in full and then sliced per line, so a line that happens
+  to sit inside a multi-line string or a block comment is coloured as string or
+  comment rather than guessed at. Tokenising a diff line on its own — the usual
+  shortcut — gets exactly those lines wrong, because a fragment carries no
+  context. Word-diff emphasis still shows through on changed runs; the two
+  compose rather than one replacing the other. Each file is tokenised once and
+  cached, so staging a hunk or refreshing does not re-do the work.
+- **Diagram previews have zoom and fullscreen controls.** Zoom resizes the
+  diagram rather than scaling it, so labels stay sharp at every step.
+
+### Fixed
+
+- **Switching files no longer risks a line borrowing the previous file's
+  colours.** The old file's tokens are dropped as soon as the file changes,
+  rather than lingering until the new ones arrive.
+- **A failed syntax highlighter can recover.** A highlighter that failed to load
+  was being remembered as a failure for that file, so it never retried.
+
 ## [0.14.0-beta.5]
 
 Terminal sessions now outlive the view that shows them, the chrome around them
