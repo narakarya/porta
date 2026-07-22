@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import FilterBox from "./FilterBox";
-import { markMatches } from "./markMatches";
+import { markMatches, markPathWindow } from "./markMatches";
 import FacetChips from "./FacetChips";
 import ActivePane, { useActivePane } from "./ActivePane";
 import { useContextMenu, type ContextMenuItem } from "./useContextMenu";
@@ -45,6 +45,64 @@ describe("markMatches", () => {
     // A bare <mark> is UA-yellow-on-black, which belongs to no palette.
     expect(mark.className).toContain("bg-warn-bg");
     expect(mark.className).toContain("text-warn");
+  });
+
+  // Stated so nobody re-derives it from the loop: the scan resumes past each
+  // hit, so a query that can overlap itself marks half as many runs as a
+  // naive reader expects.
+  it("marks non-overlapping occurrences only", () => {
+    render(<Marked text="aaaa" query="aa" />);
+    expect(node().textContent).toBe("aaaa");
+    expect(node().querySelectorAll("mark")).toHaveLength(2);
+  });
+});
+
+/**
+ * The projection the per-fragment version could not do. A row draws a window
+ * into a path — one directory segment, or the basename — but the filter matched
+ * the *whole* path, and `/` only ever occurs at a window boundary. So every
+ * case here is a query the fragment-at-a-time version silently left unmarked.
+ */
+describe("markPathWindow", () => {
+  function Marked({ paths, query, start, end }: { paths: string[]; query: string; start: number; end: number }) {
+    return <span data-testid="marked">{markPathWindow(paths, query, start, end)}</span>;
+  }
+  const node = () => screen.getByTestId("marked");
+  const marks = () => [...node().querySelectorAll("mark")].map((m) => m.textContent);
+
+  it("marks the part of a slash-bearing query that falls inside the window", () => {
+    // Basename window of `src/gizmo.ts` for the query `src/giz`.
+    render(<Marked paths={["src/gizmo.ts"]} query="src/giz" start={4} end={12} />);
+    expect(node().textContent).toBe("gizmo.ts");
+    expect(marks()).toEqual(["giz"]);
+  });
+
+  it("clips a match that straddles the window's edge", () => {
+    // Directory window (`src`) of the same path and query.
+    render(<Marked paths={["src/gizmo.ts"]} query="src/giz" start={0} end={3} />);
+    expect(node().textContent).toBe("src");
+    expect(marks()).toEqual(["src"]);
+  });
+
+  it("leaves the window unmarked when the match lies wholly outside it", () => {
+    render(<Marked paths={["src/gizmo.ts"]} query="giz" start={0} end={3} />);
+    expect(node().textContent).toBe("src");
+    expect(marks()).toEqual([]);
+  });
+
+  it("unions the matches of every path a directory row stands for", () => {
+    // The `src` row of a tree holding `src/a/one.ts` and `src/b.ts`. Only the
+    // second path lets `c/b` reach back into the window, so taking the ranges
+    // from an arbitrary member would leave the row unmarked half the time.
+    render(<Marked paths={["src/a/one.ts", "src/b.ts"]} query="c/b" start={0} end={3} />);
+    expect(node().textContent).toBe("src");
+    expect(marks()).toEqual(["c"]);
+  });
+
+  it("returns the plain window when there is no query", () => {
+    render(<Marked paths={["src/gizmo.ts"]} query="  " start={4} end={12} />);
+    expect(node().textContent).toBe("gizmo.ts");
+    expect(node().querySelector("mark")).toBeNull();
   });
 });
 

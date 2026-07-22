@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ChangedFile } from "../../../lib/commands";
 import { buildFileTree, type TreeNode } from "./file-tree";
-import { markMatches } from "./ui/markMatches";
+import { markPathWindow } from "./ui/markMatches";
 
 // ── Inline icons (12–14px) — mirrors GitTab's local icon set; no icon-font
 // dep, tokens-only colouring via currentColor. ──────────────────────────────
@@ -55,9 +55,9 @@ function statusBadge(f: ChangedFile, staged: boolean): { char: string; cls: stri
   return { char: c, cls: "text-warn" };
 }
 
-function splitPath(path: string): { dir: string; base: string } {
-  const i = path.lastIndexOf("/");
-  return i >= 0 ? { dir: path.slice(0, i + 1), base: path.slice(i + 1) } : { dir: "", base: path };
+/** Index at which a path's basename starts — i.e. the length of its `dir/` prefix. */
+function baseStart(path: string): number {
+  return path.lastIndexOf("/") + 1;
 }
 
 const INDENT_PX = 14;
@@ -99,7 +99,11 @@ function FileRow({
   onCopy?: () => void;
 }) {
   const { char, cls } = statusBadge(file, staged);
-  const { dir, base } = showDir ? splitPath(file.path) : { dir: "", base: file.path.slice(file.path.lastIndexOf("/") + 1) };
+  // Marking is projected onto the window of the path this row actually draws
+  // (see `markPathWindow`): the greyed `dir/` prefix, when shown, is
+  // `[0, split)` and the filename is `[split, end)` — so a query straddling
+  // that boundary marks its head in one span and its tail in the other.
+  const split = baseStart(file.path);
 
   // Inline "Discard?" confirm, mirroring StashPanel's Drop confirm — Tauri
   // webview can't rely on window.confirm. Reset if the row is deselected
@@ -126,8 +130,12 @@ function FileRow({
       )}
       <span className={`w-3 shrink-0 text-center font-mono text-[11px] ${cls}`}>{char}</span>
       <span className="flex-1 min-w-0 truncate font-mono text-[12px]" title={file.path}>
-        {showDir && <span className="text-ink-3">{markMatches(dir, filter)}</span>}
-        <span className="text-ink">{markMatches(base, filter)}</span>
+        {showDir && (
+          <span className="text-ink-3">{markPathWindow([file.path], filter, 0, split)}</span>
+        )}
+        <span className="text-ink">
+          {markPathWindow([file.path], filter, split, file.path.length)}
+        </span>
       </span>
       {(file.insertions > 0 || file.deletions > 0) && (
         <span className="shrink-0 flex items-center gap-1 text-[11px] font-mono">
@@ -282,6 +290,11 @@ export default function FileTree({
       const isCollapsed = collapsed.has(node.path);
       const nestedPaths = leafPaths(node);
       const allChecked = nestedPaths.length > 0 && nestedPaths.every((path) => checked?.has(path));
+      // The row draws the last segment of `node.path`, which is a prefix of
+      // every path beneath it — so that segment's window into those paths is
+      // `[path.length - name.length, path.length)`.
+      const dirStart = node.path.length - node.name.length;
+      const dirPaths = nestedPaths.length > 0 ? nestedPaths : [node.path];
       return (
         <div key={`dir:${node.path}`}>
           <div
@@ -303,7 +316,9 @@ export default function FileTree({
             >
               <ChevronRightIcon className={`shrink-0 transition-transform duration-fast ${isCollapsed ? "" : "rotate-90"}`} />
               <FolderIcon className="shrink-0" />
-              <span className="flex-1 min-w-0 truncate font-mono text-[11px]" title={node.path}>{markMatches(node.name, filter)}</span>
+              <span className="flex-1 min-w-0 truncate font-mono text-[11px]" title={node.path}>
+                {markPathWindow(dirPaths, filter, dirStart, node.path.length)}
+              </span>
             </button>
           </div>
           {!isCollapsed && node.children.map((child) => renderNode(child, depth + 1))}
