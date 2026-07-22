@@ -4,6 +4,30 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.7]
+
+### Added
+
+- **The Status file list can be filtered.** Type to narrow both the staged and
+  unstaged sections; the matching part of each path is marked so it is obvious
+  *why* a row survived. While a filter is active the section header reads
+  `1 of 2`, and the bulk button becomes `Stage shown` and touches only the rows
+  you can actually see — staging files hidden behind a filter would be a nasty
+  surprise.
+
+### Where the Git tab rebuild stands
+
+The Workspace Git tab is being rebuilt natively, one screen at a time, to catch
+up with the `porta-git-manager` extension. Closed so far, all on the Status
+tab: markdown and diagram previews, syntax-highlighted code and diff lines,
+seven themes, and now filtering.
+
+Still ahead of core, and by a fair margin: file-type icons, right-click menus,
+multi-select, keyboard navigation, submodules — and the Branches, History,
+Stash, Rebase, Sync, Tags and Pull Requests tabs, which have not been started.
+For serious git work the extension remains the better tool, and it is not going
+anywhere until every screen has caught up.
+
 ## [0.14.0-beta.6]
 
 Diffs are syntax-coloured now, and diagram previews can be zoomed.
