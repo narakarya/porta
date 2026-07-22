@@ -30,6 +30,10 @@ function file(path: string): ChangedFile {
   };
 }
 
+function stagedFile(path: string): ChangedFile {
+  return { ...file(path), staged_status: "M", unstaged_status: ".", staged: true, unstaged: false };
+}
+
 /** A fresh GitStatus object — identity is what the refetch effect keys on. */
 function poll(dirty: number) {
   usePortaStore.setState({
@@ -118,5 +122,124 @@ describe("StatusTab active-pane gate", () => {
     expect(screen.getByText("two.ts")).toBeInTheDocument();
     expect(screen.queryByText("one.ts")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Commit message/)).toHaveValue("fix(git): keep me");
+  });
+});
+
+/**
+ * The filter over the file list. Every assertion here is about the *input*
+ * surviving the list re-deriving underneath it: the reason this tab is being
+ * rebuilt at all is that the reference keeps caret and focus across every
+ * action and core did not. A filter that rebuilds the pane per keystroke
+ * narrows the list correctly and is still unusable.
+ */
+describe("StatusTab file filter", () => {
+  /** Rows carry `title={path}` on their name span — the only stable handle
+   *  once the name is split into text + <mark> segments by the highlighter. */
+  function row(path: string) {
+    return document.querySelector(`[title="${path}"]`);
+  }
+  function filterBox() {
+    return screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+  }
+  const tree = () => [
+    stagedFile("src/alpha.ts"),
+    file("src/beta.ts"),
+    file("lib/gizmo.ts"),
+  ];
+
+  beforeEach(() => {
+    usePortaStore.setState({ appGitError: {} });
+    poll(1);
+    vi.mocked(gitChangedFiles).mockReset();
+    vi.mocked(gitChangedFiles).mockResolvedValue(tree());
+  });
+
+  it("narrows both sections and marks the matched substring", async () => {
+    await renderTab();
+    expect(row("src/alpha.ts")).not.toBeNull();
+
+    await userEvent.type(filterBox(), "z");
+
+    // Unstaged section keeps only the match; staged section says why it's empty.
+    expect(row("lib/gizmo.ts")).not.toBeNull();
+    expect(row("src/beta.ts")).toBeNull();
+    expect(row("src/alpha.ts")).toBeNull();
+    expect(screen.getByText("Nothing matches filter")).toBeInTheDocument();
+
+    // The row still reads as its filename, with the matched run marked.
+    const name = row("lib/gizmo.ts")!;
+    expect(name.textContent).toBe("gizmo.ts");
+    const marks = name.querySelectorAll("mark");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].textContent).toBe("z");
+  });
+
+  /**
+   * The assertion this task exists for. Typing *into the middle* of the query
+   * is what separates a filter that leaves the input alone from one that
+   * rewrites its value — the classic version being an `onChange` that stores
+   * `value.toLowerCase()` because matching is case-insensitive. React then
+   * writes the normalised string back into the DOM node, and jsdom (like every
+   * browser) drops the caret to the end. Appending at the end hides that;
+   * typing in the middle does not.
+   */
+  it("keeps focus and caret when typing into the middle of the query", async () => {
+    await renderTab();
+    const input = filterBox();
+
+    await userEvent.type(input, "gz");
+    await userEvent.type(input, "I", { initialSelectionStart: 1, initialSelectionEnd: 1 });
+
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(2);
+    expect(input).toHaveValue("gIz");
+    // …and the query still matched, case-insensitively.
+    expect(row("lib/gizmo.ts")).not.toBeNull();
+    expect(row("src/alpha.ts")).toBeNull();
+  });
+
+  it("keeps focus, caret, query and draft when a background refresh lands mid-type", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByPlaceholderText(/Commit message/), "wip");
+
+    const input = filterBox();
+    await userEvent.type(input, "giz");
+    act(() => input.setSelectionRange(1, 1));
+
+    // A poller tick re-lists the working tree while the user is still typing.
+    vi.mocked(gitChangedFiles).mockResolvedValue(tree());
+    await act(async () => poll(2));
+
+    expect(gitChangedFiles).toHaveBeenCalledTimes(2);
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue("giz");
+    expect(input.selectionStart).toBe(1);
+    expect(row("lib/gizmo.ts")).not.toBeNull();
+    expect(row("src/alpha.ts")).toBeNull();
+    expect(screen.getByPlaceholderText(/Commit message/)).toHaveValue("wip");
+  });
+
+  it("leaves selection, checked rows and the draft alone across filter and clear", async () => {
+    await renderTab();
+    await userEvent.type(screen.getByPlaceholderText(/Commit message/), "wip");
+    await userEvent.click(screen.getByLabelText("Select src/beta.ts"));
+    await userEvent.click(row("src/alpha.ts")!);
+    await act(async () => {});
+    expect(screen.queryByText("Select a file to view its diff")).toBeNull();
+
+    const input = filterBox();
+    await userEvent.type(input, "zzz");
+    expect(row("src/alpha.ts")).toBeNull();
+    expect(row("lib/gizmo.ts")).toBeNull();
+    // Checked rows are state, not markup — hiding a row must not uncheck it.
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+    await userEvent.clear(input);
+    expect(row("src/alpha.ts")).not.toBeNull();
+    expect(row("src/beta.ts")).not.toBeNull();
+    expect(row("lib/gizmo.ts")).not.toBeNull();
+    expect(screen.getByLabelText("Select src/beta.ts")).toBeChecked();
+    expect(screen.queryByText("Select a file to view its diff")).toBeNull();
+    expect(screen.getByPlaceholderText(/Commit message/)).toHaveValue("wip");
   });
 });

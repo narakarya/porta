@@ -20,6 +20,7 @@ import type { App } from "../../../types";
 import DiffView from "./DiffView";
 import FileTree from "./FileTree";
 import GitBranchIcon from "./ui/GitBranchIcon";
+import FilterBox from "./ui/FilterBox";
 import { useActivePane } from "./ui/ActivePane";
 
 // ── Inline icons (14px) — kept local so the panel has no icon-font dep ──────
@@ -30,6 +31,15 @@ function CheckboxIcon({ checked, className = "" }: { checked: boolean; className
       {checked && <path d="M5 8.2l2 2 4-4.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
     </svg>
   );
+}
+
+/**
+ * Body of a section whose files are all hidden by the filter. Reachable only
+ * that way: a section is rendered on its *unfiltered* count, so "this section
+ * has files but none of them match" is the one case that gets here.
+ */
+function EmptySection() {
+  return <div className="px-3 py-1.5 text-[11px] text-ink-3">Nothing matches filter</div>;
 }
 
 // Re-derive `selected` against a freshly-fetched `changed` list: keep it if
@@ -88,6 +98,12 @@ export default function StatusTab({
   const [checkedStaged, setCheckedStaged] = useState<Set<string>>(new Set());
   const [checkedUnstaged, setCheckedUnstaged] = useState<Set<string>>(new Set());
   const [confirmDiscardSelected, setConfirmDiscardSelected] = useState(false);
+  // Raw, as typed. Deliberately *not* normalised on the way in: storing
+  // `value.toLowerCase()` here would have React write the normalised string
+  // back into the input on the next render, and the caret would drop to the
+  // end of the field on every keystroke that changed case. Normalisation
+  // happens once, below, where the query is actually used.
+  const [fileFilter, setFileFilter] = useState("");
   const [renameTarget, setRenameTarget] = useState<{ path: string; staged: boolean } | null>(null);
   const [renameName, setRenameName] = useState("");
   const mounted = useRef(true);
@@ -268,6 +284,20 @@ export default function StatusTab({
 
   const stagedFiles = changed.filter((f) => f.staged);
   const unstagedFiles = changed.filter((f) => f.unstaged || f.untracked);
+
+  // Case-insensitive substring over the *whole path*, matching the reference
+  // (`app.js` `render()`: `f.path.toLowerCase().includes(filter)`). A leaf row
+  // shows only its basename, so a query that matched a directory segment is
+  // marked on the directory row rather than the file row.
+  //
+  // Only the two *displayed* lists narrow. `stagedFiles` stays whole, so what
+  // a commit will include, and the "N staged" hint, are what git has — not
+  // what the filter happens to be showing.
+  const query = fileFilter.trim().toLowerCase();
+  const matchesQuery = (f: ChangedFile) => f.path.toLowerCase().includes(query);
+  const shownStaged = query ? stagedFiles.filter(matchesQuery) : stagedFiles;
+  const shownUnstaged = query ? unstagedFiles.filter(matchesQuery) : unstagedFiles;
+
   const canCommit =
     !committing &&
     (amend
@@ -298,143 +328,164 @@ export default function StatusTab({
       ) : (
         <div className="flex-1 min-h-0 flex">
           {/* Left pane — Staged / Changes sections. */}
-          <div className="w-[240px] shrink-0 border-r border-subtle overflow-y-auto py-1">
-            {(checkedStaged.size > 0 || checkedUnstaged.size > 0) && (
-              <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-2 py-1.5">
-                <span className="mr-auto text-[10px] text-ink-3">
-                  {new Set([...checkedStaged, ...checkedUnstaged]).size} selected
-                </span>
-                {checkedUnstaged.size > 0 && (
-                  <button
-                    onClick={() => mutateSelected("stage")}
-                    disabled={mutating !== null}
-                    className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
-                  >
-                    Stage
-                  </button>
-                )}
-                {checkedStaged.size > 0 && (
-                  <button
-                    onClick={() => mutateSelected("unstage")}
-                    disabled={mutating !== null}
-                    className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
-                  >
-                    Unstage
-                  </button>
-                )}
-                {confirmDiscardSelected ? (
-                  <>
+          <div className="w-[240px] shrink-0 border-r border-subtle flex flex-col">
+            {/* Outside the scroll container on purpose: the filter is how you
+                get back to a row you can't see, so it must not scroll away
+                with the list it filters. */}
+            <div className="shrink-0 border-b border-subtle px-2 py-1.5">
+              <FilterBox
+                value={fileFilter}
+                onChange={setFileFilter}
+                placeholder="Filter files…"
+                className="!rounded-control !px-2 !py-1 !text-[12px]"
+              />
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto py-1">
+              {(checkedStaged.size > 0 || checkedUnstaged.size > 0) && (
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-2 py-1.5">
+                  <span className="mr-auto text-[10px] text-ink-3">
+                    {new Set([...checkedStaged, ...checkedUnstaged]).size} selected
+                  </span>
+                  {checkedUnstaged.size > 0 && (
                     <button
-                      onClick={() => mutateSelected("discard")}
+                      onClick={() => mutateSelected("stage")}
                       disabled={mutating !== null}
-                      className="text-[10px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
+                      className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
                     >
-                      Confirm
+                      Stage
+                    </button>
+                  )}
+                  {checkedStaged.size > 0 && (
+                    <button
+                      onClick={() => mutateSelected("unstage")}
+                      disabled={mutating !== null}
+                      className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-40"
+                    >
+                      Unstage
+                    </button>
+                  )}
+                  {confirmDiscardSelected ? (
+                    <>
+                      <button
+                        onClick={() => mutateSelected("discard")}
+                        disabled={mutating !== null}
+                        className="text-[10px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmDiscardSelected(false)}
+                        disabled={mutating !== null}
+                        className="text-[10px] text-ink-3 hover:text-ink"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDiscardSelected(true)}
+                      disabled={mutating !== null}
+                      className="text-[10px] text-bad hover:brightness-125 disabled:opacity-40"
+                    >
+                      Discard
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-1.5 px-2 py-1 border-b border-subtle">
+                {confirmDiscardAll ? (
+                  <>
+                    <span className="text-[11px] text-bad">Discard every change?</span>
+                    <button
+                      onClick={() => mutateBulk("discardAll")}
+                      disabled={mutating !== null}
+                      className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
+                    >
+                      {mutating === "discardAll" ? "Discarding…" : "Confirm"}
                     </button>
                     <button
-                      onClick={() => setConfirmDiscardSelected(false)}
+                      onClick={() => setConfirmDiscardAll(false)}
                       disabled={mutating !== null}
-                      className="text-[10px] text-ink-3 hover:text-ink"
+                      className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40"
                     >
                       Cancel
                     </button>
                   </>
                 ) : (
                   <button
-                    onClick={() => setConfirmDiscardSelected(true)}
+                    onClick={() => setConfirmDiscardAll(true)}
                     disabled={mutating !== null}
-                    className="text-[10px] text-bad hover:brightness-125 disabled:opacity-40"
+                    className="text-[11px] text-ink-3 hover:text-bad disabled:opacity-40"
                   >
-                    Discard
+                    Discard all
                   </button>
                 )}
               </div>
-            )}
-            <div className="flex items-center justify-end gap-1.5 px-2 py-1 border-b border-subtle">
-              {confirmDiscardAll ? (
+              {/* Gated on the *unfiltered* count so a section is present for as
+                  long as git says it has files: the tree below then keeps its
+                  collapse state while the query changes, instead of being
+                  unmounted and re-expanded the moment a filter empties it. */}
+              {stagedFiles.length > 0 && (
                 <>
-                  <span className="text-[11px] text-bad">Discard every change?</span>
-                  <button
-                    onClick={() => mutateBulk("discardAll")}
-                    disabled={mutating !== null}
-                    className="text-[11px] font-medium text-bad hover:brightness-125 disabled:opacity-40"
-                  >
-                    {mutating === "discardAll" ? "Discarding…" : "Confirm"}
-                  </button>
-                  <button
-                    onClick={() => setConfirmDiscardAll(false)}
-                    disabled={mutating !== null}
-                    className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40"
-                  >
-                    Cancel
-                  </button>
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
+                    <span>Staged Changes · {shownStaged.length}</span>
+                    <button
+                      onClick={() => mutateBulk("unstageAll")}
+                      disabled={mutating !== null}
+                      className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                    >
+                      {mutating === "unstageAll" ? "Unstaging…" : "Unstage all"}
+                    </button>
+                  </div>
+                  <FileTree
+                    files={shownStaged}
+                    staged
+                    selected={selected}
+                    mutating={mutating}
+                    filter={query}
+                    checked={checkedStaged}
+                    onCheck={(path) => toggleChecked(true, path)}
+                    onCheckMany={(paths, value) => setManyChecked(true, paths, value)}
+                    onSelect={(path) => setSelected({ path, staged: true })}
+                    onToggle={(path) => mutateFile(path, () => gitUnstage(app.root_dir, path))}
+                    onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, true))}
+                    onRename={(path) => beginRename(path, true)}
+                    onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
+                  />
+                  {shownStaged.length === 0 && <EmptySection />}
                 </>
-              ) : (
-                <button
-                  onClick={() => setConfirmDiscardAll(true)}
-                  disabled={mutating !== null}
-                  className="text-[11px] text-ink-3 hover:text-bad disabled:opacity-40"
-                >
-                  Discard all
-                </button>
+              )}
+              {unstagedFiles.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
+                    <span>Changes · {shownUnstaged.length}</span>
+                    <button
+                      onClick={() => mutateBulk("stageAll")}
+                      disabled={mutating !== null}
+                      className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                    >
+                      {mutating === "stageAll" ? "Staging…" : "Stage all"}
+                    </button>
+                  </div>
+                  <FileTree
+                    files={shownUnstaged}
+                    staged={false}
+                    selected={selected}
+                    mutating={mutating}
+                    filter={query}
+                    checked={checkedUnstaged}
+                    onCheck={(path) => toggleChecked(false, path)}
+                    onCheckMany={(paths, value) => setManyChecked(false, paths, value)}
+                    onSelect={(path) => setSelected({ path, staged: false })}
+                    onToggle={(path) => mutateFile(path, () => gitStage(app.root_dir, path))}
+                    onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, false))}
+                    onRename={(path) => beginRename(path, false)}
+                    onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
+                  />
+                  {shownUnstaged.length === 0 && <EmptySection />}
+                </>
               )}
             </div>
-            {stagedFiles.length > 0 && (
-              <>
-                <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                  <span>Staged Changes · {stagedFiles.length}</span>
-                  <button
-                    onClick={() => mutateBulk("unstageAll")}
-                    disabled={mutating !== null}
-                    className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                  >
-                    {mutating === "unstageAll" ? "Unstaging…" : "Unstage all"}
-                  </button>
-                </div>
-                <FileTree
-                  files={stagedFiles}
-                  staged
-                  selected={selected}
-                  mutating={mutating}
-                  checked={checkedStaged}
-                  onCheck={(path) => toggleChecked(true, path)}
-                  onCheckMany={(paths, value) => setManyChecked(true, paths, value)}
-                  onSelect={(path) => setSelected({ path, staged: true })}
-                  onToggle={(path) => mutateFile(path, () => gitUnstage(app.root_dir, path))}
-                  onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, true))}
-                  onRename={(path) => beginRename(path, true)}
-                  onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
-                />
-              </>
-            )}
-            {unstagedFiles.length > 0 && (
-              <>
-                <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                  <span>Changes · {unstagedFiles.length}</span>
-                  <button
-                    onClick={() => mutateBulk("stageAll")}
-                    disabled={mutating !== null}
-                    className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                  >
-                    {mutating === "stageAll" ? "Staging…" : "Stage all"}
-                  </button>
-                </div>
-                <FileTree
-                  files={unstagedFiles}
-                  staged={false}
-                  selected={selected}
-                  mutating={mutating}
-                  checked={checkedUnstaged}
-                  onCheck={(path) => toggleChecked(false, path)}
-                  onCheckMany={(paths, value) => setManyChecked(false, paths, value)}
-                  onSelect={(path) => setSelected({ path, staged: false })}
-                  onToggle={(path) => mutateFile(path, () => gitStage(app.root_dir, path))}
-                  onDiscard={(path) => mutateFile(path, () => gitDiscard(app.root_dir, path, false))}
-                  onRename={(path) => beginRename(path, false)}
-                  onCopy={(path) => navigator.clipboard.writeText(path).catch(() => {})}
-                />
-              </>
-            )}
           </div>
 
           {/* Right pane — unified diff + commit box. */}

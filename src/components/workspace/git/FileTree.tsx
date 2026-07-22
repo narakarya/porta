@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ChangedFile } from "../../../lib/commands";
 import { buildFileTree, type TreeNode } from "./file-tree";
+import { markMatches } from "./ui/markMatches";
 
 // ── Inline icons (12–14px) — mirrors GitTab's local icon set; no icon-font
 // dep, tokens-only colouring via currentColor. ──────────────────────────────
@@ -70,6 +71,7 @@ function FileRow({
   busy,
   indent = 0,
   showDir = true,
+  filter = "",
   checked,
   onSelect,
   onCheck,
@@ -86,6 +88,8 @@ function FileRow({
   indent?: number;
   /** Render the greyed parent-dir prefix before the filename (flat-list default). Tree leaves pass `false` since nesting already conveys the folder. */
   showDir?: boolean;
+  /** Normalised (trimmed, lower-cased) filter query, for match marking. Empty when no filter is active. */
+  filter?: string;
   checked?: boolean;
   onSelect: () => void;
   onCheck?: () => void;
@@ -122,8 +126,8 @@ function FileRow({
       )}
       <span className={`w-3 shrink-0 text-center font-mono text-[11px] ${cls}`}>{char}</span>
       <span className="flex-1 min-w-0 truncate font-mono text-[12px]" title={file.path}>
-        {showDir && <span className="text-ink-3">{dir}</span>}
-        <span className="text-ink">{base}</span>
+        {showDir && <span className="text-ink-3">{markMatches(dir, filter)}</span>}
+        <span className="text-ink">{markMatches(base, filter)}</span>
       </span>
       {(file.insertions > 0 || file.deletions > 0) && (
         <span className="shrink-0 flex items-center gap-1 text-[11px] font-mono">
@@ -224,6 +228,7 @@ export default function FileTree({
   staged,
   selected,
   mutating,
+  filter = "",
   onSelect,
   checked,
   onCheck,
@@ -236,6 +241,13 @@ export default function FileTree({
   files: ChangedFile[];
   /** Which section this tree renders — staged files vs. the working tree. */
   staged: boolean;
+  /**
+   * Normalised (trimmed, lower-cased) filter query the caller narrowed `files`
+   * with, used only to mark the matched run inside each row's text. The tree
+   * does no filtering of its own: `files` arrives already filtered, so the
+   * collapse state below survives the query changing.
+   */
+  filter?: string;
   selected: { path: string; staged: boolean } | null;
   /** Path of the file currently mid-mutation (stage/unstage/discard), or `null`. */
   mutating: string | null;
@@ -291,7 +303,7 @@ export default function FileTree({
             >
               <ChevronRightIcon className={`shrink-0 transition-transform duration-fast ${isCollapsed ? "" : "rotate-90"}`} />
               <FolderIcon className="shrink-0" />
-              <span className="flex-1 min-w-0 truncate font-mono text-[11px]" title={node.path}>{node.name}</span>
+              <span className="flex-1 min-w-0 truncate font-mono text-[11px]" title={node.path}>{markMatches(node.name, filter)}</span>
             </button>
           </div>
           {!isCollapsed && node.children.map((child) => renderNode(child, depth + 1))}
@@ -308,6 +320,7 @@ export default function FileTree({
         busy={mutating !== null}
         indent={depth * INDENT_PX}
         showDir={false}
+        filter={filter}
         checked={checked?.has(f.path)}
         onSelect={() => onSelect(f.path)}
         onCheck={onCheck ? () => onCheck(f.path) : undefined}

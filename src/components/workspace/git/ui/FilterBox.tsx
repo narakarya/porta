@@ -15,10 +15,13 @@ export default function FilterBox({
   value,
   onChange,
   placeholder,
+  className = "",
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
+  /** Density override for tight columns (the Status tab's 240px file list). */
+  className?: string;
 }) {
   return (
     <Input
@@ -28,6 +31,7 @@ export default function FilterBox({
       onChange={(e) => onChange(e.target.value)}
       spellCheck={false}
       autoComplete="off"
+      className={className}
     />
   );
 }

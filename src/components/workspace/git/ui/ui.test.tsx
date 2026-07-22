@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import FilterBox from "./FilterBox";
+import { markMatches } from "./markMatches";
 import FacetChips from "./FacetChips";
 import ActivePane, { useActivePane } from "./ActivePane";
 import { useContextMenu, type ContextMenuItem } from "./useContextMenu";
@@ -15,6 +16,35 @@ describe("FilterBox", () => {
     await userEvent.type(input, "ma");
     expect(onChange).toHaveBeenCalledTimes(2);
     expect(input).toHaveFocus();
+  });
+});
+
+describe("markMatches", () => {
+  function Marked({ text, query }: { text: string; query: string }) {
+    return <span data-testid="marked">{markMatches(text, query)}</span>;
+  }
+  const node = () => screen.getByTestId("marked");
+
+  it("returns the text untouched when there is nothing to match", () => {
+    render(<Marked text="src/one.ts" query="   " />);
+    expect(node().textContent).toBe("src/one.ts");
+    expect(node().querySelector("mark")).toBeNull();
+  });
+
+  it("marks every occurrence, case-insensitively, without altering the text", () => {
+    render(<Marked text="src/Sub/sample.ts" query="s" />);
+    expect(node().textContent).toBe("src/Sub/sample.ts");
+    const marks = [...node().querySelectorAll("mark")].map((m) => m.textContent);
+    // Original casing is preserved inside the mark — the query is only a probe.
+    expect(marks).toEqual(["s", "S", "s", "s"]);
+  });
+
+  it("colours the mark through palette tokens only", () => {
+    render(<Marked text="gizmo.ts" query="z" />);
+    const mark = node().querySelector("mark")!;
+    // A bare <mark> is UA-yellow-on-black, which belongs to no palette.
+    expect(mark.className).toContain("bg-warn-bg");
+    expect(mark.className).toContain("text-warn");
   });
 });
 
