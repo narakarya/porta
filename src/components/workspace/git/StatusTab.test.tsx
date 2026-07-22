@@ -3,15 +3,31 @@ import { useState } from "react";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { usePortaStore } from "../../../store";
-import { gitChangedFiles, type ChangedFile } from "../../../lib/commands";
+import {
+  gitChangedFiles,
+  gitStage,
+  gitStageAll,
+  gitUnstage,
+  gitUnstageAll,
+  type ChangedFile,
+} from "../../../lib/commands";
 import ActivePane from "./ui/ActivePane";
 import StatusTab from "./StatusTab";
 
-// Only the working-tree listing is replaced — it is the call the gate is about.
-// The rest keep their real out-of-Tauri behaviour (resolve to null/[]).
+// The working-tree listing is replaced — it is the call the gate is about — plus
+// the four staging commands, so the bulk-action tests can see *which* of them a
+// click reached for. The rest keep their real out-of-Tauri behaviour (resolve to
+// null/[]).
 vi.mock("../../../lib/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/commands")>();
-  return { ...actual, gitChangedFiles: vi.fn(async () => []) };
+  return {
+    ...actual,
+    gitChangedFiles: vi.fn(async () => []),
+    gitStage: vi.fn(async () => {}),
+    gitUnstage: vi.fn(async () => {}),
+    gitStageAll: vi.fn(async () => {}),
+    gitUnstageAll: vi.fn(async () => {}),
+  };
 });
 
 const app = { id: "demo", root_dir: "/tmp/demo", kind: "process" } as never;
@@ -152,6 +168,10 @@ describe("StatusTab file filter", () => {
     poll(1);
     vi.mocked(gitChangedFiles).mockReset();
     vi.mocked(gitChangedFiles).mockResolvedValue(tree());
+    vi.mocked(gitStage).mockClear();
+    vi.mocked(gitUnstage).mockClear();
+    vi.mocked(gitStageAll).mockClear();
+    vi.mocked(gitUnstageAll).mockClear();
   });
 
   it("narrows both sections and marks the matched substring", async () => {
@@ -241,5 +261,149 @@ describe("StatusTab file filter", () => {
     expect(screen.getByLabelText("Select src/beta.ts")).toBeChecked();
     expect(screen.queryByText("Select a file to view its diff")).toBeNull();
     expect(screen.getByPlaceholderText(/Commit message/)).toHaveValue("wip");
+  });
+});
+
+/**
+ * Marking, specifically for queries the per-segment version could not survive.
+ * The filter matches on the whole path but no row *displays* a whole path — a
+ * directory row shows one segment, a leaf row shows the basename — so a query
+ * containing `/` (`src/be`) matches nothing in any single row's text. Matching
+ * has to be computed against the path and then projected onto whatever window
+ * of it each row draws, or the filter narrows to a row with no mark on it.
+ */
+describe("StatusTab filter marking across path segments", () => {
+  function row(path: string) {
+    return document.querySelector(`[title="${path}"]`);
+  }
+  function marks(path: string) {
+    return [...row(path)!.querySelectorAll("mark")].map((m) => m.textContent);
+  }
+  function filterBox() {
+    return screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+  }
+
+  beforeEach(() => {
+    usePortaStore.setState({ appGitError: {} });
+    poll(1);
+    vi.mocked(gitChangedFiles).mockReset();
+    vi.mocked(gitChangedFiles).mockResolvedValue([
+      stagedFile("src/alpha.ts"),
+      file("src/beta.ts"),
+      file("lib/gizmo.ts"),
+    ]);
+  });
+
+  it("marks the directory row and the leaf row for a query containing a slash", async () => {
+    await renderTab();
+    await userEvent.type(filterBox(), "src/be");
+
+    expect(row("src/alpha.ts")).toBeNull();
+    expect(row("lib/gizmo.ts")).toBeNull();
+
+    // Leaf shows only the basename; the query's tail lands inside it.
+    expect(row("src/beta.ts")!.textContent).toBe("beta.ts");
+    expect(marks("src/beta.ts")).toEqual(["be"]);
+    // The directory row it hangs under carries the query's head.
+    expect(row("src")!.textContent).toBe("src");
+    expect(marks("src")).toEqual(["src"]);
+  });
+
+  it("splits a boundary-spanning query across the two rows that show it", async () => {
+    await renderTab();
+    await userEvent.type(filterBox(), "b/g");
+
+    expect(row("src/beta.ts")).toBeNull();
+    expect(marks("lib")).toEqual(["b"]);
+    expect(row("lib")!.textContent).toBe("lib");
+    expect(marks("lib/gizmo.ts")).toEqual(["g"]);
+    expect(row("lib/gizmo.ts")!.textContent).toBe("gizmo.ts");
+  });
+
+  it("marks only the directory row when the query matches only a directory", async () => {
+    await renderTab();
+    await userEvent.type(filterBox(), "lib/");
+
+    expect(marks("lib")).toEqual(["lib"]);
+    expect(marks("lib/gizmo.ts")).toEqual([]);
+  });
+
+  it("marks only the leaf row when the query matches only the basename", async () => {
+    await renderTab();
+    await userEvent.type(filterBox(), "giz");
+
+    expect(marks("lib")).toEqual([]);
+    expect(marks("lib/gizmo.ts")).toEqual(["giz"]);
+  });
+});
+
+/**
+ * Two decisions that only bite while a filter is on: what "all" means, and
+ * which count the header is reporting.
+ */
+describe("StatusTab bulk actions and counts under a filter", () => {
+  function filterBox() {
+    return screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+  }
+
+  beforeEach(() => {
+    usePortaStore.setState({ appGitError: {} });
+    poll(1);
+    vi.mocked(gitChangedFiles).mockReset();
+    vi.mocked(gitChangedFiles).mockResolvedValue([
+      stagedFile("src/alpha.ts"),
+      file("src/beta.ts"),
+      file("lib/gizmo.ts"),
+    ]);
+    vi.mocked(gitStage).mockClear();
+    vi.mocked(gitUnstage).mockClear();
+    vi.mocked(gitStageAll).mockClear();
+    vi.mocked(gitUnstageAll).mockClear();
+  });
+
+  it("stages every change in the section when nothing is filtered out", async () => {
+    await renderTab();
+    await userEvent.click(screen.getByRole("button", { name: "Stage all" }));
+    await act(async () => {});
+
+    expect(gitStageAll).toHaveBeenCalledTimes(1);
+    expect(gitStage).not.toHaveBeenCalled();
+  });
+
+  it("stages exactly the visible rows while a filter is on, and says so", async () => {
+    await renderTab();
+    await userEvent.type(filterBox(), "giz");
+
+    // The label has to stop claiming "all" once "all" is not what it does.
+    expect(screen.queryByRole("button", { name: "Stage all" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Stage shown" }));
+    await act(async () => {});
+
+    expect(gitStageAll).not.toHaveBeenCalled();
+    expect(vi.mocked(gitStage).mock.calls.map((c) => c[1])).toEqual(["lib/gizmo.ts"]);
+    // src/beta.ts was hidden by the filter — it must be untouched.
+    expect(vi.mocked(gitStage).mock.calls.map((c) => c[1])).not.toContain("src/beta.ts");
+  });
+
+  it("unstages exactly the visible rows while a filter is on", async () => {
+    await renderTab();
+    await userEvent.type(filterBox(), "alpha");
+
+    expect(screen.queryByRole("button", { name: "Unstage all" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Unstage shown" }));
+    await act(async () => {});
+
+    expect(gitUnstageAll).not.toHaveBeenCalled();
+    expect(vi.mocked(gitUnstage).mock.calls.map((c) => c[1])).toEqual(["src/alpha.ts"]);
+  });
+
+  it("reports shown-against-total in the header only while a filter is on", async () => {
+    await renderTab();
+    expect(screen.getByText("Changes · 2")).toBeInTheDocument();
+    expect(screen.getByText("Staged Changes · 1")).toBeInTheDocument();
+
+    await userEvent.type(filterBox(), "giz");
+    expect(screen.getByText("Changes · 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Staged Changes · 0 of 1")).toBeInTheDocument();
   });
 });

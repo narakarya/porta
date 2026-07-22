@@ -243,13 +243,24 @@ export default function StatusTab({
   }
 
   // stage all / unstage all files. Uses a sentinel marker to gate the disable.
-  async function mutateBulk(op: "stageAll" | "unstageAll" | "discardAll") {
+  //
+  // `scope` is the section's *visible* rows while a filter is on, and null when
+  // there is no filter. "All" is only unambiguous when the user can see all of
+  // it: someone who filtered down to three files and clicked the button meant
+  // those three, not the twenty the query is hiding. Unfiltered it stays the
+  // one whole-section command it has always been — that is both what the label
+  // says and one call instead of N.
+  async function mutateBulk(op: "stageAll" | "unstageAll" | "discardAll", scope?: ChangedFile[] | null) {
     setMutating(op);
     onError(null);
     try {
-      if (op === "stageAll") await gitStageAll(app.root_dir);
-      else if (op === "unstageAll") await gitUnstageAll(app.root_dir);
-      else await gitDiscardAll(app.root_dir);
+      if (op === "stageAll") {
+        if (scope) for (const f of scope) await gitStage(app.root_dir, f.path);
+        else await gitStageAll(app.root_dir);
+      } else if (op === "unstageAll") {
+        if (scope) for (const f of scope) await gitUnstage(app.root_dir, f.path);
+        else await gitUnstageAll(app.root_dir);
+      } else await gitDiscardAll(app.root_dir);
       await refreshAfterMutation();
       if (mounted.current) setConfirmDiscardAll(false);
     } catch (e) {
@@ -297,6 +308,13 @@ export default function StatusTab({
   const matchesQuery = (f: ChangedFile) => f.path.toLowerCase().includes(query);
   const shownStaged = query ? stagedFiles.filter(matchesQuery) : stagedFiles;
   const shownUnstaged = query ? unstagedFiles.filter(matchesQuery) : unstagedFiles;
+
+  // While a filter is on, a section header reports both numbers ("2 of 7", the
+  // form RebasePanel already uses): the shown count alone contradicts the "N
+  // staged" hint below the commit box, which counts what git actually has —
+  // and that disagreement lands at the exact moment the user is deciding what
+  // a commit will include. Unfiltered there is only one number to report.
+  const sectionCount = (shown: number, total: number) => (query ? `${shown} of ${total}` : `${total}`);
 
   const canCommit =
     !committing &&
@@ -428,13 +446,13 @@ export default function StatusTab({
               {stagedFiles.length > 0 && (
                 <>
                   <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                    <span>Staged Changes · {shownStaged.length}</span>
+                    <span>Staged Changes · {sectionCount(shownStaged.length, stagedFiles.length)}</span>
                     <button
-                      onClick={() => mutateBulk("unstageAll")}
-                      disabled={mutating !== null}
+                      onClick={() => mutateBulk("unstageAll", query ? shownStaged : null)}
+                      disabled={mutating !== null || (query !== "" && shownStaged.length === 0)}
                       className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
                     >
-                      {mutating === "unstageAll" ? "Unstaging…" : "Unstage all"}
+                      {mutating === "unstageAll" ? "Unstaging…" : query ? "Unstage shown" : "Unstage all"}
                     </button>
                   </div>
                   <FileTree
@@ -458,13 +476,13 @@ export default function StatusTab({
               {unstagedFiles.length > 0 && (
                 <>
                   <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-ink-3 px-3 pt-2 pb-1">
-                    <span>Changes · {shownUnstaged.length}</span>
+                    <span>Changes · {sectionCount(shownUnstaged.length, unstagedFiles.length)}</span>
                     <button
-                      onClick={() => mutateBulk("stageAll")}
-                      disabled={mutating !== null}
+                      onClick={() => mutateBulk("stageAll", query ? shownUnstaged : null)}
+                      disabled={mutating !== null || (query !== "" && shownUnstaged.length === 0)}
                       className="text-ink-3 hover:text-ink-1 text-[11px] disabled:opacity-40 disabled:pointer-events-none transition-colors"
                     >
-                      {mutating === "stageAll" ? "Staging…" : "Stage all"}
+                      {mutating === "stageAll" ? "Staging…" : query ? "Stage shown" : "Stage all"}
                     </button>
                   </div>
                   <FileTree
