@@ -4,6 +4,31 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.9]
+
+### Added
+
+- **"Repair DNS route" for a Cloudflare tunnel that's connected but
+  unreachable.** The usual cause is a missing DNS record, and the unreachable
+  hint now offers a one-click fix instead of just telling you to go check.
+  Repair re-creates the route and confirms it landed by asking the zone's own
+  nameservers — a recursive resolver would still serve the negative-cached
+  NXDOMAIN and report failure on a record that was just created. It also picks
+  the authorized cert itself, trying the zone's cert, the active login,
+  `cert.pem.<label>` sidecar logins, and certs stored for sibling zones, so
+  juggling several Cloudflare accounts no longer means importing one by hand
+  in Settings first.
+
+### Fixed
+
+- **Docker image updates no longer fail with "error getting credentials".**
+  Launched from Finder or the Dock, Porta inherited only the bare system PATH,
+  so the Docker CLI couldn't find `docker-credential-osxkeychain` and every
+  authenticated `docker compose pull` aborted. Porta now prepends the usual CLI
+  install dirs (OrbStack, Rancher Desktop, Homebrew, `/usr/local/bin`, Docker
+  Desktop) to its own PATH at startup, which also covers every other tool it
+  shells out to.
+
 ## [0.14.0-beta.8]
 
 ### Fixed

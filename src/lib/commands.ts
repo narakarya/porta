@@ -803,6 +803,10 @@ export const deleteCloudflareTunnel = (name: string, force: boolean): Promise<vo
 export const routeTunnelDns = (tunnelName: string, hostname: string, overwrite: boolean): Promise<void> =>
   isTauri ? invoke("route_tunnel_dns", { tunnelName, hostname, overwrite }) : Promise.resolve();
 
+// Re-route + verify a hostname, auto-picking the cert authorized for its zone.
+export const repairTunnelDns = (tunnelName: string, hostname: string): Promise<void> =>
+  isTauri ? invoke("repair_tunnel_dns", { tunnelName, hostname }) : Promise.resolve();
+
 export interface TunnelDnsRoute {
   zone_name: string;
   hostname: string;

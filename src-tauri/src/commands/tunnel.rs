@@ -110,6 +110,161 @@ fn cleanup_stale_connections(cf: &str, name: &str, hostname_hint: Option<&str>) 
     let _ = cmd.args(["tunnel", "cleanup", name]).output();
 }
 
+/// Does `hostname` actually resolve at the authoritative nameservers for its
+/// zone? `Some(false)` means the record genuinely isn't there; `None` means we
+/// couldn't tell (no `dig`, NS lookup failed) and the caller should not treat
+/// that as a failure.
+///
+/// Asks the zone's own nameservers rather than a recursive resolver on purpose:
+/// a hostname that just 404'd gets its NXDOMAIN negative-cached for the zone's
+/// SOA minimum (30 min on a default Cloudflare zone), so a recursive lookup
+/// right after creating the record would still say "missing". Authoritative
+/// answers are immediate. Queries type A — a CNAME (unproxied tunnel route) is
+/// returned in the answer section for any type, and proxied records answer with
+/// the anycast addresses, so "non-empty output" covers both.
+fn dns_record_live(hostname: &str) -> Option<bool> {
+    authoritative_answer(hostname).map(|answers| !answers.is_empty())
+}
+
+/// The answer `dig` gets for `hostname` straight from its zone's nameservers.
+/// `None` when we couldn't ask at all. Lines are whatever the zone serves —
+/// anycast IPs for a proxied record, a `.cfargotunnel.com` target for an
+/// unproxied one.
+fn authoritative_answer(hostname: &str) -> Option<Vec<String>> {
+    let zone = crate::cloudflared_certs::zone_for_hostname(hostname)?;
+    let ns_out = std::process::Command::new("dig")
+        .args(["+short", "+time=3", "+tries=1", "NS", &zone])
+        .output()
+        .ok()?;
+    let ns = String::from_utf8_lossy(&ns_out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .find(|l| !l.is_empty())?;
+
+    let out = std::process::Command::new("dig")
+        .args([
+            "+short",
+            "+time=3",
+            "+tries=1",
+            &format!("@{}", ns),
+            hostname,
+            "A",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
+}
+
+/// IPv4 addresses `hostname` currently answers with at its own nameservers.
+/// Lets the reachability probe bypass a stale local resolver — see
+/// `check_tunnel_reachable`.
+pub(crate) fn authoritative_ipv4(hostname: &str) -> Vec<std::net::Ipv4Addr> {
+    authoritative_answer(hostname)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|l| l.parse::<std::net::Ipv4Addr>().ok())
+        .collect()
+}
+
+/// Point `hostname` at `tunnel_name` and confirm the record really landed,
+/// trying every cert Porta can find until one works.
+///
+/// Two failure modes this exists for, both of which used to surface as a green
+/// "Connected" badge over a hostname that never resolved:
+///   * the active `cert.pem` belongs to another Cloudflare account, so routing
+///     fails (or lands in a duplicate/pending zone whose NS serve nothing) —
+///     cloudflared can still exit 0;
+///   * cloudflared couldn't be spawned at all.
+/// On success the winning cert is pinned to `porta-certs/<zone>.pem`, so the
+/// next connect picks it directly and a later `cloudflared login` for a
+/// different zone can't clobber it.
+fn route_dns_verified(cf: &str, tunnel_name: &str, hostname: &str) -> Result<(), String> {
+    let candidates = crate::cloudflared_certs::cert_candidates(hostname);
+    let zone = crate::cloudflared_certs::zone_for_hostname(hostname);
+    let mut attempts: Vec<String> = Vec::new();
+
+    // No cert at all: still try — cloudflared falls back to its own default
+    // lookup and its error message is more useful than anything we'd invent.
+    let tries: Vec<Option<std::path::PathBuf>> = if candidates.is_empty() {
+        vec![None]
+    } else {
+        candidates.into_iter().map(Some).collect()
+    };
+
+    for cert in tries {
+        let mut cmd = std::process::Command::new(cf);
+        if let Some(c) = &cert {
+            cmd.arg("--origincert").arg(c);
+        }
+        let label = cert
+            .as_ref()
+            .and_then(|c| c.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "default".to_string());
+
+        let out = match cmd
+            .args(["tunnel", "route", "dns", "--overwrite-dns", tunnel_name, hostname])
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                attempts.push(format!("{}: could not run cloudflared ({})", label, e));
+                continue;
+            }
+        };
+        if !out.status.success() {
+            attempts.push(format!(
+                "{}: {}",
+                label,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+            continue;
+        }
+
+        // Exit 0 is not proof. Verify, with one retry — the API write is
+        // authoritative-visible within a second or two, but not always instantly.
+        let mut live = dns_record_live(hostname);
+        if live == Some(false) {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            live = dns_record_live(hostname);
+        }
+        if live == Some(false) {
+            attempts.push(format!(
+                "{}: cloudflared reported success but {} still does not resolve at its nameservers (record likely landed in a different Cloudflare account's copy of the zone)",
+                label, hostname
+            ));
+            continue;
+        }
+
+        // Pin the winner so we skip the search next time.
+        if let (Some(z), Some(c)) = (&zone, &cert) {
+            let already_pinned = c
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n == "porta-certs")
+                .unwrap_or(false);
+            if !already_pinned {
+                let _ = crate::cloudflared_certs::import_cert(z, c);
+            }
+        }
+        return Ok(());
+    }
+
+    Err(format!(
+        "DNS route failed for {}:\n{}",
+        hostname,
+        attempts.join("\n")
+    ))
+}
+
 /// Pick a free TCP port by binding to :0 and immediately dropping the listener.
 /// Briefly racy but cloudflared retries on EADDRINUSE so this is fine in
 /// practice. Falls back to 0 (cloudflared picks one but we won't know which).
@@ -471,36 +626,26 @@ fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<
     let cfg_path = tunnel_config_path(&name)?;
     std::fs::write(&cfg_path, build_ingress_yaml(&rules)).map_err(|e| e.to_string())?;
 
-    // Route DNS for every member hostname. `--overwrite-dns` re-points existing
-    // CNAMEs (without it, a CNAME to a different tunnel silently wins → 404 /
-    // wrong origin). Pick the cert.pem authorized for each hostname's zone so
-    // routing works across zones without swapping `~/.cloudflared/cert.pem`.
+    // Route DNS for every member hostname, verifying each record actually
+    // exists and auto-selecting the cert authorized for its zone
+    // (`route_dns_verified`). `--overwrite-dns` re-points existing CNAMEs —
+    // without it, a CNAME to a different tunnel silently wins → 404 / wrong
+    // origin.
     for r in &rules {
-        let mut cmd = std::process::Command::new(&cf);
-        if let Some(cert) = crate::cloudflared_certs::cert_for_hostname(&r.public) {
-            cmd.arg("--origincert").arg(cert);
-        }
-        let out = cmd
-            .args(["tunnel", "route", "dns", "--overwrite-dns", &name, &r.public])
-            .output();
-        if let Ok(o) = out {
-            if !o.status.success() {
-                let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                let err_msg = format!("DNS route failed for {}:\n{}", r.public, stderr);
-                for info in &infos {
-                    app_handle
-                        .emit(
-                            &info.channel,
-                            serde_json::json!({
-                                "active": false,
-                                "url": null,
-                                "error": err_msg.clone(),
-                            }),
-                        )
-                        .ok();
-                }
-                return Err(err_msg);
+        if let Err(err_msg) = route_dns_verified(&cf, &name, &r.public) {
+            for info in &infos {
+                app_handle
+                    .emit(
+                        &info.channel,
+                        serde_json::json!({
+                            "active": false,
+                            "url": null,
+                            "error": err_msg.clone(),
+                        }),
+                    )
+                    .ok();
             }
+            return Err(err_msg);
         }
     }
 
@@ -1844,6 +1989,26 @@ pub async fn route_tunnel_dns(
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
         Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Re-point a hostname at its tunnel and verify the record landed, trying every
+/// available cert. Backs the "Repair DNS route" action the UI offers when a
+/// connected tunnel turns out to be unreachable — the usual cause is a DNS
+/// record that was never created (or was created in the wrong account), which
+/// the connector itself has no way to notice.
+#[tauri::command]
+pub async fn repair_tunnel_dns(tunnel_name: String, hostname: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let cf = find_cloudflared().ok_or_else(|| "cloudflared not installed".to_string())?;
+        let t = tunnel_name.trim();
+        let h = hostname.trim();
+        if t.is_empty() || h.is_empty() {
+            return Err("tunnel name and hostname are required".into());
+        }
+        route_dns_verified(&cf, t, h)
     })
     .await
     .map_err(|e| e.to_string())?

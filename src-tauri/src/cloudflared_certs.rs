@@ -70,6 +70,55 @@ pub fn cert_for_hostname(hostname: &str) -> Option<PathBuf> {
     default_cert_path().filter(|p| p.exists())
 }
 
+/// Every cert worth trying for `hostname`, most likely first: the zone's own
+/// cert, the active login, then sidecar logins the user kept around
+/// (`cert.pem.<label>` — a common way to juggle several Cloudflare accounts by
+/// hand) and finally certs stored for other zones (one account often owns
+/// several zones, so a neighbour's cert frequently works).
+///
+/// Used to auto-discover which login is authorized for a zone instead of
+/// making the user import it in Settings — see `route_dns_verified`.
+pub fn cert_candidates(hostname: &str) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut push = |p: PathBuf| {
+        if p.exists() && !out.contains(&p) {
+            out.push(p);
+        }
+    };
+
+    let zone = zone_for_hostname(hostname);
+    if let Some(p) = zone.as_deref().and_then(cert_path_for_zone) {
+        push(p);
+    }
+    if let Some(p) = default_cert_path() {
+        push(p);
+    }
+    // `~/.cloudflared/cert.pem.<label>` — sorted so the order is stable run to
+    // run (an unstable order would make failures reproduce differently).
+    if let Some(dir) = cloudflared_dir() {
+        if let Ok(rd) = fs::read_dir(&dir) {
+            let mut siblings: Vec<PathBuf> = rd
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.starts_with("cert.pem.") && n != "cert.pem.old")
+                        .unwrap_or(false)
+                })
+                .collect();
+            siblings.sort();
+            for p in siblings {
+                push(p);
+            }
+        }
+    }
+    for c in list_zone_certs() {
+        push(PathBuf::from(c.path));
+    }
+    out
+}
+
 pub fn list_zone_certs() -> Vec<ZoneCert> {
     let Some(dir) = zone_certs_dir() else { return Vec::new() };
     let Ok(rd) = fs::read_dir(&dir) else { return Vec::new() };

@@ -710,22 +710,56 @@ pub fn active_serve_count() -> usize {
 /// when GET works fine. We use `Range: bytes=0-0` so we only pull 1 byte.
 #[tauri::command]
 pub async fn check_tunnel_reachable(url: String) -> bool {
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::limited(3))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
+    let build = |resolve: Option<(String, std::net::SocketAddr)>| {
+        let mut b = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::limited(3));
+        if let Some((host, addr)) = resolve {
+            b = b.resolve(&host, addr);
+        }
+        b.build().ok()
+    };
+    let client = match build(None) {
+        Some(c) => c,
+        None => return false,
     };
     // Any response at all — even 502/503 — means the tunnel pipe is alive.
     // Only true network failure should flag "not responding".
-    client
-        .get(&url)
-        .header("Range", "bytes=0-0")
-        .send()
-        .await
-        .is_ok()
+    let probe = |client: reqwest::Client, url: String| async move {
+        client
+            .get(&url)
+            .header("Range", "bytes=0-0")
+            .send()
+            .await
+            .is_ok()
+    };
+    if probe(client, url.clone()).await {
+        return true;
+    }
+
+    // Retry against the addresses the hostname's own nameservers hand out.
+    // macOS negative-caches an NXDOMAIN for the zone's SOA minimum (30 min on a
+    // default Cloudflare zone), so right after a DNS route is created every
+    // local lookup still fails while the rest of the internet resolves it
+    // fine — without this the UI would keep crying "tunnel down" for half an
+    // hour over a hostname that works everywhere else.
+    let host = match reqwest::Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_string)) {
+        Some(h) => h,
+        None => return false,
+    };
+    let port = reqwest::Url::parse(&url)
+        .ok()
+        .and_then(|u| u.port_or_known_default())
+        .unwrap_or(443);
+    for ip in crate::commands::tunnel::authoritative_ipv4(&host) {
+        let addr = std::net::SocketAddr::from((ip, port));
+        if let Some(c) = build(Some((host.clone(), addr))) {
+            if probe(c, url.clone()).await {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Stop every serve/funnel entry that Porta is tracking. Unlike

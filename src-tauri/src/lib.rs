@@ -99,8 +99,48 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Prepend the usual CLI install dirs to this process's PATH.
+///
+/// Launched from Finder or the Dock, a macOS .app inherits only
+/// `/usr/bin:/bin:/usr/sbin:/sbin`. Resolving `docker` to an absolute path
+/// isn't enough: the Docker CLI itself spawns helpers *by name* off PATH —
+/// notably `docker-credential-osxkeychain`, without which every authenticated
+/// `docker compose pull` fails with "error getting credentials". Fixing PATH
+/// once here covers every child process we spawn later.
+fn augment_process_path() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates = [
+        format!("{home}/.orbstack/bin"),
+        format!("{home}/.rd/bin"), // Rancher Desktop
+        format!("{home}/.docker/bin"),
+        "/opt/homebrew/bin".to_string(),
+        "/opt/homebrew/sbin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/Applications/Docker.app/Contents/Resources/bin".to_string(),
+    ];
+
+    let current = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<String> = candidates
+        .into_iter()
+        .filter(|d| !current.split(':').any(|p| p == d))
+        .filter(|d| std::path::Path::new(d).is_dir())
+        .collect();
+
+    if parts.is_empty() {
+        return;
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    std::env::set_var("PATH", parts.join(":"));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Must run before anything spawns a child process — `docker_bin()` caches
+    // its lookup on first use.
+    augment_process_path();
+
     let base = porta_dir();
     std::fs::create_dir_all(&base).expect("failed to create porta data dir");
     let db_path = base.join("porta.db");
@@ -409,6 +449,7 @@ pub fn run() {
             commands::create_cloudflare_tunnel,
             commands::delete_cloudflare_tunnel,
             commands::route_tunnel_dns,
+            commands::repair_tunnel_dns,
             commands::list_tunnel_dns,
             commands::cf_access_get_app,
             commands::cf_access_list_apps,

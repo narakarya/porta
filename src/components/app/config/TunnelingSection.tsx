@@ -169,15 +169,33 @@ export default function TunnelingSection() {
             </div>
             <TunnelPublicHostsPanel hosts={c.liveTunnelHosts} title="Accessible hosts" />
             {c.tunnelReachable === false && (
-              <div className="flex items-start gap-2 px-3 py-1.5 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
-                <span className="w-1.5 h-1.5 mt-1 rounded-full bg-warn shrink-0" />
-                <span className="text-[11px] text-warn">
-                  Tunnel endpoint not reachable — the tunnel itself looks down, not your app
-                  (an app that's up but erroring would still respond).{" "}
-                  {c.app.tunnel_provider === "cloudflare"
-                    ? "Check the DNS route and that cloudflared is connected."
-                    : "Check that the Tailscale serve/funnel is still up."}
-                </span>
+              <div className="flex flex-col gap-2 px-3 py-1.5 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+                <div className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 mt-1 rounded-full bg-warn shrink-0" />
+                  <span className="text-[11px] text-warn">
+                    Tunnel endpoint not reachable — the tunnel itself looks down, not your app
+                    (an app that's up but erroring would still respond).{" "}
+                    {c.app.tunnel_provider === "cloudflare"
+                      ? "Usually the DNS record for this hostname is missing — repairing re-creates it."
+                      : "Check that the Tailscale serve/funnel is still up."}
+                  </span>
+                </div>
+                {/* Cloudflare only: Tailscale serve has no DNS record to fix. */}
+                {c.app.tunnel_provider === "cloudflare" && c.app.tunnel_name && (
+                  <div className="flex items-center gap-2 pl-3.5">
+                    <button
+                      type="button"
+                      disabled={c.dnsRepairing}
+                      onClick={() => c.repairDns()}
+                      className="px-3 py-1 text-[11px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {c.dnsRepairing ? "Repairing…" : "Repair DNS route"}
+                    </button>
+                    {c.dnsRepairError && (
+                      <span className="text-[10px] text-bad truncate">{c.dnsRepairError}</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {c.tunnelReachable === true && (

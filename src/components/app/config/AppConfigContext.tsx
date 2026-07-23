@@ -10,6 +10,7 @@ import {
   getTailscaleStatus,
   listTailscaleServes,
   checkTunnelReachable,
+  repairTunnelDns,
   getCfApiToken,
   listTunnelDns,
   openExternalUrl,
@@ -269,6 +270,9 @@ export function useAppConfigDraft(
   // Tracks the in-flight Connect/Disconnect call so the button can show a
   // spinner instead of relying on the macOS busy cursor.
   const [tunnelBusy, setTunnelBusy] = useState<"connecting" | "disconnecting" | null>(null);
+  // "Repair DNS route" state for the unreachable-tunnel hint.
+  const [dnsRepairing, setDnsRepairing] = useState(false);
+  const [dnsRepairError, setDnsRepairError] = useState<string | null>(null);
 
   function copyCmd(cmd: string) {
     navigator.clipboard.writeText(cmd).then(() => {
@@ -449,6 +453,31 @@ export function useAppConfigDraft(
       window.clearInterval(interval);
     };
   }, [section, app.tunnel_active, app.tunnel_url]);
+
+  // Re-create the DNS record for a connected-but-unreachable tunnel. The
+  // backend retries across every Cloudflare cert it can find and verifies the
+  // record at the zone's nameservers, so a plain "it worked" here is real.
+  async function repairDns() {
+    const url = app.tunnel_url;
+    const name = app.tunnel_name;
+    if (!url || !name) return;
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      return;
+    }
+    setDnsRepairing(true);
+    setDnsRepairError(null);
+    try {
+      await repairTunnelDns(name, hostname);
+      setTunnelReachable(await checkTunnelReachable(url));
+    } catch (e) {
+      setDnsRepairError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDnsRepairing(false);
+    }
+  }
 
   // Auto-fill hostname when DNS routes arrive after the modal opens. Covers
   // the case where the user opened Tunneling with a tunnel already saved but
@@ -986,6 +1015,7 @@ export function useAppConfigDraft(
     tunnelAutoStart, setTunnelAutoStart,
     tunnelReachable, setTunnelReachable,
     tunnelBusy, setTunnelBusy,
+    dnsRepairing, dnsRepairError, repairDns,
     copyCmd, handleConnect, handleDisconnect, refreshTailscale, refreshTunnels,
     saving, setSaving, saveError, setSaveError, savedAt, setSavedAt,
     portNum, portValid, SUBDOMAIN_RE, DOMAIN_RE,
