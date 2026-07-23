@@ -4,6 +4,35 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.10]
+
+### Added
+
+- **Run an app as prod, not just as dev.** Environment profiles already existed;
+  each one now also carries its own start command and an optional build step, so
+  a "prod" profile can run `MIX_ENV=prod mix release` and then boot the release
+  binary. Switch from the card's context menu ("Run as prod") — a running app
+  restarts under the new profile — or edit the commands under Settings →
+  Environment. The build streams into the app's normal log, the card reads
+  "Building" while it runs, and a non-zero exit aborts the start rather than
+  booting a server over stale artifacts. Since tunnels are independent of how an
+  app is started, this also means you can expose a genuinely production build.
+  Run profiles travel in `.porta.yml` too, keyed by name.
+
+### Changed
+
+- **Force Kill sits on the card**, next to Stop, instead of only in the
+  right-click menu — it's what you reach for when a process is wedged, which is
+  the worst time to go hunting through a menu.
+
+### Fixed
+
+- **A stopped app no longer leaves its port occupied.** Release-style servers
+  (`bin/app start`, launchers that hand off to a daemon) exit while the real
+  process reparents to launchd, escaping both the process-group signal and the
+  parent-child walk. Stop and Force Kill now confirm the port actually came
+  free and clear whatever is still holding it, reporting the PID they reaped.
+
 ## [0.14.0-beta.9]
 
 ### Added
