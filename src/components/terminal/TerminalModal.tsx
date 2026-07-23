@@ -83,12 +83,7 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
         pendingSession={pendingSession}
         onEmpty={onClose}
         onEscape={onClose}
-        title={
-          <>
-            <span className="text-[14px] font-semibold text-zinc-100 font-mono">Terminal</span>
-            <span className="text-[11px] text-zinc-700">·</span>
-          </>
-        }
+        title={<span className="text-[12px] font-semibold text-zinc-200 font-mono">Terminal</span>}
         headerTrail={
           <button
             onClick={onClose}

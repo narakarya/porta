@@ -27,9 +27,9 @@ interface Props {
   onEmpty?: () => void;
   /** Escape while focus is outside a text input. Modal uses it to close. */
   onEscape?: () => void;
-  /** Header row start slot (the modal's "Terminal" title). */
+  /** Tab strip start slot, before the tabs (the modal's "Terminal" title). */
   title?: ReactNode;
-  /** Header row end slot (the modal's close button). */
+  /** Tab strip far-end slot, after everything else (the modal's close button). */
   headerTrail?: ReactNode;
   /** Tab strip end slot, after the split controls (placement toggle). */
   tabStripTrail?: ReactNode;
@@ -104,6 +104,10 @@ export default function TerminalWorkspace({
   const [editingLabel, setEditingLabel] = useState<string>("");
   const [terminalQuery, setTerminalQuery] = useState("");
   const [filterOutput, setFilterOutput] = useState(false);
+  // The find widget is an overlay, not chrome: it only exists while the user is
+  // searching, so the tab strip is the single row at the top of the surface.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   // Which pane last took keyboard focus — drives the split-view focus edge.
   // View state, not session state: it doesn't need to survive a reload.
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
@@ -443,8 +447,26 @@ export default function TerminalWorkspace({
   }, []);
 
   // Search input id must be unique per surface — the modal and the workbench
-  // tab can both be mounted, and ⌘F focuses by id.
+  // tab can both be mounted, and Escape routing keys off it.
   const searchInputId = `terminal-search-input-${appId}`;
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    // Focus after the widget has actually mounted; on the first ⌘F the input
+    // doesn't exist yet when this runs.
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  }, []);
+
+  /** Closing drops the query and the filter with it, so the panes never stay
+   *  stuck in transcript mode behind a widget that is no longer on screen. */
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setTerminalQuery("");
+    setFilterOutput(false);
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -457,17 +479,16 @@ export default function TerminalWorkspace({
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        const input = document.getElementById(searchInputId) as HTMLInputElement | null;
-        input?.focus();
-        input?.select();
+        openSearch();
         return;
       }
 
       if (isTextInput) {
         if (e.key === "Escape" && target instanceof HTMLInputElement && target.id === searchInputId) {
           e.preventDefault();
+          // First Escape clears a typed query, the second dismisses the widget.
           if (terminalQuery) setTerminalQuery("");
-          else target.blur();
+          else closeSearch();
         }
         return;
       }
@@ -502,60 +523,24 @@ export default function TerminalWorkspace({
     }
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId, appId, setActiveTerminalTab]);
+  }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId, appId, setActiveTerminalTab, openSearch, closeSearch]);
 
   const isSplit = !!activeTab && activeTab.panes.length >= 2;
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* ── Header: title slot + transcript stats + search/filter ─────────── */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.08] shrink-0">
-        {title}
-        <div className="flex-1" />
-        <div className="relative w-[320px] max-w-[36vw]">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
-            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-          <input
-            id={searchInputId}
-            spellCheck={false}
-            value={terminalQuery}
-            onChange={(e) => setTerminalQuery(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            placeholder="Search terminal output…"
-            className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg pl-7 pr-7 py-1.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500/50 focus:bg-white/[0.07] transition-all"
-          />
-          {terminalQuery && (
-            <button
-              onClick={() => setTerminalQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300"
-              title="Clear search"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
-        </div>
-        <button
-          onClick={() => setFilterOutput((v) => !v)}
-          className={`h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
-            filterOutput
-              ? "bg-blue-500/15 text-blue-300 border-blue-500/25"
-              : "text-zinc-500 border-white/[0.08] hover:text-zinc-200 hover:bg-white/[0.06]"
-          }`}
-          title="Show searchable text transcript"
-        >
-          Filter
-        </button>
-        {headerTrail}
-      </div>
-
-      {/* ── Body: horizontal tab strip + terminal area ──────────────────────── */}
+      {/* ── Body: single top row (title + tabs + controls) + terminal area ─── */}
       <div className="flex flex-col flex-1 min-h-0">
-        {/* Tab strip */}
+        {/* Tab strip — the only chrome above the terminal. Search lives in a
+            find widget overlaid on the panes instead of a second row, so the
+            sessions sit at the very top of the surface. */}
         <div className="flex items-center gap-1 px-2.5 py-[7px] border-b border-subtle shrink-0">
+          {title && (
+            <div className="flex items-center gap-2 shrink-0 pl-1 pr-2">
+              {title}
+              <span className="w-px h-3.5 bg-white/[0.1]" />
+            </div>
+          )}
           {tabs.map((tab) => {
             const isActive = activeId === tab.id;
             const isEditing = editingTabId === tab.id;
@@ -629,8 +614,18 @@ export default function TerminalWorkspace({
             </svg>
           </button>
 
-          {/* Split controls (+ host-provided extras) */}
+          {/* Search + split controls (+ host-provided extras) */}
           <div className="ml-auto flex items-center gap-3 text-ink-2">
+            <button
+              onClick={() => (searchOpen ? closeSearch() : openSearch())}
+              className={`transition-colors hover:text-ink ${searchOpen ? "text-ink" : ""}`}
+              title="Find in terminal output (⌘F)"
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            </button>
             <button
               onClick={() => splitInto("cols")}
               className={`transition-colors hover:text-ink ${isSplit && activeTab?.splitOrientation === "cols" ? "text-ink" : ""}`}
@@ -652,6 +647,7 @@ export default function TerminalWorkspace({
               </svg>
             </button>
             {tabStripTrail}
+            {headerTrail}
           </div>
         </div>
 
@@ -731,6 +727,55 @@ export default function TerminalWorkspace({
               </div>
             );
           })}
+
+          {/* Find widget — floats over the panes like VS Code's, so it costs no
+              vertical space when nobody is searching. */}
+          {searchOpen && (
+            <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#1a1a1d] pl-2 pr-1.5 py-1 shadow-[0_10px_28px_rgba(0,0,0,0.55)]">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-600">
+                <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+              <input
+                id={searchInputId}
+                ref={searchInputRef}
+                spellCheck={false}
+                value={terminalQuery}
+                onChange={(e) => setTerminalQuery(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="Find in output…"
+                className="w-[190px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none"
+              />
+              <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">
+                {terminalQuery.trim()
+                  ? activeStats.matchCount === null
+                    ? "…"
+                    : `${activeStats.matchCount} ${activeStats.matchCount === 1 ? "line" : "lines"}`
+                  : ""}
+              </span>
+              <span className="w-px h-4 bg-white/[0.1] shrink-0" />
+              <button
+                onClick={() => setFilterOutput((v) => !v)}
+                className={`shrink-0 p-1 rounded transition-colors ${
+                  filterOutput ? "bg-blue-500/15 text-blue-300" : "text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08]"
+                }`}
+                title="Show matching lines only"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M1.5 2.5h9L7 6.75V10L5 9V6.75L1.5 2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                onClick={closeSearch}
+                className="shrink-0 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08] transition-colors"
+                title="Close (Esc)"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
 
         <TerminalStatusBar

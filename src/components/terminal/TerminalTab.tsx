@@ -93,13 +93,17 @@ export default function TerminalTab({
 
   const query = searchQuery.trim();
   const lowerQuery = query.toLowerCase();
-  const filteredTranscript = useMemo(() => {
-    if (!lowerQuery) return transcript;
+  const matchingLines = useMemo(() => {
+    if (!lowerQuery) return null;
     return transcript.filter((line) => line.toLowerCase().includes(lowerQuery));
   }, [transcript, lowerQuery]);
 
+  // A query on its own highlights matches in place — the surrounding output is
+  // usually the context you were looking for. The filter toggle is what narrows
+  // the view down to the matching lines.
+  const visibleTranscript = filterOutput && matchingLines ? matchingLines : transcript;
   const transcriptVisible = filterOutput || !!query;
-  const matchCount = query ? filteredTranscript.length : null;
+  const matchCount = matchingLines?.length ?? null;
 
   useEffect(() => {
     if (!visible) return;
@@ -384,13 +388,13 @@ export default function TerminalTab({
 
       {transcriptVisible && (
         <div className="absolute inset-0 overflow-auto bg-[#0d0d0f] px-3 py-2 font-mono text-[12px] leading-[1.45] text-zinc-300">
-          {filteredTranscript.length === 0 ? (
+          {visibleTranscript.length === 0 ? (
             <div className="h-full flex items-center justify-center text-[12px] text-zinc-600">
-              {query ? "No terminal output matches the current filter." : "No terminal output yet."}
+              {filterOutput && query ? "No terminal output matches the current filter." : "No terminal output yet."}
             </div>
           ) : (
             <div className="min-w-max pb-3">
-              {filteredTranscript.map((line, idx) => (
+              {visibleTranscript.map((line, idx) => (
                 <div key={`${idx}-${line}`} className="flex gap-3 whitespace-pre">
                   <span className="w-10 shrink-0 text-right text-zinc-700 select-none tabular-nums">{idx + 1}</span>
                   <span>{query ? highlightLine(line, query) : line}</span>
