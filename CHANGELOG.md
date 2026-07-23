@@ -4,6 +4,19 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.14]
+
+### Fixed
+
+- **The update toast shows the release notes, not a heap of commit subjects.**
+  The notes in `latest.json` — the text you see when an update is offered —
+  came from `git log -30` with no lower bound, so every beta repeated the same
+  rolling list reaching back several releases, `chore(release)` commits and
+  all. beta.13 was still advertising work from beta.6. Both release workflows
+  now read the version's section from CHANGELOG.md, so the toast and the
+  changelog say the same thing. If a section is ever missing they fall back to
+  the commit log, now bounded by the previous release rather than unbounded.
+
 ## [0.14.0-beta.13]
 
 ### Added
