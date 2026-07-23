@@ -4,6 +4,69 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.13]
+
+### Added
+
+- **A running job can be killed without closing the pane.** ⌃C only reaches a
+  job while the terminal itself has keyboard focus, so anything started from
+  elsewhere in the app could only be stopped by tearing the whole session down.
+  The status bar now offers Kill while a pane is running: it interrupts the
+  foreground process group, and turns into Force kill if the job survives that.
+  It signals the group rather than one pid — a pipeline is several processes —
+  and never the shell itself, which is what closing the pane is for.
+
+- **Force kill and "kill port holder" reach the workbench.** Both have been on
+  the grid card all along, but opening an app hides that card, so a process
+  Stop couldn't bring down — or a crashed run still holding its port, which
+  makes every later Start fail with "address already in use" — had no answer
+  once you were in the workbench. The header's ⋯ is now a menu carrying
+  whichever applies, force kill behind a confirmation.
+
+### Changed
+
+- **Terminal search happens in the terminal now, not in a copy of it.** Opening
+  the find widget used to hide xterm behind a plain-text transcript the tab
+  rebuilt from the PTY byte stream. That transcript could only ever append, so
+  it had no way to replay output that moves the cursor: a redrawn shell prompt
+  came out as duplicated ghost lines, colours were gone, and the shell couldn't
+  be typed into while the widget was open. Search now runs against xterm's own
+  buffer, so matches highlight in place with everything still rendered and the
+  session still live. Enter and shift-Enter step through matches, and the count
+  is matches rather than matching lines.
+
+  The show-only-matching filter added in beta.12 goes away with the transcript
+  that made it possible. Narrowing output to matching lines is a log-viewer
+  job; in a terminal what you want is to find something and jump to it, with
+  its surroundings intact. Each pane also stops keeping a 100,000-line copy of
+  its output beside the one xterm already keeps.
+
+- **The Config tab looks like a tab.** Embedded in the workbench it still drew
+  the settings modal's 132px sidebar — a second vertical nav inside a tab,
+  restating the app name and domain the header above it already shows. It's a
+  horizontal sub-nav now, the same one the Git tab uses, with "Unsaved changes"
+  moved up beside it. Its "Cancel" is "Close": it discards nothing (Revert
+  does), it just leaves for another tab. The standalone settings modal is
+  unchanged.
+
+### Fixed
+
+- **"Open in Terminal" opens a terminal.** The menu item invoked a command that
+  was never implemented on the Rust side, so every click rejected silently and
+  nothing at all happened. It now opens the app's own Terminal tab, from the
+  sidebar, the card menu, and worktree instances alike.
+
+- **Rail tooltips appear.** They were native `title` attributes, which the
+  webview shows late or not at all, and the version dot's multi-line label —
+  version, setup problems, what clicking does — had nowhere to go. They use the
+  app's own tooltip now, which also learned to keep newlines and to get out of
+  the way when the trigger is clicked.
+
+- **Discarding config edits no longer risks losing them silently.** The
+  "Discard unsaved changes?" prompt used `window.confirm`, which is unreliable
+  inside the Tauri webview: it can resolve without ever appearing, which here
+  meant throwing the edits away without asking. It's the native dialog now.
+
 ## [0.14.0-beta.12]
 
 ### Added
