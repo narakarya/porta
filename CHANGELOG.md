@@ -4,6 +4,36 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.12]
+
+### Added
+
+- **A "Git 2" tab, running the git-manager extension's own UI inside Porta.**
+  A spike sitting next to the native Git tab so the two can be judged on the
+  same repo. It runs in-process rather than in an iframe, so switching tabs no
+  longer costs scroll position, filters, or a draft commit message. Still
+  depends on the git-manager extension being installed, and has not been
+  exercised at runtime yet — the native Git tab stays until it has.
+
+### Changed
+
+- **The terminal's header row is gone.** It only ever held the search box, so
+  in the workbench — where the title and close slots are empty — it read as a
+  field floating in its own empty strip. Session tabs now sit at the top and
+  search is an overlaid find widget that costs no vertical space when unused.
+  Filter moved into that widget and now does something: it used to be a no-op
+  whenever a query was present. A query highlights in place, and the toggle is
+  what narrows the view, so surrounding output survives a search.
+
+### Fixed
+
+- **"Unsaved changes" no longer sticks after saving a run profile.** Saving
+  while a named profile was selected left the footer stuck on it forever: the
+  env editor shows the active profile's values but dirty-detection compared
+  them against the app's own (Default) env, and the profile list was compared
+  against local state that saving never updated. Both mismatches were
+  structural, so nothing could clear them.
+
 ## [0.14.0-beta.11]
 
 ### Fixed
