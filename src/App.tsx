@@ -24,10 +24,15 @@ import HelpModal from "./components/layout/HelpModal";
 import { ExtensionHostProvider } from "./components/extension/ExtensionHostManager";
 import UiGallery from "./components/ui/UiGallery";
 import { deriveInstanceApp } from "./lib/instance-app";
+import { useTextFieldUndo } from "./hooks/useTextFieldUndo";
 
 type Page = "main" | "settings";
 
 export default function App() {
+  // ⌘Z / ⌘⇧Z for every plain text field in the app — see the hook for why the
+  // webview's own undo can't be relied on here.
+  useTextFieldUndo();
+
   const { load, checkSetup, loadSettings, refreshHealth, settingsSection } = usePortaStore(
     useShallow((s) => ({
       load: s.load,

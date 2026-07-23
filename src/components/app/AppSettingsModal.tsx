@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { App, Workspace } from "../../types";
 import HealthSection from "./HealthSection";
 import DangerSection from "./sections/DangerSection";
@@ -33,7 +33,30 @@ interface Props {
   // exposes only the shared Local Routes / Public Tunnel editor.
   accessOnly?: boolean;
 }
-export default function AppSettingsModal({
+/**
+ * Discarding every unsaved edit at once. Rather than hand-resetting the draft's
+ * several dozen useStates — where one forgotten field silently survives a
+ * "revert" — we remount the form. Its initial state is derived from the saved
+ * `app`, so a remount *is* the revert, and it can't drift as fields are added.
+ *
+ * The sub-nav position is carried across the remount: reverting a typo should
+ * not also throw the user back to the General tab.
+ */
+export default function AppSettingsModal(props: Props) {
+  const [resetSeq, setResetSeq] = useState(0);
+  const lastSection = useRef<Section | undefined>(props.initialSection);
+  return (
+    <AppSettingsForm
+      key={resetSeq}
+      {...props}
+      initialSection={lastSection.current}
+      onSectionChange={(s) => { lastSection.current = s; }}
+      onRevertAll={() => setResetSeq((n) => n + 1)}
+    />
+  );
+}
+
+function AppSettingsForm({
   app,
   workspace,
   onClose,
@@ -41,7 +64,9 @@ export default function AppSettingsModal({
   embedded = false,
   initialSection,
   accessOnly = false,
-}: Props) {
+  onSectionChange,
+  onRevertAll,
+}: Props & { onSectionChange: (s: Section) => void; onRevertAll: () => void }) {
   const seededSection = accessOnly
     ? initialSection === "domain" || initialSection === "tunneling"
       ? initialSection
@@ -66,6 +91,9 @@ export default function AppSettingsModal({
   const requestCloseRef = useRef<() => void>(() => {});
   handleSaveRef.current = handleSave;
   requestCloseRef.current = requestClose;
+  // Report the live sub-nav position up so a revert-remount can restore it.
+  useEffect(() => { onSectionChange(section); }, [section, onSectionChange]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -227,6 +255,19 @@ export default function AppSettingsModal({
             </p>
           )}
           <div className="flex gap-2 ml-auto">
+            {isDirty && (
+              <button
+                onClick={onRevertAll}
+                title="Discard every unsaved change on this app"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M2.2 3.4A3.6 3.6 0 1 1 1.7 6.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <path d="M1.7 1.8v1.9h1.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Revert
+              </button>
+            )}
             <button
               onClick={requestClose}
               className="px-4 py-2 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"

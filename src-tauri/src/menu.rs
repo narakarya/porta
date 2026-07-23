@@ -49,8 +49,14 @@ pub fn setup_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     // `undo:` action) *before* the keystroke ever reaches the webview. That
     // swallows ⌘Z so our JS editors never see it — and the native action is
     // useless for React-controlled inputs anyway. Dropping them lets ⌘Z fall
-    // through to the webview, where CodeMirror and the env editor handle history
-    // themselves. Plain text fields keep WebKit's built-in ⌘Z.
+    // through to the webview, where CodeMirror and the terminal handle history
+    // themselves.
+    //
+    // Plain text fields do NOT get undo for free that way — WebKit's own stack
+    // doesn't survive React-controlled inputs, which left every ordinary field
+    // (start command, ports, env values) with no undo at all. `useTextFieldUndo`
+    // in the frontend supplies it; keep these menu items out so it keeps
+    // receiving the keystroke.
     let edit_menu = Submenu::with_items(
         app,
         "Edit",
