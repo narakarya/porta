@@ -4,6 +4,15 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.8]
+
+### Fixed
+
+- **The terminal view no longer sits flush against the pane edge.** Output had
+  no gutter, so the first character of every line touched the left border —
+  cramped in a narrow pane. Clicking the new gutter focuses the terminal rather
+  than doing nothing.
+
 ## [0.14.0-beta.7]
 
 ### Added
