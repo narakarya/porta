@@ -7,7 +7,6 @@ import {
   isTauri,
   openExternalUrl,
   openInEditor,
-  openInTerminal,
 } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import { deriveInstanceApp } from "../../lib/instance-app";
@@ -43,7 +42,7 @@ type AppMenuItem = {
 };
 
 export default function Sidebar() {
-  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, selectedInstanceId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, selectInstance, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse } = usePortaStore(
+  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, selectedInstanceId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, selectInstance, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse, openAppTab } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
@@ -56,6 +55,7 @@ export default function Sidebar() {
       selectWorkspace: s.selectWorkspace,
       selectApp: s.selectApp,
       selectInstance: s.selectInstance,
+      openAppTab: s.openAppTab,
       reorderWorkspaces: s.reorderWorkspaces,
       reorderApps: s.reorderApps,
       moveAppToWorkspace: s.moveAppToWorkspace,
@@ -352,7 +352,7 @@ export default function Sidebar() {
         ? { label: "Stop", icon: <StopMenuIcon />, onClick: () => { void toggleApp(a); } }
         : { label: "Start", icon: <PlayMenuIcon />, onClick: () => { void toggleApp(a); } },
       { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void restartApp(a.id); } },
-      { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInTerminal(a.root_dir); } },
+      { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !a.root_dir, onClick: () => { if (a.root_dir) openAppTab(a.id, "terminal"); } },
       { label: "Open in Editor", icon: <EditorMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInEditor(a.root_dir); } },
       { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(a)); } },
       { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(a); } },
@@ -396,7 +396,7 @@ export default function Sidebar() {
         ? { label: "Stop", icon: <StopMenuIcon />, onClick: () => { void toggleInstance(inst, app); } }
         : { label: "Start", icon: <PlayMenuIcon />, onClick: () => { void toggleInstance(inst, app); } },
       { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void (async () => { await killInstanceAction(inst.id, app.id); await runInstance(app.id, inst.worktree_path); })(); } },
-      { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !isTauri || !target.root_dir, onClick: () => { if (isTauri && target.root_dir) void openInTerminal(target.root_dir); } },
+      { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !target.root_dir, onClick: () => { if (target.root_dir) openAppTab(app.id, "terminal", inst.id); } },
       { label: "Open in Editor", icon: <EditorMenuIcon />, disabled: !isTauri || !target.root_dir, onClick: () => { if (isTauri && target.root_dir) void openInEditor(target.root_dir); } },
       { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(target)); } },
       { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(target); } },

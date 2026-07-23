@@ -309,9 +309,6 @@ export const createConfigFromTemplate = (
     ? invoke("create_config_from_template", { sourcePath, targetPath })
     : Promise.resolve("");
 
-export const openInTerminal = (rootDir: string): Promise<void> =>
-  isTauri ? invoke("open_in_terminal", { rootDir }) : Promise.resolve();
-
 export const startApp = (id: string): Promise<void> =>
   isTauri ? invoke("start_app", { id }) : Promise.resolve();
 
@@ -1353,6 +1350,15 @@ export const terminalResize = (appId: string, rows: number, cols: number): Promi
 
 export const terminalClose = (appId: string): Promise<void> =>
   isTauri ? invoke("terminal_close", { appId }) : Promise.resolve();
+
+/**
+ * Signal the pane's foreground job — `int` is ⌃C, `kill` is the escalation for
+ * something that ignores it. Resolves `false` when there was no job in front
+ * of the prompt to signal (the shell itself is never signalled; closing the
+ * pane is the way to end a session).
+ */
+export const terminalSignal = (appId: string, signal: "int" | "term" | "kill"): Promise<boolean> =>
+  isTauri ? invoke<boolean>("terminal_signal", { appId, signal }) : Promise.resolve(false);
 
 /**
  * Polled for the focused pane only — see TerminalWorkspace's status bar.

@@ -5,7 +5,7 @@ import { usePortaStore } from "../../store";
 import { MAX_PINNED_EXTENSIONS } from "../../store/slices/ui";
 import { errorText } from "../../store/slices/notify";
 import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
-import { isTauri, openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel } from "../../lib/commands";
+import { isTauri, openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalWorkspace from "../terminal/TerminalWorkspace";
 import GitTab from "./GitTab";
@@ -16,6 +16,7 @@ import DockerUpdateBadge from "../app/DockerUpdateBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
 import { ExtensionIcon } from "../extension/ExtensionIcon";
 import RunOnBranchPicker from "./RunOnBranchPicker";
+import AppContextMenu from "../app/AppContextMenu";
 import type { ExtensionInfo } from "../../types/extension";
 
 const LogViewer = lazy(() => import("../app/LogViewer"));
@@ -252,13 +253,17 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const [pickerOpen, setPickerOpen] = useState(false);
   // Instance-mode tunnel toggle (start/stop the worktree instance's tunnel).
   const [tunnelBusy, setTunnelBusy] = useState(false);
+  // Header ⋯ menu, anchored to the button's own rect. Carries the destructive
+  // actions the grid card has always had and the workbench was missing:
+  // force-kill a process Stop can't reach, and free a port a dead run left held.
+  const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number } | null>(null);
 
   const {
     startApp, stopApp, restartApp, clearAppLogs, logs, exitCode, health, branch, restarting, setupStatus,
     instances, refreshInstances, runInstance, stopInstanceAction, removeInstanceAction,
     openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
     pinnedExtensions, togglePinnedExtension, notifyError,
-    clearTunnelLog, selectInstance,
+    clearTunnelLog, selectInstance, killApp, killInstanceAction, notify, workbenchTab, clearWorkbenchTab,
   } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
@@ -285,6 +290,11 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       extSidebarActive: s.extensionSidebar?.appId === app.id,
       clearTunnelLog: s.clearTunnelLog,
       selectInstance: s.selectInstance,
+      killApp: s.killApp,
+      killInstanceAction: s.killInstanceAction,
+      notify: s.notify,
+      workbenchTab: s.workbenchTab,
+      clearWorkbenchTab: s.clearWorkbenchTab,
     }))
   );
   // Only the parent workbench tracks instances — an instance can't nest.
@@ -307,6 +317,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   }, [app.id, app.kind, app.root_dir, cacheAppExtensions]);
 
   const running = app.status === "running";
+  // Apps Caddy serves directly (static/proxy) have no Porta-managed process,
+  // so neither force-kill nor a port holder means anything for them.
+  const isManaged = app.kind !== "static" && app.kind !== "proxy";
   // "starting" persists (optimistic) until the backend fires app:ready seconds
   // later; `restarting` is the store flag cleared on the same event. Both keep
   // the lifecycle button in its loading state through the real async phase —
@@ -489,6 +502,40 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // in that window silently queued behind the per-app lifecycle lock. Keep the
   // in-flight branch mounted until the round-trip actually settles.
   const stopping = busy === "stop";
+
+  // SIGKILL, for a process Stop can't bring down (a hung compose teardown, a
+  // shell that ignores SIGTERM). Confirmed first — it skips every clean-exit
+  // path the app might still be running.
+  const forceKillFn = isInstance
+    ? () => killInstanceAction(instance!.id, parentApp!.id)
+    : () => killApp(app.id);
+
+  async function confirmForceKill() {
+    const { confirm } = await import("@tauri-apps/plugin-dialog");
+    const ok = await confirm(
+      `Force kill ${isInstance ? instance!.branch : app.name}? The process is SIGKILLed, so it gets no chance to shut down cleanly.`,
+      { title: "Force kill", kind: "warning", okLabel: "Force kill" },
+    );
+    if (!ok) return;
+    try {
+      await forceKillFn();
+      notify({ kind: "success", message: `Force killed ${isInstance ? instance!.branch : app.name}` });
+    } catch (e) {
+      notifyError("Force kill failed", e);
+    }
+  }
+
+  // A crashed run can leave its port bound by an orphan the app no longer
+  // tracks, and Start then fails with "address already in use" forever.
+  async function freePort() {
+    try {
+      const pid = await killPortHolder(app.port);
+      notify({ kind: "success", message: `Killed pid ${pid} — port :${app.port} is free` });
+    } catch (e) {
+      notifyError(`Nothing killed on :${app.port}`, e);
+    }
+  }
+
   // Instance restart has no store `appRestarting` flag; the local `busy` covers it.
   const startLoading = !stopping && (busy === "start" || waitingForReady === "start" || (isStarting && !restarting && waitingForReady !== "restart"));
   const restartLoading = busy === "restart" || waitingForReady === "restart" || (!isInstance && restarting);
@@ -513,6 +560,17 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     if (id === "terminal") setTermSeen(true);
     if (id === "git2") setGit2Seen(true);
   }
+
+  // Deep link from outside the workbench ("Open in Terminal" in the sidebar or
+  // a card's context menu). Keyed on the *parent* app id so it still lands when
+  // the request also selected one of this app's worktree instances.
+  const ownerAppId = parentApp?.id ?? app.id;
+  useEffect(() => {
+    if (!workbenchTab || workbenchTab.appId !== ownerAppId) return;
+    select(workbenchTab.tab);
+    clearWorkbenchTab();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workbenchTab, ownerAppId, clearWorkbenchTab]);
 
   // Open the Config tab, optionally deep-linked to a sub-section. Used by the
   // header ⋯, the Settings quick-action, and the Publish tab's manage links.
@@ -700,12 +758,58 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               </Button>
             </>
           ) : (
-            <Button variant="ghost" onClick={() => openConfig()} title="App settings" aria-label="More">
+            <Button
+              variant="ghost"
+              onClick={(e) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setHeaderMenu((open) => (open ? null : { x: r.right, y: r.bottom + 4 }));
+              }}
+              title="More actions"
+              aria-label="More"
+            >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/></svg>
             </Button>
           )}
         </div>
       </div>
+
+      {headerMenu && (
+        <AppContextMenu
+          x={headerMenu.x}
+          y={headerMenu.y}
+          onClose={() => setHeaderMenu(null)}
+          items={[
+            {
+              label: "App settings",
+              icon: <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="1.8" stroke="currentColor" strokeWidth="1.1"/><path d="M6 1v1.4M6 9.6V11M1 6h1.4M9.6 6H11M2.5 2.5l1 1M8.5 8.5l1 1M9.5 2.5l-1 1M3.5 8.5l-1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>,
+              onClick: () => openConfig(),
+            },
+            ...(app.root_dir
+              ? [{
+                  label: "Reveal in Finder",
+                  icon: <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1.5 3.5A1 1 0 0 1 2.5 2.5h1.8L5.5 3.7h4A1 1 0 0 1 10.5 4.7v4.3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/></svg>,
+                  onClick: () => { void revealInFinder(app.root_dir); },
+                }]
+              : []),
+            ...(isManaged ? ["separator" as const] : []),
+            ...(!isManaged
+              ? []
+              : isActive
+              ? [{
+                  label: "Force kill",
+                  icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v2M5.5 8v2M1 5.5h2M8 5.5h2M2.5 2.5l1.5 1.5M7 7l1.5 1.5M7 2.5L5.5 4M2.5 8.5L4 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+                  onClick: () => { void confirmForceKill(); },
+                  danger: true,
+                }]
+              : [{
+                  label: `Kill port holder (:${app.port})`,
+                  icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/><path d="M3.5 5.5h4M5.5 3.5v4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
+                  onClick: () => { void freePort(); },
+                  danger: true,
+                }]),
+          ]}
+        />
+      )}
 
       {/* ── Crash banner ── mirrors the grid card: a non-zero exit is the only
            signal the app died, and without it the workbench read as a plain

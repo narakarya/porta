@@ -424,6 +424,7 @@ pub fn run() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_close,
+            commands::terminal_signal,
             commands::terminal_state,
             commands::ssh_list_hosts,
             commands::ssh_add_host,

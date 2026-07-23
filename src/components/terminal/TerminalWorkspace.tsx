@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { TabSession } from "../../store/slices/terminal";
-import TerminalTab from "./TerminalTab";
+import TerminalTab, { type PaneSearchApi } from "./TerminalTab";
 import TerminalStatusBar from "./TerminalStatusBar";
-import { terminalState, terminalClose } from "../../lib/commands";
+import { terminalState, terminalClose, terminalSignal } from "../../lib/commands";
 
 export interface SessionRequest {
   id: string;
@@ -54,8 +54,8 @@ const STATE_DOT: Record<"idle" | "running" | "exited", string> = {
 };
 
 /**
- * The multi-tab + split terminal surface: tab strip, 1–2 panes per tab, shared
- * search/filter over the panes' transcripts, and the ⌘T/⌘W/⌘D/⌘1-9 shortcuts.
+ * The multi-tab + split terminal surface: tab strip, 1–2 panes per tab, a find
+ * widget over the focused pane's buffer, and the ⌘T/⌘W/⌘D/⌘1-9 shortcuts.
  *
  * Owns no chrome of its own so both hosts can wrap it — the full-screen /
  * docked modal opened from the app grid, and the workbench's Terminal tab.
@@ -103,7 +103,6 @@ export default function TerminalWorkspace({
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState<string>("");
   const [terminalQuery, setTerminalQuery] = useState("");
-  const [filterOutput, setFilterOutput] = useState(false);
   // The find widget is an overlay, not chrome: it only exists while the user is
   // searching, so the tab strip is the single row at the top of the surface.
   const [searchOpen, setSearchOpen] = useState(false);
@@ -111,7 +110,12 @@ export default function TerminalWorkspace({
   // Which pane last took keyboard focus — drives the split-view focus edge.
   // View state, not session state: it doesn't need to survive a reload.
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
-  const [transcriptStats, setTranscriptStats] = useState<Record<string, { lineCount: number; matchCount: number | null }>>({});
+  const [lineCounts, setLineCounts] = useState<Record<string, number>>({});
+  // Search runs inside one pane's xterm buffer (the focused one), so results
+  // are a single pair rather than a per-pane record — `-1` index means the
+  // addon gave up counting past its highlight limit.
+  const [searchResults, setSearchResults] = useState<{ index: number; count: number }>({ index: -1, count: 0 });
+  const paneSearchRef = useRef<Map<string, PaneSearchApi>>(new Map());
   const handledRequestIds = useRef<Set<string>>(new Set());
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
@@ -120,19 +124,9 @@ export default function TerminalWorkspace({
   // depending on `tabs` itself — see that effect's comment for why the array
   // reference is unsafe to depend on.
   const paneCount = tabs.reduce((n, t) => n + t.panes.length, 0);
-  const activeStats = activeTab
-    ? activeTab.panes.reduce(
-        (acc, pane) => {
-          const stats = transcriptStats[pane.id];
-          if (!stats) return acc;
-          return {
-            lineCount: acc.lineCount + stats.lineCount,
-            matchCount: acc.matchCount === null || stats.matchCount === null ? null : acc.matchCount + stats.matchCount,
-          };
-        },
-        { lineCount: 0, matchCount: terminalQuery.trim() ? 0 : null as number | null }
-      )
-    : { lineCount: 0, matchCount: null };
+  const activeLineCount = activeTab
+    ? activeTab.panes.reduce((total, pane) => total + (lineCounts[pane.id] ?? 0), 0)
+    : 0;
 
   const focusedPane =
     activeTab?.panes.find((p) => p.id === focusedPaneId) ?? activeTab?.panes[0] ?? null;
@@ -280,10 +274,9 @@ export default function TerminalWorkspace({
   // Restart drops the dead session so the pane starts clean rather than
   // stacking a second shell's output under the first one's. Bumping the
   // nonce remounts the pane's xterm, which is what reopens the PTY. Also
-  // drops this pane's cached transcript stats — otherwise the status bar
-  // would keep showing the previous (dead) shell's line count until the
-  // fresh TerminalTab mounts and reports its own (0-line) stats, which only
-  // happens once it's visible.
+  // drops this pane's cached line count — otherwise the status bar would keep
+  // showing the previous (dead) shell's count until the fresh TerminalTab
+  // mounts and reports its own.
   const restartFocusedPane = useCallback(() => {
     const paneId = focusedPaneKey;
     if (!paneId) return;
@@ -293,7 +286,7 @@ export default function TerminalWorkspace({
       .catch(() => {})
       .then(() => {
         setTerminalPaneState(appId, paneId, { state: "idle", exitCode: null, pid: null });
-        setTranscriptStats((prev) => {
+        setLineCounts((prev) => {
           if (!(paneId in prev)) return prev;
           const next = { ...prev };
           delete next[paneId];
@@ -460,12 +453,37 @@ export default function TerminalWorkspace({
     });
   }, []);
 
-  /** Closing drops the query and the filter with it, so the panes never stay
-   *  stuck in transcript mode behind a widget that is no longer on screen. */
+  /** Search targets whichever pane has focus, so ⌘F in a split searches the
+   *  half you were looking at rather than both at once. */
+  const searchPaneId = focusedPane?.id ?? null;
+
+  // The results callback fires from inside xterm, outside React's render, so
+  // it reads the target pane off a ref rather than a captured render value.
+  const searchPaneIdRef = useRef<string | null>(searchPaneId);
+  searchPaneIdRef.current = searchPaneId;
+
+  const runSearch = useCallback(
+    (direction: "next" | "prev", incremental = false) => {
+      if (!searchPaneId) return;
+      paneSearchRef.current.get(searchPaneId)?.find(terminalQuery, direction, incremental);
+    },
+    [searchPaneId, terminalQuery],
+  );
+
+  // Typing re-runs the search from the current selection (`incremental`, so a
+  // growing query keeps extending the same match instead of jumping away).
+  useEffect(() => {
+    if (!searchOpen) return;
+    runSearch("next", true);
+  }, [searchOpen, runSearch]);
+
+  /** Closing drops the query and every pane's highlight with it — decorations
+   *  are xterm-side state and would otherwise outlive the widget. */
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setTerminalQuery("");
-    setFilterOutput(false);
+    setSearchResults({ index: -1, count: 0 });
+    for (const api of paneSearchRef.current.values()) api.clear();
   }, []);
 
   useEffect(() => {
@@ -526,6 +544,37 @@ export default function TerminalWorkspace({
   }, [active, onEscape, addNewTab, closeTab, splitActiveTab, activeId, tabs, terminalQuery, searchInputId, appId, setActiveTerminalTab, openSearch, closeSearch]);
 
   const isSplit = !!activeTab && activeTab.panes.length >= 2;
+
+  // The pane whose job has already been sent SIGINT and kept running, so the
+  // next press escalates. Cleared below the moment that pane stops running, so
+  // an unrelated later job never starts out armed for SIGKILL.
+  const [interruptedPaneId, setInterruptedPaneId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!interruptedPaneId) return;
+    const pane = tabs.flatMap((t) => t.panes).find((p) => p.id === interruptedPaneId);
+    if (!pane || pane.state !== "running") setInterruptedPaneId(null);
+  }, [interruptedPaneId, tabs]);
+
+  const killFocusedPane = useCallback(() => {
+    const paneId = focusedPaneKey;
+    if (!paneId) return;
+    const escalate = interruptedPaneId === paneId;
+    void terminalSignal(paneId, escalate ? "kill" : "int").catch(() => {});
+    // Arm the escalation on the first press; the poll clears it once the job
+    // is actually gone (see the effect above).
+    setInterruptedPaneId(escalate ? null : paneId);
+  }, [focusedPaneKey, interruptedPaneId]);
+
+  const hasMatches = searchResults.count > 0;
+  // `index` is -1 once the addon stops tracking position past its highlight
+  // limit — show the total alone rather than a bogus "0 of 4000".
+  const matchLabel = !terminalQuery.trim()
+    ? ""
+    : searchResults.count === 0
+      ? "no results"
+      : searchResults.index < 0
+        ? `${searchResults.count}+`
+        : `${searchResults.index + 1}/${searchResults.count}`;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -705,20 +754,29 @@ export default function TerminalWorkspace({
                           rootDir={pane.rootDir}
                           visible={isTabActive}
                           startupCommand={pane.startupCommand}
-                          searchQuery={terminalQuery}
-                          filterOutput={filterOutput}
                           onOutput={() => markTerminalPaneOutput(appId, tab.id, pane.id)}
                           onFocus={() => setFocusedPaneId(pane.id)}
                           onExit={(code) =>
                             setTerminalPaneState(appId, pane.id, { state: "exited", exitCode: code })
                           }
-                          onTranscriptStats={(lineCount, matchCount) =>
-                            setTranscriptStats((prev) => {
-                              const current = prev[pane.id];
-                              if (current?.lineCount === lineCount && current?.matchCount === matchCount) return prev;
-                              return { ...prev, [pane.id]: { lineCount, matchCount } };
-                            })
+                          onLineCount={(lineCount) =>
+                            setLineCounts((prev) =>
+                              prev[pane.id] === lineCount ? prev : { ...prev, [pane.id]: lineCount },
+                            )
                           }
+                          registerSearch={(api) => {
+                            if (api) paneSearchRef.current.set(pane.id, api);
+                            else paneSearchRef.current.delete(pane.id);
+                          }}
+                          onSearchResults={(index, count) => {
+                            // Only the pane being searched may drive the label;
+                            // a background pane clearing its own decorations
+                            // would otherwise zero the count under the widget.
+                            if (pane.id !== searchPaneIdRef.current) return;
+                            setSearchResults((prev) =>
+                              prev.index === index && prev.count === count ? prev : { index, count },
+                            );
+                          }}
                         />
                       </div>
                     </div>
@@ -742,27 +800,35 @@ export default function TerminalWorkspace({
                 spellCheck={false}
                 value={terminalQuery}
                 onChange={(e) => setTerminalQuery(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  runSearch(e.shiftKey ? "prev" : "next");
+                }}
                 placeholder="Find in output…"
                 className="w-[190px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none"
               />
-              <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">
-                {terminalQuery.trim()
-                  ? activeStats.matchCount === null
-                    ? "…"
-                    : `${activeStats.matchCount} ${activeStats.matchCount === 1 ? "line" : "lines"}`
-                  : ""}
-              </span>
+              <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">{matchLabel}</span>
               <span className="w-px h-4 bg-white/[0.1] shrink-0" />
               <button
-                onClick={() => setFilterOutput((v) => !v)}
-                className={`shrink-0 p-1 rounded transition-colors ${
-                  filterOutput ? "bg-blue-500/15 text-blue-300" : "text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08]"
-                }`}
-                title="Show matching lines only"
+                onClick={() => runSearch("prev")}
+                disabled={!hasMatches}
+                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                title="Previous match (⇧⏎)"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M1.5 2.5h9L7 6.75V10L5 9V6.75L1.5 2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M2.5 6.75L5.5 3.75l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                onClick={() => runSearch("next")}
+                disabled={!hasMatches}
+                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                title="Next match (⏎)"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M2.5 4.25l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
               <button
@@ -780,9 +846,11 @@ export default function TerminalWorkspace({
 
         <TerminalStatusBar
           pane={focusedPane}
-          lineCount={activeStats.lineCount}
-          matchCount={activeStats.matchCount}
+          lineCount={activeLineCount}
+          matchCount={searchOpen && terminalQuery.trim() ? searchResults.count : null}
           onRestart={restartFocusedPane}
+          onKill={killFocusedPane}
+          killEscalated={interruptedPaneId === focusedPaneKey}
         />
       </div>
     </div>

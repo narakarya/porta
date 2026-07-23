@@ -456,6 +456,56 @@ pub fn terminal_state(app_id: String) -> Result<TerminalState, String> {
     Ok(session_state(&h, fg_pgid))
 }
 
+/// Which signal `terminal_signal` should deliver.
+fn signal_from_name(name: &str) -> Result<libc::c_int, String> {
+    match name {
+        "int" => Ok(libc::SIGINT),
+        "term" => Ok(libc::SIGTERM),
+        "kill" => Ok(libc::SIGKILL),
+        other => Err(format!("unsupported signal: {other}")),
+    }
+}
+
+/// Signal the session's *foreground* process group — the UI equivalent of
+/// pressing ⌃C in the pane, plus an escalation path (`kill`) for a job that
+/// ignores it.
+///
+/// Deliberately refuses to signal the shell itself: with no job in front of
+/// the prompt, `tcgetpgrp` returns the shell's own pgid, and signalling that
+/// would tear down the session behind the user's back. Closing the pane is
+/// the explicit way to do that. Returns whether a job was actually signalled.
+#[tauri::command]
+pub fn terminal_signal(app_id: String, signal: String) -> Result<bool, String> {
+    let sig = signal_from_name(&signal)?;
+    let handle = {
+        let map = terminals().lock().unwrap();
+        map.get(&app_id).cloned()
+    };
+    let h = handle.ok_or("no such terminal session")?;
+    if h.exit_code.lock().unwrap().is_some() {
+        return Ok(false);
+    }
+
+    let fd = h.fd.lock().unwrap();
+    let fg_pgid = if is_writable(*fd) { unsafe { libc::tcgetpgrp(*fd) } } else { -1 };
+    drop(fd);
+
+    if fg_pgid <= 0 || fg_pgid == h.child_pid as i32 {
+        return Ok(false);
+    }
+    // killpg, not kill: a pipeline is several processes in one group, and the
+    // job the user wants gone is the whole group.
+    if unsafe { libc::killpg(fg_pgid, sig) } != 0 {
+        let err = std::io::Error::last_os_error();
+        // The job finishing between tcgetpgrp and here is a race, not a failure.
+        if err.raw_os_error() == Some(libc::ESRCH) {
+            return Ok(false);
+        }
+        return Err(err.to_string());
+    }
+    Ok(true)
+}
+
 /// Close (and kill) a terminal session. The only path that removes a session —
 /// called from closing a tab, closing a pane, or deleting the app.
 ///
@@ -491,7 +541,8 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
 mod tests {
     use super::{
         attach_existing, exit_code_from_status, is_writable, push_backlog, record_exit,
-        session_state, take_fd, utf8_locale_overrides, TerminalHandle, BACKLOG_CAP,
+        session_state, signal_from_name, take_fd, utf8_locale_overrides, TerminalHandle,
+        BACKLOG_CAP,
     };
     use std::collections::{HashMap, VecDeque};
     use std::sync::Mutex;
@@ -809,5 +860,20 @@ mod tests {
         // wouldn't also have seen.
         assert!(elapsed >= Duration::from_millis(150));
         assert!(snapshot.backlog.is_empty() || snapshot.backlog == b"chunk");
+    }
+
+    #[test]
+    fn signal_names_map_to_the_three_signals_the_ui_can_send() {
+        assert_eq!(signal_from_name("int").unwrap(), libc::SIGINT);
+        assert_eq!(signal_from_name("term").unwrap(), libc::SIGTERM);
+        assert_eq!(signal_from_name("kill").unwrap(), libc::SIGKILL);
+    }
+
+    /// Anything else is refused rather than silently coerced — a typo'd signal
+    /// must not turn into "whatever the first match was".
+    #[test]
+    fn an_unknown_signal_name_is_an_error() {
+        assert!(signal_from_name("hup").is_err());
+        assert!(signal_from_name("").is_err());
     }
 }

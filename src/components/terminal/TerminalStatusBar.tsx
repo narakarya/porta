@@ -12,6 +12,10 @@ interface Props {
   lineCount: number;
   matchCount: number | null;
   onRestart: () => void;
+  /** Signal the running job. Absent while nothing is running in the pane. */
+  onKill?: () => void;
+  /** An interrupt was already sent and the job survived it — offer SIGKILL. */
+  killEscalated?: boolean;
 }
 
 /**
@@ -19,7 +23,14 @@ interface Props {
  * line/match counts that used to sit in the header, and is the only place an
  * exited shell offers a way back.
  */
-export default function TerminalStatusBar({ pane, lineCount, matchCount, onRestart }: Props) {
+export default function TerminalStatusBar({
+  pane,
+  lineCount,
+  matchCount,
+  onRestart,
+  onKill,
+  killEscalated = false,
+}: Props) {
   if (!pane) return null;
 
   const label =
@@ -45,6 +56,22 @@ export default function TerminalStatusBar({ pane, lineCount, matchCount, onResta
           className="px-1.5 rounded text-zinc-400 hover:text-ink hover:bg-white/[0.06] transition-colors"
         >
           Restart
+        </button>
+      )}
+      {/* ⌃C only reaches the job while the terminal has keyboard focus — this
+          is the same interrupt from anywhere else in the app, and the only way
+          to escalate past a job that swallows it. */}
+      {pane.state === "running" && onKill && (
+        <button
+          onClick={onKill}
+          title={killEscalated ? "SIGKILL the running job" : "Interrupt the running job (⌃C)"}
+          className={`px-1.5 rounded transition-colors ${
+            killEscalated
+              ? "text-bad hover:bg-bad-bg"
+              : "text-zinc-400 hover:text-ink hover:bg-white/[0.06]"
+          }`}
+        >
+          {killEscalated ? "Force kill" : "Kill"}
         </button>
       )}
       <div className="flex-1" />

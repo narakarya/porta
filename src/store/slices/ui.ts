@@ -95,6 +95,12 @@ export interface UiSlice {
   appExtensions: Record<string, ExtensionInfo[]>;
   /** One-shot request to open Settings on a specific section; consumed by SettingsPage. */
   settingsSection: SettingsSection | null;
+  /**
+   * One-shot request to open an app's workbench on a specific tab; consumed by
+   * AppWorkbench once that app is on screen. Carries the app id so a stale
+   * request can't hijack a different app's workbench.
+   */
+  workbenchTab: { appId: string; tab: string } | null;
   updaterPhase: UpdaterPhase;
   updaterInfo: UpdaterInfo | null;
   updaterError: string | null;
@@ -160,6 +166,12 @@ export interface UiSlice {
   cacheAppExtensions: (appId: string, extensions: ExtensionInfo[]) => void;
   openSettingsSection: (section: SettingsSection) => void;
   clearSettingsSection: () => void;
+  /**
+   * Select an app (or one of its worktree instances) and land its workbench on
+   * `tab` (e.g. "terminal"). `appId` is always the parent app's id.
+   */
+  openAppTab: (appId: string, tab: string, instanceId?: string) => void;
+  clearWorkbenchTab: () => void;
   setTerminalPlacement: (p: TerminalPlacement) => void;
   setTerminalPanelHeight: (frac: number) => void;
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
@@ -256,6 +268,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   sidebarWidth: loadSidebarWidth(),
   appExtensions: {},
   settingsSection: null,
+  workbenchTab: null,
   updaterPhase: "idle",
   updaterInfo: null,
   updaterError: null,
@@ -368,6 +381,14 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   openSettingsSection: (section) => set({ settingsSection: section }),
   clearSettingsSection: () => set({ settingsSection: null }),
+  openAppTab: (appId, tab, instanceId) =>
+    set({
+      activeDomain: "workspaces",
+      selectedAppId: appId,
+      selectedInstanceId: instanceId ?? null,
+      workbenchTab: { appId, tab },
+    }),
+  clearWorkbenchTab: () => set({ workbenchTab: null }),
 
   setTerminalPlacement: (p) => {
     if (typeof localStorage !== "undefined") localStorage.setItem(LS_PLACEMENT, p);
@@ -383,9 +404,12 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   setActiveDomain: (v) => set({ activeDomain: v }),
   // Selecting a parent app always exits any instance detail that was open.
-  selectApp: (id) => set({ selectedAppId: id, selectedInstanceId: null }),
+  // Both also drop any pending workbench deep link: an ordinary selection is
+  // not the request that raised it, and letting it survive would make the next
+  // visit to that app jump to a tab the user asked for minutes ago.
+  selectApp: (id) => set({ selectedAppId: id, selectedInstanceId: null, workbenchTab: null }),
   selectInstance: (appId, instanceId) =>
-    set({ selectedAppId: appId, selectedInstanceId: instanceId }),
+    set({ selectedAppId: appId, selectedInstanceId: instanceId, workbenchTab: null }),
 
   toggleWorkspaceCollapse: (id) =>
     set((s) => {

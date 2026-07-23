@@ -17,14 +17,14 @@ vi.mock("../../lib/commands", async (orig) => ({
 const confirmDialog = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmDialog }));
 
-// Captured per pane id so tests can drive `onTranscriptStats`/`onFocus` at
-// will, independent of mount timing — a real TerminalTab reports these from
-// its xterm instance, which this double doesn't have.
+// Captured per pane id so tests can drive `onLineCount`/`onFocus` at will,
+// independent of mount timing — a real TerminalTab reports these from its
+// xterm instance, which this double doesn't have.
 const paneProps = vi.hoisted(
   () =>
     new Map<
       string,
-      { onTranscriptStats?: (lineCount: number, matchCount: number | null) => void; onFocus?: () => void }
+      { onLineCount?: (lineCount: number) => void; onFocus?: () => void; onSearchResults?: (index: number, count: number) => void }
     >(),
 );
 // appId -> the instance token that currently owns that entry. A remount (a
@@ -38,17 +38,33 @@ const paneProps = vi.hoisted(
 // instance has since claimed.
 const paneOwners = vi.hoisted(() => new Map<string, symbol>());
 
+// Every `find` the workspace routes to a pane, in order — the real handle is
+// backed by xterm's SearchAddon, which has no buffer to search in jsdom.
+const searchCalls = vi.hoisted(() => [] as Array<{ paneId: string; term: string; direction: string; incremental?: boolean }>);
+
 // xterm paints to a canvas jsdom can't render; the tab strip is what's under test.
 vi.mock("./TerminalTab", () => ({
   default: (props: {
     appId: string;
-    onTranscriptStats?: (lineCount: number, matchCount: number | null) => void;
+    onLineCount?: (lineCount: number) => void;
     onFocus?: () => void;
+    onSearchResults?: (index: number, count: number) => void;
+    registerSearch?: (api: { find: (t: string, d: "next" | "prev", i?: boolean) => void; clear: () => void } | null) => void;
   }) => {
     const instanceToken = useRef<symbol | undefined>(undefined);
     if (instanceToken.current === undefined) instanceToken.current = Symbol(props.appId);
     paneProps.set(props.appId, props);
     paneOwners.set(props.appId, instanceToken.current);
+    const paneId = props.appId;
+    const register = props.registerSearch;
+    useEffect(() => {
+      register?.({
+        find: (term, direction, incremental) => searchCalls.push({ paneId, term, direction, incremental }),
+        clear: () => searchCalls.push({ paneId, term: "", direction: "clear" }),
+      });
+      return () => register?.(null);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paneId]);
     // Runs once per mount *and* once per remount (a `key` change forces a
     // fresh instance) — nothing else in this double depends on appId.
     useEffect(() => () => {
@@ -68,6 +84,75 @@ beforeEach(() => {
   terminalState.mockReset();
   terminalState.mockResolvedValue({ alive: true, running: false, pid: 0, exitCode: null } satisfies TerminalState);
   paneProps.clear();
+  searchCalls.length = 0;
+});
+
+describe("find widget", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
+  });
+
+  const lastSearch = () => searchCalls[searchCalls.length - 1];
+
+  async function openFind() {
+    render(<TerminalWorkspace appId="a1" appName="porta" rootDir="/src/porta" active autoSeed />);
+    const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
+    await userEvent.click(screen.getByTitle("Find in terminal output (⌘F)"));
+    const input = screen.getByPlaceholderText("Find in output…");
+    // Opening focuses *and selects* on the next animation frame, so typing
+    // before that lands would have its first character replaced by the
+    // select-all — the same thing that makes reopening replace the old query.
+    await waitFor(() => expect(input).toHaveFocus());
+    return { paneId, input };
+  }
+
+  it("searches the pane's own buffer as you type, incrementally", async () => {
+    const { paneId, input } = await openFind();
+    searchCalls.length = 0;
+
+    await userEvent.type(input, "warn");
+
+    const typed = searchCalls.filter((c) => c.direction === "next");
+    expect(typed.length).toBeGreaterThan(0);
+    expect(typed.every((c) => c.paneId === paneId && c.incremental === true)).toBe(true);
+    expect(typed[typed.length - 1].term).toBe("warn");
+  });
+
+  it("steps forward on Enter and backward on Shift+Enter", async () => {
+    const { input } = await openFind();
+    await userEvent.type(input, "warn");
+    searchCalls.length = 0;
+
+    await userEvent.type(input, "{Enter}");
+    // Not incremental: Enter must leave the current match and go to the next
+    // one, where typing only ever extends the match already selected.
+    expect(lastSearch()).toMatchObject({ term: "warn", direction: "next", incremental: false });
+
+    await userEvent.type(input, "{Shift>}{Enter}{/Shift}");
+    expect(lastSearch()).toMatchObject({ term: "warn", direction: "prev" });
+  });
+
+  it("reports the active match position from the pane, not a line tally", async () => {
+    const { paneId, input } = await openFind();
+    await userEvent.type(input, "warn");
+
+    act(() => paneProps.get(paneId)?.onSearchResults?.(2, 9));
+    expect(screen.getByText("3/9")).toBeInTheDocument();
+
+    act(() => paneProps.get(paneId)?.onSearchResults?.(-1, 0));
+    expect(screen.getByText("no results")).toBeInTheDocument();
+  });
+
+  it("clears every pane's highlights when the widget closes", async () => {
+    const { paneId, input } = await openFind();
+    await userEvent.type(input, "warn");
+    searchCalls.length = 0;
+
+    await userEvent.click(screen.getByTitle("Close (Esc)"));
+
+    expect(searchCalls).toContainEqual({ paneId, term: "", direction: "clear" });
+    expect(screen.queryByPlaceholderText("Find in output…")).not.toBeInTheDocument();
+  });
 });
 
 describe("TerminalWorkspace", () => {
@@ -294,7 +379,7 @@ describe("restartFocusedPane", () => {
     terminalClose.mockClear();
   });
 
-  it("closes the session, resets the pane to idle, drops its transcript stats, and remounts the pane", async () => {
+  it("closes the session, resets the pane to idle, drops its line count, and remounts the pane", async () => {
     // Isolate the restart's own store writes from the poll's: a real poll
     // tick landing after the reset would (correctly) overwrite `pid: null`
     // with whatever pid the freshly reopened shell reports, which is exactly
@@ -305,7 +390,7 @@ describe("restartFocusedPane", () => {
     const paneId = usePortaStore.getState().terminalTabs["a1"][0].panes[0].id;
 
     act(() => {
-      paneProps.get(paneId)?.onTranscriptStats?.(7, null);
+      paneProps.get(paneId)?.onLineCount?.(7);
       usePortaStore.getState().setTerminalPaneState("a1", paneId, { state: "exited", exitCode: 1, pid: 555 });
     });
     expect(screen.getByText("7 lines")).toBeInTheDocument();

@@ -5,7 +5,7 @@ import { usePortaStore } from "../../store";
 import type { App, Workspace } from "../../types";
 import AppContextMenu from "./AppContextMenu";
 import HostsDropdown from "./HostsDropdown";
-import { openInEditor, openInTerminal, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, openExternalUrl, isTauri, type PortCheckResult } from "../../lib/commands";
+import { openInEditor, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, openExternalUrl, isTauri, type PortCheckResult } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
@@ -1116,7 +1116,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             }, {
               label: "Open in Terminal",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M2.5 4.5l2 1.5-2 1.5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-              onClick: () => openInTerminal(app.root_dir),
+              onClick: () => onOpenTerminal?.(app),
             }] : []),
             ...(isManaged && isActive ? [{
               label: "Force Kill",

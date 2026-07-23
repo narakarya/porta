@@ -1,64 +1,43 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { listen } from "@tauri-apps/api/event";
 import { terminalOpen, terminalWrite, terminalResize, isTauri } from "../../lib/commands";
-import { highlightLine, stripAnsi } from "../../lib/log-utils";
 import "@xterm/xterm/css/xterm.css";
 
-const MAX_TRANSCRIPT_LINES = 100_000;
+const SCROLLBACK_LINES = 100_000;
+
+/** Handed to the host so the find widget can drive this pane's search. */
+export interface PaneSearchApi {
+  find: (term: string, direction: "next" | "prev", incremental?: boolean) => void;
+  clear: () => void;
+}
+
+/** Match highlighting. `#RRGGBB` only — the addon rejects rgba() here. */
+const SEARCH_DECORATIONS = {
+  matchBackground: "#4b4b1f",
+  matchOverviewRuler: "#a3a334",
+  activeMatchBackground: "#9e6a03",
+  activeMatchColorOverviewRuler: "#f2c94c",
+} as const;
 
 interface Props {
   appId: string;
   rootDir: string;
   visible: boolean;
   startupCommand?: string | null;
-  searchQuery?: string;
-  filterOutput?: boolean;
   onOutput?: () => void;
-  onTranscriptStats?: (lineCount: number, matchCount: number | null) => void;
+  /** Scrollback size, for the status bar. */
+  onLineCount?: (lineCount: number) => void;
+  /** Live search results for this pane, straight from the addon. */
+  onSearchResults?: (resultIndex: number, resultCount: number) => void;
+  /** Publishes (and, with `null`, retracts) this pane's search handle. */
+  registerSearch?: (api: PaneSearchApi | null) => void;
   /** Shell exited — carries the code so the status bar can show `exited (1)`. */
   onExit?: (code: number) => void;
   /** The pane took keyboard focus — drives the split-view focus ring. */
   onFocus?: () => void;
-}
-
-function bytesToTranscriptText(bytes: number[], decoder: TextDecoder): string {
-  return stripAnsi(decoder.decode(new Uint8Array(bytes), { stream: true }))
-    .replace(/\x07/g, "");
-}
-
-function appendTerminalTextToTranscript(text: string, initialLine: string): { line: string; lines: string[] } {
-  let line = initialLine;
-  const lines: string[] = [];
-  for (let i = 0; i < text.length; i += 1) {
-    const char = text[i];
-    if (char === "\r") {
-      if (text[i + 1] === "\n") {
-        lines.push(line);
-        line = "";
-        i += 1;
-        continue;
-      }
-      line = "";
-      continue;
-    }
-    if (char === "\n") {
-      lines.push(line);
-      line = "";
-      continue;
-    }
-    if (char === "\b" || char === "\x7f") {
-      line = line.slice(0, -1);
-      continue;
-    }
-    if (char === "\t") {
-      line += "  ";
-      continue;
-    }
-    if (char >= " ") line += char;
-  }
-  return { line, lines };
 }
 
 export default function TerminalTab({
@@ -66,80 +45,39 @@ export default function TerminalTab({
   rootDir,
   visible,
   startupCommand,
-  searchQuery = "",
-  filterOutput = false,
   onOutput,
-  onTranscriptStats,
+  onLineCount,
+  onSearchResults,
+  registerSearch,
   onExit,
   onFocus,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const transcriptRef = useRef<string[]>([]);
-  const partialLineRef = useRef("");
-  const transcriptCaptureStartedRef = useRef(false);
-  const decoderRef = useRef(new TextDecoder());
-  const flushTimerRef = useRef<number | null>(null);
-  const [transcript, setTranscript] = useState<string[]>([]);
+  const statsTimerRef = useRef<number | null>(null);
   const onOutputRef = useRef(onOutput);
-  const onTranscriptStatsRef = useRef(onTranscriptStats);
+  const onLineCountRef = useRef(onLineCount);
+  const onSearchResultsRef = useRef(onSearchResults);
+  const registerSearchRef = useRef(registerSearch);
   const onExitRef = useRef(onExit);
   const onFocusRef = useRef(onFocus);
   onOutputRef.current = onOutput;
-  onTranscriptStatsRef.current = onTranscriptStats;
+  onLineCountRef.current = onLineCount;
+  onSearchResultsRef.current = onSearchResults;
+  registerSearchRef.current = registerSearch;
   onExitRef.current = onExit;
   onFocusRef.current = onFocus;
 
-  const query = searchQuery.trim();
-  const lowerQuery = query.toLowerCase();
-  const matchingLines = useMemo(() => {
-    if (!lowerQuery) return null;
-    return transcript.filter((line) => line.toLowerCase().includes(lowerQuery));
-  }, [transcript, lowerQuery]);
-
-  // A query on its own highlights matches in place — the surrounding output is
-  // usually the context you were looking for. The filter toggle is what narrows
-  // the view down to the matching lines.
-  const visibleTranscript = filterOutput && matchingLines ? matchingLines : transcript;
-  const transcriptVisible = filterOutput || !!query;
-  const matchCount = matchingLines?.length ?? null;
-
-  useEffect(() => {
-    if (!visible) return;
-    onTranscriptStatsRef.current?.(transcript.length, matchCount);
-  }, [visible, transcript.length, matchCount]);
-
-  function scheduleTranscriptFlush() {
-    if (flushTimerRef.current !== null) return;
-    flushTimerRef.current = window.setTimeout(() => {
-      flushTimerRef.current = null;
-      setTranscript([...transcriptRef.current]);
-    }, 80);
-  }
-
-  function startTranscriptCapture() {
-    if (transcriptCaptureStartedRef.current) return;
-    transcriptCaptureStartedRef.current = true;
-    partialLineRef.current = "";
-  }
-
-  function appendTranscript(bytes: number[]) {
-    if (!transcriptCaptureStartedRef.current) return;
-
-    const text = bytesToTranscriptText(bytes, decoderRef.current);
-    if (!text) return;
-
-    const { line, lines: nextLines } = appendTerminalTextToTranscript(text, partialLineRef.current);
-    partialLineRef.current = line;
-
-    if (nextLines.length > 0) {
-      transcriptRef.current.push(...nextLines);
-      if (transcriptRef.current.length > MAX_TRANSCRIPT_LINES) {
-        transcriptRef.current = transcriptRef.current.slice(-MAX_TRANSCRIPT_LINES);
-      }
-      scheduleTranscriptFlush();
-    }
+  // Reported off a timer rather than per chunk: a build spewing output would
+  // otherwise re-render the status bar once per IPC event.
+  function scheduleLineCount() {
+    if (statsTimerRef.current !== null) return;
+    statsTimerRef.current = window.setTimeout(() => {
+      statsTimerRef.current = null;
+      const buffer = termRef.current?.buffer?.active;
+      if (buffer) onLineCountRef.current?.(buffer.length);
+    }, 120);
   }
 
   // Force xterm canvas repaint when the tab becomes visible after being hidden.
@@ -186,20 +124,47 @@ export default function TerminalTab({
       lineHeight: 1.4,
       cursorBlink: true,
       cursorStyle: "block",
-      scrollback: MAX_TRANSCRIPT_LINES,
+      scrollback: SCROLLBACK_LINES,
       allowProposedApi: true,
     });
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+
+    // Searching happens in xterm's own buffer, so matches keep their colors,
+    // the prompt keeps rendering, and the shell stays typeable while the find
+    // widget is open. (The previous implementation hid xterm behind a
+    // plain-text transcript it reconstructed itself, which could not replay
+    // cursor-addressed output — a redrawn prompt came out as ghost lines.)
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+    const resultsSub = searchAddon.onDidChangeResults((e) =>
+      onSearchResultsRef.current?.(e.resultIndex, e.resultCount),
+    );
+
     term.open(containerRef.current);
 
     termRef.current = term;
     fitRef.current = fitAddon;
 
+    registerSearchRef.current?.({
+      find: (rawTerm, direction, incremental) => {
+        const value = rawTerm.trim();
+        if (!value) {
+          searchAddon.clearDecorations();
+          // The addon only emits results for a live query, so the host would
+          // otherwise keep rendering the last count after the field is cleared.
+          onSearchResultsRef.current?.(-1, 0);
+          return;
+        }
+        if (direction === "prev") searchAddon.findPrevious(value, { decorations: SEARCH_DECORATIONS });
+        else searchAddon.findNext(value, { decorations: SEARCH_DECORATIONS, incremental });
+      },
+      clear: () => searchAddon.clearDecorations(),
+    });
+
     // Forward keyboard input to the PTY shell.
     term.onData((data) => {
-      startTranscriptCapture();
       const bytes = Array.from(new TextEncoder().encode(data));
       terminalWrite(appId, bytes).catch(console.error);
     });
@@ -240,8 +205,8 @@ export default function TerminalTab({
     let listenersReady = false;
 
     function consume(bytes: number[]) {
-      appendTranscript(bytes);
       term.write(new Uint8Array(bytes));
+      scheduleLineCount();
       onOutputRef.current?.();
     }
 
@@ -255,7 +220,7 @@ export default function TerminalTab({
       if (opened || !mounted) return;
       opened = true;
 
-      const { spawned, backlog } = await terminalOpen(
+      const { backlog } = await terminalOpen(
         appId,
         rootDir,
         dims.rows,
@@ -267,16 +232,15 @@ export default function TerminalTab({
       if (backlog.length > 0) {
         // Reattaching to a session that outlived its last view: replay what it
         // printed while nothing was watching.
-        startTranscriptCapture();
         consume(backlog);
       }
       backlogWritten = true;
       for (const chunk of queued) consume(chunk);
       queued.length = 0;
-
-      // The startup command is written by Rust only on a real spawn, so a
-      // reattach must not re-run it here either.
-      if (spawned && startupCommand?.trim()) startTranscriptCapture();
+      // A session that reattached to nothing still has a viewport worth of
+      // buffer; without this the status bar would read "0 lines" until the
+      // shell next prints something.
+      scheduleLineCount();
     }
 
     async function attach() {
@@ -291,6 +255,7 @@ export default function TerminalTab({
           listen<{ code: number }>(`terminal:exit:${appId}`, (e) => {
             if (!mounted) return;
             term.writeln("\r\n\x1b[90m— shell exited —\x1b[0m");
+            scheduleLineCount();
             onExitRef.current?.(e.payload?.code ?? 0);
           }),
         ]);
@@ -303,6 +268,7 @@ export default function TerminalTab({
         // still resolves (commands.ts falls back to a mock) so tests and the
         // web preview keep working.
         term.writeln("\x1b[90m(Terminal unavailable outside Tauri app)\x1b[0m");
+        scheduleLineCount();
         listenersReady = true;
       }
 
@@ -352,14 +318,16 @@ export default function TerminalTab({
     return () => {
       mounted = false;
       cancelAnimationFrame(attachRaf);
-      if (flushTimerRef.current !== null) {
-        window.clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
+      if (statsTimerRef.current !== null) {
+        window.clearTimeout(statsTimerRef.current);
+        statsTimerRef.current = null;
       }
+      registerSearchRef.current?.(null);
       ro.disconnect();
       term.textarea?.removeEventListener("focus", focusListener);
       unlistenData?.();
       unlistenExit?.();
+      resultsSub?.dispose?.();
       term.dispose();
       // Deliberately no terminalClose: the session outlives this view. Only a
       // user action (close tab, close pane, delete app) tears a PTY down.
@@ -381,29 +349,9 @@ export default function TerminalTab({
       <div
         ref={containerRef}
         className="h-full w-full bg-[#0d0d0f]"
-        style={{ visibility: transcriptVisible ? "hidden" : "visible" }}
         // Let xterm.js handle all keyboard events inside the terminal area.
         onKeyDown={(e) => e.stopPropagation()}
       />
-
-      {transcriptVisible && (
-        <div className="absolute inset-0 overflow-auto bg-[#0d0d0f] px-3 py-2 font-mono text-[12px] leading-[1.45] text-zinc-300">
-          {visibleTranscript.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-[12px] text-zinc-600">
-              {filterOutput && query ? "No terminal output matches the current filter." : "No terminal output yet."}
-            </div>
-          ) : (
-            <div className="min-w-max pb-3">
-              {visibleTranscript.map((line, idx) => (
-                <div key={`${idx}-${line}`} className="flex gap-3 whitespace-pre">
-                  <span className="w-10 shrink-0 text-right text-zinc-700 select-none tabular-nums">{idx + 1}</span>
-                  <span>{query ? highlightLine(line, query) : line}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
