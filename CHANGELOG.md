@@ -4,6 +4,22 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.15]
+
+### Added
+
+- **Connecting to a host shows the handshake, not a blank pane.** Opening an
+  SSH host rendered a black terminal behind an amber dot until the shell was
+  live. The backend walks four gates — TCP, host key, auth, shell — and two of
+  them can block on *you*, so a slow host and a password prompt waiting to be
+  answered looked identical: nothing. The session pane now lays a chained
+  stepper over the terminal, one node per gate, with colour carrying the state:
+  green behind you, accent on the gate in flight, amber when the gate is your
+  own trust or password prompt. Past 8 seconds the caption names what is
+  actually being waited on rather than stalling silently. Host rows in the
+  sidebar show a spinner while their handshake is in flight, and the terminal
+  stays mounted throughout so no output is missed when the shell answers.
+
 ## [0.14.0-beta.14]
 
 ### Fixed
