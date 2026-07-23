@@ -196,24 +196,39 @@ jobs:
           ref: ${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
 
-      - name: Generate changelog notes from commits
+      - name: Collect release notes
         id: notes
         run: |
           set -euo pipefail
-          # Resolve the previous version tag (sorted by semver). `grep -B1`
-          # peeks at the line above the current tag in the sorted list.
-          PREV=$(git tag --list 'v*' --sort=v:refname | grep -B1 -F "$TAG" | head -1 || true)
-          if [ -z "$PREV" ] || [ "$PREV" = "$TAG" ]; then
-            NOTES=$'Initial release'
+          # CHANGELOG.md is the release note: for a stable release the release
+          # script consolidates every beta section since the last stable one
+          # into it, and a human polishes that before publishing. Reading it
+          # here is what makes the update toast agree with the changelog
+          # instead of listing raw commit subjects.
+          #
+          # This job only carries the tag, and CHANGELOG headings are bare
+          # versions — strip the `v`. (Note the manifest's own `version` field
+          # below still uses $TAG verbatim; that is untouched here.)
+          VERSION="${TAG#v}"
+          if node scripts/changelog-section.mjs "$VERSION" > /tmp/release-notes.txt; then
+            echo "Using the CHANGELOG section for $VERSION."
           else
-            # Bullet list of commit subjects since the last release. Cap at
-            # 30 to keep the toast and release body readable; full log stays
-            # on the GitHub commits page for archaeology.
-            NOTES=$(git log --pretty=format:'- %s' "${PREV}..${TAG}" | head -30)
-            if [ -z "$NOTES" ]; then NOTES=$'No commit log entries between '"$PREV"' and '"$TAG"; fi
+            # Resolve the previous version tag (sorted by semver). `grep -B1`
+            # peeks at the line above the current tag in the sorted list.
+            PREV=$(git tag --list 'v*' --sort=v:refname | grep -B1 -F "$TAG" | head -1 || true)
+            if [ -z "$PREV" ] || [ "$PREV" = "$TAG" ]; then
+              NOTES=$'Initial release'
+            else
+              # Bullet list of commit subjects since the last release. Cap at
+              # 30 to keep the toast and release body readable; full log stays
+              # on the GitHub commits page for archaeology.
+              NOTES=$(git log --pretty=format:'- %s' "${PREV}..${TAG}" | head -30)
+              if [ -z "$NOTES" ]; then NOTES=$'No commit log entries between '"$PREV"' and '"$TAG"; fi
+            fi
+            printf '%s\n' "$NOTES" > /tmp/release-notes.txt
+            echo "::warning::No CHANGELOG section for $VERSION; fell back to commit subjects."
           fi
-          printf '%s\n' "$NOTES" > /tmp/release-notes.txt
-          echo "── Generated notes ──"
+          echo "── Release notes ──"
           cat /tmp/release-notes.txt
 
       - name: Fetch arch signatures + compose latest.json

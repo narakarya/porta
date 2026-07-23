@@ -182,16 +182,34 @@ jobs:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
-      - name: Generate changelog notes from recent commits
+      - name: Collect release notes
         id: notes
         run: |
           set -euo pipefail
-          # No reliable "previous beta" anchor, so summarise the most recent
-          # commit subjects. Full history stays on the commits page.
-          NOTES=$(git log --pretty=format:'- %s' -30 || true)
-          if [ -z "$NOTES" ]; then NOTES=$'Beta build'; fi
-          printf '%s\n' "$NOTES" > /tmp/release-notes.txt
-          echo "── Generated notes ──"; cat /tmp/release-notes.txt
+          # CHANGELOG.md is the release note: the release script drafts the
+          # section and a human polishes it before publishing. Reading it here
+          # is what makes the update toast agree with the changelog.
+          #
+          # The previous version of this step ran `git log -30` from HEAD with
+          # no lower bound, so every beta shipped the same rolling pile of
+          # commit subjects reaching back several releases.
+          if node scripts/changelog-section.mjs "$VERSION" > /tmp/release-notes.txt; then
+            echo "Using the CHANGELOG section for $VERSION."
+          else
+            # Fall back to the commits this tag actually added, bounded by the
+            # previous beta tag — never an unbounded window.
+            PREV=$(git tag --list 'beta-v*' --sort=v:refname | grep -B1 -F "$TAG" | head -1 || true)
+            if [ -n "$PREV" ] && [ "$PREV" != "$TAG" ]; then
+              RANGE="${PREV}..${TAG}"
+            else
+              RANGE="$TAG"
+            fi
+            NOTES=$(git log --pretty=format:'- %s' "$RANGE" | head -30 || true)
+            if [ -z "$NOTES" ]; then NOTES="Beta build $VERSION"; fi
+            printf '%s\n' "$NOTES" > /tmp/release-notes.txt
+            echo "::warning::No CHANGELOG section for $VERSION; fell back to commits in $RANGE."
+          fi
+          echo "── Release notes ──"; cat /tmp/release-notes.txt
 
       - name: Fetch arch signatures + compose latest.json
         run: |

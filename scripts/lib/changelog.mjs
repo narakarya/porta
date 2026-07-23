@@ -59,6 +59,20 @@ export function isBetaVersion(version) {
 }
 
 /**
+ * The body of one version's section, trimmed — what the release workflows put
+ * in `latest.json`'s `notes`, i.e. the text the update toast shows.
+ *
+ * Returns null when there is no section for `version`, so the caller can fall
+ * back rather than ship an empty release note.
+ */
+export function sectionFor(text, version) {
+  const section = parse(text).sections.find((s) => s.version === version);
+  if (!section) return null;
+  const body = section.body.trim();
+  return body === "" ? null : body;
+}
+
+/**
  * Groups a section body into `{ category: [bullet, ...] }`.
  *
  * A bullet is its leading `- ` line plus any indented continuation, so wrapped

@@ -16,6 +16,7 @@ import {
   draftFromCommits,
   hasVersion,
   insertSection,
+  sectionFor,
   splitCategories,
   topVersion,
 } from "../lib/changelog.mjs";
@@ -56,6 +57,27 @@ Backports a round of feedback. Beta channel.
 
 - Something already released.
 `;
+
+// The release workflows put this straight into latest.json's `notes`, so an
+// empty or missing section has to be distinguishable from a real one — that is
+// what tells the workflow to fall back to its commit log.
+test("sectionFor returns one version's body, and null when there is none", () => {
+  const body = sectionFor(SAMPLE, "0.12.0-beta.1");
+  assert.match(body, /### Added/);
+  assert.match(body, /- Git tab\./);
+  // Bounded by the next heading — the older section must not bleed in.
+  assert.doesNotMatch(body, /Something already released/);
+  // And it must not carry its own `## [...]` heading.
+  assert.doesNotMatch(body, /^## \[/m);
+
+  assert.equal(sectionFor(SAMPLE, "0.99.0"), null);
+});
+
+test("sectionFor treats a heading with an empty body as absent", () => {
+  const text = `${PREAMBLE}## [1.0.0]\n\n## [0.9.0]\n\n### Fixed\n\n- Real.\n`;
+  assert.equal(sectionFor(text, "1.0.0"), null);
+  assert.match(sectionFor(text, "0.9.0"), /- Real\./);
+});
 
 test("consolidateBeta folds the leading beta run into one section", () => {
   const { text, consumed, warnings } = consolidateBeta(SAMPLE, "0.13.0", "2026-07-21");
