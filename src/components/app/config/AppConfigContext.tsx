@@ -84,6 +84,28 @@ export function buildTunnelPublicHosts(
   ];
 }
 
+/** Canonical form of an env map for comparison. Plain `JSON.stringify` is not
+ *  safe here: these come back from a Rust `HashMap`, whose serialization order
+ *  is arbitrary and can differ between two reads of identical data — which
+ *  would leave the form reporting unsaved changes forever after a save. */
+function envKey(vars: Record<string, string> | null | undefined): string {
+  return JSON.stringify(Object.entries(vars ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Same idea for the profile list: fixed field order, canonical env maps. */
+function profilesKey(list: EnvProfile[] | null | undefined): string {
+  return JSON.stringify(
+    (list ?? []).map((p) => [
+      p.id,
+      p.name,
+      p.env_file ?? null,
+      envKey(p.env_vars),
+      p.start_command ?? null,
+      p.build_command ?? null,
+    ]),
+  );
+}
+
 export type Section = "general" | "domain" | "environment" | "tunneling" | "health" | "danger";
 
 export function useAppConfigDraft(
@@ -680,6 +702,16 @@ export function useAppConfigDraft(
   const isDirty = useMemo(() => {
     const envVarsObj: Record<string, string> = {};
     for (const { key, value } of envVars) { if (key.trim()) envVarsObj[key.trim()] = value; }
+    // The env editor shows the ACTIVE profile's values, so that profile — not
+    // the app's own (Default) env — is what they must be compared against.
+    // Comparing against the app's while a profile was selected made the form
+    // permanently "dirty": saving writes the edits into the profile and leaves
+    // app.env_* untouched, so the mismatch could never resolve.
+    const storedProfile = activeProfileId
+      ? (app.env_profiles ?? []).find((p) => p.id === activeProfileId)
+      : undefined;
+    const baseEnvFile = activeProfileId ? (storedProfile?.env_file ?? null) : (app.env_file ?? null);
+    const baseEnvVars = activeProfileId ? (storedProfile?.env_vars ?? {}) : (app.env_vars ?? {});
     // Per-host auth: dirty if any host's mode/username changed, or a new
     // custom password was typed.
     const storedOverrides = new Map((app.host_auth_overrides ?? []).map((o) => [o.host, o]));
@@ -719,14 +751,14 @@ export function useAppConfigDraft(
         (composeMode === "paste" && composeYaml !== composeYamlInitial)
       )) ||
       ((app.kind === "docker" || app.kind === "compose") && networkShare !== app.network_share) ||
-      (envFile.trim() || null) !== (app.env_file ?? null) ||
+      (envFile.trim() || null) !== baseEnvFile ||
       autoStart !== app.auto_start ||
-      JSON.stringify(envVarsObj) !== JSON.stringify(app.env_vars ?? {}) ||
+      envKey(envVarsObj) !== envKey(baseEnvVars) ||
       restartPolicy !== (app.restart_policy ?? "on-failure") ||
       (parseInt(maxRetries, 10) || 3) !== (app.max_retries ?? 3) ||
       (healthCheckPath.trim() || null) !== (app.health_check_path ?? null) ||
       JSON.stringify(dependsOn) !== JSON.stringify(app.depends_on ?? []) ||
-      JSON.stringify(envProfiles) !== JSON.stringify(app.env_profiles ?? []) ||
+      profilesKey(envProfiles) !== profilesKey(app.env_profiles ?? []) ||
       activeProfileId !== (app.active_profile_id ?? null) ||
       // The active profile's command overrides live in their own display state
       // until save, so compare them against what's stored on that profile.
@@ -952,6 +984,11 @@ export function useAppConfigDraft(
       // the user often wants to keep tweaking settings after a save. Letting
       // the parent decide via `onSaved` would re-introduce the close, so we
       // intentionally bypass it for the close concern and just signal success.
+      // The active profile's edits live in the env/command display state until
+      // save merges them into `finalProfiles`. Without adopting that merged list
+      // here, local state stays one step behind what was just persisted and the
+      // form reports unsaved changes immediately after saving.
+      setEnvProfiles(finalProfiles);
       onSaved?.();
       setSavedAt(Date.now());
     } catch (e) {
