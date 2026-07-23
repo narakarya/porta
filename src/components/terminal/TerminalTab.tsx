@@ -363,8 +363,17 @@ export default function TerminalTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId, rootDir]);
 
+  // The gutter lives on the wrapper below, not on the element xterm opens into:
+  // FitAddon measures `term.element.parentElement` (i.e. `containerRef`), so
+  // padding there would size the grid to the full width and let the last column
+  // sit underneath it.
   return (
-    <div className="relative h-full w-full bg-[#0d0d0f]">
+    <div
+      className="relative h-full w-full bg-[#0d0d0f] pl-3 pr-2 py-2"
+      // A click landing in the gutter never reaches xterm, so focus it here —
+      // otherwise the outer few pixels read as a dead zone.
+      onMouseDown={(e) => { if (e.target === e.currentTarget) termRef.current?.focus(); }}
+    >
       <div
         ref={containerRef}
         className="h-full w-full bg-[#0d0d0f]"
