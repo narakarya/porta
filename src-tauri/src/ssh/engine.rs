@@ -336,6 +336,15 @@ impl SshManager {
         })?;
 
         // 2. Host-key gate. Extract owned values so no DB guard crosses an await.
+        // The frontend renders one step per phase, so every gate that can block
+        // (host key, auth, shell) announces itself before it starts — otherwise a
+        // host parked on the trust prompt looks identical to a stalled handshake.
+        Self::emit(
+            &app,
+            &session_id,
+            "status",
+            serde_json::json!({ "phase": "verifying" }),
+        );
         let (fingerprint, key_type) = captured
             .lock()
             .unwrap()
@@ -466,6 +475,12 @@ impl SshManager {
         }
 
         // 4. Open channel, request a PTY + shell.
+        Self::emit(
+            &app,
+            &session_id,
+            "status",
+            serde_json::json!({ "phase": "opening-shell" }),
+        );
         let mut channel = handle
             .channel_open_session()
             .await

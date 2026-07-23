@@ -52,6 +52,12 @@ export default {
         // Marquee for overflowing branch names: slide left by exactly the
         // overflow amount, pause at each end. Distance is set per-instance via
         // the `--marquee-shift` CSS var.
+        // Indeterminate progress sweep for the SSH connect overlay — a bar with
+        // no known duration, so it travels rather than fills.
+        "progress-sweep": {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
         "marquee-hover": {
           "0%, 15%": { transform: "translateX(0)" },
           "85%, 100%": { transform: "translateX(var(--marquee-shift, 0))" },
@@ -61,6 +67,7 @@ export default {
         "bounce-down": "bounce-down 0.7s ease-in-out infinite",
         "bounce-up": "bounce-up 0.7s ease-in-out infinite",
         "marquee-hover": "marquee-hover 6s ease-in-out infinite alternate",
+        "progress-sweep": "progress-sweep 1.4s ease-in-out infinite",
       },
     },
   },

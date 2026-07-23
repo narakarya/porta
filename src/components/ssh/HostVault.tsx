@@ -3,6 +3,7 @@ import { usePortaStore } from "../../store";
 import type { SshHost } from "../../lib/commands";
 import HostFormModal from "./HostFormModal";
 import { OsIcon } from "./OsIcon";
+import { Spinner } from "../ui";
 import { SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
 
 type MenuState = { host: SshHost; x: number; y: number };
@@ -37,6 +38,14 @@ export default function HostVault() {
     }
     return m;
   }, [sessions]);
+
+  // Hosts with a handshake in flight — the row gets a spinner instead of the
+  // live dot, so clicking a slow host gives feedback in the list itself and not
+  // only in the session pane.
+  const connectingHosts = useMemo(
+    () => new Set(sessions.filter((s) => s.status === "connecting").map((s) => s.hostId)),
+    [sessions]
+  );
 
   // Total live sessions — feeds the header subtitle (mirrors the Workspaces
   // sidebar's "N running" line).
@@ -213,6 +222,7 @@ export default function HostVault() {
 
             {groupHosts.map((h) => {
               const live = liveCount.get(h.id) ?? 0;
+              const connecting = connectingHosts.has(h.id);
               const selected = h.id === activeHostId;
               const menuHere = menu?.host.id === h.id;
               return (
@@ -237,9 +247,13 @@ export default function HostVault() {
                         so the label is never truncated by the address (Termius-style). */}
                     <span className="flex-1 min-w-0 flex flex-col leading-tight">
                       <span className="flex items-center gap-1.5">
-                        {live > 0 && (
+                        {connecting ? (
+                          <span className="shrink-0 text-accent" title="Connecting…">
+                            <Spinner size={10} />
+                          </span>
+                        ) : live > 0 ? (
                           <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-ok" title={`${live} active session${live > 1 ? "s" : ""}`} />
-                        )}
+                        ) : null}
                         <span className="flex-1 truncate text-[13px] text-ink">{h.label}</span>
                         {live > 1 && <span className="shrink-0 text-[10px] text-ok tabular-nums">×{live}</span>}
                       </span>

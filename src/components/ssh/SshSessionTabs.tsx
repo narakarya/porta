@@ -1,6 +1,7 @@
 import { usePortaStore } from "../../store";
 import type { SshSession } from "../../store/slices/ssh";
 import SshTerminal from "./SshTerminal";
+import SshConnectingOverlay from "./SshConnectingOverlay";
 
 const STATUS_DOT: Record<SshSession["status"], string> = {
   connected: "bg-emerald-400",
@@ -38,7 +39,11 @@ export default function SshSessionTabs() {
             }`}
             onClick={() => setActive(s.id)}
           >
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[s.status]}`} />
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[s.status]} ${
+                s.status === "connecting" ? "animate-pulse" : ""
+              }`}
+            />
             <span className="truncate max-w-[120px]">{s.label}</span>
             <button
               className="text-zinc-600 hover:text-red-400"
@@ -97,7 +102,21 @@ export default function SshSessionTabs() {
               </div>
             </div>
           ) : (
-            <SshTerminal key={s.id} sessionId={s.id} visible={active === s.id} />
+            // The terminal stays mounted through the handshake so its data
+            // listener is registered before the shell's first byte arrives —
+            // the connect UI is layered over it, not swapped in for it.
+            <div
+              key={s.id}
+              className="relative h-full w-full"
+              style={{ display: active === s.id ? "block" : "none" }}
+            >
+              <SshTerminal sessionId={s.id} visible={active === s.id} />
+              {s.status === "connecting" && (
+                <div className="absolute inset-0 z-10">
+                  <SshConnectingOverlay session={s} />
+                </div>
+              )}
+            </div>
           )
         )}
       </div>

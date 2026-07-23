@@ -11,11 +11,22 @@ import type { SshHost } from "../../lib/commands";
 // the frontend is subscribed; torn down in `disconnectSsh`.
 const sessionUnlisteners = new Map<string, UnlistenFn[]>();
 
+/** Backend handshake steps, in the order `engine::connect` walks them. The
+ *  coarse `status` can't drive a progress list — every gate before the shell
+ *  reports `connecting`, so a host parked on the trust prompt and one stalled
+ *  on the TCP handshake would render identically. */
+export const SSH_PHASES = ["connecting", "verifying", "authenticating", "opening-shell"] as const;
+export type SshPhase = (typeof SSH_PHASES)[number] | "connected" | "error";
+
 export interface SshSession {
   id: string;
   hostId: string;
   label: string;
   status: "connecting" | "connected" | "disconnected" | "error";
+  /** Which handshake step the backend last reported (drives the connect overlay). */
+  phase: SshPhase;
+  /** Epoch ms the connect attempt started — feeds the overlay's elapsed timer. */
+  startedAt: number;
   keyType?: string;
   /** Why the session failed. Every backend failure path returns a real string
    *  (`connect: …`, `authentication failed`, `host key changed`, …); without
@@ -47,6 +58,7 @@ export interface SshSlice {
   setActiveSession: (id: string | null) => void;
   upsertSession: (s: SshSession) => void;
   setSessionStatus: (id: string, status: SshSession["status"], keyType?: string, error?: string | null) => void;
+  setSessionPhase: (id: string, phase: SshPhase) => void;
   answerTrust: () => Promise<void>;
   answerSecret: (value: string, remember: boolean) => Promise<void>;
   dismissPrompt: () => void;
@@ -81,6 +93,9 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
           ? {
               ...s,
               status,
+              // Terminal states carry their own phase so the overlay can't keep
+              // spinning on "authenticating" after an auth-failed event lands.
+              phase: status === "error" || status === "connected" ? status : s.phase,
               keyType: keyType ?? s.keyType,
               // A retry/reconnect must clear the previous failure; an explicit
               // message always wins over the one already on the session.
@@ -89,6 +104,8 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
           : s
       ),
     }),
+  setSessionPhase: (id, phase) =>
+    set({ sshSessions: get().sshSessions.map((s) => (s.id === id ? { ...s, phase } : s)) }),
   setActiveSession: (id) => set({ activeSessionId: id }),
 
   connectOrFocusSsh: async (hostId) => {
@@ -125,11 +142,14 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
         const p = e.payload as { phase: string; keyType?: string };
         const map: Record<string, SshSession["status"]> = {
           connecting: "connecting",
+          verifying: "connecting",
           authenticating: "connecting",
+          "opening-shell": "connecting",
           connected: "connected",
           error: "error",
         };
         get().setSessionStatus(sessionId, map[p.phase] ?? "connecting", p.keyType);
+        get().setSessionPhase(sessionId, (p.phase as SshPhase) ?? "connecting");
       }),
       listen(`ssh:trust-request:${sessionId}`, (e) => {
         const p = e.payload as { fingerprint: string; hostname: string; key_type: string };
@@ -155,7 +175,14 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     ]);
     sessionUnlisteners.set(sessionId, unlisteners);
 
-    get().upsertSession({ id: sessionId, hostId, label: host.label, status: "connecting" });
+    get().upsertSession({
+      id: sessionId,
+      hostId,
+      label: host.label,
+      status: "connecting",
+      phase: "connecting",
+      startedAt: Date.now(),
+    });
     set({ activeSessionId: sessionId });
 
     try {

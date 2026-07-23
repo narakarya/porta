@@ -30,3 +30,10 @@ export const usePortaStore = create<AllSlices>((...a) => ({
     return subscribeToAppEvents(get, set);
   },
 }));
+
+// Dev-only handle for Tidewave Web `browser_eval` — inspecting or driving store
+// state from the MCP session otherwise means adding a temporary export every
+// time. Stripped from production builds by the `import.meta.env.DEV` guard.
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  (window as unknown as { portaStore: typeof usePortaStore }).portaStore = usePortaStore;
+}
