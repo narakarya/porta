@@ -464,6 +464,9 @@ fn start_instance_inner(
         }
     });
 
+    // Deliberately the app's own command, not the active run profile's override:
+    // a fresh worktree has no build artifacts, so a "prod" profile's
+    // `bin/app start` would launch against nothing. Instances are dev previews.
     let pid = match state.processes.start(
         &iid,
         &app_row.start_command,
@@ -471,7 +474,7 @@ fn start_instance_inner(
         port,
         env_file_abs.as_deref(),
         &app_row.env_vars,
-        true,
+        crate::process_manager::LogStart::Fresh,
         on_log,
         on_exit,
     ) {
@@ -734,8 +737,8 @@ detached
         let k1 = instance_id("appX", "feature/a");
         let k2 = instance_id("appX", "feature/b");
         let noop_log = |_l: String| {};
-        pm.start(&k1, "sleep 30", Path::new("/tmp"), 6101, None, &env, true, noop_log, |_c, _i| {}).unwrap();
-        pm.start(&k2, "sleep 30", Path::new("/tmp"), 6102, None, &env, true, |_l| {}, |_c, _i| {}).unwrap();
+        pm.start(&k1, "sleep 30", Path::new("/tmp"), 6101, None, &env, crate::process_manager::LogStart::Fresh, noop_log, |_c, _i| {}).unwrap();
+        pm.start(&k2, "sleep 30", Path::new("/tmp"), 6102, None, &env, crate::process_manager::LogStart::Fresh, |_l| {}, |_c, _i| {}).unwrap();
 
         // Both keys are tracked simultaneously — the multi-instance guarantee.
         assert!(pm.is_running(&k1));

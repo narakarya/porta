@@ -550,6 +550,13 @@ export function useAppConfigDraft(
   // Environment profiles
   const [envProfiles, setEnvProfiles] = useState<EnvProfile[]>(app.env_profiles ?? []);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(app.active_profile_id ?? null);
+  // Per-profile command overrides. Kept as their own display state (rather than
+  // swapping the app-level Start Command field) so `app.start_command` always
+  // remains the Default profile's value — the fallback the backend resolves to
+  // when a profile leaves its override blank.
+  const initialProfile = (app.env_profiles ?? []).find((p) => p.id === app.active_profile_id);
+  const [profileStartCommand, setProfileStartCommand] = useState(initialProfile?.start_command ?? "");
+  const [profileBuildCommand, setProfileBuildCommand] = useState(initialProfile?.build_command ?? "");
   const [showNewProfile, setShowNewProfile] = useState(false);
   const [newProfileName, setNewProfileName] = useState("");
   const [deleteProfileConfirm, setDeleteProfileConfirm] = useState<string | null>(null);
@@ -610,24 +617,44 @@ export function useAppConfigDraft(
     if (activeProfileId) {
       const obj: Record<string, string> = {};
       for (const { key, value } of envVars) { if (key.trim()) obj[key.trim()] = value; }
-      setEnvProfiles((prev) => prev.map((p) => p.id === activeProfileId ? { ...p, env_file: envFile.trim() || null, env_vars: obj } : p));
+      setEnvProfiles((prev) => prev.map((p) => p.id === activeProfileId ? {
+        ...p,
+        env_file: envFile.trim() || null,
+        env_vars: obj,
+        start_command: profileStartCommand.trim() || null,
+        build_command: profileBuildCommand.trim() || null,
+      } : p));
     }
     setActiveProfileId(profileId);
     if (profileId) {
       const profile = envProfiles.find((p) => p.id === profileId);
-      if (profile) { setEnvFile(profile.env_file ?? ""); setEnvVars(Object.entries(profile.env_vars ?? {}).map(([key, value]) => ({ key, value }))); }
+      if (profile) {
+        setEnvFile(profile.env_file ?? ""); setEnvVars(Object.entries(profile.env_vars ?? {}).map(([key, value]) => ({ key, value })));
+        setProfileStartCommand(profile.start_command ?? ""); setProfileBuildCommand(profile.build_command ?? "");
+      }
     } else {
       setEnvFile(app.env_file ?? ""); setEnvVars(Object.entries(app.env_vars ?? {}).map(([key, value]) => ({ key, value })));
+      setProfileStartCommand(""); setProfileBuildCommand("");
     }
-  }, [activeProfileId, envVars, envFile, envProfiles, app.env_file, app.env_vars]);
+  }, [activeProfileId, envVars, envFile, envProfiles, profileStartCommand, profileBuildCommand, app.env_file, app.env_vars]);
 
   const createProfile = useCallback(() => {
     if (!newProfileName.trim()) return;
     const obj: Record<string, string> = {};
     for (const { key, value } of envVars) { if (key.trim()) obj[key.trim()] = value; }
-    const np: EnvProfile = { id: `prof-${Date.now().toString(36)}`, name: newProfileName.trim(), env_file: envFile.trim() || null, env_vars: { ...obj } };
+    const np: EnvProfile = {
+      id: `prof-${Date.now().toString(36)}`,
+      name: newProfileName.trim(),
+      env_file: envFile.trim() || null,
+      env_vars: { ...obj },
+      // A fresh profile inherits the app's command until told otherwise, so it
+      // starts out behaving exactly like Default plus whatever env it carries.
+      start_command: null,
+      build_command: null,
+    };
     setEnvProfiles((prev) => [...prev, np]);
     setActiveProfileId(np.id);
+    setProfileStartCommand(""); setProfileBuildCommand("");
     setNewProfileName(""); setShowNewProfile(false);
   }, [newProfileName, envVars, envFile]);
 
@@ -635,6 +662,7 @@ export function useAppConfigDraft(
     setEnvProfiles((prev) => prev.filter((p) => p.id !== profileId));
     if (activeProfileId === profileId) {
       setActiveProfileId(null); setEnvFile(app.env_file ?? ""); setEnvVars(Object.entries(app.env_vars ?? {}).map(([key, value]) => ({ key, value })));
+      setProfileStartCommand(""); setProfileBuildCommand("");
     }
     setDeleteProfileConfirm(null);
   }, [activeProfileId, app.env_file, app.env_vars]);
@@ -700,6 +728,13 @@ export function useAppConfigDraft(
       JSON.stringify(dependsOn) !== JSON.stringify(app.depends_on ?? []) ||
       JSON.stringify(envProfiles) !== JSON.stringify(app.env_profiles ?? []) ||
       activeProfileId !== (app.active_profile_id ?? null) ||
+      // The active profile's command overrides live in their own display state
+      // until save, so compare them against what's stored on that profile.
+      (!!activeProfileId && (() => {
+        const stored = (app.env_profiles ?? []).find((p) => p.id === activeProfileId);
+        return (profileStartCommand.trim() || null) !== (stored?.start_command ?? null)
+          || (profileBuildCommand.trim() || null) !== (stored?.build_command ?? null);
+      })()) ||
       (tunnelMode === "named" ? (tunnelName.trim() || null) : null) !== (app.tunnel_name ?? null) ||
       (tunnelMode === "named" ? (tunnelHostname.trim() || null) : null) !== (app.tunnel_custom_hostname ?? null) ||
       (tunnelAliasDomain.trim() || null) !== (app.tunnel_alias_domain ?? null) ||
@@ -714,7 +749,7 @@ export function useAppConfigDraft(
     dockerImage, dockerContainerPort, dockerArgs, dockerVolumes,
     composeMode, composeFile, composeYaml, composeYamlInitial, networkShare,
     envFile, autoStart, envVars, restartPolicy, maxRetries, healthCheckPath,
-    dependsOn, envProfiles, activeProfileId,
+    dependsOn, envProfiles, activeProfileId, profileStartCommand, profileBuildCommand,
     tunnelMode, tunnelName, tunnelHostname,
     tunnelAliasDomain, tunnelAliasRewriteHost,
     autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
@@ -854,7 +889,13 @@ export function useAppConfigDraft(
       if (activeProfileId) {
         finalProfiles = finalProfiles.map((p) =>
           p.id === activeProfileId
-            ? { ...p, env_file: envFile.trim() || null, env_vars: { ...env_vars } }
+            ? {
+                ...p,
+                env_file: envFile.trim() || null,
+                env_vars: { ...env_vars },
+                start_command: profileStartCommand.trim() || null,
+                build_command: profileBuildCommand.trim() || null,
+              }
             : p
         );
         finalEnvFile = app.env_file ?? null;
@@ -1023,6 +1064,8 @@ export function useAppConfigDraft(
     rootDirOk, basicAuthValid, canSave,
     envProfiles, setEnvProfiles,
     activeProfileId, setActiveProfileId,
+    profileStartCommand, setProfileStartCommand,
+    profileBuildCommand, setProfileBuildCommand,
     showNewProfile, setShowNewProfile,
     newProfileName, setNewProfileName,
     deleteProfileConfirm, setDeleteProfileConfirm,

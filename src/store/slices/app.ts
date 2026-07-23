@@ -34,6 +34,10 @@ export interface AppSlice {
   appRetryCount: Record<string, number>;
   portConflicts: Record<string, boolean>;
   appRestarting: Record<string, boolean>;
+  /** Apps whose active run profile has a build command currently running. The
+   *  app is already "starting" at this point; this only distinguishes the build
+   *  phase so a multi-minute `mix release` doesn't look like a hung boot. */
+  appBuilding: Record<string, boolean>;
   appTunnelErrors: Record<string, string | null>;
   /** Apps/instances with a tunnel connect in flight (spawned, not yet
    * confirmed active or failed). Drives the card's pulsing "connecting" icon.
@@ -73,6 +77,9 @@ export interface AppSlice {
    * backend command lands, call it here mirroring `reorderWorkspaces`.
    */
   reorderApps: (workspaceId: string | null, fromIndex: number, toIndex: number) => Promise<void>;
+  /** Switch the app's run profile (`null` = Default). Pass `restart` to respawn
+   *  it under the new profile right away. */
+  setAppActiveProfile: (id: string, profileId: string | null, restart?: boolean) => Promise<void>;
   setAppAutoSleep: (id: string, enabled: boolean, idleTimeoutSecs: number) => Promise<void>;
   setAppMaxUploadBytes: (id: string, maxBytes: number | null) => Promise<void>;
   cloneApp: (id: string) => Promise<void>;
@@ -122,6 +129,7 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appRetryCount: {},
   portConflicts: {},
   appRestarting: {},
+  appBuilding: {},
   appTunnelErrors: {},
   tunnelConnecting: {},
   appTunnelLogs: {},
@@ -267,6 +275,32 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
       await get().load().catch(() => {});
       set({ error: String(e) });
     }
+  },
+
+  setAppActiveProfile: async (id, profileId, restart = false) => {
+    // Optimistic so the card's profile badge flips on click; the backend
+    // rejects unknown ids, and `load()` on failure puts the truth back.
+    const previous = get().apps.find((a) => a.id === id)?.active_profile_id ?? null;
+    set((s) => ({
+      apps: s.apps.map((a) => (a.id === id ? { ...a, active_profile_id: profileId } : a)),
+    }));
+    try {
+      const updated = await cmd.setAppActiveProfile(id, profileId);
+      set((s) => ({
+        apps: s.apps.map((a) =>
+          a.id === id ? { ...a, active_profile_id: updated.active_profile_id } : a
+        ),
+      }));
+    } catch (e) {
+      set((s) => ({
+        apps: s.apps.map((a) => (a.id === id ? { ...a, active_profile_id: previous } : a)),
+        error: String(e),
+      }));
+      return;
+    }
+    // The switch only reaches the process on the next spawn — restart when the
+    // caller asked, so "run as prod" on a live app does what it says.
+    if (restart) await get().restartApp(id).catch(() => {});
   },
 
   setAppAutoSleep: async (id, enabled, idleTimeoutSecs) => {

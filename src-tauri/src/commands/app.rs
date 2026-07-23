@@ -331,6 +331,37 @@ pub fn move_app_to_workspace(
     apps.into_iter().find(|a| a.id == app_id).ok_or_else(|| "app not found".into())
 }
 
+/// Switch the app's active run profile. `profile_id = None` selects Default.
+/// Config-only: a running app keeps its current command and environment until
+/// it is restarted, which the caller decides.
+#[tauri::command]
+pub fn set_app_active_profile(
+    state: State<AppState>,
+    id: String,
+    profile_id: Option<String>,
+) -> Result<App, String> {
+    // Reject unknown ids — a dangling active_profile_id silently resolves back
+    // to Default at spawn time, which would look like the switch did nothing.
+    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let app = apps
+        .iter()
+        .find(|a| a.id == id)
+        .ok_or_else(|| "app not found".to_string())?;
+    if let Some(pid) = profile_id.as_deref() {
+        if !app.env_profiles.iter().any(|p| p.id == pid) {
+            return Err(format!("no run profile with id {pid}"));
+        }
+    }
+    state
+        .db
+        .lock()
+        .unwrap()
+        .set_app_active_profile(&id, profile_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
+}
+
 /// Persist a single app's auto-sleep config. Returns the refreshed App so the
 /// store can patch its copy without a full reload. Config-only — does not start
 /// or stop anything.

@@ -80,6 +80,24 @@ pub fn import_porta_config(state: State<AppState>, src_path: String) -> Result<(
         let app_id = Uuid::new_v4().to_string();
         name_to_id.insert(app_cfg.name.clone(), app_id.clone());
 
+        // Profile ids are machine-local, so mint fresh ones and match the
+        // config's `active_profile` by name.
+        let profiles: Vec<crate::db::models::EnvProfile> = app_cfg
+            .profiles
+            .iter()
+            .map(|p| crate::db::models::EnvProfile {
+                id: Uuid::new_v4().to_string(),
+                name: p.name.clone(),
+                env_file: p.env_file.clone(),
+                env_vars: p.env_vars.clone(),
+                start_command: p.start_command.clone(),
+                build_command: p.build_command.clone(),
+            })
+            .collect();
+        let active_profile_id = app_cfg.active_profile.as_deref().and_then(|name| {
+            profiles.iter().find(|p| p.name == name).map(|p| p.id.clone())
+        });
+
         let app = App {
             id: app_id,
             workspace_id: Some(ws_id.clone()),
@@ -105,8 +123,8 @@ pub fn import_porta_config(state: State<AppState>, src_path: String) -> Result<(
             tunnel_url: None,
             tunnel_active: false,
             port_bindings: vec![],
-            env_profiles: vec![],
-            active_profile_id: None,
+            env_profiles: profiles,
+            active_profile_id: active_profile_id.clone(),
             basic_auth_enabled: false,
             basic_auth_username: None,
             basic_auth_password_hash: None,

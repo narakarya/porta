@@ -295,6 +295,7 @@ pub fn run() {
             commands::update_app,
             commands::move_app_to_workspace,
             commands::set_app_auto_sleep,
+            commands::set_app_active_profile,
             commands::set_app_max_upload_bytes,
             commands::delete_app,
             commands::save_file,

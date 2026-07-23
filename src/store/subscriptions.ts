@@ -186,6 +186,24 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         }));
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
+      // A run profile's build step is running (or just finished). The app stays
+      // "starting" throughout; this only relabels the card so a long prod build
+      // reads as progress rather than a stall.
+      listen<boolean>(`app:building:${app.id}`, (e) => {
+        set((s) => ({ appBuilding: { ...s.appBuilding, [app.id]: e.payload } }));
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
+      // The app's process was killed but something was still holding its port —
+      // Porta reaped it. Say so explicitly: a silent kill of a PID the user
+      // didn't ask about is exactly the kind of thing they need to know.
+      listen<number>(`app:orphan-reaped:${app.id}`, (e) => {
+        get().notify({
+          kind: "info",
+          message: `Freed port :${app.port}`,
+          detail: `${app.name} left a process behind (pid ${e.payload}) — killed it so the port is usable again.`,
+        });
+      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
+
       // Idle watcher put the app to sleep — flip to stopped and badge it 💤.
       // (We don't emit app:exit for sleeps, so this is the sole status source.)
       listen(`app:slept:${app.id}`, () => {

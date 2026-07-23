@@ -421,6 +421,17 @@ impl Database {
         Ok(())
     }
 
+    /// Switch which run profile is active. `None` selects the Default profile
+    /// (the app's own command and environment). Kept separate from `update_app`
+    /// so the card's quick switcher doesn't have to round-trip every field.
+    pub fn set_app_active_profile(&self, id: &str, profile_id: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE apps SET active_profile_id = ?1 WHERE id = ?2",
+            params![profile_id, id],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_app(&self, id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM apps WHERE id = ?1", params![id])?;
         Ok(())

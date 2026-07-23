@@ -319,9 +319,16 @@ export interface DeploymentConfig {
 
 // ── Deploy custom commands ─────────────────────────────────────────────────────
 
+/** A named run profile (dev, prod, staging, …). Beyond the environment it can
+ *  override the app's start command and prepend a build step, so "run as prod"
+ *  is a profile switch rather than a separate mode axis. Both commands are null
+ *  on the profiles that predate them, meaning "use the app's own command" and
+ *  "no build step". */
 export interface EnvProfile {
   id: string;
   name: string;
   env_file: string | null;
   env_vars: Record<string, string>;
+  start_command?: string | null;
+  build_command?: string | null;
 }

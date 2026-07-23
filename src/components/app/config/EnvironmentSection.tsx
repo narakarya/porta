@@ -4,6 +4,10 @@ import { useAppConfig } from "./AppConfigContext";
 
 export default function EnvironmentSection() {
   const c = useAppConfig();
+  // Docker/compose/static/proxy apps aren't spawned from a shell command, so a
+  // per-profile command override has nothing to override.
+  const isCommandless = c.app.kind === "docker" || c.app.kind === "compose"
+    || c.app.kind === "static" || c.app.kind === "proxy";
 
   return (
     <>
@@ -109,7 +113,54 @@ export default function EnvironmentSection() {
         {c.activeProfileId && (
           <p className="text-[10px] text-accent-ink">Active profile will be used when starting the app.</p>
         )}
+        {/* A profile switch only takes effect on the next spawn — the running
+            process still has the old command and environment. */}
+        {(c.app.status === "running" || c.app.status === "starting")
+          && c.activeProfileId !== (c.app.active_profile_id ?? null) && (
+          <p className="text-[10px] text-warn">Save, then restart {c.app.name} to run under this profile.</p>
+        )}
       </div>
+
+      {/* Per-profile run commands — how "run as prod" is expressed: the profile
+          swaps the command and, if the mode needs compiling first, runs a build
+          to completion before the server starts. Hidden on Default, which is
+          the app's own Start Command in the General tab. */}
+      {c.activeProfileId && !isCommandless && (
+        <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
+          <div>
+            <p className="text-[13px] font-medium text-ink">Run commands</p>
+            <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
+              Only for this profile. Leave blank to use the app's own Start Command.
+            </p>
+          </div>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium text-ink-2">Start command</span>
+            <input
+              spellCheck={false}
+              value={c.profileStartCommand}
+              onChange={(e) => c.setProfileStartCommand(e.target.value)}
+              className="input-base font-mono text-[12px]"
+              placeholder={c.app.start_command || "mix phx.server"}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium text-ink-2">Build command</span>
+            <input
+              spellCheck={false}
+              value={c.profileBuildCommand}
+              onChange={(e) => c.setProfileBuildCommand(e.target.value)}
+              className="input-base font-mono text-[12px]"
+              placeholder="npm run build"
+            />
+            <span className="text-[10px] text-ink-3 leading-relaxed">
+              Runs to completion before the start command, with this profile's
+              environment. A non-zero exit aborts the start.
+            </span>
+          </label>
+        </div>
+      )}
 
       {/* Key/value table for the active profile (mockup 20). */}
       <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">

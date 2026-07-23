@@ -224,6 +224,17 @@ export const moveAppToWorkspace = (appId: string, workspaceId: string | null): P
 export const deleteApp = (id: string): Promise<void> =>
   isTauri ? invoke("delete_app", { id }) : Promise.resolve(mockDeleteApp(id));
 
+/** Switch the app's active run profile (`null` = Default). Config-only — a
+ *  running app keeps its current command until it's restarted. */
+export const setAppActiveProfile = (id: string, profileId: string | null): Promise<App> =>
+  isTauri
+    ? invoke("set_app_active_profile", { id, profileId })
+    : Promise.resolve((() => {
+        const app = getMockState().apps.find((a) => a.id === id);
+        if (app) app.active_profile_id = profileId;
+        return app as App;
+      })());
+
 /** Persist per-app auto-sleep config. Returns the refreshed App. */
 export const setAppAutoSleep = (
   id: string,

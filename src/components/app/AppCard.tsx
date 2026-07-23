@@ -70,6 +70,27 @@ function StopButton({ stopping, onClick }: { stopping: boolean; onClick: () => v
   );
 }
 
+/** Force Kill, sitting next to Stop instead of only in the context menu. When a
+ *  process is wedged — a prod build that ignores SIGTERM, a server that won't
+ *  come down — hunting through a right-click menu is the wrong ergonomics. Icon
+ *  only, so it stays visually quieter than Stop and doesn't invite mis-clicks;
+ *  the click opens a confirm bar rather than killing outright. */
+function KillButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip label="Force kill (SIGKILL)" side="top">
+      <button
+        onClick={onClick}
+        aria-label="Force kill"
+        className="flex items-center p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+      >
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M5.5 1v2M5.5 8v2M1 5.5h2M8 5.5h2M2.5 2.5l1.5 1.5M7 7l1.5 1.5M7 2.5L5.5 4M2.5 8.5L4 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+        </svg>
+      </button>
+    </Tooltip>
+  );
+}
+
 function allHosts(app: App, workspace: Workspace | null): string[] {
   const domain = app.custom_domain || workspace?.domain || "narakarya.test";
   const primary = resolvedHost(app, workspace);
@@ -79,12 +100,13 @@ function allHosts(app: App, workspace: Workspace | null): string[] {
 
 function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "primary", instance }: Props) {
   // Actions — stable refs, picked once via shallow compare.
-  const { startApp, stopApp, restartApp, killApp, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearTunnelLog, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction } = usePortaStore(
+  const { startApp, stopApp, restartApp, killApp, setActiveProfile, cloneApp, startTunnel, stopTunnel, setTunnelConnecting, clearTunnelLog, clearAppLogs, dismissPortConflict, registerToast, unregisterToast, getToastIndex, openExtensionSidebar, closeExtensionSidebar, extensionSidebar, cacheAppExtensions, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
       stopApp: s.stopApp,
       restartApp: s.restartApp,
       killApp: s.killApp,
+      setActiveProfile: s.setAppActiveProfile,
       cloneApp: s.cloneApp,
       startTunnel: s.startTunnel,
       stopTunnel: s.stopTunnel,
@@ -132,6 +154,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   const appRetryCount = usePortaStore((s) => s.appRetryCount[app.id]);
   const portConflicts = usePortaStore((s) => s.portConflicts[app.id]);
   const appRestarting = usePortaStore((s) => s.appRestarting[app.id]);
+  const appBuilding = usePortaStore((s) => s.appBuilding[app.id]);
   const appTunnelErrors = usePortaStore((s) => s.appTunnelErrors[app.id]);
   const notify = usePortaStore((s) => s.notify);
 
@@ -160,10 +183,21 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
   const retryCount = appRetryCount ?? 0;
   const hasPortConflict = portConflicts ?? false;
   const isRestarting = appRestarting ?? false;
+  const isBuilding = appBuilding ?? false;
   const tunnelError = appTunnelErrors ?? null;
+  // Name of the selected run profile, or null on Default (nothing to badge).
+  const activeProfileName = useMemo(
+    () => (app.env_profiles ?? []).find((p) => p.id === app.active_profile_id)?.name ?? null,
+    [app.env_profiles, app.active_profile_id],
+  );
 
   // Local state for instant spinner feedback before Zustand's appRestarting propagates
   const [pendingRestart, setPendingRestart] = useState(false);
+  // Build wins the busy label: it's the phase the user is actually waiting on,
+  // and a prod build can outlast every other "starting" they've seen.
+  const busyLabel = isBuilding
+    ? "Building"
+    : isRestarting || pendingRestart ? "Restarting" : "Starting";
   const restartSawStarting = useRef(false);
   // Keep an instance restart pending across stop → spawn → ready. Primary apps
   // hand off to appRestarting; instances have no equivalent store flag, so the
@@ -433,6 +467,16 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               <span className="text-[9px] font-semibold tracking-wider text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded leading-none uppercase opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                 proxy
               </span>
+            )}
+            {/* Active run profile. Always visible (not hover-revealed) — which
+                mode an app runs under changes what its output means, so "this
+                is prod" must be readable at a glance. */}
+            {!isInstance && activeProfileName && (
+              <Tooltip label={`Run profile: ${activeProfileName}`} side="top">
+                <span className="text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded leading-none uppercase">
+                  {activeProfileName}
+                </span>
+              </Tooltip>
             )}
             {app.auto_slept && !isRunning && !isStarting && (
               <Tooltip label="Sleeping — opens automatically on next request" side="top">
@@ -771,14 +815,15 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
                   text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
                   disabled:text-amber-400/70 disabled:bg-amber-500/10"
-                title={isRestarting || pendingRestart ? "Restarting" : "Starting"}
+                title={busyLabel}
               >
                 <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
                   <path d="M5 1.5A3.5 3.5 0 1 1 1.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
-                {isRestarting || pendingRestart ? "Restarting" : "Starting"}
+                {busyLabel}
               </button>
               <StopButton stopping={stopping} onClick={handleStop} />
+              <KillButton onClick={() => setKillConfirm(true)} />
             </>
           ) : isRunning || stopping ? (
             <>
@@ -802,6 +847,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 Restart
               </button>
               <StopButton stopping={stopping} onClick={handleStop} />
+              <KillButton onClick={() => setKillConfirm(true)} />
             </>
           ) : (
             <>
@@ -1033,6 +1079,25 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 onClick: () => { openToast(); setBannerDismissed(false); doRestart(); },
               }] : []),
             ] : []),
+            // Quick run-profile switch — the whole point of profiles is trying
+            // an app under prod without a trip through Settings. Restarts a live
+            // app so the new command actually takes effect.
+            ...(!isInstance && isManaged && (app.env_profiles ?? []).length > 0
+              ? [
+                  "separator" as const,
+                  ...[{ id: null, name: "Default" }, ...(app.env_profiles ?? [])].map((p) => ({
+                    label: `Run as ${p.name}`,
+                    icon: (app.active_profile_id ?? null) === p.id
+                      ? <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2.5 5.5l2 2 4-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      : <svg width="11" height="11" viewBox="0 0 11 11" fill="none" />,
+                    onClick: () => {
+                      if ((app.active_profile_id ?? null) === p.id) return;
+                      if (isActive) { openToast(); setBannerDismissed(false); }
+                      void setActiveProfile(app.id, p.id, isActive);
+                    },
+                  })),
+                ]
+              : []),
             ...(isInstance && instance && isRunning && !isWildcard ? [{
               label: "Open in browser",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M4.5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.5 1.5h3v3M9.5 1.5l-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,

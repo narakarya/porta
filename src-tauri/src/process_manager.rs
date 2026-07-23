@@ -13,6 +13,11 @@ use std::time::Duration;
 
 pub(crate) type SharedLogWriter = Arc<Mutex<LineWriter<File>>>;
 
+/// Exit code [`ProcessManager::run_build`] reports when the user stopped the
+/// app mid-build. Distinct from any real shell status so the caller can tell
+/// "user cancelled" from "build failed".
+pub const BUILD_CANCELLED: i32 = -2;
+
 /// Collect `root` plus every descendant PID by walking the system PPID table.
 ///
 /// We spawn into a fresh process group (`process_group(0)`), so `killpg` reaches
@@ -67,6 +72,106 @@ pub fn signal_tree(pid: u32, sig: Signal) {
     }
 }
 
+/// How a run should treat the app's existing log file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogStart {
+    /// Manual start/restart — wipe the log so this run starts clean.
+    Fresh,
+    /// Porta boot auto-start — append, marking the boundary with a separator.
+    Resume,
+    /// A build step already opened this log for the same run — append silently
+    /// so the build output and the server output read as one continuous run.
+    Continue,
+}
+
+/// Build the login-shell `Command` used for both builds and long-running app
+/// processes, with identical cwd/PORT/env-file/env-var semantics so a prod build
+/// sees exactly the environment its server will run under.
+///
+/// When launched as a macOS .app bundle the process inherits a minimal
+/// environment without Homebrew, asdf, nvm, etc. Sourcing ~/.zprofile and
+/// ~/.zshrc through a login shell gives children the same PATH the user has in
+/// their terminal.
+fn shell_command(
+    command: &str,
+    root_dir: &Path,
+    port: u16,
+    env_file: Option<&str>,
+    extra_env: &HashMap<String, String>,
+) -> Command {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let wrapped = format!("source ~/.zprofile 2>/dev/null; source ~/.zshrc 2>/dev/null; {command}");
+    let mut cmd = Command::new(&shell);
+    cmd.args(["-l", "-c", &wrapped])
+        .current_dir(root_dir)
+        .env("PORT", port.to_string())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Create a new process group so we can kill the shell AND all its
+        // children (e.g. node, next dev) with a single signal to -pgid.
+        .process_group(0);
+
+    // Inject .env file variables (PORT always wins over .env).
+    if let Some(path) = env_file {
+        let resolved = if std::path::Path::new(path).is_absolute() {
+            path.to_string()
+        } else {
+            root_dir.join(path).to_string_lossy().to_string()
+        };
+        for (key, val) in parse_env_file(&resolved) {
+            if key != "PORT" {
+                cmd.env(key, val);
+            }
+        }
+    }
+
+    // Inject inline env vars (PORT still wins — set after file vars so they take precedence,
+    // but PORT is excluded since it's already set by the env("PORT", ...) call above).
+    for (key, val) in extra_env {
+        if key != "PORT" {
+            cmd.env(key, val);
+        }
+    }
+
+    cmd
+}
+
+/// Open (and, per `log_start`, prepare) the per-app log file.
+fn open_log_writer(app_id: &str, log_start: LogStart) -> Option<SharedLogWriter> {
+    let log_path = log_file_path(app_id);
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if log_start == LogStart::Fresh {
+        let _ = std::fs::write(&log_path, "");
+    }
+
+    // One persistent append-mode file handle is shared across both reader threads.
+    // LineWriter auto-flushes on each '\n' so the log viewer can still tail in real time,
+    // but we skip the per-line open() syscall that dominated the old hot path.
+    let writer: Option<SharedLogWriter> = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok()
+        .map(|f| Arc::new(Mutex::new(LineWriter::new(f))));
+
+    if log_start == LogStart::Resume {
+        if let Some(w) = &writer {
+            use std::io::Write as _;
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            if let Ok(mut g) = w.lock() {
+                let _ = writeln!(g, "\n── Porta restarted (t={ts}) ──");
+            }
+        }
+    }
+
+    writer
+}
+
 pub struct ProcessManager {
     pids: Arc<Mutex<HashMap<String, u32>>>,
     /// Tracks app IDs that are being intentionally stopped (SIGTERM/SIGKILL by user).
@@ -94,9 +199,8 @@ impl ProcessManager {
     /// Start an app process, streaming its stdout+stderr via `on_log` and
     /// notifying when it exits via `on_exit(exit_code, intentional_stop)`.
     /// `extra_env` vars are injected before the process spawns (PORT still wins over everything).
-    /// `truncate_log`: if true the log file is wiped clean before this run (manual start/restart);
-    ///   if false, a separator is appended so history from the previous run is preserved
-    ///   (used when Porta auto-starts apps on boot).
+    /// `log_start` decides whether this run wipes, separates from, or silently
+    /// continues the app's existing log (see [`LogStart`]).
     #[allow(clippy::too_many_arguments)]
     pub fn start(
         &self,
@@ -106,52 +210,15 @@ impl ProcessManager {
         port: u16,
         env_file: Option<&str>,
         extra_env: &HashMap<String, String>,
-        truncate_log: bool,
+        log_start: LogStart,
         on_log: impl Fn(String) + Send + Sync + 'static,
         on_exit: impl Fn(i32, bool) + Send + 'static,
     ) -> Result<u32> {
         if command.trim().is_empty() {
             return Err(anyhow!("empty command"));
         }
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
-        // When launched as a macOS .app bundle, the process inherits a minimal
-        // environment without Homebrew, asdf, nvm, etc. We use an interactive login
-        // shell (`-i -l`) so ~/.zshrc and ~/.zprofile are sourced, giving child
-        // processes the same PATH the user has in their terminal.
-        let wrapped = format!("source ~/.zprofile 2>/dev/null; source ~/.zshrc 2>/dev/null; {command}");
-        let mut cmd = Command::new(&shell);
-        cmd.args(["-l", "-c", &wrapped])
-            .current_dir(root_dir)
-            .env("PORT", port.to_string())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Create a new process group so we can kill the shell AND all its
-            // children (e.g. node, next dev) with a single signal to -pgid.
-            .process_group(0);
-
-        // Inject .env file variables (PORT always wins over .env).
-        if let Some(path) = env_file {
-            let resolved = if std::path::Path::new(path).is_absolute() {
-                path.to_string()
-            } else {
-                root_dir.join(path).to_string_lossy().to_string()
-            };
-            for (key, val) in parse_env_file(&resolved) {
-                if key != "PORT" {
-                    cmd.env(key, val);
-                }
-            }
-        }
-
-        // Inject inline env vars (PORT still wins — set after file vars so they take precedence,
-        // but PORT is excluded since it's already set by the env("PORT", ...) call above).
-        for (key, val) in extra_env {
-            if key != "PORT" {
-                cmd.env(key, val);
-            }
-        }
-
+        let mut cmd = shell_command(command, root_dir, port, env_file, extra_env);
         let mut child = cmd.spawn()?;
 
         let pid = child.id();
@@ -160,39 +227,7 @@ impl ProcessManager {
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
 
-        // Prepare the per-app log file.
-        let log_path = log_file_path(app_id);
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if truncate_log {
-            // Manual start/restart — clear so this run starts fresh.
-            let _ = std::fs::write(&log_path, "");
-        }
-
-        // One persistent append-mode file handle is shared across both reader threads.
-        // LineWriter auto-flushes on each '\n' so the log viewer can still tail in real time,
-        // but we skip the per-line open() syscall that dominated the old hot path.
-        let log_writer: Option<SharedLogWriter> = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .ok()
-            .map(|f| Arc::new(Mutex::new(LineWriter::new(f))));
-
-        if !truncate_log {
-            // Auto-start (Porta boot) — append separator so history is preserved.
-            if let Some(w) = &log_writer {
-                use std::io::Write as _;
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                if let Ok(mut g) = w.lock() {
-                    let _ = writeln!(g, "\n── Porta restarted (t={ts}) ──");
-                }
-            }
-        }
+        let log_writer = open_log_writer(app_id, log_start);
 
         let on_log = Arc::new(on_log);
         let pids = Arc::clone(&self.pids);
@@ -225,6 +260,78 @@ impl ProcessManager {
         });
 
         Ok(pid)
+    }
+
+    /// Run a run-profile's build step to completion, streaming its output into
+    /// the same log the server will use. **Blocks** — callers must invoke this
+    /// from a background thread, since a prod build can take minutes.
+    ///
+    /// The build PID is registered under `app_id` exactly like a server process,
+    /// so Stop / Force Kill during a build reach it (a `mix release` or
+    /// `next build` that can't be cancelled would strand the card in "starting"
+    /// with no way out but quitting Porta).
+    ///
+    /// Returns the exit code; a non-zero code means the caller must NOT start
+    /// the server — a prod server launched over a failed build either won't boot
+    /// or, worse, silently serves the previous build's artifacts.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_build(
+        &self,
+        app_id: &str,
+        command: &str,
+        root_dir: &Path,
+        port: u16,
+        env_file: Option<&str>,
+        extra_env: &HashMap<String, String>,
+        log_start: LogStart,
+        on_log: impl Fn(String) + Send + Sync + 'static,
+    ) -> Result<i32> {
+        if command.trim().is_empty() {
+            return Err(anyhow!("empty build command"));
+        }
+
+        let mut cmd = shell_command(command, root_dir, port, env_file, extra_env);
+        let mut child = cmd.spawn()?;
+        let pid = child.id();
+        self.pids.lock().unwrap().insert(app_id.to_string(), pid);
+
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let log_writer = open_log_writer(app_id, log_start);
+
+        let on_log = Arc::new(on_log);
+        on_log(format!("── build: {} ──", command.trim()));
+        if let Some(w) = &log_writer {
+            use std::io::Write as _;
+            if let Ok(mut g) = w.lock() {
+                let _ = writeln!(g, "── build: {} ──", command.trim());
+            }
+        }
+
+        let out_log = Arc::clone(&on_log);
+        let out_writer = log_writer.clone();
+        let out_thread = thread::spawn(move || stream_child_output(stdout, out_writer, out_log));
+        let err_log = Arc::clone(&on_log);
+        let err_writer = log_writer.clone();
+        let err_thread = thread::spawn(move || stream_child_output(stderr, err_writer, err_log));
+
+        let code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+        // Join the readers so every build line has landed before the caller
+        // starts the server and its own output begins interleaving.
+        let _ = out_thread.join();
+        let _ = err_thread.join();
+
+        // The build is done — drop its PID so the server's start() owns the slot.
+        // A Stop during the build already removed it, which `remove` tolerates.
+        self.pids.lock().unwrap().remove(app_id);
+
+        // Stop pressed mid-build: report it as a distinct code so the caller can
+        // skip the server start without treating it as a build failure.
+        if self.stopping.lock().unwrap().contains(app_id) {
+            return Ok(BUILD_CANCELLED);
+        }
+
+        Ok(code)
     }
 
     pub fn stop(&self, app_id: &str) -> Result<()> {

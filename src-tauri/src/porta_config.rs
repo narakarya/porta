@@ -37,6 +37,27 @@ pub struct PortaAppConfig {
     pub depends_on: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health_check_path: Option<String>,
+    /// Run profiles (dev/prod/…) with their env and command overrides. Both this
+    /// and `active_profile` default to empty, so a v1 config still parses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<PortaProfileConfig>,
+    /// Name (not id) of the profile to select on import — ids are regenerated
+    /// per machine, names are what the config author actually wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_profile: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PortaProfileConfig {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_file: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env_vars: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_command: Option<String>,
 }
 
 // ── Export ────────────────────────────────────────────────────────────────────
@@ -69,6 +90,20 @@ pub fn export_config(
                 env_vars: app.env_vars.clone(),
                 depends_on: depends_on_names,
                 health_check_path: app.health_check_path.clone(),
+                profiles: app
+                    .env_profiles
+                    .iter()
+                    .map(|p| PortaProfileConfig {
+                        name: p.name.clone(),
+                        env_file: p.env_file.clone(),
+                        env_vars: p.env_vars.clone(),
+                        start_command: p.start_command.clone(),
+                        build_command: p.build_command.clone(),
+                    })
+                    .collect(),
+                active_profile: app
+                    .active_profile()
+                    .map(|p| p.name.clone()),
             }
         })
         .collect();
@@ -248,6 +283,53 @@ mod tests {
         assert_eq!(parsed.workspace.apps.len(), 2);
         // root_dirs should be resolved back to absolute (or attempted)
         assert!(parsed.workspace.apps[0].root_dir.contains("myproject"));
+    }
+
+    #[test]
+    fn test_run_profiles_round_trip_by_name() {
+        let ws = sample_workspace();
+        let mut apps = sample_apps();
+        apps[0].env_profiles = vec![crate::db::models::EnvProfile {
+            id: "local-id-1".into(),
+            name: "prod".into(),
+            env_file: Some(".env.prod".into()),
+            env_vars: HashMap::new(),
+            start_command: Some("bin/api start".into()),
+            build_command: Some("MIX_ENV=prod mix release".into()),
+        }];
+        apps[0].active_profile_id = Some("local-id-1".into());
+
+        let yaml = export_config(&ws, &apps, Path::new("/home/user/projects/myproject")).unwrap();
+        // Machine-local ids stay out of the portable config; the selection
+        // travels as a name.
+        assert!(!yaml.contains("local-id-1"));
+        assert!(yaml.contains("active_profile: prod"));
+        assert!(yaml.contains("MIX_ENV=prod mix release"));
+
+        let parsed = parse_config(&yaml, Path::new("/home/user/projects/myproject")).unwrap();
+        let api = &parsed.workspace.apps[0];
+        assert_eq!(api.profiles.len(), 1);
+        assert_eq!(api.profiles[0].start_command.as_deref(), Some("bin/api start"));
+        assert_eq!(api.active_profile.as_deref(), Some("prod"));
+    }
+
+    #[test]
+    fn test_config_without_profiles_still_parses() {
+        // A .porta.yml written before run profiles existed.
+        let yaml = r#"
+version: 1
+workspace:
+  name: Legacy
+  domain: legacy.test
+  apps:
+    - name: web
+      root_dir: web
+      port: 3000
+      start_command: npm run dev
+"#;
+        let parsed = parse_config(yaml, Path::new("/tmp")).unwrap();
+        assert!(parsed.workspace.apps[0].profiles.is_empty());
+        assert!(parsed.workspace.apps[0].active_profile.is_none());
     }
 
     #[test]

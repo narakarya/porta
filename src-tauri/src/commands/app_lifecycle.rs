@@ -8,6 +8,7 @@ use tauri::State;
 use super::settings::{notify, notify_crash};
 use crate::app_state::AppState;
 use crate::db::models::App;
+use crate::process_manager::{LogStart, BUILD_CANCELLED};
 use crate::tray::rebuild_tray_menu;
 
 const SILENT_START_FAILED_PREFIX: &str = "__porta_silent_start_failed__:";
@@ -261,16 +262,110 @@ pub(crate) fn start_single(
         return Ok(());
     }
 
+    // The active run profile may override the command and prepend a build step
+    // (e.g. a "prod" profile running `mix release` before `bin/app start`).
+    let start_command = app_data.resolved_start_command().to_string();
+    let log_start = if truncate_log { LogStart::Fresh } else { LogStart::Resume };
+
+    if let Some(build_command) = app_data.resolved_build_command().map(str::to_string) {
+        // A build can run for minutes, and run_build blocks — so the whole
+        // build→start sequence moves to a background thread and this command
+        // returns immediately with the card already in "starting".
+        state.processes.retry_counts.lock().unwrap().remove(id);
+        // Clear any leftover stop flag: this is an intentional start, and a
+        // stale flag would make run_build report the build as cancelled.
+        state.processes.stopping.lock().unwrap().remove(id);
+        state
+            .db
+            .lock()
+            .unwrap()
+            .update_app_status(id, "starting", None)
+            .map_err(|e| e.to_string())?;
+        handle.emit(&format!("app:starting:{}", id), ()).ok();
+        handle.emit(&format!("app:building:{}", id), true).ok();
+
+        let id_owned = id.clone();
+        let handle_owned = handle.clone();
+        let root_dir = app_data.root_dir.clone();
+        let port = app_data.port;
+        let env_file = app_data.env_file.clone();
+        let env_vars = app_data.env_vars.clone();
+        let app_name = app_data.name.clone();
+        let health_path = app_data.health_check_path.clone();
+        thread::spawn(move || {
+            let state: State<AppState> = handle_owned.state();
+            let build_log_handle = handle_owned.clone();
+            let build_log_id = id_owned.clone();
+            let build_result = state.processes.run_build(
+                &id_owned,
+                &build_command,
+                Path::new(&root_dir),
+                port,
+                env_file.as_deref(),
+                &env_vars,
+                log_start,
+                move |line: String| {
+                    build_log_handle.emit(&format!("app:log:{}", build_log_id), line).ok();
+                },
+            );
+            handle_owned.emit(&format!("app:building:{}", id_owned), false).ok();
+
+            let failure = match build_result {
+                Err(e) => Some(format!("build failed to launch: {e}")),
+                Ok(BUILD_CANCELLED) => {
+                    // Stopped mid-build — reset cleanly, no failure alert.
+                    state.processes.stopping.lock().unwrap().remove(&id_owned);
+                    state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                    handle_owned.emit(&format!("app:exit:{}", id_owned), 0i32).ok();
+                    return;
+                }
+                Ok(0) => None,
+                Ok(code) => Some(format!("build exited with code {code}")),
+            };
+            if let Some(msg) = failure {
+                state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                emit_start_failed(&handle_owned, &id_owned, msg, show_start_failed_alert);
+                handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
+                return;
+            }
+
+            // Build succeeded — start the server against the same log. The
+            // build already wiped/marked it, so this run only appends.
+            let pid = match state.processes.start(
+                &id_owned,
+                &start_command,
+                Path::new(&root_dir),
+                port,
+                env_file.as_deref(),
+                &env_vars,
+                LogStart::Continue,
+                on_log,
+                on_exit,
+            ) {
+                Ok(pid) => pid,
+                Err(e) => {
+                    state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                    emit_start_failed(&handle_owned, &id_owned, e.to_string(), show_start_failed_alert);
+                    handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
+                    return;
+                }
+            };
+            state.db.lock().unwrap().update_app_status(&id_owned, "starting", Some(pid)).ok();
+            spawn_port_watcher(handle_owned.clone(), id_owned, port, app_name, health_path);
+        });
+        return Ok(());
+    }
+
     let pid = state
         .processes
         .start(
             id,
-            &app_data.start_command,
+            &start_command,
             Path::new(&app_data.root_dir),
             app_data.port,
             app_data.env_file.as_deref(),
             &app_data.env_vars,
-            truncate_log,
+            log_start,
             on_log,
             on_exit,
         )
@@ -519,10 +614,20 @@ fn stop_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Resul
     } else if is_docker {
         state.docker.stop(&id).map_err(|e| e.to_string())?;
     } else if !is_static && !is_proxy {
+        let was_ours = state.processes.is_running(&id)
+            || app_data.as_ref().and_then(|a| a.pid).is_some();
         if state.processes.is_running(&id) {
             state.processes.stop(&id).map_err(|e| e.to_string())?;
         } else {
             signal_orphan_pid(&app_data, nix::sys::signal::Signal::SIGTERM);
+        }
+        // A release-style server that reparented to launchd survives SIGTERM to
+        // the group and keeps the port — the classic "stopped but won't start
+        // again" case. Reap it in the background so Stop stays responsive.
+        if was_ours {
+            if let Some(ref a) = app_data {
+                kill_and_reap(app, &id, a.port);
+            }
         }
     }
     state
@@ -653,8 +758,48 @@ fn restart_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Re
     start_app_inner(state, app, id)
 }
 
+/// Last-resort reaper for a process that survived the kill and is still holding
+/// the app's port.
+///
+/// `signal_tree` covers the spawn's process group plus every descendant reachable
+/// through PPID links, but that stops working once the link is severed: a
+/// release-style launcher (`bin/app start`, `npm start` handing off to a daemon)
+/// exits while its real server reparents to launchd. The group is gone, the tree
+/// walk finds nothing, and the port stays occupied — the app then refuses to
+/// start again with a port conflict the user didn't cause.
+///
+/// So after signalling, give the OS a moment to reclaim the socket and, if the
+/// port is *still* bound, kill whoever holds it. Returns the reaped PID, or
+/// `None` if the port came free on its own (the normal case).
+fn reap_port_orphan(port: u16) -> Option<u32> {
+    // The socket lingers briefly in TIME_WAIT-adjacent states after a clean
+    // exit; polling avoids killing a PID that was already on its way out.
+    for _ in 0..6 {
+        thread::sleep(Duration::from_millis(250));
+        if crate::commands::who_uses_port(port).is_none() {
+            return None;
+        }
+    }
+    let holder = crate::commands::who_uses_port(port)?;
+    kill_port_holder(port).ok().map(|_| holder.pid)
+}
+
+/// Kill the app, then make sure its port actually came free — see
+/// [`reap_port_orphan`]. Emits `app:orphan-reaped:{id}` with the reaped PID so
+/// the UI can say what happened rather than silently killing a stranger's
+/// process.
+fn kill_and_reap(handle: &tauri::AppHandle, id: &str, port: u16) {
+    let handle = handle.clone();
+    let id = id.to_string();
+    thread::spawn(move || {
+        if let Some(pid) = reap_port_orphan(port) {
+            handle.emit(&format!("app:orphan-reaped:{id}"), pid).ok();
+        }
+    });
+}
+
 #[tauri::command]
-pub fn kill_app(state: State<AppState>, id: String) -> Result<(), String> {
+pub fn kill_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
     let app_data = state.db.lock().unwrap().list_apps().ok()
         .and_then(|apps| apps.into_iter().find(|a| a.id == id));
     let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
@@ -670,10 +815,23 @@ pub fn kill_app(state: State<AppState>, id: String) -> Result<(), String> {
     } else if is_docker {
         state.docker.kill(&id).map_err(|e| e.to_string())?;
     } else if !is_static && !is_proxy {
+        // Only reap the port afterwards if this app really had a process of its
+        // own to kill. Otherwise a Force Kill on an already-dead app would
+        // execute whatever unrelated thing the user happens to be running on
+        // that port.
+        let was_ours = state.processes.is_running(&id)
+            || app_data.as_ref().and_then(|a| a.pid).is_some();
         if state.processes.is_running(&id) {
             state.processes.kill(&id).map_err(|e| e.to_string())?;
         } else {
             signal_orphan_pid(&app_data, nix::sys::signal::Signal::SIGKILL);
+        }
+        // Force Kill is the button people reach for precisely when a process is
+        // stuck, so this is where the port must be guaranteed free afterwards.
+        if was_ours {
+            if let Some(ref a) = app_data {
+                kill_and_reap(&app, &id, a.port);
+            }
         }
     }
     state

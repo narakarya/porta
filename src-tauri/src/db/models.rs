@@ -1,12 +1,24 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+/// A named run profile (dev, prod, staging, …). Beyond the environment it also
+/// carries an optional command pair so "run as prod" is a profile switch rather
+/// than a separate axis: `start_command` overrides the app's own command, and
+/// `build_command` runs once to completion before it (prod almost always needs
+/// a compile/asset step first).
+///
+/// Both are `#[serde(default)]` because profiles live in a JSON column — rows
+/// written before these fields existed must keep deserializing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvProfile {
     pub id: String,
     pub name: String,
     pub env_file: Option<String>,
     pub env_vars: HashMap<String, String>,
+    #[serde(default)]
+    pub start_command: Option<String>,
+    #[serde(default)]
+    pub build_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -338,6 +350,34 @@ impl App {
         } else {
             format!("{}.{}", sub, domain)
         }
+    }
+
+    /// The run profile currently selected, if any. `active_profile_id` pointing
+    /// at a deleted profile resolves to `None` (i.e. the Default profile).
+    pub fn active_profile(&self) -> Option<&EnvProfile> {
+        let id = self.active_profile_id.as_deref()?;
+        self.env_profiles.iter().find(|p| p.id == id)
+    }
+
+    /// Command to spawn, honouring the active run profile's override. Resolved
+    /// here rather than copied into `start_command` on profile switch so the
+    /// app's own command survives as the Default profile's value.
+    pub fn resolved_start_command(&self) -> &str {
+        self.active_profile()
+            .and_then(|p| p.start_command.as_deref())
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .unwrap_or(&self.start_command)
+    }
+
+    /// Build step to run to completion before starting, if the active profile
+    /// defines one. The Default profile never has one — a build belongs to a
+    /// specific run mode.
+    pub fn resolved_build_command(&self) -> Option<&str> {
+        self.active_profile()
+            .and_then(|p| p.build_command.as_deref())
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
     }
 
     pub fn is_static(&self) -> bool {
@@ -704,6 +744,74 @@ mod tests {
             tunnel_alias_domain: None,
             tunnel_alias_rewrite_host: true, auto_sleep_enabled: false, idle_timeout_secs: 1800, auto_slept: false, max_upload_bytes: None,
         }
+    }
+
+    fn profile(id: &str, name: &str, start: Option<&str>, build: Option<&str>) -> EnvProfile {
+        EnvProfile {
+            id: id.into(),
+            name: name.into(),
+            env_file: None,
+            env_vars: HashMap::new(),
+            start_command: start.map(String::from),
+            build_command: build.map(String::from),
+        }
+    }
+
+    #[test]
+    fn run_profile_overrides_start_command_and_adds_build() {
+        let mut a = app_with_hostname(None);
+        a.start_command = "mix phx.server".into();
+        a.env_profiles = vec![profile(
+            "p1",
+            "prod",
+            Some("_build/prod/rel/app/bin/app start"),
+            Some("MIX_ENV=prod mix release"),
+        )];
+
+        // Default profile: the app's own command, no build step.
+        assert_eq!(a.resolved_start_command(), "mix phx.server");
+        assert_eq!(a.resolved_build_command(), None);
+
+        a.active_profile_id = Some("p1".into());
+        assert_eq!(a.resolved_start_command(), "_build/prod/rel/app/bin/app start");
+        assert_eq!(a.resolved_build_command(), Some("MIX_ENV=prod mix release"));
+    }
+
+    #[test]
+    fn run_profile_without_overrides_falls_back_to_the_app() {
+        let mut a = app_with_hostname(None);
+        a.start_command = "npm run dev".into();
+        // A profile that only carries env — and one whose override is blank
+        // (an emptied input), which must not spawn an empty command.
+        a.env_profiles = vec![profile("p1", "staging", None, None), profile("p2", "qa", Some("   "), Some(""))];
+
+        a.active_profile_id = Some("p1".into());
+        assert_eq!(a.resolved_start_command(), "npm run dev");
+        assert_eq!(a.resolved_build_command(), None);
+
+        a.active_profile_id = Some("p2".into());
+        assert_eq!(a.resolved_start_command(), "npm run dev");
+        assert_eq!(a.resolved_build_command(), None);
+    }
+
+    #[test]
+    fn dangling_active_profile_id_resolves_to_default() {
+        let mut a = app_with_hostname(None);
+        a.start_command = "npm run dev".into();
+        a.env_profiles = vec![profile("p1", "prod", Some("npm start"), None)];
+        // Points at a profile that was deleted.
+        a.active_profile_id = Some("gone".into());
+        assert!(a.active_profile().is_none());
+        assert_eq!(a.resolved_start_command(), "npm run dev");
+    }
+
+    #[test]
+    fn profiles_written_before_commands_existed_still_deserialize() {
+        let json = r#"{"id":"p1","name":"prod","env_file":".env.prod","env_vars":{"MIX_ENV":"prod"}}"#;
+        let p: EnvProfile = serde_json::from_str(json).expect("legacy profile parses");
+        assert_eq!(p.name, "prod");
+        assert_eq!(p.start_command, None);
+        assert_eq!(p.build_command, None);
     }
 
     #[test]
