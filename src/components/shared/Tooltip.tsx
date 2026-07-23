@@ -96,6 +96,10 @@ export default function Tooltip({ label, children, side = "top", className, dela
         onMouseLeave={onLeave}
         onFocus={onEnter}
         onBlur={onLeave}
+        // Clicking dismisses it: several triggers open a popover right where
+        // the tooltip sits, and it would otherwise hang over that popover
+        // until the pointer happened to leave.
+        onMouseDown={onLeave}
       >
         {children}
       </div>
@@ -105,7 +109,10 @@ export default function Tooltip({ label, children, side = "top", className, dela
           role="tooltip"
           className={[
             "fixed z-[9999] pointer-events-none",
-            "px-2 py-1 rounded-md text-[11px] font-medium whitespace-nowrap",
+            // `pre`, not `nowrap`: both refuse to wrap, but `pre` also honours
+            // the newlines in a multi-line label (the rail's version tooltip
+            // lists setup issues one per line).
+            "px-2 py-1 rounded-md text-[11px] font-medium whitespace-pre",
             "bg-zinc-800 text-zinc-200 border border-white/[0.08] shadow-lg",
             coords ? "opacity-100" : "opacity-0",
             "transition-opacity duration-100",

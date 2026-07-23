@@ -1,5 +1,6 @@
 import { usePortaStore } from "../../store";
 import { checkForUpdate } from "../../lib/updater";
+import Tooltip from "../shared/Tooltip";
 
 type Domain = "workspaces" | "hosts" | "services" | "activity" | "extensions";
 
@@ -55,34 +56,38 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
   const setActiveDomain = usePortaStore((s) => s.setActiveDomain);
 
   return (
-    <nav className="drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-3 pb-3 z-20">
+    // Dev only: Tidewave injects its toolbar at the bottom-left with
+    // z-index 2147483647, directly over the Settings gear — it swallows the
+    // click. Lift the bottom cluster clear of it while developing. The built
+    // app has no toolbar, so production keeps the tight `pb-3`.
+    <nav className={`drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-3 z-20 ${import.meta.env.DEV ? "pb-14" : "pb-3"}`}>
       {/* Porta logo + domain nav as one tight top cluster. */}
       <div className="no-drag flex flex-col items-center gap-1">
         <img src="/porta-logo.svg" alt="Porta" width={22} height={22} className="rounded-[6px] mb-1" />
         {DOMAINS.map((d) => {
           const active = !settingsActive && activeDomain === d.id;
           return (
-            <button
-              key={d.id}
-              onClick={() => { setActiveDomain(d.id); onSelectDomain(); }}
-              title={d.label}
-              aria-label={d.label}
-              aria-current={active}
-              className={`w-9 h-9 flex items-center justify-center rounded-[9px] transition-colors ${
-                active ? "text-accent" : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
-              }`}
-            >
-              {ICONS[d.id]}
-            </button>
+            <Tooltip key={d.id} label={d.label} side="right">
+              <button
+                onClick={() => { setActiveDomain(d.id); onSelectDomain(); }}
+                aria-label={d.label}
+                aria-current={active}
+                className={`w-9 h-9 flex items-center justify-center rounded-[9px] transition-colors ${
+                  active ? "text-accent" : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
+                }`}
+              >
+                {ICONS[d.id]}
+              </button>
+            </Tooltip>
           );
         })}
       </div>
 
       <div className="no-drag mt-auto flex flex-col items-center gap-2">
         <VersionDot />
+        <Tooltip label="Settings" side="right">
         <button
           onClick={onOpenSettings}
-          title="Settings"
           aria-label="Settings"
           className={`w-9 h-9 flex items-center justify-center rounded-[9px] transition-colors ${
             settingsActive ? "bg-white/[0.10] text-zinc-100" : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
@@ -95,6 +100,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
             <path d="M19.4 13a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
+        </Tooltip>
       </div>
     </nav>
   );
@@ -157,13 +163,14 @@ function VersionDot() {
     .join("\n");
 
   return (
-    <button
-      onClick={() => void checkForUpdate({ silent: false, source: "menu" })}
-      title={tooltip}
-      aria-label={`Porta v${__BUILD_TAG__} — check for updates`}
-      className="w-9 h-9 flex items-center justify-center rounded-[9px] text-ink-3 hover:bg-white/[0.05] transition-colors"
-    >
-      <span className={`w-2 h-2 rounded-full shrink-0 transition-colors ${dotClass}`} />
-    </button>
+    <Tooltip label={tooltip} side="right">
+      <button
+        onClick={() => void checkForUpdate({ silent: false, source: "menu" })}
+        aria-label={`Porta v${__BUILD_TAG__} — check for updates`}
+        className="w-9 h-9 flex items-center justify-center rounded-[9px] text-ink-3 hover:bg-white/[0.05] transition-colors"
+      >
+        <span className={`w-2 h-2 rounded-full shrink-0 transition-colors ${dotClass}`} />
+      </button>
+    </Tooltip>
   );
 }
