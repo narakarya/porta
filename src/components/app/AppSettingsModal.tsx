@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { App, Workspace } from "../../types";
+import { Button } from "../ui";
 import HealthSection from "./HealthSection";
 import DangerSection from "./sections/DangerSection";
 import GeneralSection from "./config/GeneralSection";
@@ -23,9 +24,9 @@ interface Props {
   // back through onClose's signature. Optional — falls back to onClose.
   onSaved?: () => void;
   // Rendered inline as the workbench "Config" tab (mockup 20) instead of a
-  // full-screen modal: no fixed/backdrop/drag-region, fills the tab area. The
-  // sidebar sub-nav (General/Domain/Environment/…) is kept — it already
-  // matches the mockup. `onClose` then just switches back to another tab.
+  // full-screen modal: no fixed/backdrop/drag-region, fills the tab area, and
+  // the section nav becomes a horizontal sub-nav row like every other
+  // workbench tab's. `onClose` then just switches back to another tab.
   embedded?: boolean;
   // Deep-link the sub-nav to a section on open (e.g. Publish tab → Tunneling).
   initialSection?: Section;
@@ -117,13 +118,17 @@ function AppSettingsForm({
     { id: "danger",      label: "Danger" },
   ];
   const accessSection = section === "tunneling" ? "tunneling" : "domain";
+  // The workbench Config tab. `embedded` alone also covers the access drawer,
+  // which is its own panel with its own chrome and must keep the modal's
+  // spacing — only the tab adopts the workbench's.
+  const inTab = embedded && !accessOnly;
 
   return (
     <AppConfigProvider value={draft}>
     <div
       className={
         embedded
-          ? "h-full w-full bg-surface-0 text-ink font-sans flex overflow-hidden"
+          ? "h-full w-full bg-surface-0 text-ink font-sans flex flex-col overflow-hidden"
           : "fixed inset-0 bg-surface-input text-ink font-sans flex h-screen overflow-hidden z-50"
       }
     >
@@ -134,9 +139,35 @@ function AppSettingsForm({
         <div className="drag-region fixed top-0 left-0 right-0 h-8 z-10 pointer-events-none" />
       )}
 
-      {/* Sidebar */}
-      {!accessOnly && <aside className={`w-[132px] bg-surface-2 border-r border-subtle flex flex-col pb-3 shrink-0 ${embedded ? "pt-3" : "pt-8"}`}>
-        {!embedded && (
+      {/* Sub-nav. Embedded, this is a horizontal row matching every other
+          workbench tab's own sub-nav (see GitTab) — a second vertical column
+          inside a tab was the settings *modal*'s shell showing through, and it
+          re-stated the app name and domain the workbench header already shows.
+          Standalone, the modal keeps its sidebar: it has no surrounding chrome,
+          so it still needs Back and the app's identity. */}
+      {!accessOnly && (embedded ? (
+        <nav className="flex items-center gap-1 px-3.5 py-2 border-b border-subtle text-[12px] shrink-0 overflow-x-auto">
+          {NAV.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setSection(id)}
+              className={`shrink-0 px-2.5 py-1 rounded-control transition-colors duration-fast ${
+                section === id
+                  ? id === "danger" ? "bg-bad-bg text-bad" : "bg-accent-bg text-ink"
+                  : id === "danger"
+                    ? "text-bad hover:bg-bad-bg"
+                    : "text-ink-2 hover:bg-surface-1"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {isDirty && (
+            <span className="ml-auto shrink-0 text-[11px] text-warn">Unsaved changes</span>
+          )}
+        </nav>
+      ) : (
+        <aside className="w-[132px] bg-surface-2 border-r border-subtle flex flex-col pb-3 shrink-0 pt-8">
           <div className="px-4 mb-4">
             <button
               onClick={requestClose}
@@ -148,44 +179,46 @@ function AppSettingsForm({
               Back
             </button>
           </div>
-        )}
 
-        <div className="px-4 mb-1">
-          <p className="text-[11px] font-semibold text-ink-3 uppercase tracking-widest truncate">
-            {app.name}
-          </p>
-        </div>
-        <div className="px-4 mb-3">
-          <p className="text-[11px] text-ink-3 truncate">
-            {workspace?.domain ?? "standalone"} · {app.kind === "static" ? "static" : `:${app.port}`}
-          </p>
-        </div>
+          <div className="px-4 mb-1">
+            <p className="text-[11px] font-semibold text-ink-3 uppercase tracking-widest truncate">
+              {app.name}
+            </p>
+          </div>
+          <div className="px-4 mb-3">
+            <p className="text-[11px] text-ink-3 truncate">
+              {workspace?.domain ?? "standalone"} · {app.kind === "static" ? "static" : `:${app.port}`}
+            </p>
+          </div>
 
-        <nav className="flex-1 flex flex-col gap-0.5 px-2 overflow-auto no-drag">
-          {NAV.map(({ id, label }) => {
-            const active = section === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setSection(id)}
-                className={`flex items-center px-2 py-[5px] rounded-control text-[13px] w-full text-left transition-all duration-100 ${
-                  active
-                    ? id === "danger" ? "bg-bad-bg text-bad" : "bg-accent-bg text-ink"
-                    : id === "danger"
-                    ? "text-bad hover:bg-bad-bg"
-                    : "text-ink-2 hover:bg-surface-1 hover:text-ink"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </nav>
-      </aside>}
+          <nav className="flex-1 flex flex-col gap-0.5 px-2 overflow-auto no-drag">
+            {NAV.map(({ id, label }) => {
+              const active = section === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setSection(id)}
+                  className={`flex items-center px-2 py-[5px] rounded-control text-[13px] w-full text-left transition-all duration-100 ${
+                    active
+                      ? id === "danger" ? "bg-bad-bg text-bad" : "bg-accent-bg text-ink"
+                      : id === "danger"
+                      ? "text-bad hover:bg-bad-bg"
+                      : "text-ink-2 hover:bg-surface-1 hover:text-ink"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+      ))}
 
       {/* Content */}
-      <main className="flex-1 flex flex-col no-drag overflow-hidden">
-      <div className={`flex-1 overflow-auto px-8 pb-4 ${embedded ? "pt-5" : "pt-10"}`}>
+      <main className="flex-1 flex flex-col no-drag overflow-hidden min-h-0">
+      {/* Embedded matches the Overview tab's own gutter (px-6 py-5); the modal
+          keeps its wider, taller standalone padding. */}
+      <div className={`flex-1 overflow-auto ${inTab ? "px-6 py-5" : embedded ? "px-8 pt-5 pb-4" : "px-8 pt-10 pb-4"}`}>
         <div className={`w-full flex flex-col gap-5 ${accessOnly ? "max-w-3xl" : "max-w-2xl"}`}>
 
           {accessOnly && (section === "domain" || section === "tunneling") && (
@@ -240,10 +273,12 @@ function AppSettingsForm({
       {/* Sticky footer — replaces the per-section Save/Cancel rows. Hidden on
           Danger Zone since deletion has its own dedicated confirm flow. */}
       {section !== "danger" && section !== "health" && (
-        <footer className="shrink-0 border-t border-subtle bg-surface-input px-8 py-3">
+        <footer className={`shrink-0 border-t border-subtle ${inTab ? "bg-surface-0 px-6 py-2.5" : "bg-surface-input px-8 py-3"}`}>
           <div className="max-w-2xl flex items-center gap-2">
           {saveError && <p className="text-[11px] text-bad flex-1 truncate" title={saveError}>{saveError}</p>}
-          {!saveError && isDirty && (
+          {/* Embedded says this in the sub-nav row instead, where it sits next
+              to the section the edit was made in. */}
+          {!saveError && isDirty && !inTab && (
             <p className="text-[11px] text-warn flex-1">Unsaved changes</p>
           )}
           {!saveError && !isDirty && savedAt !== null && (
@@ -256,38 +291,33 @@ function AppSettingsForm({
           )}
           <div className="flex gap-2 ml-auto">
             {isDirty && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={onRevertAll}
                 title="Discard every unsaved change on this app"
-                className="flex items-center gap-1.5 px-3 py-2 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
+                icon={
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                    <path d="M2.2 3.4A3.6 3.6 0 1 1 1.7 6.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    <path d="M1.7 1.8v1.9h1.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                }
               >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M2.2 3.4A3.6 3.6 0 1 1 1.7 6.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  <path d="M1.7 1.8v1.9h1.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
                 Revert
-              </button>
+              </Button>
             )}
-            <button
-              onClick={requestClose}
-              className="px-4 py-2 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
+            {/* "Cancel" only means something against a dialog. In the tab this
+                button doesn't undo anything — it leaves for another tab, and
+                Revert is what discards. */}
+            <Button variant="ghost" onClick={requestClose}>{inTab ? "Close" : "Cancel"}</Button>
+            <Button
+              variant="primary"
               onClick={handleSave}
+              loading={saving}
               disabled={!canSave || saving || !isDirty}
               title={!isDirty ? "No changes to save" : undefined}
-              className="px-4 py-2 text-[13px] font-medium bg-accent hover:brightness-110 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
             >
-              {saving && (
-                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                  <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              )}
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
           </div>
           </div>
         </footer>

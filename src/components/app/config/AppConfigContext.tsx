@@ -787,10 +787,18 @@ export function useAppConfigDraft(
     autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
   ]);
 
-  function requestClose() {
+  // `window.confirm` is unreliable inside the Tauri webview — it can resolve
+  // without ever showing, which here would silently throw away the user's
+  // edits. The plugin dialog is the native one.
+  async function requestClose() {
     if (saving) return;
     if (isDirty) {
-      const ok = window.confirm("Discard unsaved changes?");
+      const { confirm } = await import("@tauri-apps/plugin-dialog");
+      const ok = await confirm("Discard unsaved changes?", {
+        title: "Unsaved changes",
+        kind: "warning",
+        okLabel: "Discard",
+      });
       if (!ok) return;
     }
     onClose();
