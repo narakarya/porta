@@ -4,6 +4,24 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.11]
+
+### Fixed
+
+- **⌘Z works in text fields again.** Editing a start command — or any other
+  field — was a one-way door. The native menu drops Undo/Redo so that ⌘Z reaches
+  CodeMirror and the terminal, but WebKit's own undo doesn't survive
+  React-controlled inputs, which left every ordinary field with no undo at all.
+  Porta now keeps the history itself: ⌘Z steps back, ⌘⇧Z forward, and a run of
+  typing undoes as one step rather than one character. Editors that manage their
+  own history are left alone.
+
+### Added
+
+- **Revert** in the app settings footer, shown whenever there are unsaved
+  changes: discards every edit across all sections at once, without closing the
+  form or losing your place in it.
+
 ## [0.14.0-beta.10]
 
 ### Added
