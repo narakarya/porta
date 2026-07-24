@@ -33,9 +33,35 @@ fn sanitize_label(s: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-/// `<app-subdomain>-<sanitized-branch>` — the instance's DNS label.
+/// Longest branch part kept in a host label. Past this a name stops being
+/// readable at a glance and starts being a thing you scroll past.
+const MAX_BRANCH_LABEL: usize = 20;
+
+/// The short, typeable part of a branch name. Branches are namespaced
+/// (`codex/…`, `feature/…`, `users/me/…`) and the namespace carries no
+/// information once the label is already scoped by the app — so keep the last
+/// segment and cap its length. Collisions between two branches that shorten to
+/// the same thing are handled by `pick_instance_subdomain`'s `-2` suffix.
+fn short_branch_label(branch: &str) -> String {
+    let tail = branch.rsplit('/').find(|s| !s.trim().is_empty()).unwrap_or(branch);
+    let mut label = sanitize_label(tail);
+    if label.is_empty() {
+        label = sanitize_label(branch);
+    }
+    if label.len() > MAX_BRANCH_LABEL {
+        // Prefer cutting on a word boundary, but not if that leaves a stub.
+        let cut = label[..MAX_BRANCH_LABEL].rfind('-').filter(|i| *i >= 6).unwrap_or(MAX_BRANCH_LABEL);
+        label.truncate(cut);
+        label = label.trim_matches('-').to_string();
+    }
+    label
+}
+
+/// `<app-subdomain>-<short-branch>` — the instance's DNS label. Deliberately
+/// not the full branch: the row and the workbench header both show that in
+/// full, while this ends up in a URL the user types.
 fn instance_subdomain(app_sub: &str, branch: &str) -> String {
-    sanitize_label(&format!("{app_sub}-{branch}"))
+    sanitize_label(&format!("{app_sub}-{}", short_branch_label(branch)))
 }
 
 /// `<app_id>:<sanitized-branch>` — unique key used as the instance row id and
@@ -677,9 +703,27 @@ detached
 
     #[test]
     fn builds_subdomain_and_id() {
+        // Label drops the branch namespace; the id keeps the full branch so two
+        // branches that shorten alike still get distinct process keys.
         assert_eq!(instance_subdomain("eventorg", "codex/migration"),
-                   "eventorg-codex-migration");
+                   "eventorg-migration");
         assert_eq!(instance_id("app123", "feature/x"), "app123:feature-x");
+    }
+
+    #[test]
+    fn short_branch_label_trims_namespace_and_length() {
+        assert_eq!(short_branch_label("main"), "main");
+        assert_eq!(short_branch_label("feature/checkout"), "checkout");
+        assert_eq!(short_branch_label("users/nasrul/fix-login"), "fix-login");
+        // Over the cap: cut on the last dash that still leaves something useful.
+        assert_eq!(
+            short_branch_label("codex/rework-the-entire-billing-pipeline"),
+            "rework-the-entire",
+        );
+        // No dash to cut on — a hard truncate beats an unreadable label.
+        assert_eq!(short_branch_label(&"a".repeat(30)), "a".repeat(20));
+        // Trailing slash: don't end up with an empty label.
+        assert_eq!(short_branch_label("feature/"), "feature");
     }
 
     #[test]
