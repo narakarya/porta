@@ -11,6 +11,8 @@ import {
   type ContainerLogLine,
 } from "../../lib/commands";
 import { listen } from "@tauri-apps/api/event";
+import Tooltip from "../shared/Tooltip";
+import { confirmClearLogs } from "../../lib/confirm";
 
 // ── Service source ────────────────────────────────────────────────────────────
 // Process apps stream stdout/stderr from the spawned process; docker/compose
@@ -155,6 +157,9 @@ function processLine(raw: string): ProcessedLine | null {
 }
 
 const MAX_LINES = 10000;
+
+/** How long after a wheel/touch/key the scrolling still counts as the user's. */
+const GESTURE_GRACE_MS = 400;
 
 // ── Clipboard with fallback ───────────────────────────────────────────────────
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -813,10 +818,35 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   // off filteredLines.length so a non-matching incoming line never yanks the
   // viewport. scrollToIndex(align:end) is instant; "smooth" stacks animations
   // at high log rates and drifts the viewport out of sync.
+  //
   useEffect(() => {
     if (!followTail || filteredLines.length === 0) return;
     vRef.current?.scrollToIndex(filteredLines.length - 1, { align: "end" });
   }, [filteredLines.length, followTail]);
+
+  // Only a real gesture may turn follow OFF (see `handleScroll`). Our own tail
+  // jump fires `scroll` like any other, and the virtualizer lands it over
+  // several frames — it estimates, mounts, measures, then corrects — so a
+  // position-only test saw a viewport that wasn't at the bottom *yet* and read
+  // it as "the user scrolled away". That fired on the first scroll after mount,
+  // which is why the viewer stopped following on its own with the default still
+  // `true`. A pointer held down (dragging the scrollbar) counts for as long as
+  // it's held; wheel and touch expire shortly after the last event.
+  const gestureUntilRef = useRef(0);
+  const pointerDownRef = useRef(false);
+  function markGesture() {
+    gestureUntilRef.current = Date.now() + GESTURE_GRACE_MS;
+  }
+  function userIsDriving() {
+    return pointerDownRef.current || Date.now() < gestureUntilRef.current;
+  }
+  useEffect(() => {
+    // A scrollbar drag can end anywhere — release outside the container still
+    // has to clear the flag, or follow could never turn off again.
+    const up = () => { pointerDownRef.current = false; };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
 
   function handleMouseUp() {
     const sel = window.getSelection();
@@ -830,8 +860,13 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     const el = containerRef.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    if (!atBottom && followTail) setFollowTail(false);
-    if (atBottom && !followTail) setFollowTail(true);
+    // Landing at the bottom resumes following no matter who scrolled there.
+    if (atBottom) {
+      if (!followTail) setFollowTail(true);
+      return;
+    }
+    // Leaving it only counts when the user is the one doing the scrolling.
+    if (followTail && userIsDriving()) setFollowTail(false);
   }
 
   async function loadFullHistory() {
@@ -952,37 +987,18 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         <div className="flex-1" />
 
-        {/* Icon-only controls: follow, find, timestamps, wrap, export, clear.
-            Follow lives here rather than in the status bar — it's an action
-            (and the one people reach for most), not a readout. */}
+        {/* Icon-only controls: find, timestamps, wrap, export, follow, clear.
+            View toggles first, then the two that act on the stream. Follow lives
+            here rather than in the status bar — it's an action, not a readout.
+
+            Every button carries a Tooltip, not just a `title`: an icon-only bar
+            is unreadable until you've hovered each one, and the native tooltip
+            arrives too late to be that answer. The separator that used to sit
+            after Follow is gone — the state colour already sets it apart. */}
         <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            onClick={() => setFollowTail((f) => !f)}
-            aria-pressed={followTail}
-            title={followTail
-              ? "Following new lines — click to pause"
-              : `Jump to the newest line and resume following${pendingNew > 0 ? ` (${pendingNew.toLocaleString()} new)` : ""}`}
-            className={`inline-flex items-center gap-1 px-1.5 py-1.5 rounded-control transition-colors ${
-              followTail
-                ? "text-accent"
-                : pendingNew > 0
-                  ? "text-accent bg-accent-bg hover:brightness-110"
-                  : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
-            }`}
-          >
-            {/* Arrow-to-line: "stick to the tail". */}
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2.5v7m0 0L5 6.6M8 9.5l3-2.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M3.5 12.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-            {!followTail && pendingNew > 0 && (
-              <span className="text-[10px] font-medium tabular-nums">{pendingNew.toLocaleString()}</span>
-            )}
-          </button>
-          <span className="w-px h-4 bg-[var(--border-subtle)] mx-0.5" aria-hidden />
+          <Tooltip label="Find in logs (⌘F)" side="bottom" className="inline-flex">
           <button
             onClick={() => (searchOpen ? closeSearch() : openSearch())}
-            title="Find in logs (⌘F)"
             aria-label="Find in logs"
             aria-pressed={searchOpen}
             className={`p-1.5 rounded-control transition-colors ${
@@ -994,9 +1010,12 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
           </button>
+          </Tooltip>
+          <Tooltip label={showTimestamps ? "Hide timestamps" : "Show timestamps"} side="bottom" className="inline-flex">
           <button
             onClick={() => setShowTimestamps((s) => !s)}
-            title={showTimestamps ? "Hide timestamps" : "Show timestamps"}
+            aria-label={showTimestamps ? "Hide timestamps" : "Show timestamps"}
+            aria-pressed={showTimestamps}
             className={`p-1.5 rounded-control transition-colors ${
               showTimestamps ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
             }`}
@@ -1006,9 +1025,12 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               <path d="M8 4.5V8l2.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
+          </Tooltip>
+          <Tooltip label={wrap ? "Disable soft wrap" : "Soft-wrap long lines"} side="bottom" className="inline-flex">
           <button
             onClick={() => setWrap((w) => !w)}
-            title={wrap ? "Disable soft wrap" : "Soft-wrap long lines"}
+            aria-label={wrap ? "Disable soft wrap" : "Soft-wrap long lines"}
+            aria-pressed={wrap}
             className={`p-1.5 rounded-control transition-colors ${
               wrap ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
             }`}
@@ -1017,24 +1039,55 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               <path d="M2 3.5h12M2 8h9a2.5 2.5 0 110 5H8m0 0l1.8-1.8M8 13l1.8 1.8M2 12.5h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
+          </Tooltip>
+          <Tooltip label="Export logs to a file" side="bottom" className="inline-flex">
           <button
             onClick={handleExport}
-            title="Export logs"
+            aria-label="Export logs to a file"
             className="p-1.5 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
           >
+            {/* Arrow into a tray — the download shape, now that Follow has
+                stopped borrowing it. */}
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2v8m0 0L5 7m3 3l3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M3 12.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              <path d="M8 2v6.5m0 0L5.5 6M8 8.5L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M3 10v2.2c0 .44.36.8.8.8h8.4c.44 0 .8-.36.8-.8V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
+          </Tooltip>
+          <Tooltip
+            side="bottom"
+            className="inline-flex"
+            label={followTail
+              ? "Following new lines — click to pause"
+              : `Jump to live${pendingNew > 0 ? ` (${pendingNew.toLocaleString()} new)` : ""}`}
+          >
+          <button
+            onClick={() => setFollowTail((f) => !f)}
+            aria-pressed={followTail}
+            aria-label={followTail ? "Pause following new lines" : "Jump to live"}
+            className={`inline-flex items-center gap-1 px-1.5 py-1.5 rounded-control transition-colors ${
+              followTail
+                ? "text-accent"
+                : pendingNew > 0
+                  ? "text-accent bg-accent-bg hover:brightness-110"
+                  : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+            }`}
+          >
+            {/* Double chevron onto a line — "skip to the end". The single arrow
+                this used to be was the download glyph next door. */}
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M4.5 3l3.5 3.2L11.5 3M4.5 7.4l3.5 3.2 3.5-3.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M3.5 13h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            {!followTail && pendingNew > 0 && (
+              <span className="text-[10px] font-medium tabular-nums">{pendingNew.toLocaleString()}</span>
+            )}
+          </button>
+          </Tooltip>
+          <Tooltip label="Clear logs — wipes the log file on disk" side="bottom" className="inline-flex">
           <button
             onClick={async () => {
-              if (
-                !window.confirm(
-                  `Clear all logs for "${appName}"? This wipes the log file on disk. Running apps keep writing — the log just starts fresh.`,
-                )
-              )
-                return;
+              if (!(await confirmClearLogs(appName))) return;
               try {
                 await clearAppLogFile(appId);
               } catch {
@@ -1044,13 +1097,19 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               setTruncated(false);
               onClear();
             }}
-            title="Clear logs"
-            className="p-1.5 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
+            aria-label="Clear logs"
+            className="p-1.5 rounded-control text-ink-3 hover:text-bad hover:bg-white/[0.06] transition-colors"
           >
+            {/* Broom, not a trash can: this sweeps a stream clean, it doesn't
+                delete a thing you can point at. The destructive hover colour
+                carries the "and it's gone from disk" half. */}
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <path d="M3 4.5h10M6.5 4.5V3.2a.7.7 0 01.7-.7h1.6a.7.7 0 01.7.7v1.3M4.5 4.5l.6 8a.9.9 0 00.9.8h4a.9.9 0 00.9-.8l.6-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12.8 2.2L8.4 6.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              <path d="M6.84 5.04L9.96 8.16L8.83 9.29L5.71 6.17Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <path d="M6.33 6.79L4.63 8.49M7.27 7.73L5.57 9.43M8.21 8.67L6.51 10.37" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
           </button>
+          </Tooltip>
         </div>
 
         {!embedded && <button
@@ -1178,6 +1237,12 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         ref={containerRef}
         onScroll={handleScroll}
         onMouseUp={handleMouseUp}
+        // Gesture markers — what separates "the user left the tail" from our own
+        // tail jump. mousedown covers dragging the scrollbar (no wheel events).
+        onWheel={markGesture}
+        onTouchMove={markGesture}
+        onKeyDown={markGesture}
+        onMouseDown={() => { pointerDownRef.current = true; markGesture(); }}
         className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-surface-0"
       >
         {localLogs === null && (

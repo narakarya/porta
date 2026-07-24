@@ -14,3 +14,15 @@ export async function confirmRemoveInstance(branch: string): Promise<boolean> {
     { title: "Remove instance", kind: "warning", okLabel: "Remove" },
   );
 }
+
+/**
+ * Confirm clearing an app's logs. This truncates the log file, not just the
+ * view — a running app keeps writing, the history before now is gone.
+ */
+export async function confirmClearLogs(appName: string): Promise<boolean> {
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  return confirm(
+    `Clear all logs for "${appName}"? This wipes the log file on disk. A running app keeps writing — the log just starts fresh.`,
+    { title: "Clear logs", kind: "warning", okLabel: "Clear" },
+  );
+}
