@@ -528,6 +528,10 @@ fn start_instance_inner(
         }
     }
 
+    // Same "refer everything from the parent" rule, applied to mise's trust
+    // store — see `inherit_mise_trust`.
+    inherit_mise_trust(&app_row.root_dir, &worktree_path);
+
     // Also hand Porta's own env injection an absolute path resolved against the
     // parent, so it works regardless of the symlink above.
     let env_file_abs = app_row.env_file.as_deref().map(|ef| {
@@ -614,6 +618,122 @@ fn allocate_and_insert_instance(
         find_available_port(&used, 3000, 9999).ok_or_else(|| "no free port".to_string())?;
     db.lock().unwrap().insert_instance(&instance).map_err(|e| e.to_string())?;
     Ok(instance)
+}
+
+// ── mise trust inheritance ─────────────────────────────────────────────────
+
+/// Project config files mise checks trust for. `.tool-versions` is included:
+/// asdf-style files go through the same gate.
+const MISE_CONFIG_FILES: [&str; 7] = [
+    "mise.toml",
+    ".mise.toml",
+    "mise.local.toml",
+    ".mise.local.toml",
+    ".config/mise.toml",
+    ".mise/config.toml",
+    ".tool-versions",
+];
+
+fn has_mise_config(dir: &str) -> bool {
+    MISE_CONFIG_FILES
+        .iter()
+        .any(|f| Path::new(dir).join(f).exists())
+}
+
+/// mise's own binary. `~/.local/bin` first — that's where mise's installer puts
+/// it, and it's the one location a GUI app's PATH is guaranteed to miss.
+fn find_mise() -> Option<String> {
+    if let Some(home) = std::env::var_os("HOME") {
+        let p = Path::new(&home).join(".local/bin/mise");
+        if p.exists() {
+            return Some(p.to_string_lossy().into_owned());
+        }
+    }
+    for p in ["/opt/homebrew/bin/mise", "/usr/local/bin/mise"] {
+        if Path::new(p).exists() {
+            return Some(p.to_string());
+        }
+    }
+    let out = Command::new("/usr/bin/which").arg("mise").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!path.is_empty()).then_some(path)
+}
+
+/// Is every config `mise trust --show` listed for a directory trusted?
+///
+/// Output is one `<path>: trusted` / `<path>: untrusted` per line, covering the
+/// directory *and its parents*. Note "untrusted" ends in "trusted", so the test
+/// has to be on the whole suffix — matching `contains("trusted")` would call an
+/// untrusted config trusted. An empty listing is not "all trusted": there is
+/// simply nothing to go on, so it reports false.
+fn mise_all_trusted(show_output: &str) -> bool {
+    let mut saw_any = false;
+    for line in show_output.lines() {
+        let line = line.trim();
+        if line.ends_with(": untrusted") {
+            return false;
+        }
+        if line.ends_with(": trusted") {
+            saw_any = true;
+        }
+    }
+    saw_any
+}
+
+/// Mirror the primary checkout's mise trust onto a worktree.
+///
+/// mise trusts a config *by path*, and a worktree is a new path — so the first
+/// run of every fresh branch instance of a mise-managed repo died with "Config
+/// files … are not trusted", then `command not found: mix` once mise refused to
+/// load the toolchain. The user had to go trust it by hand, per branch, forever.
+///
+/// The worktree is a checkout of the repo whose start command Porta is about to
+/// run in it regardless, so trusting its config grants nothing that starting the
+/// instance doesn't already grant.
+///
+/// What this deliberately will not do is widen trust the user never gave: if the
+/// primary checkout is itself untrusted, the worktree is left alone and the
+/// crash banner's `mise trust` action handles it as a visible choice. Entirely
+/// best-effort — no mise, no config, or any command failing just means the
+/// instance starts exactly as it did before.
+fn inherit_mise_trust(parent_root: &str, worktree: &str) {
+    if !has_mise_config(worktree) {
+        return;
+    }
+    let Some(mise) = find_mise() else { return };
+
+    let show = |dir: &str| -> Option<String> {
+        let out = Command::new(&mise)
+            .args(["trust", "--show", "-C", dir])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        // mise writes the listing to stdout and its warnings to stderr; read
+        // both so a version that moves the listing doesn't silently no-op.
+        Some(format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ))
+    };
+
+    // Re-running an instance we already trusted: nothing to do.
+    match show(worktree) {
+        Some(out) if mise_all_trusted(&out) => return,
+        None => return,
+        _ => {}
+    }
+    // Only mirror what the primary checkout already has.
+    match show(parent_root) {
+        Some(out) if mise_all_trusted(&out) => {}
+        _ => return,
+    }
+    let _ = Command::new(&mise).args(["trust", "-C", worktree]).output();
 }
 
 /// Pick a unique instance subdomain label. An instance's Caddy host is
@@ -778,6 +898,32 @@ detached
         assert_eq!(instance_subdomain("eventorg", "codex/migration"),
                    "eventorg-migration");
         assert_eq!(instance_id("app123", "feature/x"), "app123:feature-x");
+    }
+
+    #[test]
+    fn mise_trust_listing_distinguishes_untrusted_from_trusted() {
+        // "untrusted" ends in "trusted" — a substring check here would trust a
+        // worktree mise explicitly refused, which is the one outcome this
+        // function exists to prevent.
+        assert!(mise_all_trusted("~/projects/app: trusted\n~/projects: trusted\n"));
+        assert!(!mise_all_trusted("~/projects/app: untrusted\n"));
+        assert!(!mise_all_trusted(
+            "~/projects: trusted\n~/projects/app-worktrees/feat-x: untrusted\n"
+        ));
+        // Nothing listed is not a yes.
+        assert!(!mise_all_trusted(""));
+        assert!(!mise_all_trusted("mise WARN  a newer version is available\n"));
+    }
+
+    #[test]
+    fn mise_config_detection_covers_the_nested_layouts() {
+        let dir = std::env::temp_dir().join(format!("porta-mise-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".config")).unwrap();
+        let path = dir.to_string_lossy().into_owned();
+        assert!(!has_mise_config(&path));
+        std::fs::write(dir.join(".config/mise.toml"), "[tools]\n").unwrap();
+        assert!(has_mise_config(&path));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
