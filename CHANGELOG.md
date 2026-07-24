@@ -4,6 +4,42 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.21]
+
+### Fixed
+
+- **An app running a named env profile no longer loses that profile's
+  environment on Save.** The config form's env editor always shows the active
+  profile — except when it opened, where it seeded itself from the app-level
+  (Default) values while still comparing them against the profile's. So the
+  form read as permanently unsaved, and because Save writes whatever the editor
+  is showing back into the active profile, opening Config on such an app and
+  pressing Save replaced the profile's environment with Default's. **If you
+  saved app settings while a profile was active, check that profile's variables
+  — values overwritten before this fix can't be recovered.**
+- **"Unsaved changes" now clears when you save.** `isDirty` is ~35 comparisons
+  of the form against the saved app, and any one that can't converge poisons
+  the footer, the Save button and the discard-on-close prompt together — while
+  presenting identically whichever one it was. Every comparison was swept;
+  besides the profile bug above, three more couldn't converge: `max_retries: 0`
+  ("don't retry") was parsed with `|| 3`, so it read as dirty forever *and* was
+  quietly rewritten to 3 on the next save; a compose app on pasted YAML
+  compared its own `null` path against the managed path the backend stores, so
+  it opened dirty and stayed there; and the Basic Auth username was compared
+  even with auth off, where saving stores `null` regardless. A test now opens
+  the form over eight representative apps and asserts none start dirty.
+- **The header's branch list answers a fetch.** Fetch was already one function
+  — both surfaces call it, and it publishes a `git:fetched` event — but only
+  the branch picker listened. The header badge loaded its branches once when
+  the popover opened, so clicking Fetch right there moved the ahead/behind
+  counts and left the list frozen: a branch just pushed to origin stayed
+  invisible until the popover was closed and reopened, while the same fetch
+  surfaced it in the picker. Both now read through one hook.
+
+### Changed
+
+- The access-popover design QA record moved into `docs/` and is tracked.
+
 ## [0.14.0-beta.20]
 
 ### Added
