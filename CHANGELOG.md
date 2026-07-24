@@ -4,6 +4,44 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.18]
+
+### Added
+
+- **The branch picker keeps up with the remote.** "New from branch" listed
+  local refs once, on mount, and nothing told it a fetch had happened — so a
+  branch a teammate pushed never showed up, and fetching from the header badge
+  looked like it did nothing. A fetch from anywhere (the badge, the Git tab, or
+  the background autofetch) now refreshes the list, and the picker has its own
+  Fetch button. Remote-only branches are offered directly, tagged with their
+  remote; running one creates the local branch tracking that ref instead of
+  landing the worktree on a detached HEAD.
+
+### Changed
+
+- **The branch picker is a popover**, not a panel that pushed the instance list
+  down the page.
+- **Overview lists only the domains the URL row isn't.** The first chip always
+  repeated the URL directly above it, and an instance — which owns exactly one
+  generated host — got a whole row that said the same thing twice. Aliases now
+  appear under "Also on", and the row disappears when there are none.
+- **The log toolbar reads as six distinct actions.** Jump-to-live and Export
+  were wearing the same download arrow two seats apart; follow gets a double
+  chevron, export gets a tray, and clear becomes a broom with a destructive
+  hover. Follow moves next to export, the separator is gone, and every
+  icon-only button now has a real tooltip.
+
+### Fixed
+
+- **The log viewer stopped following itself.** Follow is on by default, but the
+  viewer's own jump to the tail fires scroll events, and the virtualizer lands
+  them over several frames — the "is the user still at the bottom" test read
+  that as the user scrolling away and switched follow off before the first line
+  was read. Only a real gesture pauses following now; scrolling back to the
+  bottom always resumes it.
+- **Clearing logs asks first, and the prompt actually appears.** It went through
+  `window.confirm`, which doesn't reliably resolve inside the Tauri WebView.
+
 ## [0.14.0-beta.17]
 
 ### Added
