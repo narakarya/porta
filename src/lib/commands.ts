@@ -538,6 +538,19 @@ export const checkAppHealth = (id: string): Promise<HealthStatus> =>
 export const checkAllHealth = (): Promise<Record<string, HealthStatus>> =>
   isTauri ? invoke("check_all_health") : Promise.resolve({});
 
+/** What an app is really listening on vs. what Porta has configured. */
+export interface ListenPortReport {
+  configured: number;
+  detected: number[];
+  /** Non-null only when the app binds a port other than `configured`. */
+  mismatch: number | null;
+}
+
+export const detectAppListenPorts = (id: string): Promise<ListenPortReport> =>
+  isTauri
+    ? invoke("detect_app_listen_ports", { id })
+    : Promise.resolve({ configured: 0, detected: [], mismatch: null });
+
 // ── Per-app custom health probes ────────────────────────────────────────────
 
 export type ProbeKind = "http" | "tcp" | "cmd";

@@ -8,6 +8,27 @@ use crate::app_state::AppState;
 use crate::health::HealthStatus;
 use crate::commands::settings::{read_porta_config, write_porta_config};
 
+/// Probe `port`, and if that fails, whatever port the process tree is actually
+/// listening on.
+///
+/// An app that ignores `$PORT` (Phoenix, Vite, `rails -p`) binds a port Porta
+/// never configured, so the straight probe always fails and the app reads as
+/// unhealthy while it is serving happily. Falling back to the observed port
+/// stops that lie; the mismatch itself is surfaced separately by
+/// `detect_app_listen_ports` so the user can reconcile it.
+fn check_health_with_fallback(port: u16, path: Option<&str>, pid: Option<u32>) -> HealthStatus {
+    let direct = crate::health::check_health(port, path);
+    if direct == HealthStatus::Healthy {
+        return direct;
+    }
+    let Some(pid) = pid else { return direct };
+    let listening = crate::listen_ports::listening_ports(pid);
+    match crate::listen_ports::mismatched_port(port, &listening) {
+        Some(actual) => crate::health::check_health(actual, path),
+        None => direct,
+    }
+}
+
 /// Per-app health probe. The actual check (HTTP GET or TCP connect) is
 /// blocking, so we offload to spawn_blocking — without that, every AppCard's
 /// 10s health poll would pin a Tauri worker for up to 2s of network I/O and
@@ -24,9 +45,48 @@ pub async fn check_app_health(state: State<'_, AppState>, id: String) -> Result<
         (app.port, app.health_check_path.clone())
     };
     let (port, path) = probe;
-    tokio::task::spawn_blocking(move || crate::health::check_health(port, path.as_deref()))
+    let pid = state.processes.pids().into_iter().find(|(k, _)| *k == id).map(|(_, v)| v);
+    tokio::task::spawn_blocking(move || check_health_with_fallback(port, path.as_deref(), pid))
         .await
         .map_err(|e| format!("health task failed: {}", e))
+}
+
+/// What port an app is really serving on, next to what Porta thinks.
+///
+/// `mismatch` is `Some` only when the app listens somewhere *other* than its
+/// configured port — the state where Caddy proxies into a closed port and the
+/// whole app looks broken despite running.
+#[derive(Debug, Clone, Serialize)]
+pub struct ListenPortReport {
+    pub configured: u16,
+    pub detected: Vec<u16>,
+    pub mismatch: Option<u16>,
+}
+
+#[tauri::command]
+pub async fn detect_app_listen_ports(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ListenPortReport, String> {
+    let configured = {
+        let db = state.db.lock().unwrap();
+        let apps = db.list_apps().map_err(|e| e.to_string())?;
+        apps.into_iter()
+            .find(|a| a.id == id)
+            .ok_or("App not found")?
+            .port
+    };
+    let pid = state.processes.pids().into_iter().find(|(k, _)| *k == id).map(|(_, v)| v);
+    let Some(pid) = pid else {
+        // Not a process Porta owns (docker/compose/static, or simply stopped) —
+        // nothing to observe, and no mismatch to claim.
+        return Ok(ListenPortReport { configured, detected: Vec::new(), mismatch: None });
+    };
+    let detected = tokio::task::spawn_blocking(move || crate::listen_ports::listening_ports(pid))
+        .await
+        .map_err(|e| format!("port scan failed: {}", e))?;
+    let mismatch = crate::listen_ports::mismatched_port(configured, &detected);
+    Ok(ListenPortReport { configured, detected, mismatch })
 }
 
 /// Build the list of (id, port, health_check_path) probes from running apps
@@ -65,10 +125,13 @@ pub async fn check_all_health(state: State<'_, AppState>) -> Result<HashMap<Stri
         collect_probes(&apps, &instances)
     };
 
+    let pids: HashMap<String, u32> = state.processes.pids().into_iter().collect();
+
     let mut handles = Vec::with_capacity(probes.len());
     for (id, port, path) in probes {
+        let pid = pids.get(&id).copied();
         handles.push(tokio::task::spawn_blocking(move || {
-            (id, crate::health::check_health(port, path.as_deref()))
+            (id, check_health_with_fallback(port, path.as_deref(), pid))
         }));
     }
 

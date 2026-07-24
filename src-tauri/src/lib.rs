@@ -15,6 +15,7 @@ pub mod process_manager;
 pub mod docker_manager;
 pub mod compose_parser;
 pub mod health;
+pub mod listen_ports;
 pub mod idle_sleep;
 pub mod log_rotation;
 pub mod porta_config;
@@ -519,6 +520,7 @@ pub fn run() {
             commands::apply_port_change,
             commands::check_app_health,
             commands::check_all_health,
+            commands::detect_app_listen_ports,
             commands::get_app_health_probe,
             commands::set_app_health_probe,
             commands::clear_app_health_probe,
