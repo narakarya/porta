@@ -4,6 +4,21 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.20]
+
+### Added
+
+- **A branch instance inherits its repo's mise trust.** mise trusts a config by
+  path, and a worktree is a new path — so the first run of every fresh instance
+  of a mise-managed repo died with "Config files … are not trusted", then
+  `command not found: mix` once mise refused to load the toolchain, and the
+  only way through was trusting it by hand, per branch, forever. Porta already
+  symlinks the parent's `.env` into a worktree on the same "refer everything
+  from the parent" principle; the mise config now follows. It is gated so it
+  never widens trust you didn't give: if the primary checkout is itself
+  untrusted, the worktree is left alone and the crash banner's **Run mise
+  trust** stays the visible way through.
+
 ## [0.14.0-beta.19]
 
 ### Fixed
