@@ -368,6 +368,10 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Find is an overlay, not chrome — same deal as the terminal's ⌘F widget. It
+  // used to be a permanent pill in the toolbar, which cost header width on every
+  // session whether or not anyone was searching.
+  const [searchOpen, setSearchOpen] = useState(false);
   // Additive level filter: empty = no filter, show everything. Toggling a pill
   // ON narrows the view to *only* the selected levels.
   const [enabledLevels, setEnabledLevels] = useState<EnabledLevels>(new Set());
@@ -744,20 +748,42 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   }, [searchMatches.length]);
 
   const matchCount = debouncedQuery ? searchMatches.length : null;
+  const hasMatches = (matchCount ?? 0) > 0;
 
-  useEffect(() => { searchRef.current?.focus(); }, []);
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    // The input doesn't exist yet on the first ⌘F, so focus after it mounts.
+    requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    });
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery("");
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (query) { setQuery(""); return; }
-        onClose();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        searchRef.current?.focus();
+        openSearch();
+        return;
       }
-      if (document.activeElement === searchRef.current && query) {
+      if (e.key === "Escape") {
+        // Matches the terminal: first Escape clears a typed query, the second
+        // dismisses the widget. Only once find is gone does Escape close the
+        // viewer itself.
+        if (searchOpen) {
+          if (query) setQuery("");
+          else closeSearch();
+          return;
+        }
+        onClose();
+        return;
+      }
+      if (searchOpen && document.activeElement === searchRef.current && query) {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           goToNextMatch();
@@ -775,7 +801,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, query, goToNextMatch, goToPrevMatch]);
+  }, [onClose, query, searchOpen, openSearch, closeSearch, goToNextMatch, goToPrevMatch]);
 
   // Tail follow — pin to the last visible (filtered) line as it grows. Driven
   // off filteredLines.length so a non-matching incoming line never yanks the
@@ -882,48 +908,6 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           )}
         </div>
 
-        {/* Compact search pill — inline match count + up/down chevrons. */}
-        <div className="flex items-center gap-1.5 flex-1 min-w-[160px] max-w-[300px] rounded-control border border-strong bg-surface-input px-2 py-1 focus-within:border-[rgba(96,165,250,0.5)] transition-colors">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-ink-3 shrink-0 pointer-events-none">
-            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          </svg>
-          <input spellCheck={false}
-            ref={searchRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search…"
-            className="flex-1 min-w-0 bg-transparent text-[12px] text-ink placeholder:text-ink-3 outline-none select-text"
-          />
-          {matchCount !== null && (
-            <span className="flex items-center gap-1 shrink-0 text-[11px] tabular-nums text-ink-3">
-              <span className={matchCount === 0 ? "text-ink-3" : "text-ink-2"}>
-                {matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
-              </span>
-              <button
-                onClick={goToPrevMatch}
-                disabled={matchCount === 0}
-                className="text-ink-3 hover:text-ink disabled:opacity-30 disabled:hover:text-ink-3 transition-colors"
-                title="Previous match (Shift+Enter)"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 7.5L6 4l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-              <button
-                onClick={goToNextMatch}
-                disabled={matchCount === 0}
-                className="text-ink-3 hover:text-ink disabled:opacity-30 disabled:hover:text-ink-3 transition-colors"
-                title="Next match (Enter)"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-            </span>
-          )}
-        </div>
-
         {/* Level filter: All + a colored toggle per level (multi-select). An
             enabled chip is filled + colored; a disabled one is dimmed. */}
         <div className="inline-flex items-center gap-1 shrink-0 text-[11px] select-none">
@@ -962,8 +946,22 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         <div className="flex-1" />
 
-        {/* Icon-only controls: timestamps, wrap, export, clear. */}
+        {/* Icon-only controls: find, timestamps, wrap, export, clear. */}
         <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => (searchOpen ? closeSearch() : openSearch())}
+            title="Find in logs (⌘F)"
+            aria-label="Find in logs"
+            aria-pressed={searchOpen}
+            className={`p-1.5 rounded-control transition-colors ${
+              searchOpen ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+            }`}
+          >
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          </button>
           <button
             onClick={() => setShowTimestamps((s) => !s)}
             title={showTimestamps ? "Hide timestamps" : "Show timestamps"}
@@ -1074,7 +1072,58 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           </aside>
         )}
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="relative flex-1 flex flex-col min-w-0">
+      {/* Find widget — floats over the log body like the terminal's, so it costs
+          no toolbar width when nobody is searching. */}
+      {searchOpen && (
+        <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#1a1a1d] pl-2 pr-1.5 py-1 shadow-[0_10px_28px_rgba(0,0,0,0.55)]">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-600">
+            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
+            <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          </svg>
+          <input
+            ref={searchRef}
+            spellCheck={false}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find in logs…"
+            className="w-[190px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none select-text"
+          />
+          <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">
+            {matchCount === null ? "" : matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
+          </span>
+          <span className="w-px h-4 bg-white/[0.1] shrink-0" />
+          <button
+            onClick={goToPrevMatch}
+            disabled={!hasMatches}
+            className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+            title="Previous match (⇧⏎)"
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M2.5 6.75L5.5 3.75l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={goToNextMatch}
+            disabled={!hasMatches}
+            className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+            title="Next match (⏎)"
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M2.5 4.25l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={closeSearch}
+            className="shrink-0 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08] transition-colors"
+            title="Close (Esc)"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+      )}
       {truncated && (
         <div className="flex items-center justify-between gap-2 px-4 py-1.5 bg-amber-500/5 border-b border-amber-500/10 text-[11px] text-amber-400/80 shrink-0">
           <span>
