@@ -4,6 +4,19 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.22]
+
+### Fixed
+
+- **The log viewer no longer buries itself under red `UNCAUGHT ERROR` panels.**
+  virtua measures every mounted row with a ResizeObserver, so a fast-streaming
+  log leaves callbacks undelivered at the end of a frame — the browser reports
+  that as an `error` event even though the observer simply redelivers on the
+  next frame. The debug overlay in `src/main.tsx` took every such event at face
+  value and appended one more `<pre>` to the body, forever. It now drops that
+  benign notice (the pathological `loop limit exceeded` still shows), skips
+  repeats of an identical message, and caps itself at 8 panels.
+
 ## [0.14.0-beta.21]
 
 ### Fixed
