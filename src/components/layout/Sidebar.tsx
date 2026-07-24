@@ -329,6 +329,25 @@ export default function Sidebar() {
     }
   }
 
+  // Restart from the row itself — the hover cluster only had start/stop, so the
+  // most common recovery action cost a trip through the ⋯ menu. Shares busyApps
+  // with toggleApp so the two buttons can't fire over each other.
+  async function restartAppRow(a: App) {
+    if (busyApps.has(a.id)) return;
+    setBusyApps((prev) => new Set(prev).add(a.id));
+    try {
+      await restartApp(a.id);
+    } catch {
+      // Store already reconciles status on failure; nothing to surface here.
+    } finally {
+      setBusyApps((prev) => {
+        const next = new Set(prev);
+        next.delete(a.id);
+        return next;
+      });
+    }
+  }
+
   // Context-menu items for an app row (overflow button + right-click). Wired to
   // the same store/lib actions the workbench uses — no new actions invented.
   // Icons match the app's inline line-icon style (mockup 03's iconed menu).
@@ -462,9 +481,12 @@ export default function Sidebar() {
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setAppMenu({ app: a, x: e.clientX, y: e.clientY }); }}
                 title={`${a.name} · :${a.port}`}
                 style={isAppGhost ? { opacity: 0.35 } : undefined}
-                className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none transition-colors ${
-                  dragEnabled ? "cursor-grab" : "cursor-pointer"
-                } ${on ? "bg-accent-bg text-ink" : "text-ink hover:bg-white/[0.05]"}`}
+                // Pointer, not grab: the row's primary affordance is "click to
+                // open". Reordering is a secondary gesture and doesn't get to
+                // claim the resting cursor.
+                className={`group flex items-center gap-2 pl-5 pr-2 py-1.5 rounded-[6px] text-[13px] w-full text-left select-none cursor-pointer transition-colors ${
+                  on ? "bg-accent-bg text-ink" : "text-ink hover:bg-white/[0.05]"
+                }`}
               >
                 {/* Fixed disclosure column, present on EVERY app row so the
                     status dot + name align whether or not the app has
@@ -523,6 +545,24 @@ export default function Sidebar() {
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5-7-4.5Z" /></svg>
                     )}
                   </button>
+                  {/* Restart — only meaningful while the app is up, so it stays
+                      out of the cluster when stopped rather than sitting there
+                      disabled. */}
+                  {running && (
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); void restartAppRow(a); }}
+                      disabled={busy}
+                      title="Restart"
+                      aria-label={`Restart ${a.name}`}
+                      className="p-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:pointer-events-none"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                        <path d="M12.5 5A5.2 5.2 0 1 0 13.2 9.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                        <path d="M13.2 2.7v2.5h-2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  )}
                   <button
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setAppMenu({ app: a, x: r.right, y: r.bottom + 4 }); }}
@@ -677,7 +717,7 @@ export default function Sidebar() {
                     count={totalCount}
                     onAdd={() => { selectWorkspace(w.id); setShowAddApp(true); }}
                     addTitle={`New app in ${w.name}`}
-                    className={`w-full text-left select-none cursor-grab ${
+                    className={`w-full text-left select-none cursor-pointer ${
                       isSelected ? "text-zinc-300" : "text-zinc-500 hover:text-zinc-300"
                     }`}
                     containerProps={{
