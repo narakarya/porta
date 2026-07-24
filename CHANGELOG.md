@@ -4,6 +4,64 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.16]
+
+### Added
+
+- **Start is now a split button that picks the env profile.** Run profiles were
+  only reachable through a grid card's right-click menu, so "boot this under
+  prod" meant hunting for a context menu on a surface you might not even be
+  looking at. The workbench Start button now carries a chevron listing Default
+  plus every configured profile; picking one switches the app to it and starts
+  it in the same click. The active profile also reads in the workbench header,
+  not just on the card.
+- **Restart on sidebar app rows.** The hover cluster had start/stop and nothing
+  else, so the most common recovery action cost a trip through the ⋯ menu. A
+  restart button now sits between them while the app is up.
+- **Porta notices when an app binds a port it wasn't configured for.** Plenty of
+  stacks ignore `$PORT` — Phoenix reads `config/dev.exs`, Vite reads
+  `vite.config.ts`, Rails takes `-p` — so the app served happily on a port Porta
+  never heard about while every probe against the configured port failed. That
+  read as "unhealthy, domain 502s, must be broken" with nothing anywhere naming
+  the cause. Health checks now fall back to the port the process actually bound,
+  and Overview's Port row says `actually on :4001` with a one-click **Use :4001**
+  that re-points Caddy.
+- **Searchable branch picker for "New from branch".** One field that filters the
+  branch list as you type and offers to create the name when nothing matches —
+  the same shape as switching branches from the app header.
+
+### Changed
+
+- **The Git tab is gone from the workbench.** The vendored "Git 2" panel stays
+  in the tree but is hidden behind a flag until we come back to it.
+- **Find in logs matches the terminal.** The search pill occupied toolbar width
+  on every session whether or not anyone was searching. It is now a magnifier in
+  the icon cluster opening a floating widget over the log body, with ⌘F, Enter /
+  ⇧Enter to step matches, and Escape to clear then dismiss.
+- **Kill moved to Overview's Port row.** Force kill and Kill port holder now sit
+  with the port they act on rather than beside Stop, where they read as extra
+  lifecycle buttons. Both remain in the context menus.
+- **Overview fills the pane.** A single narrow column left more than half the
+  workbench empty while its own content scrolled; Details and Live metrics now
+  sit side by side above a full-width Instances list.
+- **Live metric sparklines survive a tab switch.** The history lived inside the
+  workbench tile, which unmounts every time you leave Overview — so the lines
+  restarted from a blank tile and looked like the metrics were constantly
+  resetting. Samples are now kept in the store and cleared only when a new run
+  starts.
+- **The hosts workspace filter only lists workspaces some host actually uses,**
+  with a per-workspace count and a search field once the list is long enough to
+  scroll.
+- **Sidebar rows rest on a pointer cursor.** Reordering is a secondary gesture
+  and no longer claims the cursor from "click to open".
+
+### Removed
+
+- **"Start After" is gone.** The dependency list was invisible outside a
+  docker-compose import, and one slow dependency stalled every app queued behind
+  it for up to 30 seconds at auto-start. Auto-start now just starts what is
+  flagged for it.
+
 ## [0.14.0-beta.15]
 
 ### Added
