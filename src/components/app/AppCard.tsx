@@ -1129,6 +1129,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             appId={app.id}
             appName={app.name}
             appKind={app.kind}
+            isInstance={isInstance}
             logs={logs}
             isRunning={isRunning}
             isStarting={isStarting}

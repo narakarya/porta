@@ -36,6 +36,11 @@ interface Props {
   /** Render inline (fill parent) instead of as a full-screen overlay — used
    *  when the viewer is a workbench tab rather than a modal takeover. */
   embedded?: boolean;
+  /** The process is a worktree instance, not a primary app. Its stdout is
+   *  emitted on `instance:log:<id>` (the disk history is already keyed by the
+   *  same id), so without this the viewer subscribes to an event nothing ever
+   *  fires and the pane never grows past whatever was on disk at open time. */
+  isInstance?: boolean;
 }
 
 // ── ANSI stripping ─────────────────────────────────────────────────────────────
@@ -363,8 +368,9 @@ const LogLine = memo(function LogLine({
 });
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function LogViewer({ appId, appName, appKind, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear, embedded = false }: Props) {
+export default function LogViewer({ appId, appName, appKind, logs, isRunning, isStarting, crashed, exitCode, onClose, onClear, embedded = false, isInstance = false }: Props) {
   const isContainerSource = appKind === "docker" || appKind === "compose";
+  const logEvent = isInstance ? `instance:log:${appId}` : `app:log:${appId}`;
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -517,7 +523,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         });
 
       if (isTauri) {
-        listen<string>(`app:log:${appId}`, (e) => pushLine(e.payload)).then((u) => {
+        listen<string>(logEvent, (e) => pushLine(e.payload)).then((u) => {
           if (cancelled) {
             u();
             return;
@@ -565,7 +571,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
       }
       pendingRef.current = [];
     };
-  }, [appId, selectedKey, isContainerSource]);
+  }, [appId, logEvent, selectedKey, isContainerSource]);
 
   // Fallback: while the disk read is in flight, render the Zustand capped buffer.
   const fallbackLogs = useMemo<ProcessedLine[]>(() => {
@@ -946,8 +952,34 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         <div className="flex-1" />
 
-        {/* Icon-only controls: find, timestamps, wrap, export, clear. */}
+        {/* Icon-only controls: follow, find, timestamps, wrap, export, clear.
+            Follow lives here rather than in the status bar — it's an action
+            (and the one people reach for most), not a readout. */}
         <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => setFollowTail((f) => !f)}
+            aria-pressed={followTail}
+            title={followTail
+              ? "Following new lines — click to pause"
+              : `Jump to the newest line and resume following${pendingNew > 0 ? ` (${pendingNew.toLocaleString()} new)` : ""}`}
+            className={`inline-flex items-center gap-1 px-1.5 py-1.5 rounded-control transition-colors ${
+              followTail
+                ? "text-accent"
+                : pendingNew > 0
+                  ? "text-accent bg-accent-bg hover:brightness-110"
+                  : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+            }`}
+          >
+            {/* Arrow-to-line: "stick to the tail". */}
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M8 2.5v7m0 0L5 6.6M8 9.5l3-2.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M3.5 12.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            {!followTail && pendingNew > 0 && (
+              <span className="text-[10px] font-medium tabular-nums">{pendingNew.toLocaleString()}</span>
+            )}
+          </button>
+          <span className="w-px h-4 bg-[var(--border-subtle)] mx-0.5" aria-hidden />
           <button
             onClick={() => (searchOpen ? closeSearch() : openSearch())}
             title="Find in logs (⌘F)"
@@ -1192,21 +1224,19 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
       </div>
 
       <div className="flex items-center gap-2 px-3 py-1.5 border-t border-subtle shrink-0 select-none text-[11px]">
-        {followTail ? (
-          <span className="flex items-center gap-1.5 text-ink-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            following
-          </span>
-        ) : (
+        {/* Follow now lives in the toolbar; the status bar keeps only the
+            "you're not at the tail" nudge, which needs to sit next to the
+            lines it's talking about. */}
+        {!followTail && pendingNew > 0 && (
           <button
             onClick={() => setFollowTail(true)}
             className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-accent bg-accent-bg hover:brightness-110 transition-all"
             title="Jump to the newest line and resume following"
           >
             <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <path d="M4.5 3.5v7M9.5 3.5v7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M7 2.5v8m0 0L3.8 7.4M7 10.5l3.2-3.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            Paused{pendingNew > 0 ? ` · ${pendingNew.toLocaleString()} new` : ""} — jump to live
+            {pendingNew.toLocaleString()} new — jump to live
           </button>
         )}
         <span className="flex-1" />
