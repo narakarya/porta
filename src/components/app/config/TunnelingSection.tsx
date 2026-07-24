@@ -1,5 +1,6 @@
 import { setTunnelConfig } from "../../../lib/commands";
 import SetupCard from "../../shared/SetupCard";
+import CreateTunnelCard from "../../shared/CreateTunnelCard";
 import Field from "../../shared/Field";
 import TunnelStatusBadge from "../../shared/TunnelStatusBadge";
 import CloudflareAccessPanel from "../CloudflareAccessPanel";
@@ -246,12 +247,14 @@ export default function TunnelingSection() {
                       step={1}
                       title="Install cloudflared"
                       body="Porta couldn't find the cloudflared CLI on your machine."
-                      cmd="brew install cloudflare/cloudflare/cloudflared"
+                      cmd="brew install cloudflared"
                       copied={c.copiedCmd}
                       onCopy={c.copyCmd}
                       onRecheck={c.refreshTunnels}
                       recheckLabel="I've installed it"
                       loading={c.tunnelsLoading}
+                      runStep="install-cloudflared"
+                      runLabel="Install with Homebrew"
                     />
                   )}
 
@@ -260,27 +263,23 @@ export default function TunnelingSection() {
                     <SetupCard
                       step={2}
                       title="Log in to Cloudflare"
-                      body="Run this once — opens your browser for the OAuth flow."
-                      cmd="cloudflared login"
+                      body="Runs once and opens your browser for the OAuth flow."
+                      cmd="cloudflared tunnel login"
                       copied={c.copiedCmd}
                       onCopy={c.copyCmd}
                       onRecheck={c.refreshTunnels}
                       recheckLabel="I've logged in"
                       loading={c.tunnelsLoading}
+                      runStep="cloudflared-login"
+                      runLabel="Log in to Cloudflare"
                     />
                   )}
 
                   {/* Step 3 — create first tunnel */}
                   {needsCreateTunnel && (
-                    <SetupCard
+                    <CreateTunnelCard
                       step={3}
-                      title="Create your first tunnel"
-                      body="Give it any name — you'll see it in the dropdown after."
-                      cmd="cloudflared tunnel create porta"
-                      copied={c.copiedCmd}
-                      onCopy={c.copyCmd}
-                      onRecheck={c.refreshTunnels}
-                      recheckLabel="I've created it"
+                      onCreated={c.refreshTunnels}
                       loading={c.tunnelsLoading}
                     />
                   )}
@@ -508,13 +507,15 @@ export default function TunnelingSection() {
               <SetupCard
                 step={1}
                 title="Install Tailscale"
-                body="Porta couldn't find the tailscale CLI. Install Tailscale from tailscale.com/download, or via Homebrew."
+                body="Porta couldn't find the tailscale CLI. Install it here, or grab the app from tailscale.com/download."
                 cmd="brew install tailscale"
                 copied={c.copiedCmd}
                 onCopy={c.copyCmd}
                 onRecheck={() => c.refreshTailscale(true)}
                 recheckLabel="I've installed it"
                 loading={c.tsLoading}
+                runStep="install-tailscale"
+                runLabel="Install with Homebrew"
                 hint={c.tsRecheckedWithoutChange ? "Still not finding the CLI. Try restarting Porta after install, or verify `which tailscale` shows a path." : null}
               />
             );
@@ -528,12 +529,17 @@ export default function TunnelingSection() {
                 step={2}
                 title={!c.tsStatus.running ? "Start Tailscale" : "Log in to Tailscale"}
                 body={body}
-                cmd="tailscale up"
+                cmd={!c.tsStatus.running ? "open -a Tailscale" : "tailscale up"}
                 copied={c.copiedCmd}
                 onCopy={c.copyCmd}
                 onRecheck={() => c.refreshTailscale(true)}
                 recheckLabel={!c.tsStatus.running ? "I've started it" : "I've logged in"}
                 loading={c.tsLoading}
+                // The CLI talks to the daemon the GUI app hosts, so a stopped
+                // daemon is fixed by launching the app — not by `tailscale up`,
+                // which would just fail to connect.
+                runStep={!c.tsStatus.running ? "start-tailscale-app" : "tailscale-up"}
+                runLabel={!c.tsStatus.running ? "Open Tailscale app" : "Connect & sign in"}
                 hint={c.tsRecheckedWithoutChange
                   ? (!c.tsStatus.running
                     ? "Daemon still stopped. Open the Tailscale app from your menu bar and wait for it to show 'Connected'."

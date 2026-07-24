@@ -815,6 +815,28 @@ export const stopService = (id: string): Promise<void> => {
 export const checkCloudflared = (): Promise<boolean> =>
   isTauri ? invoke("check_cloudflared") : Promise.resolve(false);
 
+// ── Provisioning (install + first-run setup, run from inside Porta) ──────────
+// The step ids are a fixed whitelist on the Rust side; the frontend never
+// passes a command line.
+export type ProvisionStep =
+  | "install-cloudflared"
+  | "install-tailscale"
+  | "cloudflared-login"
+  | "tailscale-up"
+  | "start-tailscale-app";
+
+/** Is Homebrew present? Gates whether install steps can run at all. */
+export const brewAvailable = (): Promise<boolean> =>
+  isTauri ? invoke("brew_available") : Promise.resolve(false);
+
+/** Run a step to completion. Output streams on the `provision:log` event. */
+export const runProvisionStep = (step: ProvisionStep): Promise<void> =>
+  isTauri ? invoke("run_provision_step", { step }) : Promise.reject(new Error("Not running in Porta"));
+
+/** Stop a step that's blocked on a browser flow the user walked away from. */
+export const cancelProvisionStep = (step: ProvisionStep): Promise<void> =>
+  isTauri ? invoke("cancel_provision_step", { step }) : Promise.resolve();
+
 export interface CloudflareTunnel {
   id: string;
   name: string;
