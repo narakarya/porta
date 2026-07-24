@@ -38,9 +38,18 @@ type Rule = {
 const RULES: Rule[] = [
   {
     // mise refuses to load an untrusted config, so every tool version the app
-    // needs silently disappears and the start command fails on PATH.
+    // needs silently disappears and the start command fails on PATH — the
+    // visible symptom is a `command not found: mix` several lines later.
+    //
+    // Matched against what mise actually prints, which spans three lines and
+    // pluralises: "Config files in <path> are not trusted." then "Trust them
+    // with `mise trust`." Each alternative below matches one of those lines on
+    // its own, because the scan is line-by-line.
+    //
+    // A fresh worktree is a fresh path, so every new branch instance of a
+    // mise-managed repo hits this on first run.
     id: "mise-trust",
-    test: /mise.*(?:config file .* is not trusted|not trusted.*mise trust|run `?mise trust)/i,
+    test: /\bmise trust\b|mise\b.*not trusted|not trusted.*\.mise\.toml/i,
     title: "mise won't load this project's config until it's trusted",
     command: "mise trust",
   },

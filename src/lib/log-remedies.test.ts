@@ -15,10 +15,25 @@ describe("detectLogRemedy", () => {
   });
 
   it("offers mise trust for an untrusted config", () => {
+    // Verbatim from a fresh worktree instance of a mise-managed Phoenix repo.
+    // mise spreads the message over three lines and pluralises ("files … are
+    // not trusted"), and the failure the user actually sees is the mix line
+    // several lines later — so the scan has to reach back past it.
     const out = detectLogRemedy([
-      "mise ERROR Config file /Users/me/app/mise.toml is not trusted. Trust it with `mise trust`.",
+      "mise ERROR error parsing config file: ~/projects/app/app-worktrees/feat-x/.mise.toml",
+      "mise ERROR Config files in ~/projects/app/app-worktrees/feat-x/.mise.toml are not trusted.",
+      "Trust them with `mise trust`. See https://mise.en.dev/cli/trust.html for more information.",
+      "mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information",
+      "zsh: command not found: mix",
     ]);
     expect(out?.command).toBe("mise trust");
+  });
+
+  it("does not mistake a missing mix for a missing node_modules", () => {
+    // `command not found: mix` is the symptom of the mise failure above, not a
+    // JS dependency problem — suggesting `npm install` here would be worse
+    // than suggesting nothing.
+    expect(detectLogRemedy(["zsh: command not found: mix"])).toBeNull();
   });
 
   it("picks the package manager out of the start command", () => {
