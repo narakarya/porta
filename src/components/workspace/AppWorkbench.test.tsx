@@ -8,7 +8,6 @@ import AppWorkbench from "./AppWorkbench";
 // Heavy leaves that own their own canvases / IPC / iframes. None of them are
 // what these tests are about.
 vi.mock("../terminal/TerminalWorkspace", () => ({ default: () => <div data-testid="terminal" /> }));
-vi.mock("./GitTab", () => ({ default: () => <div /> }));
 vi.mock("./AppAccessPopover", () => ({ default: () => <div /> }));
 vi.mock("../app/GitBadge", () => ({ default: () => <div /> }));
 vi.mock("../app/DockerUpdateBadge", () => ({ default: () => <div /> }));

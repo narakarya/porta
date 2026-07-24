@@ -5,12 +5,12 @@ import { usePortaStore } from "../../store";
 import { MAX_PINNED_EXTENSIONS } from "../../store/slices/ui";
 import { errorText } from "../../store/slices/notify";
 import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
-import { isTauri, openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder } from "../../lib/commands";
+import { openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder, detectAppListenPorts } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalWorkspace from "../terminal/TerminalWorkspace";
-import GitTab from "./GitTab";
 import AppAccessPopover, { type LocalDestination } from "./AppAccessPopover";
 import GitBadge from "../app/GitBadge";
+import ProfileStartButton from "../app/ProfileStartButton";
 import LogToast from "../app/LogToast";
 import DockerUpdateBadge from "../app/DockerUpdateBadge";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
@@ -49,20 +49,23 @@ function toStatus(s: string, crashed = false): Status {
 }
 
 const I = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none" } as const;
+
+// The native Git tab is gone; the vendored git-manager UI ("Git 2") stays in the
+// tree but is hidden until we come back to it. Flip this to surface the tab —
+// its lazy chunk and render branch below are still wired up.
+const SHOW_GIT2_TAB = false;
+const GIT2_TAB: TabItem = { id: "git2", label: "Git 2", icon: <svg {...I}><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> };
+
 const TABS: TabItem[] = [
   { id: "overview", label: "Overview", icon: <svg {...I}><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg> },
   { id: "logs", label: "Logs", icon: <svg {...I}><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
-  { id: "git", label: "Git", icon: <svg {...I}><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
-  // SPIKE — the vendored git-manager UI, sitting next to the native tab so the
-  // two can be judged side by side on the same repo. One of them goes away.
-  { id: "git2", label: "Git 2", icon: <svg {...I}><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
   { id: "terminal", label: "Terminal", icon: <svg {...I}><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6.5L7 8l-2 1.5M8.5 9.5H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
   { id: "config", label: "Config", icon: <svg {...I}><path d="M3.5 4.5h9M3.5 8h9M3.5 11.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="6" cy="4.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="10.5" cy="8" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="6" cy="11.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/></svg> },
 ];
 
-// Rolling window of live-metric samples kept per tile (~1 minute at the 2s
-// poll cadence). Feeds the sparklines under each metric value.
-const MAX_SAMPLES = 30;
+// Stable empty array so a metric-less app doesn't hand Sparkline a fresh
+// reference on every render.
+const EMPTY_SAMPLES: number[] = [];
 
 /** A rolling sparkline that fills its width, normalised against its own peak. */
 function Sparkline({ points, className = "" }: { points: number[]; className?: string }) {
@@ -131,42 +134,19 @@ function MetricTile({ label, value, points, sparkClass }: {
 }
 
 /**
- * Live per-app metrics panel — subscribes (component-local, isTauri-guarded)
- * to the backend `app:metrics:{id}` poller, which emits {cpu, mem_mb} every
- * ~2s for running process/docker apps. Keeps a rolling window per metric.
+ * Live per-app metrics panel.
+ *
+ * Both the latest sample and the rolling history come from the store, which
+ * subscribes to `app:metrics:{id}` for every app once at startup. This used to
+ * own a component-local subscription and its own buffers — so every tab switch
+ * unmounted it, threw the history away, and restarted the sparklines from a
+ * blank tile, which read as the metrics constantly resetting.
  */
 function LiveMetrics({ appId, running }: { appId: string; running: boolean }) {
-  const [sample, setSample] = useState<{ cpu: number; mem_mb: number } | null>(null);
-  const [cpuHist, setCpuHist] = useState<number[]>([]);
-  const [memHist, setMemHist] = useState<number[]>([]);
-
-  useEffect(() => {
-    // Drop stale history whenever we (re)subscribe or the app stops.
-    setSample(null);
-    setCpuHist([]);
-    setMemHist([]);
-    if (!isTauri || !running) return;
-
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    import("@tauri-apps/api/event")
-      .then(({ listen }) =>
-        listen<{ cpu: number; mem_mb: number }>(`app:metrics:${appId}`, (e) => {
-          setSample(e.payload);
-          setCpuHist((h) => [...h, e.payload.cpu].slice(-MAX_SAMPLES));
-          setMemHist((h) => [...h, e.payload.mem_mb].slice(-MAX_SAMPLES));
-        })
-      )
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [appId, running]);
+  const sample = usePortaStore((s) => s.appMetrics[appId] ?? null);
+  const history = usePortaStore((s) => s.appMetricHistory[appId]);
+  const cpuHist = history?.cpu ?? EMPTY_SAMPLES;
+  const memHist = history?.mem ?? EMPTY_SAMPLES;
 
   if (!running) {
     return (
@@ -264,6 +244,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     openExtensionSidebar, closeExtensionSidebar, cacheAppExtensions, extSidebarActive,
     pinnedExtensions, togglePinnedExtension, notifyError,
     clearTunnelLog, selectInstance, killApp, killInstanceAction, notify, workbenchTab, clearWorkbenchTab,
+    updateApp,
   } = usePortaStore(
     useShallow((s) => ({
       startApp: s.startApp,
@@ -295,6 +276,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
       notify: s.notify,
       workbenchTab: s.workbenchTab,
       clearWorkbenchTab: s.clearWorkbenchTab,
+      updateApp: s.updateApp,
     }))
   );
   // Only the parent workbench tracks instances — an instance can't nest.
@@ -525,6 +507,58 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     }
   }
 
+  // The port the process actually bound, when it isn't the one Porta configured
+  // (an app that ignores $PORT and reads its own config instead). Until this
+  // existed, that state read as "unhealthy, domain 502s, must be broken" with
+  // nothing anywhere naming the real cause.
+  const [portMismatch, setPortMismatch] = useState<number | null>(null);
+  const [syncingPort, setSyncingPort] = useState(false);
+  useEffect(() => {
+    if (!isManaged || !running || tab !== "overview") { setPortMismatch(null); return; }
+    let cancelled = false;
+    const probe = () => {
+      detectAppListenPorts(app.id)
+        .then((r) => { if (!cancelled) setPortMismatch(r.mismatch); })
+        .catch(() => { if (!cancelled) setPortMismatch(null); });
+    };
+    probe();
+    // A dev server can take a while to bind; re-check while Overview is open.
+    const t = setInterval(probe, 10_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [app.id, app.port, isManaged, running, tab]);
+
+  /** Adopt the port the app actually listens on — re-points Caddy with it. */
+  async function syncDetectedPort() {
+    if (portMismatch == null) return;
+    setSyncingPort(true);
+    try {
+      // update_app takes the whole row, so everything but `port` is echoed back.
+      await updateApp({
+        id: app.id,
+        name: app.name,
+        root_dir: app.root_dir,
+        port: portMismatch,
+        subdomain: app.subdomain,
+        start_command: app.start_command,
+        env_file: app.env_file ?? null,
+        auto_start: app.auto_start ?? false,
+        env_vars: app.env_vars ?? {},
+        restart_policy: app.restart_policy ?? "on-failure",
+        max_retries: app.max_retries ?? 3,
+        health_check_path: app.health_check_path ?? null,
+        depends_on: app.depends_on ?? [],
+        extra_subdomains: app.extra_subdomains ?? [],
+        custom_domain: app.custom_domain ?? null,
+      });
+      notify({ kind: "success", message: `Porta now routes ${app.name} to :${portMismatch}` });
+      setPortMismatch(null);
+    } catch (e) {
+      notifyError("Could not update the port", e);
+    } finally {
+      setSyncingPort(false);
+    }
+  }
+
   // A crashed run can leave its port bound by an orphan the app no longer
   // tracks, and Start then fails with "address already in use" forever.
   async function freePort() {
@@ -579,6 +613,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     setTab("config");
   }
 
+  const activeProfileName =
+    (app.env_profiles ?? []).find((p) => p.id === app.active_profile_id)?.name ?? null;
+
   const row = "flex items-center gap-4 py-2 border-b border-subtle text-[13px] last:border-0";
   const key = "text-ink-3 shrink-0 w-24";
 
@@ -601,6 +638,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // Instance mode hides Config because a branch instance inherits its parent.
   const visibleTabs: TabItem[] = [
     ...(isInstance ? TABS.filter((t) => t.id !== "config") : TABS),
+    ...(SHOW_GIT2_TAB ? [GIT2_TAB] : []),
     ...pinnedExts.map((e) => ({
       id: `ext:${e.id}`,
       label: e.name,
@@ -667,6 +705,16 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             )}
             <span className="text-ink-3/60" aria-hidden>·</span>
             <span className="font-mono shrink-0">:{app.port}</span>
+            {/* Which env this app runs under changes what its logs and data
+                mean, so it reads in the header, not only on the grid card. */}
+            {!isInstance && activeProfileName && (
+              <span
+                title={`Run profile: ${activeProfileName}`}
+                className="shrink-0 text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded leading-none uppercase"
+              >
+                {activeProfileName}
+              </span>
+            )}
             {/* The instance title already is its branch. Keeping GitBadge here
                 duplicated the same long label and made the header unreadable. */}
             {!isInstance && <GitBadge app={app} onOpenTerminal={() => select("terminal")} />}
@@ -688,14 +736,16 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             </>
           ) : (
             <>
-              <Button
-                variant="accent"
+              {/* Split Start: the chevron half picks the env profile to run
+                  under. Instances inherit their parent's profile, so they get
+                  the plain button. */}
+              <ProfileStartButton
+                app={app}
                 loading={startLoading}
-                icon={<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2.2l6 3.8-6 3.8z"/></svg>}
-                onClick={() => runLifecycle("start", startFn)}
-              >
-                {startLoading ? "Starting" : crashed ? "Restart" : "Start"}
-              </Button>
+                label={startLoading ? "Starting" : crashed ? "Restart" : "Start"}
+                onStart={() => runLifecycle("start", startFn)}
+                profilesEnabled={!isInstance}
+              />
               {/* Abort a boot that's hanging — only meaningful while starting. */}
               {startLoading && (
                 <Button
@@ -840,7 +890,12 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
 
       <div className="flex-1 min-h-0">
         <div hidden={tab !== "overview"} className="h-full overflow-y-auto px-6 py-5">
-          <div className="max-w-2xl space-y-6">
+          {/* Two columns once there's room. Overview was a single 2xl-wide
+              stack, which on a normal window left more than half the pane
+              empty while the content itself scrolled. */}
+          <div className="w-full max-w-[1180px] space-y-6">
+          <div className="grid gap-x-6 gap-y-6 items-start xl:grid-cols-2">
+          <div className="space-y-6 min-w-0">
             <section>
               <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Details</div>
               <Card padded={false} className="overflow-hidden">
@@ -854,7 +909,53 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                   </div>
                   <div className={row}>
                     <span className={key}>Port</span>
-                    <span className="text-ink-2 font-mono">{app.port}</span>
+                    <span className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+                      <span className="text-ink-2 font-mono">{app.port}</span>
+                      {/* Mismatch: the app bound a different port than Porta
+                          configured, so Caddy proxies into nothing. Naming it
+                          here (with the one-click fix) beats the old silence. */}
+                      {portMismatch != null && (
+                        <>
+                          <span
+                            title={`${app.name} is listening on :${portMismatch}, not :${app.port} — Caddy is routing to the wrong port.`}
+                            className="inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-300"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 11 11" fill="none" aria-hidden>
+                              <path d="M5.5 1.5l4 7h-8l4-7z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                              <path d="M5.5 4.4v1.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                              <circle cx="5.5" cy="7.4" r="0.5" fill="currentColor"/>
+                            </svg>
+                            actually on :{portMismatch}
+                          </span>
+                          <Button size="sm" variant="accent" loading={syncingPort} onClick={() => { void syncDetectedPort(); }}>
+                            Use :{portMismatch}
+                          </Button>
+                        </>
+                      )}
+                      {/* Kill lives with the port it acts on, rather than beside
+                          Stop where it read as a second lifecycle button. */}
+                      {isManaged && (
+                        <span className="ml-auto shrink-0">
+                          {isActive ? (
+                            <button
+                              onClick={() => { void confirmForceKill(); }}
+                              title="SIGKILL the process — no clean shutdown"
+                              className="text-[11px] text-ink-3 hover:text-bad transition-colors"
+                            >
+                              Force kill
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => { void freePort(); }}
+                              title={`Kill whatever is holding :${app.port}`}
+                              className="text-[11px] text-ink-3 hover:text-bad transition-colors"
+                            >
+                              Kill port holder
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <div className={row}>
                     <span className={key}>Kind</span>
@@ -938,7 +1039,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 </div>
               </section>
             )}
+          </div>
 
+          {/* Right column — the live/at-a-glance half. */}
+          <div className="space-y-6 min-w-0">
             <section>
               <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Live metrics</div>
               <LiveMetrics appId={app.id} running={running} />
@@ -1017,6 +1121,8 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 </div>
               </section>
             )}
+          </div>
+          </div>
 
             {/* Instances (mockup 26) — the primary checkout plus each git-worktree
                 branch instance. "＋ New from branch" reveals the inline picker;
@@ -1154,11 +1260,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           </div>
         )}
 
-        <div hidden={tab !== "git"} className="h-full">
-          <GitTab app={app} />
-        </div>
-
-        {/* SPIKE — kept mounted on purpose: surviving a tab switch with scroll,
+        {/* Kept mounted on purpose: surviving a tab switch with scroll,
             filters and a draft commit message intact is the whole point of
             running it in-process rather than in an iframe. */}
         {git2Seen && (

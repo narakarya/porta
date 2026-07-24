@@ -70,27 +70,6 @@ function StopButton({ stopping, onClick }: { stopping: boolean; onClick: () => v
   );
 }
 
-/** Force Kill, sitting next to Stop instead of only in the context menu. When a
- *  process is wedged — a prod build that ignores SIGTERM, a server that won't
- *  come down — hunting through a right-click menu is the wrong ergonomics. Icon
- *  only, so it stays visually quieter than Stop and doesn't invite mis-clicks;
- *  the click opens a confirm bar rather than killing outright. */
-function KillButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Tooltip label="Force kill (SIGKILL)" side="top">
-      <button
-        onClick={onClick}
-        aria-label="Force kill"
-        className="flex items-center p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-      >
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M5.5 1v2M5.5 8v2M1 5.5h2M8 5.5h2M2.5 2.5l1.5 1.5M7 7l1.5 1.5M7 2.5L5.5 4M2.5 8.5L4 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
-      </button>
-    </Tooltip>
-  );
-}
-
 function allHosts(app: App, workspace: Workspace | null): string[] {
   const domain = app.custom_domain || workspace?.domain || "narakarya.test";
   const primary = resolvedHost(app, workspace);
@@ -823,7 +802,6 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 {busyLabel}
               </button>
               <StopButton stopping={stopping} onClick={handleStop} />
-              <KillButton onClick={() => setKillConfirm(true)} />
             </>
           ) : isRunning || stopping ? (
             <>
@@ -847,7 +825,6 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 Restart
               </button>
               <StopButton stopping={stopping} onClick={handleStop} />
-              <KillButton onClick={() => setKillConfirm(true)} />
             </>
           ) : (
             <>
@@ -869,21 +846,6 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               {(isDocker || isCompose) && crashed && (
                 <Tooltip label="Clean up any orphan containers from the failed start" className="inline-flex">
                   <StopButton stopping={stopping} onClick={handleStop} />
-                </Tooltip>
-              )}
-              {/* Keep port cleanup visible on stopped instances. The context
-                  menu also exposes this action, but the inline button makes
-                  the recovery path discoverable when an orphan still owns the
-                  instance's port. */}
-              {isInstance && instance && (
-                <Tooltip label={`Free port :${app.port}`} className="inline-flex">
-                  <button
-                    onClick={handleKillPortHolder}
-                    disabled={killingPort}
-                    className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-amber-300 hover:bg-amber-500/10 rounded-md transition-colors disabled:opacity-40"
-                  >
-                    {killingPort ? "Killing…" : "Kill port"}
-                  </button>
                 </Tooltip>
               )}
               {/* Remove a stopped/crashed instance for good — deletes its row,
