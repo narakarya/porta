@@ -22,6 +22,7 @@ export default function HostVault() {
   const [query, setQuery] = useState("");
   const [wsFilter, setWsFilter] = useState(""); // "" = all
   const [filterOpen, setFilterOpen] = useState(false);
+  const [wsQuery, setWsQuery] = useState("");
   const [editing, setEditing] = useState<SshHost | null>(null);
   const [adding, setAdding] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null); // right-click context menu
@@ -128,6 +129,28 @@ export default function HostVault() {
 
   const activeFilterName = wsFilter ? wsName.get(wsFilter) : null;
 
+  // Only the workspaces some host is actually tagged with. The filter used to
+  // list every workspace in Porta — mostly entries that could never match a
+  // host, so picking one just emptied the list.
+  const usedWorkspaces = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const h of hosts) for (const id of h.workspace_ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+    return workspaces
+      .filter((w) => counts.has(w.id))
+      .map((w) => ({ id: w.id, name: w.name, count: counts.get(w.id) ?? 0 }));
+  }, [hosts, workspaces]);
+
+  // Editing the last host out of a workspace would otherwise leave the filter
+  // pinned to a workspace that no longer appears in its own menu.
+  useEffect(() => {
+    if (wsFilter && !usedWorkspaces.some((w) => w.id === wsFilter)) setWsFilter("");
+  }, [wsFilter, usedWorkspaces]);
+
+  const visibleWorkspaces = useMemo(() => {
+    const q = wsQuery.trim().toLowerCase();
+    return q ? usedWorkspaces.filter((w) => w.name.toLowerCase().includes(q)) : usedWorkspaces;
+  }, [usedWorkspaces, wsQuery]);
+
   const activeHostId = useMemo(
     () => sessions.find((s) => s.id === activeSessionId)?.hostId ?? null,
     [sessions, activeSessionId]
@@ -163,10 +186,10 @@ export default function HostVault() {
           placeholder="Search hosts…"
           className="flex-1 min-w-0 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
         />
-        {workspaces.length > 0 && (
+        {usedWorkspaces.length > 0 && (
           <div className="relative shrink-0" ref={filterRef}>
             <button
-              onClick={() => setFilterOpen((v) => !v)}
+              onClick={() => { setWsQuery(""); setFilterOpen((v) => !v); }}
               title={activeFilterName ? `Filtered: ${activeFilterName}` : "Filter by workspace"}
               className={`relative flex items-center justify-center w-7 h-7 rounded-control border transition-colors ${
                 wsFilter
@@ -182,20 +205,35 @@ export default function HostVault() {
             {filterOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
-                <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto z-50 p-1 bg-surface-2 border border-strong rounded-card shadow-xl">
+                <div className="absolute right-0 mt-1 w-52 max-h-72 overflow-y-auto z-50 p-1 bg-surface-2 border border-strong rounded-card shadow-xl">
+                  {/* Search once the list is long enough to scroll past. */}
+                  {usedWorkspaces.length > 6 && (
+                    <input
+                      value={wsQuery}
+                      onChange={(e) => setWsQuery(e.target.value)}
+                      placeholder="Search workspace…"
+                      autoFocus
+                      spellCheck={false}
+                      className="w-full mb-1 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+                    />
+                  )}
                   <button
                     onClick={() => { setWsFilter(""); setFilterOpen(false); }}
                     className={`w-full text-left px-2 py-1 text-[12px] rounded-md ${!wsFilter ? "text-accent-ink bg-accent-bg" : "text-ink-2 hover:bg-white/[0.05]"}`}
                   >
                     All workspaces
                   </button>
-                  {workspaces.map((w) => (
+                  {visibleWorkspaces.length === 0 && (
+                    <p className="px-2 py-1 text-[11px] text-ink-3">No matching workspace.</p>
+                  )}
+                  {visibleWorkspaces.map((w) => (
                     <button
                       key={w.id}
                       onClick={() => { setWsFilter(w.id); setFilterOpen(false); }}
-                      className={`w-full text-left px-2 py-1 text-[12px] rounded-md truncate ${wsFilter === w.id ? "text-accent-ink bg-accent-bg" : "text-ink-2 hover:bg-white/[0.05]"}`}
+                      className={`w-full flex items-center gap-2 px-2 py-1 text-[12px] rounded-md ${wsFilter === w.id ? "text-accent-ink bg-accent-bg" : "text-ink-2 hover:bg-white/[0.05]"}`}
                     >
-                      {w.name}
+                      <span className="truncate flex-1 text-left">{w.name}</span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-ink-3">{w.count}</span>
                     </button>
                   ))}
                 </div>
