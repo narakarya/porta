@@ -217,16 +217,35 @@ export function useAppConfigDraft(
   // Health check (from agent-a7a6ec3b)
   const [healthCheckPath, setHealthCheckPath] = useState(app.health_check_path ?? "");
 
-  const [envFile, setEnvFile] = useState(app.env_file ?? "");
+  // The env editor always shows the ACTIVE profile — `selectProfile` swaps its
+  // contents on every switch, and `handleSave` writes what's on screen back
+  // into that profile. The initial state has to follow the same rule: seeding
+  // it from the app-level env while a profile was active opened the form on
+  // Default's variables under the profile's tab. That read as permanently
+  // dirty, and Save then wrote those wrong values *into* the profile —
+  // silently replacing a prod profile's environment with Default's.
+  const initialProfile = (app.env_profiles ?? []).find((p) => p.id === app.active_profile_id);
+  const [envFile, setEnvFile] = useState(
+    initialProfile ? (initialProfile.env_file ?? "") : (app.env_file ?? "")
+  );
   const [autoStart, setAutoStart] = useState(app.auto_start);
   // Inline env vars: stored as array of [key, value] pairs for easy editing
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>(
-    Object.entries(app.env_vars ?? {}).map(([key, value]) => ({ key, value }))
+    Object.entries((initialProfile ? initialProfile.env_vars : app.env_vars) ?? {})
+      .map(([key, value]) => ({ key, value }))
   );
   const [restartPolicy, setRestartPolicy] = useState<"never" | "always" | "on-failure">(
     app.restart_policy ?? "on-failure"
   );
   const [maxRetries, setMaxRetries] = useState(String(app.max_retries ?? 3));
+  // Zero is a real setting — "don't retry" — so it has to survive parsing.
+  // `parseInt(x) || 3` turned it into 3, which meant an app configured that way
+  // read as permanently dirty *and* got quietly rewritten to 3 on the next
+  // save. Only an empty or unparseable field falls back to the default.
+  const maxRetriesValue = (() => {
+    const n = parseInt(maxRetries, 10);
+    return Number.isNaN(n) ? 3 : n;
+  })();
 
   // Auto-sleep: stop the app when idle, wake transparently on next request.
   // Persisted via its own command (set_app_auto_sleep), not the giant updateApp.
@@ -569,7 +588,6 @@ export function useAppConfigDraft(
   // swapping the app-level Start Command field) so `app.start_command` always
   // remains the Default profile's value — the fallback the backend resolves to
   // when a profile leaves its override blank.
-  const initialProfile = (app.env_profiles ?? []).find((p) => p.id === app.active_profile_id);
   const [profileStartCommand, setProfileStartCommand] = useState(initialProfile?.start_command ?? "");
   const [profileBuildCommand, setProfileBuildCommand] = useState(initialProfile?.build_command ?? "");
   const [showNewProfile, setShowNewProfile] = useState(false);
@@ -730,25 +748,38 @@ export function useAppConfigDraft(
       JSON.stringify(portBindings) !== JSON.stringify(app.port_bindings ?? []) ||
       (customDomain.trim() || null) !== (app.custom_domain ?? null) ||
       basicAuthEnabled !== (app.basic_auth_enabled ?? false) ||
-      basicAuthUsername.trim() !== (app.basic_auth_username ?? "") ||
+      // The username only means anything while auth is on — with it off, save
+      // stores null no matter what the (hidden) field holds. Comparing it
+      // unconditionally made two states permanently dirty: a username typed
+      // then auth switched off, and an app whose stored username outlived the
+      // toggle. Turning auth off is still caught, by the line above.
+      (basicAuthEnabled && basicAuthUsername.trim() !== (app.basic_auth_username ?? "")) ||
       basicAuthPassword !== "" ||
-      startCommand !== (app.start_command ?? "") ||
+      // Save trims, so compare trimmed — otherwise a trailing space typed into
+      // the command is a diff that saving can never resolve.
+      startCommand.trim() !== (app.start_command ?? "") ||
       (app.kind === "docker" && (
         (dockerImage.trim() || null) !== (app.docker_image ?? null) ||
         (parseInt(dockerContainerPort, 10) || null) !== (app.docker_container_port ?? null) ||
         (dockerArgs.trim() || null) !== (app.docker_args ?? null) ||
         JSON.stringify(dockerVolumes.filter((v) => v.trim())) !== JSON.stringify(app.docker_volumes ?? [])
       )) ||
+      // In paste mode the path is the backend's to decide — it writes the YAML
+      // into Porta's managed compose dir and stores that path, ignoring the
+      // `compose_file: null` the form sends. Comparing null against that stored
+      // path made every compose app on pasted YAML open already dirty, with no
+      // edit able to clear it: the only honest diff here is the YAML itself.
       (app.kind === "compose" && (
-        (composeMode === "file" ? (composeFile.trim() || null) : null) !== (app.compose_file ?? null) ||
-        (composeMode === "paste" && composeYaml !== composeYamlInitial)
+        composeMode === "file"
+          ? (composeFile.trim() || null) !== (app.compose_file ?? null)
+          : composeYaml !== composeYamlInitial
       )) ||
       ((app.kind === "docker" || app.kind === "compose") && networkShare !== app.network_share) ||
       (envFile.trim() || null) !== baseEnvFile ||
       autoStart !== app.auto_start ||
       envKey(envVarsObj) !== envKey(baseEnvVars) ||
       restartPolicy !== (app.restart_policy ?? "on-failure") ||
-      (parseInt(maxRetries, 10) || 3) !== (app.max_retries ?? 3) ||
+      maxRetriesValue !== (app.max_retries ?? 3) ||
       (healthCheckPath.trim() || null) !== (app.health_check_path ?? null) ||
       profilesKey(envProfiles) !== profilesKey(app.env_profiles ?? []) ||
       activeProfileId !== (app.active_profile_id ?? null) ||
@@ -763,8 +794,13 @@ export function useAppConfigDraft(
       (tunnelMode === "named" ? (tunnelHostname.trim() || null) : null) !== (app.tunnel_custom_hostname ?? null) ||
       (tunnelAliasDomain.trim() || null) !== (app.tunnel_alias_domain ?? null) ||
       tunnelAliasRewriteHost !== (app.tunnel_alias_rewrite_host ?? true) ||
-      autoSleepEnabled !== (app.auto_sleep_enabled ?? false) ||
-      ((parseInt(idleTimeoutMin, 10) || 30) * 60) !== (app.idle_timeout_secs ?? 1800) ||
+      // Auto-sleep only persists for kinds that support it (handleSave skips
+      // the call otherwise), so on a static/proxy app a stored value that
+      // disagrees with the form is a diff no save can ever close.
+      (autoSleepSupported && (
+        autoSleepEnabled !== (app.auto_sleep_enabled ?? false) ||
+        ((parseInt(idleTimeoutMin, 10) || 30) * 60) !== (app.idle_timeout_secs ?? 1800)
+      )) ||
       maxUploadBytesValue !== (app.max_upload_bytes ?? null)
     );
   }, [
@@ -776,7 +812,7 @@ export function useAppConfigDraft(
     envProfiles, activeProfileId, profileStartCommand, profileBuildCommand,
     tunnelMode, tunnelName, tunnelHostname,
     tunnelAliasDomain, tunnelAliasRewriteHost,
-    autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
+    autoSleepSupported, autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
   ]);
 
   // `window.confirm` is unreliable inside the Tauri webview — it can resolve
@@ -945,7 +981,7 @@ export function useAppConfigDraft(
         auto_start: autoStart,
         env_vars: finalEnvVars,
         restart_policy: restartPolicy,
-        max_retries: parseInt(maxRetries, 10) || 3,
+        max_retries: maxRetriesValue,
         health_check_path: healthCheckPath.trim() || null,
         depends_on: app.depends_on ?? [],
         extra_subdomains: extraSubdomains,
