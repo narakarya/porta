@@ -18,7 +18,8 @@ interface Props {
   rootDir: string;
   /** Whether this surface is on screen — gates xterm repaint + shortcuts. */
   active: boolean;
-  /** Externally requested session (grid "Run in terminal"). Modal-only. */
+  /** Externally requested session — the grid's "Run in terminal", or the
+   *  workbench's one-click fix for a boot failure ("Run mix deps.get"). */
   pendingSession?: SessionRequest | null;
   /** Seed a first tab on mount instead of waiting for a pendingSession. */
   autoSeed?: boolean;

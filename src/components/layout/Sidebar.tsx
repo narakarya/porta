@@ -10,6 +10,7 @@ import {
 } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import { deriveInstanceApp } from "../../lib/instance-app";
+import { confirmRemoveInstance } from "../../lib/confirm";
 import type { App, Workspace } from "../../types";
 import WorkspaceContextMenu from "../workspace/WorkspaceContextMenu";
 import AppContextMenu from "../app/AppContextMenu";
@@ -420,7 +421,9 @@ export default function Sidebar() {
       { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(target)); } },
       { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(target); } },
       "separator",
-      { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void removeInstanceAction(inst.id, app.id); } },
+      // Confirmed — the menu item sits one row under "Extensions", and removal
+      // takes the instance's domain and port down with no undo.
+      { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void (async () => { if (await confirmRemoveInstance(inst.branch)) await removeInstanceAction(inst.id, app.id); })(); } },
     ];
   }
 

@@ -1,10 +1,12 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { App } from "../../types";
 import { usePortaStore } from "../../store";
 import { MAX_PINNED_EXTENSIONS } from "../../store/slices/ui";
 import { errorText } from "../../store/slices/notify";
 import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
+import { confirmRemoveInstance } from "../../lib/confirm";
+import { detectLogRemedy } from "../../lib/log-remedies";
 import { openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder, detectAppListenPorts } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalWorkspace from "../terminal/TerminalWorkspace";
@@ -416,6 +418,19 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // Switching to the logger supersedes the preview.
   useEffect(() => { if (inLogger) setLogToastOpen(false); }, [inLogger]);
 
+  // ── Fixable boot failures ────────────────────────────────────────────────
+  // A crash whose log says "run mix deps.get" (or mise trust, bundle install, …)
+  // is a one-command fix the user otherwise has to spot in the output and type
+  // by hand. Only scanned once the process is down — while it streams, `logs`
+  // changes on every line and the answer can't be actionable yet anyway.
+  const remedy = useMemo(
+    () => (isActive || !crashed ? null : detectLogRemedy(logs, { startCommand: app.start_command })),
+    [isActive, crashed, logs, app.start_command],
+  );
+  // Terminal tab session request — carries the remedy's command as the tab's
+  // startup command so "Run …" lands in a real shell in the app's root dir.
+  const [pendingTerm, setPendingTerm] = useState<{ id: string; startupCommand: string } | null>(null);
+
   // Switching apps/instances reuses this component — don't carry the previous
   // app's toast or crash banner over.
   useEffect(() => {
@@ -491,6 +506,19 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const forceKillFn = isInstance
     ? () => killInstanceAction(instance!.id, parentApp!.id)
     : () => killApp(app.id);
+
+  // Removal is one click next to Stop/Run in three different places and used to
+  // fire straight through — a mis-click silently took the instance's domain and
+  // port down with no undo.
+  async function confirmRemove(inst: AppInstance, after?: () => void) {
+    if (!(await confirmRemoveInstance(inst.branch))) return;
+    try {
+      await removeInstanceAction(inst.id, inst.app_id);
+      after?.();
+    } catch (e) {
+      notifyError(`Could not remove ${inst.branch}`, e);
+    }
+  }
 
   async function confirmForceKill() {
     const { confirm } = await import("@tauri-apps/plugin-dialog");
@@ -796,10 +824,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           )}
           {isInstance ? (
             <>
-              {/* Remove this instance (deletes its worktree). */}
+              {/* Remove this instance (the worktree on disk is left alone). */}
               <Button
                 variant="ghost"
-                onClick={() => { void removeInstanceAction(instance!.id, parentApp!.id); onExitInstance?.(); }}
+                onClick={() => { void confirmRemove(instance!, () => onExitInstance?.()); }}
                 title="Remove instance"
                 aria-label="Remove instance"
                 className="hover:text-bad"
@@ -871,7 +899,24 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
           </svg>
-          <p className="text-[11px] text-red-400 flex-1">Exited with code {exitCode}</p>
+          <p className="text-[11px] text-red-400 flex-1">
+            Exited with code {exitCode}
+            {remedy && <span className="text-red-300/80"> — {remedy.title}</span>}
+          </p>
+          {/* The whole point: the fix is one click, not a log hunt. */}
+          {remedy && (
+            <Button
+              size="sm"
+              variant="accent"
+              onClick={() => {
+                setPendingTerm({ id: `remedy-${remedy.id}-${Date.now()}`, startupCommand: remedy.command });
+                select("terminal");
+              }}
+              title={`Run ${remedy.command} in ${app.root_dir}`}
+            >
+              Run {remedy.command}
+            </Button>
+          )}
           {!inLogger && (
             <button onClick={() => select("logs")} className="text-[10px] text-red-300 hover:text-red-200 transition-colors">
               view logs
@@ -1201,7 +1246,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                             <button onClick={() => void runInstance(app.id, inst.worktree_path)} title="Run instance" aria-label="Run instance" className="hover:text-ok transition-colors">
                               <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5l7 4.5-7 4.5z"/></svg>
                             </button>
-                            <button onClick={() => void removeInstanceAction(inst.id, app.id)} title="Remove instance" aria-label="Remove instance" className="hover:text-bad transition-colors">
+                            <button onClick={() => void confirmRemove(inst)} title="Remove instance" aria-label="Remove instance" className="hover:text-bad transition-colors">
                               <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6.5 4.5V3.2A.7.7 0 0 1 7.2 2.5h1.6a.7.7 0 0 1 .7.7v1.3M5 4.5l.5 8a1 1 0 0 0 1 .9h3a1 1 0 0 0 1-.9l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                             </button>
                           </>
@@ -1235,6 +1280,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 appId={app.id}
                 appName={app.name}
                 appKind={app.kind}
+                isInstance={isInstance}
                 logs={logs}
                 isRunning={running}
                 onClose={() => setTab("overview")}
@@ -1255,6 +1301,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               appName={isInstance ? instance!.branch : app.name}
               rootDir={app.root_dir}
               active={tab === "terminal"}
+              pendingSession={pendingTerm}
               autoSeed
             />
           </div>
