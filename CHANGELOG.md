@@ -4,6 +4,18 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.19]
+
+### Fixed
+
+- **The "untrusted mise config" fix now actually gets offered.** The detection
+  rule shipped in beta.17 was written against a paraphrase of mise's message;
+  mise prints something else, spread over three lines and pluralised, so the
+  one failure most likely to greet a fresh worktree instance (a new worktree is
+  a new path, and mise trusts by path) matched nothing and the crash banner sat
+  there with no suggestion. Matched against the real output now — the banner
+  offers **Run mise trust** in a terminal rooted at the worktree.
+
 ## [0.14.0-beta.18]
 
 ### Added
