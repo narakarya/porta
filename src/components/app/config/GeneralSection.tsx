@@ -23,8 +23,6 @@ export default function GeneralSection() {
     composeErrorLine,
     networkShare, setNetworkShare,
     healthCheckPath, setHealthCheckPath,
-    dependsOn, setDependsOn,
-    siblingApps,
     portValid,
     portCheckResult,
     browseRootDir,
@@ -257,43 +255,6 @@ export default function GeneralSection() {
         )}
       </div>
 
-      {/* Start After (dependencies) (from agent-a7a6ec3b) */}
-      {siblingApps.length > 0 && (
-        <div className="flex flex-col gap-3 p-5 rounded-card bg-surface-1 border border-subtle">
-          <div>
-            <p className="text-[12px] font-medium text-ink-2">Start After</p>
-            <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
-              Select apps that must be running before this app starts.
-            </p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {siblingApps.map((sibling) => {
-              const checked = dependsOn.includes(sibling.id);
-              return (
-                <label
-                  key={sibling.id}
-                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors cursor-pointer"
-                >
-                  <input spellCheck={false}
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() =>
-                      setDependsOn((prev) =>
-                        checked
-                          ? prev.filter((id) => id !== sibling.id)
-                          : [...prev, sibling.id]
-                      )
-                    }
-                    className="rounded border-strong bg-surface-2 text-accent focus:ring-[rgba(96,165,250,0.45)] focus:ring-offset-0"
-                  />
-                  <span className="text-[13px] text-ink-2">{sibling.name}</span>
-                  <span className="text-[11px] text-ink-3">:{sibling.port}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </>
   );
 }

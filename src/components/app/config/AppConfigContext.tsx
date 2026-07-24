@@ -115,7 +115,7 @@ export function useAppConfigDraft(
   onSaved?: () => void,
   initialSection?: Section,
 ) {
-  const { updateApp, deleteApp, apps, startTunnel, stopTunnel, setupStatus, appTunnelErrors, setAppAutoSleep, setAppMaxUploadBytes } = usePortaStore();
+  const { updateApp, deleteApp, startTunnel, stopTunnel, setupStatus, appTunnelErrors, setAppAutoSleep, setAppMaxUploadBytes } = usePortaStore();
   const tunnelError = appTunnelErrors[app.id] ?? null;
   const [tunnelErrorCopied, setTunnelErrorCopied] = useState(false);
   const [section, setSection] = useState<Section>(initialSection ?? "general");
@@ -216,8 +216,6 @@ export function useAppConfigDraft(
   }, [composeYaml, composeMode, app.kind]);
   // Health check (from agent-a7a6ec3b)
   const [healthCheckPath, setHealthCheckPath] = useState(app.health_check_path ?? "");
-  // Dependencies (from agent-a7a6ec3b)
-  const [dependsOn, setDependsOn] = useState<string[]>(app.depends_on ?? []);
 
   const [envFile, setEnvFile] = useState(app.env_file ?? "");
   const [autoStart, setAutoStart] = useState(app.auto_start);
@@ -251,11 +249,6 @@ export function useAppConfigDraft(
     maxUploadMb.trim() === ""
       ? null
       : Math.max(0, Math.round(Number(maxUploadMb) || 0)) * 1024 * 1024;
-
-  // Other apps in same workspace for dependency selection
-  const siblingApps = apps.filter(
-    (a) => a.id !== app.id && a.workspace_id === app.workspace_id
-  );
 
   // Tunneling state (from agent-a02c9388)
   const [tunnelProvider, setTunnelProvider] = useState(app.tunnel_provider ?? "cloudflare");
@@ -757,7 +750,6 @@ export function useAppConfigDraft(
       restartPolicy !== (app.restart_policy ?? "on-failure") ||
       (parseInt(maxRetries, 10) || 3) !== (app.max_retries ?? 3) ||
       (healthCheckPath.trim() || null) !== (app.health_check_path ?? null) ||
-      JSON.stringify(dependsOn) !== JSON.stringify(app.depends_on ?? []) ||
       profilesKey(envProfiles) !== profilesKey(app.env_profiles ?? []) ||
       activeProfileId !== (app.active_profile_id ?? null) ||
       // The active profile's command overrides live in their own display state
@@ -781,7 +773,7 @@ export function useAppConfigDraft(
     dockerImage, dockerContainerPort, dockerArgs, dockerVolumes,
     composeMode, composeFile, composeYaml, composeYamlInitial, networkShare,
     envFile, autoStart, envVars, restartPolicy, maxRetries, healthCheckPath,
-    dependsOn, envProfiles, activeProfileId, profileStartCommand, profileBuildCommand,
+    envProfiles, activeProfileId, profileStartCommand, profileBuildCommand,
     tunnelMode, tunnelName, tunnelHostname,
     tunnelAliasDomain, tunnelAliasRewriteHost,
     autoSleepEnabled, idleTimeoutMin, maxUploadBytesValue,
@@ -955,7 +947,7 @@ export function useAppConfigDraft(
         restart_policy: restartPolicy,
         max_retries: parseInt(maxRetries, 10) || 3,
         health_check_path: healthCheckPath.trim() || null,
-        depends_on: dependsOn,
+        depends_on: app.depends_on ?? [],
         extra_subdomains: extraSubdomains,
         custom_domain: customDomain.trim() || null,
         port_bindings: portBindings,
@@ -1071,7 +1063,6 @@ export function useAppConfigDraft(
     networkShare, setNetworkShare,
     composeYamlInitial, setComposeYamlInitial,
     healthCheckPath, setHealthCheckPath,
-    dependsOn, setDependsOn,
     envFile, setEnvFile, autoStart, setAutoStart,
     envVars, setEnvVars,
     restartPolicy, setRestartPolicy,
@@ -1080,7 +1071,6 @@ export function useAppConfigDraft(
     idleTimeoutMin, setIdleTimeoutMin,
     autoSleepSupported,
     maxUploadMb, setMaxUploadMb, maxUploadBytesValue,
-    siblingApps,
     tunnelProvider, setTunnelProvider,
     tunnelMode, setTunnelMode,
     tunnelName, setTunnelName,
