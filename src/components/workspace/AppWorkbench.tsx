@@ -8,7 +8,7 @@ import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
 import { confirmRemoveInstance } from "../../lib/confirm";
 import { detectLogRemedy } from "../../lib/log-remedies";
 import { openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder, detectAppListenPorts } from "../../lib/commands";
-import { Button, Tabs, StatusDot, Badge, Card, Skeleton, type Status, type TabItem } from "../ui";
+import { Button, Tabs, StatusDot, Badge, Card, Popover, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalWorkspace from "../terminal/TerminalWorkspace";
 import AppAccessPopover, { type LocalDestination } from "./AppAccessPopover";
 import GitBadge from "../app/GitBadge";
@@ -373,6 +373,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const primaryHost = primaryDomainHost;
   const localUrl = localDestinations[0].url;
   const url = app.tunnel_active && app.tunnel_url ? app.tunnel_url : localUrl;
+  // Hosts the URL row isn't already showing. When a tunnel owns that row the
+  // local primary host is one of these; otherwise it's the URL itself and only
+  // the aliases are left to list.
+  const aliasHosts = url === localUrl ? allHosts.slice(1) : allHosts;
   // Public host Caddy exposes this app under — shown as a link in the header.
   const domainHost =
     app.tunnel_active && app.tunnel_url ? app.tunnel_url.replace(/^https?:\/\//, "")
@@ -1038,36 +1042,43 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                       <CopyButton value={url} label="URL" />
                     </span>
                   </div>
-                  {/* Every Caddy host this app answers on — the primary
-                      subdomain plus any extra_subdomains (restored from the card). */}
+                  {/* The OTHER Caddy hosts this app answers on. The primary host
+                      is the URL row directly above (except while a tunnel owns
+                      that row), so listing it again was one chip repeating the
+                      line above it — for an instance, which owns exactly one
+                      generated host, the whole row was that repeat. */}
+                  {aliasHosts.length > 0 && (
                   <div className={row}>
-                    <span className={`${key} self-start pt-0.5`}>Domains</span>
+                    <span className={`${key} self-start pt-0.5`}>Also on</span>
                     <span className="flex flex-wrap gap-1.5 min-w-0">
                       {/* Chip = open + copy. Two sibling buttons rather than a
                           nested one (invalid HTML) sharing the chip border. */}
-                      {allHosts.map((h) => (
+                      {aliasHosts.map((h) => (
                         <span
                           key={h}
-                          className="group inline-flex items-center text-[11px] font-mono border border-subtle rounded-[5px] overflow-hidden hover:border-strong transition-colors"
+                          className="group inline-flex max-w-full items-center text-[11px] font-mono border border-subtle rounded-[5px] overflow-hidden hover:border-strong transition-colors"
                         >
                           <button
                             onClick={() => openExternalUrl(`${scheme}://${h}`)}
                             disabled={!running}
                             title={running ? `Open ${scheme}://${h}` : "App is not running"}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-ink-2 hover:text-accent-ink transition-colors disabled:pointer-events-none disabled:opacity-60"
+                            className="inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-left text-ink-2 hover:text-accent-ink transition-colors disabled:pointer-events-none disabled:opacity-60"
                           >
-                            {h}
-                            <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            {/* Truncate rather than wrap: a wrapped host inside a
+                                centred flex row reads as ragged, centred text. */}
+                            <span className="truncate">{h}</span>
+                            <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="shrink-0"><path d="M4.5 2.5h5v5M9.5 2.5L5 7M8 8v2.5H2.5V5H5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
                           </button>
                           <CopyButton
                             value={`${scheme}://${h}`}
                             label={h}
-                            className="mr-1 -ml-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                            className="mr-1 -ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                           />
                         </span>
                       ))}
                     </span>
                   </div>
+                  )}
                 </div>
               </Card>
             </section>
@@ -1170,9 +1181,10 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           </div>
 
             {/* Instances (mockup 26) — the primary checkout plus each git-worktree
-                branch instance. "＋ New from branch" reveals the inline picker;
-                clicking an instance row opens it as its own workbench (full parent
-                tab/action set). Parent workbench only — an instance can't nest. */}
+                branch instance. "＋ New from branch" drops the picker as a popover
+                over the list rather than pushing it down; clicking an instance row
+                opens it as its own workbench (full parent tab/action set). Parent
+                workbench only — an instance can't nest. */}
             {!isInstance && (
             <section>
               <div className="flex items-center gap-2 mb-2 px-0.5">
@@ -1181,22 +1193,29 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 </span>
                 <span className="text-[13px] font-medium text-ink">Instances</span>
                 <span className="text-[11px] text-ink-3">· {runningCount} running</span>
-                <button
-                  onClick={() => setPickerOpen((v) => !v)}
-                  aria-expanded={pickerOpen}
-                  className="ml-auto text-[11px] text-accent-ink inline-flex items-center gap-1 hover:brightness-110 transition-[filter]"
-                >
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-                  New from branch
-                </button>
-              </div>
-
-              {/* Inline run-on-branch picker (replaces the old modal). */}
-              {pickerOpen && (
-                <div className="mb-2">
-                  <RunOnBranchPicker app={app} instances={instances} onClose={() => setPickerOpen(false)} />
+                <div className="ml-auto">
+                  <Popover
+                    open={pickerOpen}
+                    onClose={() => setPickerOpen(false)}
+                    variant="card"
+                    backdrop
+                    align="right"
+                    panelClassName="absolute right-0 mt-1 z-50 w-[320px] shadow-xl"
+                    anchor={
+                      <button
+                        onClick={() => setPickerOpen((v) => !v)}
+                        aria-expanded={pickerOpen}
+                        className="text-[11px] text-accent-ink inline-flex items-center gap-1 hover:brightness-110 transition-[filter]"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                        New from branch
+                      </button>
+                    }
+                  >
+                    <RunOnBranchPicker app={app} instances={instances} onClose={() => setPickerOpen(false)} />
+                  </Popover>
                 </div>
-              )}
+              </div>
 
               <div className="space-y-1.5">
                 {/* Primary/main checkout row — the app itself; not navigable. */}

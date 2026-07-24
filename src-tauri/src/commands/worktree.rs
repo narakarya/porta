@@ -171,10 +171,51 @@ pub(crate) fn worktree_list_for(root_dir: &str) -> Result<Vec<WorktreeEntry>, St
     Ok(parse_worktree_porcelain(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Does `ref_name` (a full ref path like `refs/heads/main`) exist in the repo?
+fn ref_exists(bin: &str, root_dir: &str, ref_name: &str) -> bool {
+    Command::new(bin)
+        .current_dir(root_dir)
+        .env("LC_ALL", "C")
+        .args(["show-ref", "--verify", "--quiet", ref_name])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Argv for `git worktree add`, split out so the three shapes are testable
+/// without a repo:
+///
+/// * new branch off HEAD — `-b <local> <path>`
+/// * new local branch off a remote-tracking ref — `-b <local> <path> origin/x`
+///   (git sets up tracking, so the instance is push/pull-ready)
+/// * existing local branch — `<path> <local>`
+fn worktree_add_args<'a>(
+    wt_path: &'a str,
+    local: &'a str,
+    start_point: Option<&'a str>,
+    create_new: bool,
+) -> Vec<&'a str> {
+    let mut args = vec!["worktree", "add"];
+    if create_new || start_point.is_some() {
+        args.extend_from_slice(&["-b", local, wt_path]);
+        if let Some(sp) = start_point {
+            args.push(sp);
+        }
+    } else {
+        args.extend_from_slice(&[wt_path, local]);
+    }
+    args
+}
+
 /// Create a git worktree for `branch` (checking out an existing branch, or with
 /// `create_new` making a new branch off HEAD), placed in a sibling
 /// `<repo>-worktrees/<sanitized-branch>` directory. Returns the freshly-created
 /// worktree entry so the caller can immediately run an instance from it.
+///
+/// `branch` may also be a remote-tracking name (`origin/feature`) — the picker
+/// offers those directly after a fetch, since a teammate's branch has no local
+/// ref yet. We then create the local branch off it rather than failing, which is
+/// what `git worktree add <path> origin/feature` would otherwise do (detached).
 #[tauri::command]
 pub async fn git_worktree_add(
     root_dir: String,
@@ -195,6 +236,27 @@ fn worktree_add_for(root_dir: &str, branch: &str, create_new: bool) -> Result<Wo
     if branch.trim().is_empty() {
         return Err("branch name is required".to_string());
     }
+
+    // Resolve what was asked for. A name with no local ref but a matching
+    // remote-tracking ref is a branch we've only ever fetched: check it out as a
+    // local branch of the same short name, off the remote ref.
+    let mut local = branch.to_string();
+    let mut start_point: Option<String> = None;
+    if !create_new
+        && !ref_exists(bin, root_dir, &format!("refs/heads/{branch}"))
+        && ref_exists(bin, root_dir, &format!("refs/remotes/{branch}"))
+    {
+        let short = branch.split_once('/').map(|(_, rest)| rest).unwrap_or(branch);
+        // `origin/main` when `main` already exists locally is just that branch.
+        if ref_exists(bin, root_dir, &format!("refs/heads/{short}")) {
+            local = short.to_string();
+        } else {
+            local = short.to_string();
+            start_point = Some(branch.to_string());
+        }
+    }
+    let branch = local.as_str();
+
     let repo_name = root
         .file_name()
         .and_then(|n| n.to_str())
@@ -210,17 +272,7 @@ fn worktree_add_for(root_dir: &str, branch: &str, create_new: bool) -> Result<Wo
         .ok_or_else(|| "worktree path is not valid UTF-8".to_string())?
         .to_string();
 
-    // `git worktree add -b <branch> <path>` makes a new branch off HEAD;
-    // `git worktree add <path> <branch>` checks out an existing branch.
-    let mut args: Vec<&str> = vec!["worktree", "add"];
-    if create_new {
-        args.push("-b");
-        args.push(branch);
-        args.push(&wt_path_str);
-    } else {
-        args.push(&wt_path_str);
-        args.push(branch);
-    }
+    let args = worktree_add_args(&wt_path_str, branch, start_point.as_deref(), create_new);
 
     let out = Command::new(bin)
         .current_dir(root_dir)
@@ -699,6 +751,24 @@ detached
                    "codex-event-organizer-migration");
         assert_eq!(sanitize_label("feat//x--y"), "feat-x-y");
         assert_eq!(sanitize_label("-trim-"), "trim");
+    }
+
+    #[test]
+    fn worktree_add_args_cover_the_three_shapes() {
+        assert_eq!(
+            worktree_add_args("/wt/feat", "feat", None, true),
+            vec!["worktree", "add", "-b", "feat", "/wt/feat"],
+        );
+        assert_eq!(
+            worktree_add_args("/wt/feat", "feat", None, false),
+            vec!["worktree", "add", "/wt/feat", "feat"],
+        );
+        // Remote-only branch: create the local one off the tracking ref, or the
+        // worktree would land on a detached HEAD with no upstream.
+        assert_eq!(
+            worktree_add_args("/wt/feat", "feat", Some("origin/feat"), false),
+            vec!["worktree", "add", "-b", "feat", "/wt/feat", "origin/feat"],
+        );
     }
 
     #[test]

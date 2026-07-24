@@ -172,9 +172,20 @@ describe("AppWorkbench overview affordances", () => {
     ).toBeInTheDocument();
   });
 
-  it("offers copy for the URL and every domain", async () => {
+  it("offers copy for the URL, and lists only the domains the URL row isn't", async () => {
+    render(<AppWorkbench app={makeApp({ extra_subdomains: ["api"] })} />);
+    expect(await screen.findByRole("button", { name: "Copy URL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy api.narakarya.test" })).toBeInTheDocument();
+    // The primary host is the URL row directly above — repeating it as a chip
+    // was a line saying the same thing twice.
+    expect(
+      screen.queryByRole("button", { name: "Copy web.narakarya.test" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops the domains row entirely when there is nothing beyond the URL", async () => {
     render(<AppWorkbench app={app} />);
     expect(await screen.findByRole("button", { name: "Copy URL" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy web.narakarya.test" })).toBeInTheDocument();
+    expect(screen.queryByText("Also on")).not.toBeInTheDocument();
   });
 });

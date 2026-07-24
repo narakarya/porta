@@ -773,11 +773,24 @@ pub(crate) fn fetch_for(root_dir: &str) -> Result<(), String> {
 // command blocks the WebView, and `run_git`'s wall-clock budget is 30s. Mirrors
 // how `remote.rs` keeps its ssh/HTTP work off the UI thread.
 
+/// Announce that `root_dir`'s remote-tracking refs just moved. Views that read
+/// refs directly rather than `GitStatus` — the run-on-branch picker, whose list
+/// of launchable branches grows the moment a teammate's branch is fetched —
+/// listen for this. Emitted for both the manual fetch and the autofetch poller,
+/// so "the branch list follows a fetch" holds however the fetch was triggered.
+pub(crate) fn emit_fetched(app: &tauri::AppHandle, root_dir: &str) {
+    let _ = app.emit("git:fetched", root_dir.to_string());
+}
+
 #[tauri::command]
-pub async fn git_fetch(root_dir: String) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || fetch_for(&root_dir))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn git_fetch(app: tauri::AppHandle, root_dir: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        fetch_for(&root_dir)?;
+        emit_fetched(&app, &root_dir);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2902,6 +2915,7 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                     .map(|(_, root)| root.clone())
                     .collect();
                 let guard = FetchGuard(Arc::clone(&fetching));
+                let fetch_app = app.clone();
                 thread::spawn(move || {
                     // Clearing the flag on drop, not on the last statement:
                     // `thread::scope` re-propagates a panic from a scoped
@@ -2913,8 +2927,11 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
                     for pair in roots_for_fetch.chunks(2) {
                         thread::scope(|s| {
                             for root in pair {
-                                s.spawn(|| {
-                                    let _ = fetch_for(root);
+                                let emit_app = &fetch_app;
+                                s.spawn(move || {
+                                    if fetch_for(root).is_ok() {
+                                        emit_fetched(emit_app, root);
+                                    }
                                 });
                             }
                         });

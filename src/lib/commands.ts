@@ -1720,6 +1720,11 @@ export interface GitStatus {
 export const gitStatus = (rootDir: string): Promise<GitStatus | null> =>
   isTauri ? invoke("git_status", { rootDir }) : Promise.resolve(null);
 
+/**
+ * Fetches, then emits a global `git:fetched` event carrying `rootDir` — views
+ * that read refs rather than `GitStatus` (the run-on-branch picker) refresh off
+ * that, so they follow a fetch from anywhere, including the autofetch poller.
+ */
 export const gitFetch = (rootDir: string): Promise<void> =>
   isTauri ? invoke("git_fetch", { rootDir }) : Promise.resolve();
 
