@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { usePortaStore } from "../../store";
-import { gitBranches, gitFetch, gitPull, gitPush, gitStatus, gitSwitchBranch, gitWorktreeList, type BranchList, type WorktreeEntry, type AppInstance } from "../../lib/commands";
+import { gitFetch, gitPull, gitPush, gitStatus, gitSwitchBranch, type AppInstance } from "../../lib/commands";
+import { useGitRefs } from "../../hooks/useGitRefs";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 import Tooltip from "../shared/Tooltip";
 import type { App } from "../../types";
@@ -130,11 +131,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const [switchOpen, setSwitchOpen] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
-  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [wtQuery, setWtQuery] = useState("");
   const [wtBusy, setWtBusy] = useState<string | null>(null);
   const [showAllWorktrees, setShowAllWorktrees] = useState(false);
-  const [branches, setBranches] = useState<BranchList | null>(null);
   const [branchQuery, setBranchQuery] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
   // Two-step confirm for Remove in the tight worktree list: first click arms
@@ -245,15 +244,20 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   const branchOpsEligible =
     !hideWorktreeLauncher && app.kind === "process" && app.start_command.trim() !== "";
 
-  // Load worktrees + branches + current instances when the main popover opens —
-  // both "Switch branch" and "Run from worktree" read them. Skipped entirely
-  // for apps that don't show those sections.
+  // Worktrees + branches for "Switch branch" and "Run from worktree", loaded
+  // while the popover is open and — the part this used to miss — reloaded on
+  // every fetch. Clicking Fetch right here updated the ahead/behind counts but
+  // left the branch list frozen at whatever it was when the popover opened, so
+  // a branch a teammate had just pushed stayed invisible until it was closed
+  // and reopened. The run-on-branch picker shares this hook, so both surfaces
+  // now answer a fetch the same way.
+  const refsEnabled = mainOpen && !!app.root_dir && branchOpsEligible;
+  const { branches, worktrees, reload: reloadRefs } = useGitRefs(app.root_dir, refsEnabled);
+
   useEffect(() => {
-    if (!mainOpen || !app.root_dir || !branchOpsEligible) return;
-    gitWorktreeList(app.root_dir).then(setWorktrees).catch(() => setWorktrees([]));
-    gitBranches(app.root_dir).then(setBranches).catch(() => setBranches(null));
+    if (!refsEnabled) return;
     refreshInstances(app.id);
-  }, [mainOpen, app.root_dir, app.id, refreshInstances, branchOpsEligible]);
+  }, [refsEnabled, app.id, refreshInstances]);
 
   // Keep instance state fresh on ready/exit events for this app's instances.
   useEffect(() => {
@@ -352,7 +356,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
       const fresh = await gitStatus(app.root_dir);
       if (!mountedRef.current) return;
       if (fresh) setAppGit(app.id, fresh);
-      await gitBranches(app.root_dir).then(setBranches).catch(() => {});
+      await reloadRefs({ silent: true });
       setBranchQuery("");
     } catch (e) {
       if (mountedRef.current) setError(String(e));

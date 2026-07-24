@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import type { App } from "../../types";
-import type { AppInstance, BranchList, WorktreeEntry } from "../../lib/commands";
-import { gitBranches, gitFetch, gitWorktreeList } from "../../lib/commands";
+import type { AppInstance } from "../../lib/commands";
+import { gitFetch } from "../../lib/commands";
+import { useGitRefs } from "../../hooks/useGitRefs";
 import { Button, Input, Spinner } from "../ui";
 import Tooltip from "../shared/Tooltip";
 
@@ -46,14 +47,13 @@ export default function RunOnBranchPicker({
     })),
   );
 
-  const [branches, setBranches] = useState<BranchList | null>(null);
-  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Shared with the header badge's branch switcher — including the reload on
+  // `git:fetched`, so both lists react to a fetch from either surface.
+  const { branches, worktrees, loading, error, reload, setError } = useGitRefs(app.root_dir);
   const [fetching, setFetching] = useState(false);
   // One field for both jobs, mirroring GitBadge's switch-branch flyout: typing
   // filters the list, and a query that matches nothing offers to create it.
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
   // Branch of the existing-branch run in flight (drives its row spinner);
   // separate flag for create-new. Either makes the whole picker `busy`.
   const [runningBranch, setRunningBranch] = useState<string | null>(null);
@@ -67,46 +67,6 @@ export default function RunOnBranchPicker({
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
-
-  const reload = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (!opts?.silent) setLoading(true);
-      try {
-        const [bl, wl] = await Promise.all([
-          gitBranches(app.root_dir),
-          gitWorktreeList(app.root_dir).catch(() => [] as WorktreeEntry[]),
-        ]);
-        if (!mountedRef.current) return;
-        setBranches(bl);
-        setWorktrees(wl);
-        setError(null);
-      } catch (e) {
-        if (mountedRef.current) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (mountedRef.current && !opts?.silent) setLoading(false);
-      }
-    },
-    [app.root_dir],
-  );
-
-  useEffect(() => { void reload(); }, [reload]);
-
-  // A fetch from anywhere — the header badge, the Git tab, the autofetch poller
-  // — republishes this repo's refs, which is exactly when a new branch becomes
-  // launchable. Silent: the list is already on screen, so swap it in place.
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let dropped = false;
-    import("@tauri-apps/api/event").then(({ listen }) =>
-      listen<string>("git:fetched", (e) => {
-        if (e.payload === app.root_dir) void reload({ silent: true });
-      }).then((fn) => {
-        if (dropped) fn();
-        else unlisten = fn;
-      }),
-    );
-    return () => { dropped = true; unlisten?.(); };
-  }, [app.root_dir, reload]);
 
   async function handleFetch() {
     if (fetching) return;
