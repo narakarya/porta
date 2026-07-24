@@ -989,6 +989,27 @@ export function useAppConfigDraft(
       // here, local state stays one step behind what was just persisted and the
       // form reports unsaved changes immediately after saving.
       setEnvProfiles(finalProfiles);
+      // Re-baseline the drafts the backend can't echo back. `isDirty` diffs the
+      // form against the saved `app` for most fields, but three of them compare
+      // against a local baseline instead — and leaving those stale left the
+      // footer stuck on "Unsaved changes" after a successful save, with Save
+      // still enabled and the close dialog still warning about lost edits.
+      //
+      //  · Secrets are write-only: the app row carries `*_password_set`, never
+      //    the plaintext, so a typed password can only be cleared here.
+      //  · The compose baseline is loaded once per file path, so re-saving the
+      //    same managed file never refreshed it.
+      if (basicAuthPassword) setBasicAuthPassword("");
+      setHostAuth((prev) => {
+        const entries = Object.entries(prev);
+        if (!entries.some(([, d]) => d.password)) return prev;
+        return Object.fromEntries(
+          entries.map(([host, d]) =>
+            d.password ? [host, { ...d, password: "", passwordSet: true }] : [host, d],
+          ),
+        );
+      });
+      if (app.kind === "compose" && composeMode === "paste") setComposeYamlInitial(composeYaml);
       onSaved?.();
       setSavedAt(Date.now());
     } catch (e) {
