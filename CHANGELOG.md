@@ -4,6 +4,54 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.17]
+
+### Added
+
+- **cloudflared and Tailscale install themselves from inside Porta.** Exposing
+  an app publicly used to start with a card telling you to copy
+  `brew install …` into a terminal, come back, and click "I've installed it" —
+  three context switches before the feature could be tried at all. Every setup
+  card now runs its own step: install via Homebrew, log in to Cloudflare, create
+  the first tunnel, open the Tailscale app, connect and sign in. Output streams
+  into the card as it goes, and a step waiting on a browser flow surfaces its
+  auth URL as a button instead of leaving it buried in the transcript. Installs
+  go through Homebrew only — the alternatives all need an interactive sudo
+  prompt Porta can't host honestly, so a machine without brew is pointed at
+  brew.sh.
+- **A crashed app offers the command that fixes it.** `mix deps.get`,
+  `mise trust`, `mix deps.compile`, `mix ecto.create` / `ecto.migrate`,
+  `bundle install`, `mix local.hex`, and a package-manager-aware
+  `npm/pnpm/yarn/bun install` are all recognised from the log tail. The crash
+  banner names the cause and runs the command in a terminal tab rooted at the
+  app, instead of leaving you to spot it in the output and retype it elsewhere.
+
+### Fixed
+
+- **Removing a worktree instance asks first.** The header button, the Overview
+  row and the sidebar menu all fired straight through, so a mis-click took the
+  instance's domain and port down with no undo. All three confirm now, and the
+  prompt says what removal actually touches — the git worktree on disk is left
+  alone.
+- **An instance's Logs tab now streams.** The viewer subscribed to
+  `app:log:<id>` for every process, but a worktree instance emits
+  `instance:log:<id>` — so its log pane showed whatever was on disk when the tab
+  opened and never grew, while the same lines kept arriving in the toast.
+- **The follow toggle moved into the log toolbar**, next to find / wrap /
+  export. It's an action, and the one reached for most, so it reads better as a
+  control than as a status line at the bottom; the status bar keeps only the
+  "N new — jump to live" nudge, which belongs beside the lines.
+- **A saved app config stops claiming it's unsaved.** Three fields compare
+  against a local baseline rather than the saved app — a typed Basic Auth
+  password, a per-host password, and the compose YAML snapshot — and none of
+  them are ever echoed back by the backend (secrets are write-only). After a
+  successful save the footer stayed on "Unsaved changes", Save stayed enabled,
+  and closing still warned about losing edits.
+- **Instance hostnames are shorter.** `eventorg-codex-migration.narakarya.test`
+  carried a branch namespace that says nothing once the label is already scoped
+  by the app; it's now `eventorg-migration`. The full branch still reads on the
+  instance row and in the workbench header.
+
 ## [0.14.0-beta.16]
 
 ### Added
