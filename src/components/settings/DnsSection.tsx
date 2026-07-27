@@ -11,6 +11,8 @@ import {
   type DnsRecordInput,
 } from "../../lib/commands";
 import { usePortaStore } from "../../store";
+import { confirmDialog } from "../../lib/confirm";
+import { RefreshIcon, Spinner } from "../ui";
 
 const RECORD_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS"] as const;
 type RecordType = typeof RECORD_TYPES[number];
@@ -195,7 +197,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
 
   async function handleDelete(rec: DnsRecord) {
     if (!token || !selectedZoneId) return;
-    if (!window.confirm(`Delete ${rec.record_type} record ${rec.name} → ${rec.content}?`)) return;
+    if (!(await confirmDialog(`Delete ${rec.record_type} record ${rec.name} → ${rec.content}?`, { title: "Delete DNS record", okLabel: "Delete" }))) return;
     setDeletingId(rec.id);
     try {
       await cfDnsDeleteRecord(token, selectedZoneId, rec.id);
@@ -342,9 +344,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
             <h2 className="text-[14px] font-semibold text-ink">DNS Records</h2>
             {(recordsLoading || zonesLoading) && (
               <span className="inline-flex items-center gap-1 text-[10.5px] text-ink-3">
-                <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                  <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
+                <Spinner size={10} />
                 Loading{selectedZone ? ` ${selectedZone.name}` : ""}…
               </span>
             )}
@@ -365,7 +365,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
           disabled={!token || recordsLoading || zonesLoading}
           className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
         >
-          {recordsLoading || zonesLoading ? "Loading…" : "↻ Refresh"}
+          {recordsLoading || zonesLoading ? "Loading…" : <><RefreshIcon /> Refresh</>}
         </button>
       </div>
 

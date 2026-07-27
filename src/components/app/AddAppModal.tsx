@@ -6,6 +6,7 @@ import type { AppKind } from "../../types";
 import { usePortaStore } from "../../store";
 import { yieldToFrame } from "../../lib/ui";
 import YamlEditor from "../shared/YamlEditor";
+import { RefreshIcon, Spinner } from "../ui";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -471,7 +472,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                   className="text-[10px] text-zinc-500 hover:text-zinc-300 self-start transition-colors"
                   title="Reset to first detected port"
                 >
-                  ↻ use {detectedServices[0].port}
+                  <RefreshIcon /> use {detectedServices[0].port}
                 </button>
               )}
             </label>
@@ -751,10 +752,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
           <button type="submit" disabled={submitting || !!subdomainError}
             className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:brightness-110 text-white rounded-control disabled:opacity-50 transition-colors flex items-center gap-2">
             {submitting && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={14} />
             )}
             {submitting ? "Adding…" : "Add app"}
           </button>

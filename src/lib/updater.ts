@@ -341,7 +341,7 @@ async function startBetaDownload(): Promise<void> {
   downloadInFlight = true;
   setPhase("downloading", { updaterInfo: { ...info, total: 0, downloaded: 0 } });
 
-  const { listen } = await import("@tauri-apps/api/event");
+  const { listen } = await import("./tauri-event");
   const unlisten: Array<() => void> = [];
 
   try {

@@ -17,6 +17,7 @@ import {
 } from "../../lib/commands";
 import { getCachedTunnels, setCachedTunnels, getCachedDnsRoutes, setCachedDnsRoutes } from "../../lib/tunnelCache";
 import { usePortaStore } from "../../store";
+import { RefreshIcon, Spinner } from "../ui";
 
 interface Props {
   /** Bumped by parent when API token changes — triggers DNS-routes refresh. */
@@ -144,7 +145,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
     return () => window.clearInterval(id);
   }, [tunnels, refreshMetrics]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -154,7 +155,10 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
         setTunnels([]);
         return;
       }
-      const list = await listCloudflareTunnels();
+      // `force` bypasses the backend's 30s cache. Only the visible Refresh
+      // button and post-mutation reloads pass it — a plain tab open is happy
+      // with a cached answer rather than a 1–3s round-trip to Cloudflare.
+      const list = await listCloudflareTunnels(force);
       setTunnels(list);
       setCachedTunnels(list);
     } catch (e) {
@@ -170,6 +174,8 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
       setDnsRoutes([]);
       return;
     }
+    // Fans out to /zones plus a /dns_records call per zone — the slowest thing
+    // on this panel by a wide margin.
     setDnsLoading(true);
     setDnsError(null);
     try {
@@ -183,23 +189,31 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
     }
   }, []);
 
-  // User-facing "↻ Refresh" — reloads BOTH the tunnel list (cloudflared CLI)
+  // User-facing "Refresh" — reloads BOTH the tunnel list (cloudflared CLI)
   // AND the DNS routes (CF API). Without this, deleting a route from the CF
   // dashboard left a stale row that only Refresh-on-tab-switch could clear.
   const refreshAll = useCallback(async () => {
-    await refresh();
+    await refresh(true);
     const t = await getCfApiToken().catch(() => "");
     if (t) await refreshDnsRoutes(t);
   }, [refresh, refreshDnsRoutes]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
   // Re-fetch DNS routes whenever the parent's tokenVersion changes (i.e.
   // user saved a new token in the bar above the tabs). Also runs on mount
   // for the initial fetch.
+  const dnsFetchedRef = useRef(false);
   useEffect(() => {
+    // tokenVersion > 0 means the user just saved a different token — always
+    // re-fetch for that. Otherwise a warm cache is good enough on open;
+    // "↻ Refresh" is right there for a forced reload.
+    const tokenChanged = tokenVersion > 0;
+    if (!tokenChanged && dnsFetchedRef.current) return;
+    if (!tokenChanged && getCachedDnsRoutes().length > 0) return;
+    dnsFetchedRef.current = true;
     getCfApiToken().then((t) => {
       if (t) refreshDnsRoutes(t);
     });
@@ -223,7 +237,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
       // Fire-and-forget refresh: the placeholder gets replaced with the
       // real entry whenever `cloudflared tunnel list` returns. Don't await
       // so the Create button unblocks the moment cloudflared confirms.
-      refresh();
+      refresh(true);
     } catch (e) {
       setTunnels((prev) => prev.filter((t) => t.id !== placeholderId));
       setNewName(trimmed); // restore typed name so user can retry
@@ -243,7 +257,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
     try {
       await deleteCloudflareTunnel(name, force);
       // Refresh in background — don't await so UI doesn't freeze.
-      refresh();
+      refresh(true);
     } catch (e) {
       // Revert optimistic remove on error.
       setTunnels(snapshot);
@@ -334,9 +348,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
           <div key={i} className="h-14 rounded-card bg-surface-1 border border-subtle animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
         ))}
         <div className="flex items-center gap-2 text-[11px] text-ink-3 mt-1">
-          <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          <Spinner size={11} />
           Checking cloudflared…
         </div>
       </div>
@@ -356,9 +368,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
         </div>
         {(loading || dnsLoading) && (
           <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-1 border border-subtle">
-            <svg className="animate-spin text-ink-3" width="10" height="10" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <Spinner size={10} className="text-ink-3" />
             <span className="text-[10px] text-ink-3">Loading…</span>
           </div>
         )}
@@ -371,10 +381,10 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
             brew install cloudflare/cloudflare/cloudflared
           </code>
           <button
-            onClick={refresh}
+            onClick={() => { void refresh(true); }}
             className="self-start px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn"
           >
-            ↻ Check again
+            <RefreshIcon /> Check again
           </button>
         </div>
       )}
@@ -413,7 +423,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
               disabled={loading || dnsLoading}
               className="text-[10px] text-ink-3 hover:text-ink transition-colors disabled:opacity-50"
             >
-              {loading || dnsLoading ? "Loading…" : "↻ Refresh"}
+              {loading || dnsLoading ? "Loading…" : <><RefreshIcon /> Refresh</>}
             </button>
           </div>
         </div>
@@ -520,9 +530,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                 {/* Header row: status, name, connections, overflow menu */}
                 <div className="flex items-center gap-2.5 px-3 py-2.5">
                   {isTunnelPending ? (
-                    <svg className="shrink-0 animate-spin text-accent" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                      <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
+                    <Spinner size={10} className="shrink-0 text-accent" />
                   ) : (
                     <div
                       className={`shrink-0 w-2 h-2 rounded-full ${isActive ? "bg-ok" : "bg-white/[0.14]"}`}
@@ -664,9 +672,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                             </span>
                           )}
                           {row.isPending ? (
-                            <svg className="animate-spin text-ink-3 shrink-0 mr-1" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                              <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            </svg>
+                            <Spinner size={10} className="text-ink-3 shrink-0 mr-1" />
                           ) : (
                             <div className="flex items-center gap-0.5 shrink-0">
                               <button
@@ -700,9 +706,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                                   title="Delete DNS route"
                                 >
                                   {deletingRouteKey === `${row.zoneId}:${row.recordId}` ? (
-                                    <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
-                                      <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                                    </svg>
+                                    <Spinner size={11} />
                                   ) : (
                                     <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                                       <path d="M2.5 3.5h7m-5.5 0V2.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1m-4 0v6.5a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>

@@ -12,6 +12,7 @@ import { getCachedTunnels, setCachedTunnels, hasTunnelCache } from "../../lib/tu
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
+import { RefreshIcon, Spinner } from "../ui";
 
 interface TunnelQuickMenuProps {
   app: App;
@@ -552,10 +553,8 @@ export default function TunnelQuickMenu({ app, isActive, tunnelError, onStartTun
                       title="Refresh"
                     >
                       {savedLoading ? (
-                        <svg className="animate-spin" width="9" height="9" viewBox="0 0 12 12" fill="none">
-                          <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                      ) : "↻"}
+                        <Spinner size={9} />
+                      ) : <RefreshIcon />}
                     </button>
                   </div>
 

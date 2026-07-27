@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { startCaddy, reloadCaddy, caddyStatusCheck, regenerateCerts, getLaunchAtLogin, setLaunchAtLogin } from "../../lib/commands";
 import { yieldToFrame } from "../../lib/ui";
+import { Spinner } from "../ui";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -109,10 +110,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
               className="px-3 py-1.5 text-[12px] font-medium bg-accent hover:opacity-90 disabled:opacity-50 text-white rounded-control transition-colors shrink-0 flex items-center gap-1.5"
             >
               {caddyLoading && (
-                <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                  <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+                <Spinner size={12} />
               )}
               {caddyLoading ? "Starting…" : "Start Caddy"}
             </button>
@@ -156,10 +154,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
             className="px-3 py-1.5 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-ink-2 rounded-control transition-colors flex items-center gap-1.5"
           >
             {certsLoading && (
-              <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={12} />
             )}
             {certsLoading ? "Regenerating…" : "Regenerate SSL Certs"}
           </button>
@@ -170,10 +165,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
               className="px-3 py-1.5 text-[12px] text-ink-3 hover:text-ink-2 disabled:opacity-50 transition-colors flex items-center gap-1.5"
             >
               {reloadingCaddy && (
-                <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                  <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+                <Spinner size={12} />
               )}
               {reloadingCaddy ? "Reloading…" : "Reload Caddy Config"}
             </button>

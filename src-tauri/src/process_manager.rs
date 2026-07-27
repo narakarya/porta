@@ -445,8 +445,47 @@ impl ProcessManager {
     }
 }
 
+/// Does this line already open with a clock the log viewer can peel into its
+/// timestamp column? Two shapes count:
+///
+///   `10:23:45.123 [info] GET /`   — Phoenix, Rails, most loggers
+///   `2026-07-27T04:10:02.9Z INF`  — RFC3339, `docker logs --timestamps`, Go
+///
+/// Cheap byte checks rather than a regex: this runs once per log line on the
+/// process hot path, and an app under load emits thousands a second.
+fn starts_with_timestamp(line: &str) -> bool {
+    let b = line.as_bytes();
+    // HH:MM:SS — allow a single-digit hour ("9:05:01").
+    let hhmmss = |o: usize| {
+        b.len() >= o + 8
+            && b[o].is_ascii_digit()
+            && b[o + 1].is_ascii_digit()
+            && b[o + 2] == b':'
+            && b[o + 3].is_ascii_digit()
+            && b[o + 4].is_ascii_digit()
+            && b[o + 5] == b':'
+    };
+    if hhmmss(0) {
+        return true;
+    }
+    // YYYY-MM-DDT… / YYYY-MM-DD …
+    b.len() >= 11
+        && b[0..4].iter().all(|c| c.is_ascii_digit())
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && (b[10] == b'T' || b[10] == b' ')
+}
+
 /// Drain a child's stdout/stderr pipe line-by-line, persisting to the shared
 /// log writer (if any) and forwarding each line to `on_log` for the frontend.
+///
+/// Lines that carry no clock of their own get one prepended, in the
+/// `HH:MM:SS.mmm` shape the viewer already knows how to split into its own
+/// column. Plenty of programs just `println!` — without this the viewer's
+/// timestamp toggle had nothing to show for them and looked broken, and a log
+/// read back from disk hours later had no way to say when anything happened.
+/// Lines that already start with a timestamp are left exactly as they are, so
+/// a Phoenix log doesn't end up wearing two clocks.
 pub(crate) fn stream_child_output(
     pipe: impl std::io::Read,
     writer: Option<SharedLogWriter>,
@@ -462,7 +501,14 @@ pub(crate) fn stream_child_output(
             Ok(_) => {
                 if buf.ends_with(b"\n") { buf.pop(); }
                 if buf.ends_with(b"\r") { buf.pop(); }
-                let line = String::from_utf8_lossy(&buf).into_owned();
+                let raw = String::from_utf8_lossy(&buf).into_owned();
+                // Blank lines stay blank — they're paragraph breaks in the
+                // output, and stamping them would turn every one into content.
+                let line = if raw.trim().is_empty() || starts_with_timestamp(&raw) {
+                    raw
+                } else {
+                    format!("{} {}", chrono::Local::now().format("%H:%M:%S%.3f"), raw)
+                };
                 if let Some(w) = &writer {
                     if let Ok(mut g) = w.lock() {
                         let _ = writeln!(g, "{}", line);
@@ -505,4 +551,30 @@ fn parse_env_file(path: &str) -> Vec<(String, String)> {
             Some((key, val))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::starts_with_timestamp;
+
+    #[test]
+    fn recognises_lines_that_already_carry_a_clock() {
+        // Phoenix / Rails / most loggers.
+        assert!(starts_with_timestamp("10:23:45.123 [info] GET /"));
+        assert!(starts_with_timestamp("09:05:01 starting"));
+        // RFC3339 — `docker logs --timestamps`, Go's slog, cloudflared.
+        assert!(starts_with_timestamp("2026-07-27T04:10:02.938Z INF ready"));
+        assert!(starts_with_timestamp("2026-07-27 04:10:02 ready"));
+    }
+
+    #[test]
+    fn plain_output_gets_stamped() {
+        assert!(!starts_with_timestamp("Listening on http://localhost:4000"));
+        assert!(!starts_with_timestamp("web-1  | compiled successfully"));
+        assert!(!starts_with_timestamp("[info] this one leads with a level"));
+        // Guard the byte indexing against short lines.
+        assert!(!starts_with_timestamp(""));
+        assert!(!starts_with_timestamp("12:3"));
+        assert!(!starts_with_timestamp("2026-07-2"));
+    }
 }

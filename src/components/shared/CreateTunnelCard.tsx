@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createCloudflareTunnel } from "../../lib/commands";
+import { RefreshIcon, Spinner } from "../ui";
 
 interface Props {
   step: number;
@@ -60,9 +61,7 @@ export default function CreateTunnelCard({ step, onCreated, loading = false }: P
           className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-md bg-accent text-white hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
         >
           {busy && (
-            <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <Spinner size={10} />
           )}
           {busy ? "Creating…" : "Create tunnel"}
         </button>
@@ -73,7 +72,7 @@ export default function CreateTunnelCard({ step, onCreated, loading = false }: P
         disabled={loading || busy}
         className="self-start px-3 py-1 text-[11px] font-medium rounded-md bg-[rgba(96,165,250,0.12)] hover:bg-[rgba(96,165,250,0.22)] text-accent-ink transition-colors disabled:opacity-60"
       >
-        {loading ? "Checking…" : "↻ I already have one"}
+        {loading ? "Checking…" : <><RefreshIcon /> I already have one</>}
       </button>
       {error && <p className="text-[10px] text-bad leading-snug break-all">{error}</p>}
     </div>

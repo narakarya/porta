@@ -138,7 +138,7 @@ pub fn add_app(
         .insert_app(&app)
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
+    crate::backup::auto_backup_state(&state).ok();
     Ok(app)
 }
 
@@ -299,7 +299,7 @@ pub fn update_app(
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
+    crate::backup::auto_backup_state(&state).ok();
 
     let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
@@ -326,7 +326,7 @@ pub fn move_app_to_workspace(
         )
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
+    crate::backup::auto_backup_state(&state).ok();
     let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == app_id).ok_or_else(|| "app not found".into())
 }
@@ -408,6 +408,11 @@ pub fn set_app_max_upload_bytes(
 
 #[tauri::command]
 pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
+    // Snapshot BEFORE the row is gone. A backup taken afterwards records the
+    // deletion, which is worthless for the one case anybody restores from —
+    // "I deleted the wrong app, give it back".
+    crate::backup::auto_backup_state(&state).ok();
+
     let app_data = state.db.lock().unwrap().list_apps().ok()
         .and_then(|apps| apps.into_iter().find(|a| a.id == id));
     let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
@@ -446,7 +451,6 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
     // Remove any pasted compose YAML Porta was managing for this app.
     super::compose::cleanup_managed_compose(&id);
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
     Ok(())
 }
 

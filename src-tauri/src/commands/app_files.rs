@@ -15,13 +15,34 @@ pub fn save_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
-/// Reveal a file or folder in Finder (macOS `open -R`).
+/// Reveal a file or folder in Finder (macOS `open -R`) — the target is
+/// *selected* inside its parent folder. Right for a file you want to point at.
+///
+/// For a directory this is almost never what the user means: "open the project
+/// folder" should land you *inside* it, not in its parent with it highlighted.
+/// `open_in_finder` below does that, so directories go through there.
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
     std::process::Command::new("open")
         .args(["-R", &path])
         .spawn()
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open a path in Finder. A directory opens as a window showing its contents;
+/// a file falls back to reveal-in-parent (opening a file would launch whatever
+/// app owns it, which is not what a Finder action promises).
+#[tauri::command]
+pub fn open_in_finder(path: String) -> Result<(), String> {
+    let is_dir = std::path::Path::new(&path).is_dir();
+    let mut cmd = std::process::Command::new("open");
+    if is_dir {
+        cmd.arg(&path);
+    } else {
+        cmd.args(["-R", &path]);
+    }
+    cmd.spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isTauri, openExternalUrl, brewAvailable, runProvisionStep, cancelProvisionStep, type ProvisionStep } from "../../lib/commands";
+import { RefreshIcon, Spinner } from "../ui";
 
 interface Props {
   step: number;
@@ -163,9 +164,7 @@ export default function SetupCard({
             }`}
           >
             {running && (
-              <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+              <Spinner size={10} />
             )}
             {running ? "Cancel" : runLabel}
           </button>
@@ -177,11 +176,9 @@ export default function SetupCard({
           className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-md bg-[rgba(96,165,250,0.12)] hover:bg-[rgba(96,165,250,0.22)] text-accent-ink transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {loading ? (
-            <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <Spinner size={10} />
           ) : (
-            "↻"
+            <RefreshIcon />
           )}
           {loading ? "Checking…" : recheckLabel}
         </button>

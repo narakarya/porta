@@ -6,6 +6,7 @@ import TunnelStatusBadge from "../../shared/TunnelStatusBadge";
 import CloudflareAccessPanel from "../CloudflareAccessPanel";
 import psl from "psl";
 import { useAppConfig, pickBestHostname, type TunnelPublicHost } from "./AppConfigContext";
+import { RefreshIcon, Spinner } from "../../ui";
 
 function TunnelPublicHostsPanel({ hosts, title = "This app will expose" }: { hosts: TunnelPublicHost[]; title?: string }) {
   if (hosts.length === 0) return null;
@@ -138,9 +139,7 @@ export default function TunnelingSection() {
 
         {c.selectedIsLive && !c.app.tunnel_url && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
-            <svg className="animate-spin shrink-0 text-warn" width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <Spinner size={12} className="shrink-0 text-warn" />
             <span className="text-[11px] text-warn">Establishing tunnel…</span>
           </div>
         )}
@@ -208,7 +207,34 @@ export default function TunnelingSection() {
           </>
         )}
 
-        {!c.selectedIsLive && c.tunnelProvider === "cloudflare" && (
+        {/* The configuration below stays on screen and editable while a tunnel
+            is live. It used to be gated behind `!selectedIsLive`, so changing
+            the named tunnel, the hostname, or the Cloudflare Access policy
+            meant first tearing down a working tunnel — for settings you might
+            only be there to *read*. Nothing here applies mid-flight, so when
+            the draft diverges from what's running we say so, and offer the
+            reconnect right where the change was made. */}
+        {c.selectedIsLive && c.liveTunnelConfigDrifted && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-warn shrink-0" />
+            <span className="text-[11px] text-warn flex-1">
+              The tunnel is running with the previous settings. Reconnect to apply these.
+            </span>
+            <button
+              type="button"
+              onClick={c.handleConnect}
+              disabled={c.tunnelBusy !== null || !c.tunnelName.trim() || !c.tunnelHostname.trim()}
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-warn bg-[rgba(251,191,36,0.14)] hover:bg-[rgba(251,191,36,0.24)] disabled:opacity-50 rounded-control transition-colors"
+            >
+              {c.tunnelBusy === "connecting" && (
+                <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-warn/40 border-t-warn animate-spin" />
+              )}
+              Reconnect
+            </button>
+          </div>
+        )}
+
+        {c.tunnelProvider === "cloudflare" && (
           <Field label="Mode">
             <div className="flex gap-1 bg-surface-1 border border-subtle rounded-lg p-1 mb-2">
               {(["quick", "named"] as const).map((m) => (
@@ -250,7 +276,7 @@ export default function TunnelingSection() {
                       cmd="brew install cloudflared"
                       copied={c.copiedCmd}
                       onCopy={c.copyCmd}
-                      onRecheck={c.refreshTunnels}
+                      onRecheck={() => c.refreshTunnels(true)}
                       recheckLabel="I've installed it"
                       loading={c.tunnelsLoading}
                       runStep="install-cloudflared"
@@ -267,7 +293,7 @@ export default function TunnelingSection() {
                       cmd="cloudflared tunnel login"
                       copied={c.copiedCmd}
                       onCopy={c.copyCmd}
-                      onRecheck={c.refreshTunnels}
+                      onRecheck={() => c.refreshTunnels(true)}
                       recheckLabel="I've logged in"
                       loading={c.tunnelsLoading}
                       runStep="cloudflared-login"
@@ -279,7 +305,7 @@ export default function TunnelingSection() {
                   {needsCreateTunnel && (
                     <CreateTunnelCard
                       step={3}
-                      onCreated={c.refreshTunnels}
+                      onCreated={() => c.refreshTunnels(true)}
                       loading={c.tunnelsLoading}
                     />
                   )}
@@ -292,18 +318,16 @@ export default function TunnelingSection() {
                           <span className="text-[11px] font-medium text-ink-2">Cloudflare Tunnel</span>
                           <button
                             type="button"
-                            onClick={c.refreshTunnels}
+                            onClick={() => c.refreshTunnels(true)}
                             disabled={c.tunnelsLoading}
                             className="text-[10px] text-ink-3 hover:text-ink transition-colors disabled:opacity-50"
                           >
-                            {c.tunnelsLoading ? "Loading…" : "↻ Refresh"}
+                            {c.tunnelsLoading ? "Loading…" : <><RefreshIcon /> Refresh</>}
                           </button>
                         </div>
                         {c.tunnelsLoading && c.availableTunnels.length === 0 ? (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-subtle text-[12px] text-ink-3">
-                            <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
-                              <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                            </svg>
+                            <Spinner size={11} />
                             Loading tunnels…
                           </div>
                         ) : c.availableTunnels.length > 0 ? (
@@ -491,13 +515,11 @@ export default function TunnelingSection() {
           </Field>
         )}
 
-        {!c.selectedIsLive && c.tunnelProvider === "tailscale" && (() => {
+        {c.tunnelProvider === "tailscale" && !c.selectedIsLive && (() => {
           if (c.tsLoading && c.tsStatus === null) {
             return (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-subtle text-[12px] text-ink-3">
-                <svg className="animate-spin" width="11" height="11" viewBox="0 0 12 12" fill="none">
-                  <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
+                <Spinner size={11} />
                 Checking Tailscale…
               </div>
             );
@@ -567,7 +589,7 @@ export default function TunnelingSection() {
                   onClick={() => c.refreshTailscale()}
                   className="text-[10px] text-ok hover:text-ok transition-colors"
                 >
-                  ↻ Refresh
+                  <RefreshIcon /> Refresh
                 </button>
               </div>
               <div className="px-3 py-2 rounded-lg bg-surface-1 border border-subtle">
@@ -670,16 +692,36 @@ export default function TunnelingSection() {
               visible during the whole connect, even after the
               backend's optimistic event briefly arrives. */}
           {c.selectedIsLive && c.tunnelBusy !== "connecting" ? (
-            <button
-              onClick={c.handleDisconnect}
-              disabled={c.tunnelBusy !== null}
-              className="px-4 py-2 text-[13px] font-medium text-ink-2 bg-surface-2 hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-            >
-              {c.tunnelBusy === "disconnecting" && (
-                <span className="inline-block h-3 w-3 rounded-full border-2 border-strong border-t-ink animate-spin" />
-              )}
-              {c.tunnelBusy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
-            </button>
+            <>
+              <button
+                onClick={c.handleDisconnect}
+                disabled={c.tunnelBusy !== null}
+                className="px-4 py-2 text-[13px] font-medium text-ink-2 bg-surface-2 hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+              >
+                {c.tunnelBusy === "disconnecting" && (
+                  <span className="inline-block h-3 w-3 rounded-full border-2 border-strong border-t-ink animate-spin" />
+                )}
+                {c.tunnelBusy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
+              </button>
+              {/* Reconnect without the disconnect-then-remember-to-reconnect
+                  dance. The backend already tears its own connector down, so
+                  this is one click, not two. */}
+              <button
+                onClick={c.handleConnect}
+                disabled={
+                  c.tunnelBusy !== null ||
+                  (c.tunnelProvider === "cloudflare" && c.tunnelMode === "named" && (!c.tunnelName.trim() || !c.tunnelHostname.trim()))
+                }
+                title="Restart the tunnel with the settings above"
+                className={`px-4 py-2 text-[13px] font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2 ${
+                  c.liveTunnelConfigDrifted
+                    ? "text-white bg-accent hover:brightness-110 border border-[rgba(96,165,250,0.30)]"
+                    : "text-ink-2 bg-surface-2 hover:bg-white/[0.12]"
+                }`}
+              >
+                Reconnect
+              </button>
+            </>
           ) : (
             <button
               onClick={c.handleConnect}

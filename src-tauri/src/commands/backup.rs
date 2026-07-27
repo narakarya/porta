@@ -22,28 +22,125 @@ fn cleanup_wal_sidecars(db_path: &Path) {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct BackupEntry {
+    pub filename: String,
+    pub path: String,
+    pub size_bytes: u64,
+    /// Epoch seconds. Parsed from the `YYYYMMDD_HHMMSS.db` name (which is UTC),
+    /// falling back to the file's mtime for anything not matching.
+    pub created_at: Option<i64>,
+    /// What's actually inside — the number that tells you whether this is the
+    /// snapshot from before you deleted something.
+    pub app_count: Option<u32>,
+    pub workspace_count: Option<u32>,
+}
+
+/// `20260727_041003.db` → epoch seconds. The stamp is written in UTC by
+/// [`crate::backup::auto_backup`].
+fn parse_stamp(filename: &str) -> Option<i64> {
+    let stem = filename.strip_suffix(".db")?;
+    let dt = chrono::NaiveDateTime::parse_from_str(stem, "%Y%m%d_%H%M%S").ok()?;
+    Some(dt.and_utc().timestamp())
+}
+
+/// Row counts from a snapshot, read-only and best-effort. A snapshot from an
+/// older schema (or a half-written file) just reports `None` rather than
+/// failing the whole listing.
+fn snapshot_counts(path: &Path) -> (Option<u32>, Option<u32>) {
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return (None, None);
+    };
+    let count = |table: &str| -> Option<u32> {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .ok()
+    };
+    (count("apps"), count("workspaces"))
+}
+
 #[tauri::command]
-pub fn list_backups() -> Vec<String> {
+pub fn list_backups() -> Vec<BackupEntry> {
     let dir = backup::backup_dir();
-    std::fs::read_dir(&dir)
-        .map(|entries| {
-            let mut names: Vec<String> = entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .collect();
-            names.sort();
-            names.reverse();
-            names
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+
+    let mut out: Vec<BackupEntry> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
+        .map(|e| {
+            let path = e.path();
+            let filename = e.file_name().to_string_lossy().to_string();
+            let meta = e.metadata().ok();
+            let created_at = parse_stamp(&filename).or_else(|| {
+                meta.as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+            });
+            let (app_count, workspace_count) = snapshot_counts(&path);
+            BackupEntry {
+                filename,
+                path: path.to_string_lossy().to_string(),
+                size_bytes: meta.map(|m| m.len()).unwrap_or(0),
+                created_at,
+                app_count,
+                workspace_count,
+            }
         })
-        .unwrap_or_default()
+        .collect();
+
+    // Newest first. Sort on the parsed timestamp rather than the name so a
+    // hand-dropped file still lands in the right place.
+    out.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.filename.cmp(&a.filename)));
+    out
+}
+
+/// Absolute path of the snapshots folder, so the UI can offer "show in Finder".
+#[tauri::command]
+pub fn backup_dir_path() -> String {
+    backup::backup_dir().to_string_lossy().to_string()
+}
+
+/// Swap `src` in as the live database.
+///
+/// The delicate part is that a restore is not a file copy. `state.db` holds an
+/// open WAL-mode connection: overwriting `<db>` underneath it leaves `<db>-wal`
+/// and `<db>-shm` describing the *old* file, and the next open replays that WAL
+/// straight over the restored bytes — the restore silently evaporates, which is
+/// exactly what "Restored! Reload to apply" used to mean in practice.
+///
+/// So: checkpoint and drop the live connection, copy, delete the sidecars, then
+/// reopen against the new file.
+fn swap_in_database(state: &AppState, src: &Path) -> Result<(), String> {
+    let mut guard = state.db.lock().map_err(|e| e.to_string())?;
+
+    let _ = guard.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    // Dropping the live connection (by replacing it) releases the WAL lock and
+    // the fd on `state.db_path` so the file can be overwritten cleanly.
+    *guard = Database::open_in_memory().map_err(|e| e.to_string())?;
+
+    let copy_result = std::fs::copy(src, &state.db_path).map_err(|e| e.to_string());
+
+    // Whether or not the copy landed, the on-disk file is now the only state.
+    cleanup_wal_sidecars(&state.db_path);
+
+    *guard = Database::open(state.db_path.clone()).map_err(|e| e.to_string())?;
+
+    copy_result.map(|_| ())
 }
 
 #[tauri::command]
 pub fn restore_backup(state: State<AppState>, filename: String) -> Result<(), String> {
     let backup_path = backup::backup_dir().join(&filename);
-    std::fs::copy(&backup_path, &state.db_path).map_err(|e| e.to_string())?;
-    Ok(())
+    if !backup_path.is_file() {
+        return Err(format!("backup not found: {}", backup_path.display()));
+    }
+    // Snapshot where we are before rolling back, so a restore is itself
+    // undoable — picking the wrong snapshot shouldn't be a one-way door.
+    backup::auto_backup_state(&state).ok();
+    swap_in_database(&state, &backup_path)
 }
 
 #[tauri::command]
@@ -62,33 +159,10 @@ pub fn export_full_backup(state: State<AppState>, dest_path: String) -> Result<(
 
 #[tauri::command]
 pub fn import_full_backup(state: State<AppState>, src_path: String) -> Result<(), String> {
-    backup::auto_backup(&state.db_path).ok();
-
-    // Hold the lock for the whole swap so nothing else can write to the
-    // DB while we replace the underlying file.
-    let mut guard = state.db.lock().map_err(|e| e.to_string())?;
-
-    // Flush our own WAL first so the safety auto_backup just took has
-    // every committed write, then drop the live connection by replacing
-    // it with an in-memory one. Dropping releases the WAL lock and the
-    // fd against `state.db_path` so we can overwrite the file cleanly.
-    let _ = guard.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-    *guard = Database::open_in_memory().map_err(|e| e.to_string())?;
-
-    let copy_result = std::fs::copy(&src_path, &state.db_path).map_err(|e| e.to_string());
-
-    // Whether the copy succeeded or failed, the imported file (or the
-    // old file if copy errored) is now the only on-disk state. Strip
-    // sidecar WAL/SHM so SQLite opens fresh — without this the imported
-    // data gets reverted by stale WAL recovery on next open.
-    cleanup_wal_sidecars(&state.db_path);
-
-    // Reopen against the on-disk file so the running app can continue
-    // using state.db without requiring restart for in-process commands.
-    // (UI still recommends restart so subscribers / process state reset.)
-    *guard = Database::open(state.db_path.clone()).map_err(|e| e.to_string())?;
-
-    copy_result.map(|_| ())
+    // Checkpointed, so the safety snapshot carries every committed write
+    // rather than whatever last happened to land in the main file.
+    backup::auto_backup_state(&state).ok();
+    swap_in_database(&state, Path::new(&src_path))
 }
 
 #[tauri::command]

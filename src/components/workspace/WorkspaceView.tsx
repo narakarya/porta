@@ -10,7 +10,7 @@ import ServiceCard from "../service/ServiceCard";
 import SelectionBar from "./SelectionBar";
 import ServiceSelectionBar from "./ServiceSelectionBar";
 
-// Modals are lazy-loaded — they're large (AppSettingsModal alone is 2k+
+// Heavy surfaces are lazy-loaded — they're large (AppConfigTab alone is 2k+
 // lines) and only mount when the user actually opens them. Eager imports
 // were forcing all this code to parse on initial app load.
 const AddAppModal = lazy(() => import("../app/AddAppModal"));

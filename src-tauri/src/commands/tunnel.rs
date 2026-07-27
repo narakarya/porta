@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use std::thread;
 use tauri::{Emitter, Manager};
 
@@ -846,6 +847,44 @@ fn url_host(url: &str) -> Option<String> {
         .filter(|h| !h.is_empty())
 }
 
+/// Pull the quick-tunnel URL out of one line of cloudflared stderr, if it has
+/// one.
+///
+/// This used to accept any `https://…` token whose text contained
+/// `.cloudflare.com`, which the banner's very first line satisfies:
+///
+/// ```text
+/// Thank you for trying Cloudflare Tunnel. Doing so, you agree to our Licence
+/// Terms (https://www.cloudflare.com/website-terms/)
+/// ```
+///
+/// That line arrives seconds before the real URL, so the terms page won the
+/// race and got emitted as the app's public URL — clicking "open" landed on
+/// Cloudflare's legal text and the actual tunnel URL was never shown. A quick
+/// tunnel is always on `*.trycloudflare.com`, so match the host, not a
+/// substring of the whole token.
+fn scrape_quick_tunnel_url(line: &str) -> Option<String> {
+    let mut rest = line;
+    while let Some(pos) = rest.find("https://") {
+        let token = rest[pos..]
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            // The banner boxes the URL in `|` borders, and prose wraps it in
+            // parens/commas.
+            .trim_end_matches(|c| matches!(c, '|' | ')' | ']' | ',' | '.' | '"' | '\''))
+            .trim();
+        if let Some(host) = url_host(token) {
+            let host = host.split(':').next().unwrap_or(&host).to_ascii_lowercase();
+            if host == "trycloudflare.com" || host.ends_with(".trycloudflare.com") {
+                return Some(token.to_string());
+            }
+        }
+        rest = &rest[pos + "https://".len()..];
+    }
+    None
+}
+
 /// Emit `{active:true, url}` on `channel` only once the freshly-minted quick
 /// tunnel hostname actually resolves through the SYSTEM resolver — the same
 /// getaddrinfo path browsers use. trycloudflare names are created at provision
@@ -933,7 +972,25 @@ fn single_host_caddy_host(
     )
 }
 
+/// Remembers where cloudflared lives, once we've found it.
+///
+/// Only a *hit* is cached. A miss keeps re-probing, because the whole point of
+/// the "I've installed it" button in the setup card is to notice a binary that
+/// wasn't there a moment ago. A hit, on the other hand, doesn't move — and
+/// every tunnel screen calls this several times per open, each miss-path call
+/// paying for a `which` subprocess.
+static CLOUDFLARED_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 fn find_cloudflared() -> Option<String> {
+    if let Some(p) = CLOUDFLARED_PATH.get() {
+        return Some(p.clone());
+    }
+    let found = probe_cloudflared()?;
+    let _ = CLOUDFLARED_PATH.set(found.clone());
+    Some(found)
+}
+
+fn probe_cloudflared() -> Option<String> {
     for p in &[
         "/usr/local/bin/cloudflared",
         "/opt/homebrew/bin/cloudflared",
@@ -962,12 +1019,36 @@ pub fn check_cloudflared() -> bool {
     find_cloudflared().is_some()
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudflareTunnel {
     pub id: String,
     pub name: String,
     #[serde(default)]
     pub connection_count: u32,
+}
+
+/// Short-lived cache over `cloudflared tunnel list`.
+///
+/// That command is a round-trip to Cloudflare's API — 1–3s on a good day. The
+/// tunnel screens call it on open, on every Quick↔Named toggle, on every
+/// provider toggle and on every app you look at, so the same answer was being
+/// bought over and over while the user sat looking at a spinner. Anything that
+/// changes the list goes through our own create/delete commands, which clear
+/// this; the TTL is only a backstop for edits made in the Cloudflare dashboard,
+/// and "↻ Refresh" bypasses it entirely.
+const TUNNEL_LIST_TTL: Duration = Duration::from_secs(30);
+
+fn tunnel_list_cache() -> &'static Mutex<Option<(Instant, Vec<CloudflareTunnel>)>> {
+    static CACHE: std::sync::OnceLock<Mutex<Option<(Instant, Vec<CloudflareTunnel>)>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// Drop the cached tunnel list — call after anything that changes it.
+pub fn invalidate_tunnel_list_cache() {
+    if let Ok(mut c) = tunnel_list_cache().lock() {
+        *c = None;
+    }
 }
 
 /// List named tunnels available under the user's `cloudflared login` session.
@@ -977,8 +1058,19 @@ pub struct CloudflareTunnel {
 /// blocking pool so the Tauri command worker thread is freed for other IPC
 /// while we wait — without this, opening Settings → Tunnels can starve other
 /// IPC calls (DNS list, status polling) until cloudflared returns.
+///
+/// `force` skips the cache — that's what the visible "Refresh" buttons pass.
 #[tauri::command]
-pub async fn list_cloudflare_tunnels() -> Result<Vec<CloudflareTunnel>, String> {
+pub async fn list_cloudflare_tunnels(force: Option<bool>) -> Result<Vec<CloudflareTunnel>, String> {
+    if !force.unwrap_or(false) {
+        if let Ok(guard) = tunnel_list_cache().lock() {
+            if let Some((at, list)) = guard.as_ref() {
+                if at.elapsed() < TUNNEL_LIST_TTL {
+                    return Ok(list.clone());
+                }
+            }
+        }
+    }
     tauri::async_runtime::spawn_blocking(|| -> Result<Vec<CloudflareTunnel>, String> {
         let cf = find_cloudflared().ok_or_else(|| "cloudflared not installed".to_string())?;
         let out = std::process::Command::new(&cf)
@@ -1003,14 +1095,18 @@ pub async fn list_cloudflare_tunnels() -> Result<Vec<CloudflareTunnel>, String> 
             connections: Vec<serde_json::Value>,
         }
         let raw: Vec<Raw> = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
-        Ok(raw
+        let list: Vec<CloudflareTunnel> = raw
             .into_iter()
             .map(|r| CloudflareTunnel {
                 id: r.id,
                 name: r.name,
                 connection_count: r.connections.len() as u32,
             })
-            .collect())
+            .collect();
+        if let Ok(mut c) = tunnel_list_cache().lock() {
+            *c = Some((Instant::now(), list.clone()));
+        }
+        Ok(list)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1167,22 +1263,13 @@ fn start_tunnel_blocking(
                     if url_emitted {
                         continue;
                     }
-                    if let Some(pos) = line.find("https://") {
-                        let url = line[pos..]
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("")
-                            .trim_end_matches('|')
-                            .trim()
-                            .to_string();
-                        if url.contains("trycloudflare.com") || url.contains(".cloudflare.com") {
-                            url_emitted = true;
-                            emit_quick_url_when_resolvable(
-                                handle2.clone(),
-                                format!("app:tunnel:{}", id3),
-                                url,
-                            );
-                        }
+                    if let Some(url) = scrape_quick_tunnel_url(&line) {
+                        url_emitted = true;
+                        emit_quick_url_when_resolvable(
+                            handle2.clone(),
+                            format!("app:tunnel:{}", id3),
+                            url,
+                        );
                     }
                 }
             }))
@@ -1415,22 +1502,13 @@ fn spawn_quick_tunnel_for_instance(
                     if url_emitted {
                         continue;
                     }
-                    if let Some(pos) = line.find("https://") {
-                        let url = line[pos..]
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("")
-                            .trim_end_matches('|')
-                            .trim()
-                            .to_string();
-                        if url.contains("trycloudflare.com") || url.contains(".cloudflare.com") {
-                            url_emitted = true;
-                            emit_quick_url_when_resolvable(
-                                handle2.clone(),
-                                channel3.clone(),
-                                url,
-                            );
-                        }
+                    if let Some(url) = scrape_quick_tunnel_url(&line) {
+                        url_emitted = true;
+                        emit_quick_url_when_resolvable(
+                            handle2.clone(),
+                            channel3.clone(),
+                            url,
+                        );
                     }
                 }
             }))
@@ -1619,6 +1697,7 @@ pub async fn create_cloudflare_tunnel(name: String) -> Result<(), String> {
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
+        invalidate_tunnel_list_cache();
         Ok(())
     })
     .await
@@ -1767,6 +1846,47 @@ mod tests {
         assert_eq!(url_host("https://"), None);
     }
 
+    // The bug this guards: cloudflared's banner opens with a link to the
+    // licence terms on www.cloudflare.com, seconds before the real URL. The
+    // old `contains(".cloudflare.com")` check accepted it, latched
+    // `url_emitted`, and the app's "public URL" became Cloudflare's terms page.
+    #[test]
+    fn quick_url_scrape_ignores_the_licence_terms_banner() {
+        assert_eq!(
+            scrape_quick_tunnel_url(
+                "2026-07-27T04:10:02Z INF Thank you for trying Cloudflare Tunnel. \
+                 Doing so, you agree to our Licence Terms (https://www.cloudflare.com/website-terms/)"
+            ),
+            None
+        );
+        assert_eq!(
+            scrape_quick_tunnel_url(
+                "INF Requesting new quick Tunnel on trycloudflare.com... \
+                 see https://developers.cloudflare.com/cloudflare-one/"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn quick_url_scrape_takes_the_boxed_trycloudflare_url() {
+        assert_eq!(
+            scrape_quick_tunnel_url(
+                "2026-07-27T04:10:05Z INF |  https://baptist-executive-lat-crown.trycloudflare.com    |"
+            )
+            .as_deref(),
+            Some("https://baptist-executive-lat-crown.trycloudflare.com")
+        );
+        // Even when a terms link shares the line, the real host still wins.
+        assert_eq!(
+            scrape_quick_tunnel_url(
+                "terms https://www.cloudflare.com/website-terms/ url https://foo.trycloudflare.com"
+            )
+            .as_deref(),
+            Some("https://foo.trycloudflare.com")
+        );
+    }
+
     // Regression guard for the SNI-less 502: dialing 127.0.0.1 means Go sends
     // no SNI, Caddy can't pick a cert, and every tunneled request 502s. HTTPS
     // rules must carry originServerName; plain-HTTP rules must not.
@@ -1846,6 +1966,7 @@ pub async fn delete_cloudflare_tunnel(name: String, force: bool) -> Result<(), S
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
+        invalidate_tunnel_list_cache();
         Ok(())
     })
     .await

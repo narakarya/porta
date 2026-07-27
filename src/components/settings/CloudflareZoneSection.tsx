@@ -12,6 +12,8 @@ import {
   type ZoneSetting,
   type ZoneDnsDiff,
 } from "../../lib/commands";
+import { confirmDialog } from "../../lib/confirm";
+import { RefreshIcon, Spinner } from "../ui";
 
 const SETTING_LABELS: Record<string, { label: string; hint: string }> = {
   always_use_https: { label: "Always Use HTTPS", hint: "Redirect all HTTP requests to HTTPS." },
@@ -129,7 +131,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
     setError(null);
     try {
       if (purgeMode === "all") {
-        if (!window.confirm(`Purge ALL cache for ${zones.find((z) => z.id === zoneId)?.name ?? "this zone"}?`)) {
+        if (!(await confirmDialog(`Purge ALL cache for ${zones.find((z) => z.id === zoneId)?.name ?? "this zone"}?`, { title: "Purge cache", okLabel: "Purge" }))) {
           setPurging(false);
           return;
         }
@@ -251,7 +253,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                 disabled={diffLoading || !zoneId}
                 className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
               >
-                {diffLoading ? "Loading…" : "↻ Refresh"}
+                {diffLoading ? "Loading…" : <><RefreshIcon /> Refresh</>}
               </button>
             )}
             <button
@@ -374,9 +376,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
               <h2 className="text-[14px] font-semibold text-ink">Zone Settings</h2>
               {loading && (
                 <span className="inline-flex items-center gap-1 text-[10.5px] text-ink-3">
-                  <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                    <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
+                  <Spinner size={10} />
                   Loading{selectedZone ? ` ${selectedZone.name}` : ""}…
                 </span>
               )}
@@ -391,7 +391,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
             disabled={loading || !zoneId}
             className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
           >
-            {loading ? "Loading…" : "↻ Refresh"}
+            {loading ? "Loading…" : <><RefreshIcon /> Refresh</>}
           </button>
         </div>
 

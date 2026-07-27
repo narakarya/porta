@@ -7,6 +7,7 @@ import {
   isTauri,
   openExternalUrl,
   openInEditor,
+  openInFinder,
 } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import { deriveInstanceApp } from "../../lib/instance-app";
@@ -23,7 +24,6 @@ import { SidebarFrame, SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHe
 const AddWorkspaceModal = lazy(() => import("../workspace/AddWorkspaceModal"));
 const WorkspaceSettingsModal = lazy(() => import("../workspace/WorkspaceSettingsModal"));
 const AddAppModal = lazy(() => import("../app/AddAppModal"));
-const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
 const ImportComposeModal = lazy(() => import("../workspace/ImportComposeModal"));
 
 interface ContextMenuState {
@@ -43,7 +43,7 @@ type AppMenuItem = {
 };
 
 export default function Sidebar() {
-  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, selectedInstanceId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, selectInstance, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, deleteApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse, openAppTab } = usePortaStore(
+  const { workspaces, apps, instances, selectedWorkspaceId, selectedAppId, selectedInstanceId, imageUpdateCache, setupStatus, selectWorkspace, selectApp, selectInstance, reorderWorkspaces, reorderApps, moveAppToWorkspace, startApp, stopApp, restartApp, runInstance, stopInstanceAction, killInstanceAction, removeInstanceAction, openExtensionSidebar, cacheAppExtensions, activeDomain, setActiveDomain, collapsedWorkspaces, collapsedInstances, toggleWorkspaceCollapse, toggleInstancesCollapse, openAppTab } = usePortaStore(
     useShallow((s) => ({
       workspaces: s.workspaces,
       apps: s.apps,
@@ -63,7 +63,6 @@ export default function Sidebar() {
       startApp: s.startApp,
       stopApp: s.stopApp,
       restartApp: s.restartApp,
-      deleteApp: s.deleteApp,
       runInstance: s.runInstance,
       stopInstanceAction: s.stopInstanceAction,
       killInstanceAction: s.killInstanceAction,
@@ -83,7 +82,6 @@ export default function Sidebar() {
   const [showImportCompose, setShowImportCompose] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
-  const [settingsApp, setSettingsApp] = useState<App | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [appMenu, setAppMenu] = useState<{ app: App; x: number; y: number } | null>(null);
   // Instance-row overflow / right-click menu — mirrors appMenu but carries both
@@ -374,11 +372,19 @@ export default function Sidebar() {
       { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void restartApp(a.id); } },
       { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !a.root_dir, onClick: () => { if (a.root_dir) openAppTab(a.id, "terminal"); } },
       { label: "Open in Editor", icon: <EditorMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInEditor(a.root_dir); } },
+      { label: "Open in Finder", icon: <FolderMenuIcon />, disabled: !isTauri || !a.root_dir, onClick: () => { if (isTauri && a.root_dir) void openInFinder(a.root_dir); } },
       { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(a)); } },
       { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(a); } },
-      { label: "Settings", icon: <GearMenuIcon />, onClick: () => setSettingsApp(a) },
-      "separator",
-      { label: "Remove", icon: <TrashMenuIcon />, danger: true, onClick: () => { void deleteApp(a.id); } },
+      // Opens the workbench Config tab, not a second full-screen settings
+      // modal. There used to be two: this one (with its own left sidebar and
+      // its own Back button) and the Config tab — the same component, mounted
+      // twice, drifting apart. The tab is the one that gets the new sections.
+      { label: "Settings", icon: <GearMenuIcon />, onClick: () => openAppTab(a.id, "config") },
+      // No "Remove" here on purpose. Deleting an app took its routes, its
+      // worktree instances and its running process with it, off a menu whose
+      // other nine entries are all harmless — one slip on the row below
+      // "Settings" and it was gone. Deletion lives in Config → Danger, behind
+      // typing the app's name.
     ];
   }
 
@@ -418,6 +424,7 @@ export default function Sidebar() {
       { label: "Restart", icon: <RefreshMenuIcon />, onClick: () => { void (async () => { await killInstanceAction(inst.id, app.id); await runInstance(app.id, inst.worktree_path); })(); } },
       { label: "Open in Terminal", icon: <TerminalMenuIcon />, disabled: !target.root_dir, onClick: () => { if (target.root_dir) openAppTab(app.id, "terminal", inst.id); } },
       { label: "Open in Editor", icon: <EditorMenuIcon />, disabled: !isTauri || !target.root_dir, onClick: () => { if (isTauri && target.root_dir) void openInEditor(target.root_dir); } },
+      { label: "Open in Finder", icon: <FolderMenuIcon />, disabled: !isTauri || !target.root_dir, onClick: () => { if (isTauri && target.root_dir) void openInFinder(target.root_dir); } },
       { label: "Open in browser", icon: <ExternalMenuIcon />, disabled: !isTauri, onClick: () => { if (isTauri) void openExternalUrl(appUrl(target)); } },
       { label: "Extensions", icon: <ExtensionsMenuIcon />, onClick: () => { void openExtensionsFor(target); } },
       "separator",
@@ -842,13 +849,6 @@ export default function Sidebar() {
         {showAddApp && <AddAppModal workspaceId={selectedWorkspaceId} onClose={() => setShowAddApp(false)} />}
         {showImportCompose && <ImportComposeModal workspaceId={selectedWorkspaceId} onClose={() => setShowImportCompose(false)} />}
         {settingsWs && <WorkspaceSettingsModal workspace={settingsWs} onClose={() => setSettingsWs(null)} />}
-        {settingsApp && (
-          <AppSettingsModal
-            app={settingsApp}
-            workspace={workspaces.find((w) => w.id === settingsApp.workspace_id) ?? null}
-            onClose={() => setSettingsApp(null)}
-          />
-        )}
       </Suspense>
     </SidebarFrame>
   );
@@ -918,6 +918,13 @@ function GearMenuIcon() {
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
       <circle cx="5.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
       <path d="M5.5 1v1M5.5 9v1M1 5.5h1M9 5.5h1M2.3 2.3l.7.7M8.2 8.2l.7.7M8.2 2.3l-.7.7M2.3 8.2l.7-.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function FolderMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+      <path d="M1.5 3.2A1 1 0 0 1 2.5 2.2h1.8L5.5 3.4h4A1 1 0 0 1 10.5 4.4v4.4a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
     </svg>
   );
 }

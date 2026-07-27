@@ -1,7 +1,7 @@
 import type { TailscaleStatus, TailscaleServeEntry } from "./commands";
 
 // In-memory cache for Tailscale-related fetches. Shared across components so
-// the Settings tab and AppSettingsModal render the previous snapshot instantly
+// the Settings tab and AppConfigTab render the previous snapshot instantly
 // on open, while a background refresh updates it.
 
 let statusCache: TailscaleStatus | null = null;

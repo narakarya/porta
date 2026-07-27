@@ -175,7 +175,7 @@ pub fn import_porta_config(state: State<AppState>, src_path: String) -> Result<(
 
     // Sync Caddy and backup
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
+    crate::backup::auto_backup_state(&state).ok();
 
     Ok(())
 }

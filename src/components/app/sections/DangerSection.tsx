@@ -8,8 +8,8 @@ interface Props {
 }
 
 /**
- * Lifted out of `AppSettingsModal.tsx` so the modal file doesn't have to
- * mix this section's confirm-text local state with the rest of the form.
+ * Lifted out of `AppConfigTab.tsx` so that file doesn't have to mix this
+ * section's confirm-text local state with the rest of the form.
  *
  * The "type the app name to enable Delete" pattern is local to this section
  * — no other section reads or writes it — so owning it here keeps the

@@ -176,7 +176,7 @@ export default function App() {
     const prewarmHandles: number[] = [];
     const queue: Array<() => Promise<unknown>> = [
       () => import("./components/settings/SettingsPage"),
-      () => import("./components/app/AppSettingsModal"),
+      () => import("./components/app/AppConfigTab"),
       () => import("./components/app/LogViewer"),
       () => import("./components/app/AddAppModal"),
       () => import("./components/settings/CloudflareSection"),

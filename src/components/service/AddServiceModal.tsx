@@ -4,6 +4,8 @@ import { usePortaStore } from "../../store";
 import type { ServiceTemplate } from "../../types";
 import ModalWrapper from "../shared/ModalWrapper";
 import { yieldToFrame } from "../../lib/ui";
+import { confirmDialog } from "../../lib/confirm";
+import { Spinner } from "../ui";
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
@@ -433,7 +435,7 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
 
   async function handleDeleteTemplate(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    if (!window.confirm("Delete this template?")) return;
+    if (!(await confirmDialog("Delete this template?", { title: "Delete template", okLabel: "Delete" }))) return;
     await deleteServiceTemplate(id);
     if (selectedPreset !== null && allPresets[selectedPreset]?.userTemplateId === id) {
       setSelectedPreset(null);
@@ -637,10 +639,7 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
             className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             {submitting && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={14} />
             )}
             {submitting ? "Adding..." : "Add Service"}
           </button>

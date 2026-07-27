@@ -165,10 +165,13 @@ describe("AppWorkbench pinned extension tabs", () => {
 describe("AppWorkbench overview affordances", () => {
   beforeEach(() => seed());
 
+  // "Open", not "Show": this lands you inside the folder. `open -R` (reveal)
+  // drops you in the *parent* with the folder highlighted, which is the wrong
+  // half of the job for a project directory.
   it("exposes the root dir as a Finder target, not inert text", async () => {
     render(<AppWorkbench app={app} />);
     expect(
-      await screen.findByRole("button", { name: "Show /Users/dev/web in Finder" })
+      await screen.findByRole("button", { name: "Open /Users/dev/web in Finder" })
     ).toBeInTheDocument();
   });
 

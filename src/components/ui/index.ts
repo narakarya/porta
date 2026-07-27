@@ -6,4 +6,5 @@ export { default as Tabs, type TabItem } from "./Tabs";
 export { StatusDot, Badge, type Status } from "./Status";
 export { default as Popover } from "./Popover";
 export { EmptyState, Skeleton, Spinner } from "./Feedback";
+export { RefreshIcon, DownloadIcon, ClearIcon } from "./Icons";
 export { default as ListRow } from "./ListRow";

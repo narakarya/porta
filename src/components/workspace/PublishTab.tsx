@@ -61,7 +61,7 @@ export default function PublishTab({
 }: {
   app: App;
   // Deep-link into the workbench Config tab (mockup 20).
-  onOpenConfig: (section?: import("../app/AppSettingsModal").Section) => void;
+  onOpenConfig: (section?: import("../app/AppConfigTab").Section) => void;
 }) {
   const { startTunnel, stopTunnel, connecting, error, tunnelLogs } = usePortaStore(
     useShallow((s) => ({
@@ -72,7 +72,7 @@ export default function PublishTab({
       tunnelLogs: s.appTunnelLogs[app.id] ?? EMPTY_LOGS,
     }))
   );
-  const openConfig = (section?: import("../app/AppSettingsModal").Section) => onOpenConfig(section);
+  const openConfig = (section?: import("../app/AppConfigTab").Section) => onOpenConfig(section);
   const [busy, setBusy] = useState(false);
 
   const active = app.tunnel_active && !!app.tunnel_url;
@@ -142,7 +142,7 @@ export default function PublishTab({
   // Short one-line description of the selected mode + the concrete next step.
   // Password credentials live in Config → Domain (basic auth); CF Access is
   // configured in Config → Tunneling. Public needs no further setup.
-  const accessDetail: Record<Access, { text: string; action?: { label: string; section: import("../app/AppSettingsModal").Section } }> = {
+  const accessDetail: Record<Access, { text: string; action?: { label: string; section: import("../app/AppConfigTab").Section } }> = {
     public: { text: "Anyone with the link." },
     password: { text: "Basic auth — visitors need the password.", action: { label: "Set credentials", section: "domain" } },
     cfaccess: { text: "Cloudflare Access gates every request.", action: { label: "Configure in Tunneling", section: "tunneling" } },

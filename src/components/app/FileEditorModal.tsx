@@ -16,6 +16,7 @@ import CodeEditor, { type CodeLanguage } from "../shared/CodeEditor";
 import EditorSearchBar from "../shared/EditorSearchBar";
 import { SearchQuery, setSearchQuery, findNext, findPrevious, SearchCursor } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
+import { confirmDialog } from "../../lib/confirm";
 
 type FileKind = "compose" | "env" | "generic";
 
@@ -42,6 +43,14 @@ interface Props {
   currentPort: number;
   onClose: () => void;
   initialPath?: string;
+  /** Render inline (fill the parent) instead of as a full-screen overlay —
+   *  used when Files is a workbench tab rather than a modal takeover. Mirrors
+   *  LogViewer's `embedded`: no backdrop, no rounded floating card, and the
+   *  header drops the app name and the ✕ (the tab bar already owns both). */
+  embedded?: boolean;
+  /** Embedded only: is this tab the one on screen? Gates the keyboard
+   *  shortcuts, which are window-level. */
+  active?: boolean;
 }
 
 // ── Env row types ────────────────────────────────────────────────────────────
@@ -139,7 +148,7 @@ function formatSize(bytes: number | undefined): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function FileEditorModal({ appId, appName, composePath, currentPort, onClose, initialPath }: Props) {
+export default function FileEditorModal({ appId, appName, composePath, currentPort, onClose, initialPath, embedded = false, active: active_ = true }: Props) {
   const restartApp = usePortaStore((s) => s.restartApp);
   const apps = usePortaStore((s) => s.apps);
 
@@ -311,9 +320,14 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     return () => { cancelled = true; };
   }, [refreshList, loadEntry, initialPath]);
 
-  const attemptClose = useCallback(() => {
+  // Async because the confirm is a real OS dialog now — callers fire and
+  // forget, the close happens when the user answers.
+  const attemptClose = useCallback(async () => {
     if (isDirty) {
-      const ok = window.confirm("You have unsaved changes. Discard and close?");
+      const ok = await confirmDialog("You have unsaved changes. Discard and close?", {
+        title: "Discard changes",
+        okLabel: "Discard",
+      });
       if (!ok) return;
     }
     onClose();
@@ -429,12 +443,17 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     if (view) view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) });
   }, []);
 
+  // As a modal this owns the window's keys unconditionally. As a tab it must
+  // not: the pane stays mounted while another tab is showing (so a half-typed
+  // .env survives a trip to Logs), and a still-listening ⌘S / Escape from a
+  // hidden pane would fight whatever the user is actually looking at.
   useEffect(() => {
+    if (embedded && !active_) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
         if (searchOpen) { closeSearch(); return; }
-        attemptClose();
+        void attemptClose();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setSearchOpen(true);
@@ -459,7 +478,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, saving, content, rows, active, envMode, attemptClose, searchOpen, closeSearch]);
+  }, [isDirty, saving, content, rows, active, envMode, attemptClose, searchOpen, closeSearch, embedded, active_]);
 
   async function handleSave() {
     if (!active) return;
@@ -518,7 +537,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   async function handleReload() {
     if (!active) return;
     if (isDirty) {
-      const ok = window.confirm("Reload will discard unsaved changes. Continue?");
+      const ok = await confirmDialog("Reload will discard unsaved changes. Continue?", { title: "Reload file", okLabel: "Reload" });
       if (!ok) return;
     }
     await loadEntry(active);
@@ -528,7 +547,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   async function selectFile(entry: FileEntry) {
     if (entry.path === activePath) return;
     if (isDirty) {
-      const ok = window.confirm("You have unsaved changes. Switch file and discard?");
+      const ok = await confirmDialog("You have unsaved changes. Switch file and discard?", { title: "Discard changes", okLabel: "Discard" });
       if (!ok) return;
     }
     await loadEntry(entry);
@@ -541,7 +560,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     const target = entry.templateTarget;
     if (!target || creating) return;
     if (isDirty) {
-      const ok = window.confirm("You have unsaved changes. Create the file and discard them?");
+      const ok = await confirmDialog("You have unsaved changes. Create the file and discard them?", { title: "Discard changes", okLabel: "Discard" });
       if (!ok) return;
     }
     setCreating(target);
@@ -797,10 +816,14 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
   return (
     <div
-      className="fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) attemptClose(); }}
+      className={embedded
+        ? "h-full w-full flex flex-col overflow-hidden bg-surface-0"
+        : "fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden"}
+      onMouseDown={embedded ? undefined : (e) => { if (e.target === e.currentTarget) void attemptClose(); }}
     >
-      <div className="flex flex-col flex-1 m-4 md:m-8 bg-surface-2 border border-subtle rounded-card overflow-hidden shadow-2xl">
+      <div className={embedded
+        ? "flex flex-col flex-1 min-h-0 m-3 bg-surface-2 border border-subtle rounded-card overflow-hidden"
+        : "flex flex-col flex-1 m-4 md:m-8 bg-surface-2 border border-subtle rounded-card overflow-hidden shadow-2xl"}>
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-subtle bg-surface-1 shrink-0 select-none">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-ink-2">
@@ -808,8 +831,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             <path d="M8 1.5V5h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M5.6 8L4.6 9l1 1M8.4 8l1 1-1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <span className="text-[13px] font-semibold text-ink">{appName}</span>
-          <span className="text-ink-3 text-[12px]">·</span>
+          {!embedded && <>
+            <span className="text-[13px] font-semibold text-ink">{appName}</span>
+            <span className="text-ink-3 text-[12px]">·</span>
+          </>}
           {active ? (
             <span className="text-[12px] font-mono text-ink-2 truncate max-w-[220px]" title={active.name}>{active.name}</span>
           ) : (
@@ -913,15 +938,17 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             {saving ? "Saving…" : "Save ⌘S"}
           </button>
 
-          <button
-            onClick={attemptClose}
-            className="p-1 text-ink-3 hover:text-ink hover:bg-white/[0.06] rounded-control transition-colors"
-            title="Close (Esc)"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
-          </button>
+          {!embedded && (
+            <button
+              onClick={() => { void attemptClose(); }}
+              className="p-1 text-ink-3 hover:text-ink hover:bg-white/[0.06] rounded-control transition-colors"
+              title="Close (Esc)"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Restart prompt — compose port drift */}

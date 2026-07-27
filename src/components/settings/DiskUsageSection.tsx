@@ -16,6 +16,8 @@ import {
 } from "../../lib/commands";
 import { formatBytes, yieldToFrame } from "../../lib/ui";
 import DockerImagesModal from "./DockerImagesModal";
+import { confirmDialog } from "../../lib/confirm";
+import { Spinner } from "../ui";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 type ActionState = "idle" | "running" | "success" | "error";
@@ -51,7 +53,7 @@ export default function DiskUsageSection() {
   }, []);
 
   async function handleDangling() {
-    if (!window.confirm("Remove dangling images? These are unreferenced layers from past pulls — safe to delete.")) return;
+    if (!(await confirmDialog("Remove dangling images? These are unreferenced layers from past pulls — safe to delete.", { title: "Prune images", okLabel: "Remove" }))) return;
     setDanglingAction({ state: "running" });
     await yieldToFrame();
     try {
@@ -66,8 +68,7 @@ export default function DiskUsageSection() {
   async function handleUnused() {
     const reclaim = usage ? formatBytes(usage.images.reclaimable_bytes) : "";
     const msg = `Remove ALL unused images? This includes images not used by any container right now (${reclaim} reclaimable). You'll re-pull when needed.`;
-    if (!window.confirm(msg)) return;
-    if (!window.confirm("Are you sure? This is more aggressive than dangling-only cleanup.")) return;
+    if (!(await confirmDialog(`${msg}\n\nThis is more aggressive than dangling-only cleanup.`, { title: "Prune unused images", okLabel: "Remove all" }))) return;
     setUnusedAction({ state: "running" });
     await yieldToFrame();
     try {
@@ -119,10 +120,7 @@ export default function DiskUsageSection() {
             title="Refresh"
           >
             {load === "loading" ? (
-              <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={12} />
             ) : (
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M2 6a4 4 0 017-2.5M10 6a4 4 0 01-7 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -357,7 +355,7 @@ function LogsCard() {
   }
 
   async function handleClearAll() {
-    if (!window.confirm("Clear ALL app log files? This wipes runtime history for every app — useful when you just need disk back.")) return;
+    if (!(await confirmDialog("Clear ALL app log files? This wipes runtime history for every app — useful when you just need disk back.", { title: "Clear all logs", okLabel: "Clear" }))) return;
     setClearState("running");
     await yieldToFrame();
     try {
@@ -402,10 +400,7 @@ function LogsCard() {
           className="text-[12px] text-ink-2 hover:text-ink disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
         >
           {loadState === "loading" ? (
-            <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-              <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <Spinner size={12} />
           ) : (
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 6a4 4 0 017-2.5M10 6a4 4 0 01-7 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -534,10 +529,7 @@ function SmallActionButton({
       className={`px-3 py-1.5 text-[12px] font-medium rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0 ${cls}`}
     >
       {state === "running" && (
-        <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-          <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
+        <Spinner size={12} />
       )}
       {state === "running" ? busyLabel : label}
     </button>
@@ -618,10 +610,7 @@ function ActionButton({
         className={`px-3 py-1.5 text-[12px] font-medium rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ${baseClass}`}
       >
         {state.state === "running" && (
-          <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-            <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <Spinner size={12} />
         )}
         {state.state === "running" ? busyLabel : label}
       </button>

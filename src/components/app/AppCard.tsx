@@ -5,7 +5,7 @@ import { usePortaStore } from "../../store";
 import type { App, Workspace } from "../../types";
 import AppContextMenu from "./AppContextMenu";
 import HostsDropdown from "./HostsDropdown";
-import { openInEditor, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, openExternalUrl, isTauri, type PortCheckResult } from "../../lib/commands";
+import { openInEditor, openInFinder, killPortHolder, checkPortAvailable, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, openExternalUrl, isTauri, type PortCheckResult } from "../../lib/commands";
 import type { AppInstance } from "../../lib/commands";
 import type { ExtensionInfo } from "../../types/extension";
 import ExtensionActionButtons from "../extension/ExtensionActionButtons";
@@ -13,7 +13,7 @@ import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosit
 import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
 
 // LogViewer is only opened when the user expands logs — defer its parse cost.
-// (AppSettingsModal lives at the workspace level and is lazy-loaded there.)
+// (AppConfigTab is the workbench's Config tab, lazy-loaded there.)
 const LogViewer = lazy(() => import("./LogViewer"));
 const FileEditorModal = lazy(() => import("./FileEditorModal"));
 const TrafficInspectorModal = lazy(() => import("./TrafficInspectorModal"));
@@ -32,6 +32,16 @@ import { deriveInstanceApp } from "../../lib/instance-app";
 // yields a new array every render, which `useSyncExternalStore` reads as a
 // new snapshot each time → infinite re-render ("Maximum update depth exceeded").
 const EMPTY_INSTANCES: AppInstance[] = [];
+
+/** Folder — "show me this app's directory". */
+function FolderMenuIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+      <path d="M1.5 3.2A1 1 0 0 1 2.5 2.2h1.8L5.5 3.4h4A1 1 0 0 1 10.5 4.4v4.4a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
 
 interface Props {
   app: App;
@@ -956,6 +966,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       {logToastOpen && !logViewerOpen && (
         <LogToast
           appName={app.name}
+          appPort={app.port}
           logs={logs}
           isRunning={isRunning}
           isStarting={isStarting}
@@ -1079,6 +1090,10 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               label: "Open in Terminal",
               icon: <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="1.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.2"/><path d="M2.5 4.5l2 1.5-2 1.5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
               onClick: () => onOpenTerminal?.(app),
+            }, {
+              label: "Open in Finder",
+              icon: <FolderMenuIcon />,
+              onClick: () => { void openInFinder(app.root_dir); },
             }] : []),
             ...(isManaged && isActive ? [{
               label: "Force Kill",

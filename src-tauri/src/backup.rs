@@ -107,6 +107,22 @@ pub fn backup_dir() -> PathBuf {
     crate::porta_dir().join("backups")
 }
 
+/// Snapshot the live database, flushing the WAL first.
+///
+/// Prefer this over bare [`auto_backup`] anywhere an `AppState` is in hand.
+/// SQLite in WAL mode leaves recent commits in `<db>-wal` until a checkpoint,
+/// and a plain file copy of `<db>` misses every one of them — which is how
+/// snapshots taken right after a change ended up predating it, and a restore
+/// looked like it did nothing.
+///
+/// The caller must NOT be holding `state.db`.
+pub fn auto_backup_state(state: &crate::app_state::AppState) -> Result<()> {
+    if let Ok(db) = state.db.lock() {
+        let _ = db.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+    auto_backup(&state.db_path)
+}
+
 pub fn auto_backup(db_path: &Path) -> Result<()> {
     let dir = backup_dir();
     fs::create_dir_all(&dir)?;

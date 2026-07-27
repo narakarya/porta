@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../../lib/tauri-event";
 import { runSetup } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";

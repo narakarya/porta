@@ -17,6 +17,8 @@ import {
   type EmailRoutingStatus,
 } from "../../lib/commands";
 import { usePortaStore } from "../../store";
+import { confirmDialog } from "../../lib/confirm";
+import { RefreshIcon, Spinner } from "../ui";
 
 interface Props {
   tokenVersion?: number;
@@ -126,7 +128,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
 
   async function handleDeleteDestination(d: EmailDestination) {
     if (!token) return;
-    if (!window.confirm(`Remove ${d.email} as a destination?`)) return;
+    if (!(await confirmDialog(`Remove ${d.email} as a destination?`, { title: "Remove destination", okLabel: "Remove" }))) return;
     try {
       await cfEmailDeleteAddress(token, d.tag);
       setDestinations((prev) => prev.filter((x) => x.tag !== d.tag));
@@ -159,7 +161,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
 
   async function handleDeleteRule(r: EmailRule) {
     if (!token || !zoneId) return;
-    if (!window.confirm(`Delete rule "${r.matcher_value}"?`)) return;
+    if (!(await confirmDialog(`Delete rule "${r.matcher_value}"?`, { title: "Delete rule", okLabel: "Delete" }))) return;
     setDeletingTag(r.tag);
     try {
       await cfEmailDeleteRule(token, zoneId, r.tag);
@@ -206,9 +208,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
             <h2 className="text-[14px] font-semibold text-ink">Email Routing</h2>
             {loading && (
               <span className="inline-flex items-center gap-1 text-[10.5px] text-ink-3">
-                <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                  <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
+                <Spinner size={10} />
                 Loading{zones.find((z) => z.id === zoneId)?.name ? ` ${zones.find((z) => z.id === zoneId)!.name}` : ""}…
               </span>
             )}
@@ -229,7 +229,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
             disabled={!token || loading}
             className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
           >
-            {loading ? "Loading…" : "↻ Refresh"}
+            {loading ? "Loading…" : <><RefreshIcon /> Refresh</>}
           </button>
           <div className="min-w-[200px]">
             <select

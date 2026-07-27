@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePortaStore } from "../../../store";
 import {
   checkPortAvailable,
@@ -20,7 +20,7 @@ import {
   type TunnelDnsRoute,
 } from "../../../lib/commands";
 import { getCachedTailscaleStatus, setCachedTailscaleStatus } from "../../../lib/tailscaleCache";
-import { getCachedDnsRoutes, setCachedDnsRoutes } from "../../../lib/tunnelCache";
+import { getCachedTunnels, setCachedTunnels, getCachedDnsRoutes, setCachedDnsRoutes } from "../../../lib/tunnelCache";
 import type { App, EnvProfile, HostAuthOverrideInput, PortBinding, Workspace } from "../../../types";
 import { yieldToFrame } from "../../../lib/ui";
 import psl from "psl";
@@ -276,7 +276,7 @@ export function useAppConfigDraft(
   const [tunnelHostname, setTunnelHostname] = useState(app.tunnel_custom_hostname ?? "");
   const [tunnelAliasDomain, setTunnelAliasDomain] = useState(app.tunnel_alias_domain ?? "");
   const [tunnelAliasRewriteHost, setTunnelAliasRewriteHost] = useState(app.tunnel_alias_rewrite_host ?? true);
-  const [availableTunnels, setAvailableTunnels] = useState<CloudflareTunnel[]>([]);
+  const [availableTunnels, setAvailableTunnels] = useState<CloudflareTunnel[]>(() => getCachedTunnels());
   const [tunnelsError, setTunnelsError] = useState<string | null>(null);
   const [tunnelsLoading, setTunnelsLoading] = useState(false);
   // DNS routes (CNAME → tunnel UUID) hydrated from the cache that App.tsx
@@ -432,7 +432,19 @@ export function useAppConfigDraft(
     }
   }
 
-  async function refreshTunnels() {
+  /**
+   * Load the named-tunnel dropdown.
+   *
+   * `force` is what the visible "↻ Refresh" and the setup cards' recheck
+   * buttons pass; it bypasses the backend's 30s cache. Everything else — the
+   * automatic load on entering the section — is happy with a cached answer,
+   * which is the difference between the panel appearing instantly and staring
+   * at a spinner for a couple of seconds every single time.
+   *
+   * The spinner itself is also suppressed when we already have a list to show:
+   * swapping populated content for a "Loading tunnels…" box is a downgrade.
+   */
+  async function refreshTunnels(force = false) {
     setTunnelsLoading(true);
     setTunnelsError(null);
     try {
@@ -442,20 +454,26 @@ export function useAppConfigDraft(
         setAvailableTunnels([]);
         return;
       }
-      const list = await listCloudflareTunnels();
+      const list = await listCloudflareTunnels(force);
       setAvailableTunnels(list);
+      setCachedTunnels(list);
       // Refresh DNS routes in the background so the hostname field can
       // auto-fill from the routes already pointing at the selected tunnel.
       // Best-effort — no token / API error just leaves the cache as-is.
-      getCfApiToken()
-        .then((token) => {
-          if (!token) return;
-          return listTunnelDns(token).then((routes) => {
-            setDnsRoutes(routes);
-            setCachedDnsRoutes(routes);
-          });
-        })
-        .catch(() => {});
+      // Skipped unless forced when the cache already has routes: this fans out
+      // to /zones plus a /dns_records call per zone, and it is the single
+      // slowest thing on the Tunneling panel.
+      if (force || getCachedDnsRoutes().length === 0) {
+        getCfApiToken()
+          .then((token) => {
+            if (!token) return;
+            return listTunnelDns(token).then((routes) => {
+              setDnsRoutes(routes);
+              setCachedDnsRoutes(routes);
+            });
+          })
+          .catch(() => {});
+      }
     } catch (e) {
       setTunnelsError(e instanceof Error ? e.message : String(e));
       setAvailableTunnels([]);
@@ -527,23 +545,42 @@ export function useAppConfigDraft(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dnsRoutes, tunnelName, availableTunnels]);
 
-  // When entering the Tunneling section, probe both providers cheaply so the
-  // segmented-control status dots reflect reality regardless of which pill is
-  // currently selected. Heavy operations (`cloudflared tunnel list`) still
-  // gate on actually being in named mode.
+  // Probe both providers once, on first entry into the Tunneling section, so
+  // the segmented control's status dots reflect reality regardless of which
+  // pill is selected.
+  //
+  // This deliberately no longer depends on tunnelMode/tunnelProvider. It used
+  // to, which meant every Quick↔Named click and every Cloudflare↔Tailscale
+  // click re-ran `tailscale status` AND `cloudflared tunnel list` — two
+  // subprocesses and a round-trip to Cloudflare, to re-answer a question whose
+  // answer hadn't changed. Toggling a segmented control should be instant.
+  const probedRef = useRef(false);
   useEffect(() => {
-    if (section !== "tunneling") return;
+    if (section !== "tunneling" || probedRef.current) return;
+    probedRef.current = true;
     if (cloudflaredInstalled === null) {
       checkCloudflared().then(setCloudflaredInstalled).catch(() => {});
     }
-    // Tailscale status powers both the Connect-button gating and the dot.
+    // Tailscale status powers both the Connect-button gating and the dot. The
+    // cached status is already on screen (see the useState initialiser), so
+    // this only corrects it.
     refreshTailscale();
-    if (tunnelProvider === "cloudflare" && tunnelMode === "named") {
-      refreshTunnels();
-    }
     if (cfApiToken === null) {
       getCfApiToken().then((t) => setCfApiTokenState(t || "")).catch(() => setCfApiTokenState(""));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section]);
+
+  // The named-tunnel list is only needed once the user is actually in named
+  // mode — fetched at most once per visit, with the cached list already
+  // rendered while it resolves.
+  const tunnelsFetchedRef = useRef(false);
+  useEffect(() => {
+    if (section !== "tunneling") return;
+    if (tunnelProvider !== "cloudflare" || tunnelMode !== "named") return;
+    if (tunnelsFetchedRef.current) return;
+    tunnelsFetchedRef.current = true;
+    refreshTunnels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, tunnelMode, tunnelProvider]);
 
@@ -919,6 +956,16 @@ export function useAppConfigDraft(
   // Another provider is connected while we're viewing a different (not-yet-live)
   // tab — used to warn that Connect will switch providers.
   const otherProviderLive = app.tunnel_active && !selectedIsLive ? activeTunnelProvider : null;
+  // The form no longer hides itself while a tunnel is up (you used to have to
+  // disconnect before you could even *see* the tunnel name, the hostname or
+  // the Access settings). So we need to say when what's on screen has diverged
+  // from what's actually running: the edits are real, they just don't take
+  // effect until the connector restarts.
+  const liveTunnelConfigDrifted =
+    selectedIsLive &&
+    tunnelProvider === "cloudflare" &&
+    ((tunnelMode === "named" ? tunnelName.trim() || null : null) !== (app.tunnel_name ?? null) ||
+      (tunnelMode === "named" ? tunnelHostname.trim() || null : null) !== (app.tunnel_custom_hostname ?? null));
   const configuredTunnelHosts = useMemo(
     () => buildTunnelPublicHosts(tunnelHostname, app.extra_subdomains ?? [], app.port_bindings ?? []),
     [tunnelHostname, app.extra_subdomains, app.port_bindings],
@@ -1174,7 +1221,7 @@ export function useAppConfigDraft(
     scheme, effectiveSub, localDomain, localTld, primaryHost, primaryUrl,
     authHosts, buildHostAuthOverrides,
     addDomainInputValid, addDomain,
-    activeTunnelProvider, selectedIsLive, otherProviderLive,
+    activeTunnelProvider, selectedIsLive, otherProviderLive, liveTunnelConfigDrifted,
     configuredTunnelHosts, liveTunnelHosts,
     handleSave, browseRootDir, browseEnvFile, handleDelete,
     isStatic, isDocker, isCompose, isProxy,

@@ -29,7 +29,7 @@ interface Props {
 /**
  * Presentational emails + email-domains editor for a single Cloudflare Access
  * policy. No IPC: the parent owns the token, the `cf_access_protect` call, and
- * any list refresh. Reused by the per-app panel (AppSettingsModal) and the
+ * any list refresh. Reused by the per-app panel (AppConfigTab) and the
  * global Access section.
  */
 export default function AccessPolicyEditor({

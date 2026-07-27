@@ -186,7 +186,7 @@ export default function ActivityView() {
     const svcName = (id: string) => servicesRef.current.find((s) => s.id === id)?.name ?? "service";
 
     (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
+      const { listen } = await import("../../lib/tauri-event");
       const track = (p: Promise<() => void>) =>
         p.then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 

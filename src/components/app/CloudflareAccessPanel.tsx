@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cfAccessGetApp, cfAccessProtect, cfAccessUnprotect, type AccessAppInfo } from "../../lib/commands";
 import AccessPolicyEditor from "../settings/AccessPolicyEditor";
+import { confirmDialog } from "../../lib/confirm";
 
 interface Props {
   /** Public hostname that's already been SAVED for this app
@@ -89,7 +90,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
 
   async function handleRemove() {
     if (!cfToken || !saved) return;
-    if (!window.confirm(`Remove Cloudflare Access protection from ${saved}?`)) return;
+    if (!(await confirmDialog(`Remove Cloudflare Access protection from ${saved}? The hostname becomes publicly reachable again.`, { title: "Remove Access policy", okLabel: "Remove" }))) return;
     setSaving(true);
     setError(null);
     try {

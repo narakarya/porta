@@ -62,7 +62,7 @@ export function useGitRefs(rootDir: string, enabled = true) {
     if (!enabled || !rootDir) return;
     let unlisten: (() => void) | null = null;
     let dropped = false;
-    import("@tauri-apps/api/event").then(({ listen }) =>
+    import("../lib/tauri-event").then(({ listen }) =>
       listen<string>("git:fetched", (e) => {
         if (e.payload === rootDir) void reload({ silent: true });
       }).then((fn) => {

@@ -141,7 +141,7 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
     let unlistens: Array<() => void> = [];
     let cancelled = false;
     (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
+      const { listen } = await import("../../lib/tauri-event");
       const u1 = await listen<string>(`app:update-phase:${app.id}`, (e) => {
         setPhase(e.payload as UpdatePhase);
       });

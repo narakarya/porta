@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
-import { listen } from "@tauri-apps/api/event";
-import type { UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "../../lib/tauri-event";
+import type { UnlistenFn } from "../../lib/tauri-event";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
 import type { SshHost } from "../../lib/commands";

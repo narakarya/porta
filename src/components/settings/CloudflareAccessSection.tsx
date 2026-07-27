@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { cfAccessListApps, cfAccessProtect, cfAccessUnprotect, getCfApiToken, openExternalUrl, type AccessAppInfo } from "../../lib/commands";
 import AccessPolicyEditor from "./AccessPolicyEditor";
 import { usePortaStore } from "../../store";
+import { confirmDialog } from "../../lib/confirm";
+import { RefreshIcon } from "../ui";
 
 interface Props {
   /** Bumped by parent when the API token changes — triggers re-fetch. */
@@ -52,7 +54,7 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
 
   async function handleRemove(app: AccessAppInfo) {
     if (!token) return;
-    if (!window.confirm(`Remove Cloudflare Access protection from ${app.domain}?`)) return;
+    if (!(await confirmDialog(`Remove Cloudflare Access protection from ${app.domain}? The hostname becomes publicly reachable again.`, { title: "Remove Access policy", okLabel: "Remove" }))) return;
     setRemovingUid(app.uid);
     try {
       await cfAccessUnprotect(token, app.domain);
@@ -132,7 +134,7 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
           disabled={loading}
           className="text-[11px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
         >
-          {loading ? "Loading…" : "↻ Refresh"}
+          {loading ? "Loading…" : <><RefreshIcon /> Refresh</>}
         </button>
       </div>
 

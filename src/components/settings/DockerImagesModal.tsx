@@ -9,6 +9,8 @@ import {
   type PruneResult,
 } from "../../lib/commands";
 import { formatBytes, yieldToFrame } from "../../lib/ui";
+import { confirmDialog } from "../../lib/confirm";
+import { Spinner } from "../ui";
 
 type Tab = "dangling" | "unused" | "used";
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -43,7 +45,7 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
   }, []);
 
   async function handlePruneDangling() {
-    if (!window.confirm("Remove dangling images? These are unreferenced layers — safe to delete.")) return;
+    if (!(await confirmDialog("Remove dangling images? These are unreferenced layers — safe to delete.", { title: "Prune images", okLabel: "Remove" }))) return;
     setDanglingAction("running");
     await yieldToFrame();
     try {
@@ -58,8 +60,7 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
   }
 
   async function handlePruneUnused() {
-    if (!window.confirm("Remove ALL unused images? Images not used by any container will be deleted.")) return;
-    if (!window.confirm("Are you sure? This is more aggressive than dangling-only cleanup.")) return;
+    if (!(await confirmDialog("Remove ALL unused images? Images not used by any container will be deleted.\n\nThis is more aggressive than dangling-only cleanup.", { title: "Prune unused images", okLabel: "Remove all" }))) return;
     setUnusedAction("running");
     await yieldToFrame();
     try {
@@ -93,10 +94,7 @@ export default function DockerImagesModal({ onClose, onPruned }: Props) {
             className="text-[11px] text-ink-3 hover:text-ink-2 disabled:opacity-40 transition-colors flex items-center gap-1"
           >
             {load === "loading" ? (
-              <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={12} />
             ) : (
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                 <path d="M2 6a4 4 0 017-2.5M10 6a4 4 0 01-7 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -295,10 +293,7 @@ function PruneButton({
       className={`px-3 py-1.5 text-[12px] font-medium rounded-control transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ${cls}`}
     >
       {state === "running" && (
-        <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-          <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
+        <Spinner size={12} />
       )}
       {state === "running" ? busyLabel : label}
     </button>

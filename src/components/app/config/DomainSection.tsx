@@ -152,111 +152,11 @@ export default function DomainSection() {
         )}
       </div>
 
-      {/* Advanced — port bindings + host auth, collapsed by default. */}
-      <button
-        type="button"
-        onClick={() => c.setShowAdvancedDomain((v) => !v)}
-        className="self-start inline-flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-ink transition-colors"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className={`transition-transform ${c.showAdvancedDomain ? "rotate-90" : ""}`}>
-          <path d="M4.5 2.5L8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-        Advanced
-      </button>
-
-      {c.showAdvancedDomain && (
-        <>
-      {/* Port Bindings */}
-      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[12px] font-medium text-ink-2">Port Bindings</p>
-            <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
-              Map additional ports to their own subdomains (e.g. API server, WebSocket).
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() =>
-              c.setPortBindings((prev) => [
-                ...prev,
-                { id: crypto.randomUUID(), label: "", port: 0, subdomain: null, custom_domain: null },
-              ])
-            }
-            className="px-3 py-1.5 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
-          >
-            + Add
-          </button>
-        </div>
-
-        {c.portBindings.map((binding, idx) => {
-          const bPortNum = binding.port;
-          const bPortOk = bPortNum === 0 || (!isNaN(bPortNum) && bPortNum > 0 && bPortNum < 65536);
-          const bSubOk = !binding.subdomain || c.SUBDOMAIN_RE.test(binding.subdomain);
-          const bDomOk = !binding.custom_domain || c.DOMAIN_RE.test(binding.custom_domain);
-
-          const updateBinding = (patch: Partial<PortBinding>) =>
-            c.setPortBindings((prev) => prev.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
-
-          return (
-            <div key={binding.id} className="flex items-center gap-2 p-3 rounded-lg bg-surface-1 border border-subtle">
-              <input
-                spellCheck={false}
-                value={binding.label}
-                onChange={(e) => updateBinding({ label: e.target.value })}
-                className={`input-base flex-[2] min-w-0 ${!binding.label.trim() && binding.port ? "border-[rgba(248,113,113,0.5)]" : ""}`}
-                placeholder="Label"
-                title="Label"
-              />
-              <input
-                spellCheck={false}
-                type="number"
-                min={1}
-                max={65535}
-                value={binding.port || ""}
-                onChange={(e) => updateBinding({ port: parseInt(e.target.value, 10) || 0 })}
-                className={`input-base w-20 ${binding.port && !bPortOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
-                placeholder="Port"
-                title="Port"
-              />
-              <input
-                spellCheck={false}
-                value={binding.subdomain ?? ""}
-                onChange={(e) => updateBinding({ subdomain: e.target.value.toLowerCase() || null })}
-                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.subdomain && !bSubOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
-                placeholder={binding.label.trim().toLowerCase().replace(/\s+/g, "-") || "subdomain"}
-                title="Subdomain"
-              />
-              <input
-                spellCheck={false}
-                value={binding.custom_domain ?? ""}
-                onChange={(e) => updateBinding({ custom_domain: e.target.value.toLowerCase() || null })}
-                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.custom_domain && !bDomOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
-                placeholder={c.workspace?.domain ?? "domain"}
-                title="Custom Domain"
-              />
-              <button
-                type="button"
-                onClick={() => c.setPortBindings((prev) => prev.filter((_, i) => i !== idx))}
-                className="p-1.5 rounded-lg text-ink-3 hover:text-bad hover:bg-bad-bg transition-colors shrink-0"
-                title="Remove"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 3h8M4.5 3V2a1 1 0 011-1h1a1 1 0 011 1v1M9 3v6.5a1 1 0 01-1 1H4a1 1 0 01-1-1V3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-            </div>
-          );
-        })}
-
-        {c.portBindings.length === 0 && (
-          <p className="text-[11px] text-ink-3 text-center py-2">
-            No extra port bindings. Click "+ Add" to map additional ports.
-          </p>
-        )}
-      </div>
-
-      {/* Basic Auth */}
+      {/* Password protection. Deliberately NOT behind Advanced: putting a
+          password on an app you're about to expose is a first-visit task,
+          and it was two clicks deep behind a disclosure that also holds
+          port bindings — which is genuinely advanced. Per-host overrides
+          stay inside this card; they only qualify what's set here. */}
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -382,6 +282,111 @@ export default function DomainSection() {
           </div>
         )}
       </div>
+
+      {/* Advanced — port bindings, collapsed by default. */}
+      <button
+        type="button"
+        onClick={() => c.setShowAdvancedDomain((v) => !v)}
+        className="self-start inline-flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-ink transition-colors"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className={`transition-transform ${c.showAdvancedDomain ? "rotate-90" : ""}`}>
+          <path d="M4.5 2.5L8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        Advanced
+      </button>
+
+      {c.showAdvancedDomain && (
+        <>
+      {/* Port Bindings */}
+      <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[12px] font-medium text-ink-2">Port Bindings</p>
+            <p className="text-[11px] text-ink-3 mt-0.5 leading-relaxed">
+              Map additional ports to their own subdomains (e.g. API server, WebSocket).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              c.setPortBindings((prev) => [
+                ...prev,
+                { id: crypto.randomUUID(), label: "", port: 0, subdomain: null, custom_domain: null },
+              ])
+            }
+            className="px-3 py-1.5 text-[12px] text-ink-2 bg-surface-2 border border-subtle rounded-lg hover:bg-white/[0.08] hover:text-ink transition-colors shrink-0"
+          >
+            + Add
+          </button>
+        </div>
+
+        {c.portBindings.map((binding, idx) => {
+          const bPortNum = binding.port;
+          const bPortOk = bPortNum === 0 || (!isNaN(bPortNum) && bPortNum > 0 && bPortNum < 65536);
+          const bSubOk = !binding.subdomain || c.SUBDOMAIN_RE.test(binding.subdomain);
+          const bDomOk = !binding.custom_domain || c.DOMAIN_RE.test(binding.custom_domain);
+
+          const updateBinding = (patch: Partial<PortBinding>) =>
+            c.setPortBindings((prev) => prev.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
+
+          return (
+            <div key={binding.id} className="flex items-center gap-2 p-3 rounded-lg bg-surface-1 border border-subtle">
+              <input
+                spellCheck={false}
+                value={binding.label}
+                onChange={(e) => updateBinding({ label: e.target.value })}
+                className={`input-base flex-[2] min-w-0 ${!binding.label.trim() && binding.port ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                placeholder="Label"
+                title="Label"
+              />
+              <input
+                spellCheck={false}
+                type="number"
+                min={1}
+                max={65535}
+                value={binding.port || ""}
+                onChange={(e) => updateBinding({ port: parseInt(e.target.value, 10) || 0 })}
+                className={`input-base w-20 ${binding.port && !bPortOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                placeholder="Port"
+                title="Port"
+              />
+              <input
+                spellCheck={false}
+                value={binding.subdomain ?? ""}
+                onChange={(e) => updateBinding({ subdomain: e.target.value.toLowerCase() || null })}
+                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.subdomain && !bSubOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                placeholder={binding.label.trim().toLowerCase().replace(/\s+/g, "-") || "subdomain"}
+                title="Subdomain"
+              />
+              <input
+                spellCheck={false}
+                value={binding.custom_domain ?? ""}
+                onChange={(e) => updateBinding({ custom_domain: e.target.value.toLowerCase() || null })}
+                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.custom_domain && !bDomOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                placeholder={c.workspace?.domain ?? "domain"}
+                title="Custom Domain"
+              />
+              <button
+                type="button"
+                onClick={() => c.setPortBindings((prev) => prev.filter((_, i) => i !== idx))}
+                className="p-1.5 rounded-lg text-ink-3 hover:text-bad hover:bg-bad-bg transition-colors shrink-0"
+                title="Remove"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 3h8M4.5 3V2a1 1 0 011-1h1a1 1 0 011 1v1M9 3v6.5a1 1 0 01-1 1H4a1 1 0 01-1-1V3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          );
+        })}
+
+        {c.portBindings.length === 0 && (
+          <p className="text-[11px] text-ink-3 text-center py-2">
+            No extra port bindings. Click "+ Add" to map additional ports.
+          </p>
+        )}
+      </div>
+
         </>
       )}
     </>

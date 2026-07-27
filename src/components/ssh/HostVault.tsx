@@ -5,6 +5,7 @@ import HostFormModal from "./HostFormModal";
 import { OsIcon } from "./OsIcon";
 import { Spinner } from "../ui";
 import { SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
+import { confirmDialog } from "../../lib/confirm";
 
 type MenuState = { host: SshHost; x: number; y: number };
 
@@ -88,13 +89,10 @@ export default function HostVault() {
   }, [list]);
 
   async function onDelete(h: SshHost) {
-    let ok = false;
-    try {
-      const { confirm } = await import("@tauri-apps/plugin-dialog");
-      ok = await confirm(`Delete "${h.label}"? This can't be undone.`, { title: "Delete host", kind: "warning" });
-    } catch {
-      ok = window.confirm(`Delete "${h.label}"?`);
-    }
+    const ok = await confirmDialog(`Delete "${h.label}"? This can't be undone.`, {
+      title: "Delete host",
+      okLabel: "Delete",
+    });
     if (!ok) return;
     // Was a bare `deleteSshHost(h.id)` — a rejected delete vanished into an
     // unhandled rejection and the row just stayed put with no explanation.

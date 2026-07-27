@@ -264,8 +264,13 @@ export const setAppAutoSleep = (
 export const saveFile = (_path: string, _contents: string): Promise<void> =>
   isTauri ? invoke("save_file", { path: _path, contents: _contents }) : Promise.resolve();
 
+/** Select the path inside its parent folder. For files — see openInFinder. */
 export const revealInFinder = (path: string): Promise<void> =>
   isTauri ? invoke("reveal_in_finder", { path }) : Promise.resolve();
+
+/** Open a folder so Finder lands *inside* it. Files fall back to reveal. */
+export const openInFinder = (path: string): Promise<void> =>
+  isTauri ? invoke("open_in_finder", { path }) : Promise.resolve();
 
 export const openExternalUrl = (url: string): Promise<void> =>
   isTauri ? invoke("open_external_url", { url }) : Promise.resolve();
@@ -652,8 +657,23 @@ export const installUpdateChannel = (beta: boolean): Promise<void> =>
 
 // ── Backup ───────────────────────────────────────────────────────────────────
 
-export const listBackups = (): Promise<string[]> =>
+export interface BackupEntry {
+  filename: string;
+  path: string;
+  size_bytes: number;
+  /** Epoch seconds, from the snapshot's UTC filename stamp (or its mtime). */
+  created_at: number | null;
+  /** Row counts inside the snapshot — how you tell which one still has the
+   *  app you just deleted. `null` when the file couldn't be opened. */
+  app_count: number | null;
+  workspace_count: number | null;
+}
+
+export const listBackups = (): Promise<BackupEntry[]> =>
   isTauri ? invoke("list_backups") : Promise.resolve([]);
+
+export const backupDirPath = (): Promise<string> =>
+  isTauri ? invoke("backup_dir_path") : Promise.resolve("");
 
 export const restoreBackup = (filename: string): Promise<void> =>
   isTauri ? invoke("restore_backup", { filename }) : Promise.resolve();
@@ -843,8 +863,10 @@ export interface CloudflareTunnel {
   connection_count: number;
 }
 
-export const listCloudflareTunnels = (): Promise<CloudflareTunnel[]> =>
-  isTauri ? invoke("list_cloudflare_tunnels") : Promise.resolve([]);
+/** `cloudflared tunnel list` — a 1–3s round-trip to Cloudflare, served from a
+ *  30s backend cache unless `force` (what the visible Refresh buttons pass). */
+export const listCloudflareTunnels = (force = false): Promise<CloudflareTunnel[]> =>
+  isTauri ? invoke("list_cloudflare_tunnels", { force }) : Promise.resolve([]);
 
 export const createCloudflareTunnel = (name: string): Promise<void> =>
   isTauri ? invoke("create_cloudflare_tunnel", { name }) : Promise.resolve();

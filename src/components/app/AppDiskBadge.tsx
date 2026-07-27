@@ -5,6 +5,8 @@ import { appDiskUsage, pruneAppOldImages, type AppDiskUsage } from "../../lib/co
 import { formatBytes, yieldToFrame } from "../../lib/ui";
 import Tooltip from "../shared/Tooltip";
 import { useFloatingPosition, useMeasuredSize } from "../shared/useFloatingPosition";
+import { confirmDialog } from "../../lib/confirm";
+import { Spinner } from "../ui";
 
 interface Props {
   app: App;
@@ -55,7 +57,7 @@ export default function AppDiskBadge({ app }: Props) {
   }
 
   async function handleClean() {
-    if (!window.confirm("Remove old images for this app that aren't currently in use? Active images stay put.")) return;
+    if (!(await confirmDialog("Remove old images for this app that aren't currently in use? Active images stay put.", { title: "Clean images", okLabel: "Remove" }))) return;
     setCleanState("running");
     await yieldToFrame();
     try {
@@ -181,10 +183,7 @@ export default function AppDiskBadge({ app }: Props) {
                 className="w-full px-2.5 py-1.5 text-[12px] font-medium bg-amber-700/40 hover:bg-amber-700/60 disabled:opacity-50 text-amber-100 rounded-md transition-colors flex items-center justify-center gap-1.5 border border-amber-700/40"
               >
                 {cleanState === "running" && (
-                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                    <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
+                  <Spinner size={12} />
                 )}
                 {cleanState === "running" ? "Cleaning…" : "Clean up old images"}
               </button>

@@ -7,7 +7,7 @@ import { errorText } from "../../store/slices/notify";
 import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
 import { confirmRemoveInstance } from "../../lib/confirm";
 import { detectLogRemedy } from "../../lib/log-remedies";
-import { openExternalUrl, revealInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder, detectAppListenPorts } from "../../lib/commands";
+import { openExternalUrl, openInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder, detectAppListenPorts } from "../../lib/commands";
 import { Button, Tabs, StatusDot, Badge, Card, Popover, Skeleton, type Status, type TabItem } from "../ui";
 import TerminalWorkspace from "../terminal/TerminalWorkspace";
 import AppAccessPopover, { type LocalDestination } from "./AppAccessPopover";
@@ -24,14 +24,12 @@ import type { ExtensionInfo } from "../../types/extension";
 const LogViewer = lazy(() => import("../app/LogViewer"));
 const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"));
 const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
-const AppSettingsModal = lazy(() => import("../app/AppSettingsModal"));
-const AccessSettingsDrawer = lazy(() => import("../app/AccessSettingsDrawer"));
+const AppConfigTab = lazy(() => import("../app/AppConfigTab"));
 const ExtensionPanel = lazy(() => import("../app/ExtensionPanel"));
 // SPIKE — lazy so the 215KB of vendored git-manager JS only loads if the tab is
 // actually opened.
 const GitManagerTab = lazy(() => import("./GitManagerTab"));
-type ConfigSection = import("../app/AppSettingsModal").Section;
-type AccessSettingsSection = import("../app/AccessSettingsDrawer").AccessSettingsSection;
+type ConfigSection = import("../app/AppConfigTab").Section;
 type AppInstance = import("../../lib/commands").AppInstance;
 const EMPTY_INSTANCES: AppInstance[] = [];
 
@@ -62,6 +60,7 @@ const TABS: TabItem[] = [
   { id: "overview", label: "Overview", icon: <svg {...I}><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg> },
   { id: "logs", label: "Logs", icon: <svg {...I}><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
   { id: "terminal", label: "Terminal", icon: <svg {...I}><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 6.5L7 8l-2 1.5M8.5 9.5H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+  { id: "files", label: "Files", icon: <svg {...I}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v5.5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg> },
   { id: "config", label: "Config", icon: <svg {...I}><path d="M3.5 4.5h9M3.5 8h9M3.5 11.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="6" cy="4.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="10.5" cy="8" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="6" cy="11.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/></svg> },
 ];
 
@@ -216,11 +215,15 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // the Publish tab → Tunneling). Remounted per section so the initial deep
   // link takes effect.
   const [configSection, setConfigSection] = useState<ConfigSection | undefined>(undefined);
-  const [accessSettingsSection, setAccessSettingsSection] = useState<AccessSettingsSection | null>(null);
   const workspaces = usePortaStore((s) => s.workspaces);
-  // Traffic + Files reuse their existing full-screen surfaces, opened as an
-  // overlay from the Overview quick actions (they aren't inline tabs yet).
-  const [overlay, setOverlay] = useState<null | "traffic" | "files">(null);
+  // Traffic still opens its full-screen surface from the Overview quick
+  // actions. Files used to as well — it's a real tab now (mounting a
+  // file editor as a modal over the workbench meant losing the app's
+  // context, and every trip back to a log or the terminal closed it).
+  const [overlay, setOverlay] = useState<null | "traffic">(null);
+  // Mounted lazily on first visit, then kept alive so an in-progress edit
+  // survives a switch to Logs and back.
+  const [filesSeen, setFilesSeen] = useState(false);
   // In-flight lifecycle action — drives the Start/Stop/Restart Button spinners
   // while the start/stop/restart round-trip is pending.
   const [busy, setBusy] = useState<null | "start" | "stop" | "restart">(null);
@@ -625,6 +628,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     if (id === "logs") setLogsSeen(true);
     if (id === "terminal") setTermSeen(true);
     if (id === "git2") setGit2Seen(true);
+    if (id === "files") setFilesSeen(true);
   }
 
   // Deep link from outside the workbench ("Open in Terminal" in the sidebar or
@@ -651,8 +655,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const row = "flex items-center gap-4 py-2 border-b border-subtle text-[13px] last:border-0";
   const key = "text-ink-3 shrink-0 w-24";
 
-  // Secondary Overview links — Traffic + Files open their existing full-screen
-  // overlays. They aren't tabs, so they stay here (Logs/Terminal/Config are).
+  // Secondary Overview links. Traffic still opens its full-screen overlay;
+  // Files jumps to its tab (kept here because Overview is where people look
+  // for "show me this app's .env").
   const secondary: { id: "traffic" | "files"; label: string; icon: ReactNode }[] = [
     { id: "traffic", label: "Traffic",
       icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M2 8h12M8 2c1.6 1.6 2.5 3.7 2.5 6S9.6 12.4 8 14c-1.6-1.6-2.5-3.7-2.5-6S6.4 3.6 8 2z" stroke="currentColor" strokeWidth="1.3"/></svg> },
@@ -802,10 +807,14 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             offline={!running}
             externalBusy={tunnelBusy}
             onToggleExternalTunnel={isInstance ? toggleInstanceTunnel : undefined}
+            // Straight to the Config tab's Routes / Tunnel section. This used
+            // to open a right-hand drawer that mounted AppConfigTab in
+            // `accessOnly` mode — the same form as the tab, in a second
+            // window, with its own chrome. One surface per thing.
             onOpenAccessSettings={
               isInstance
                 ? undefined
-                : (section) => setAccessSettingsSection(section ?? "domain")
+                : (section) => openConfig(section ?? "domain")
             }
           />
           {/* Extensions toggle (restored from the card): opens the global
@@ -868,9 +877,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             },
             ...(app.root_dir
               ? [{
-                  label: "Reveal in Finder",
+                  label: "Open in Finder",
                   icon: <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1.5 3.5A1 1 0 0 1 2.5 2.5h1.8L5.5 3.7h4A1 1 0 0 1 10.5 4.7v4.3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/></svg>,
-                  onClick: () => { void revealInFinder(app.root_dir); },
+                  onClick: () => { void openInFinder(app.root_dir); },
                 }]
               : []),
             ...(isManaged ? ["separator" as const] : []),
@@ -1015,11 +1024,11 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                     {/* Reveal in Finder — the path was inert text, so the only
                         way to reach the folder was copying it by hand. */}
                     <button
-                      onClick={() => revealInFinder(app.root_dir)}
-                      title={`Show ${app.root_dir} in Finder`}
+                      onClick={() => openInFinder(app.root_dir)}
+                      title={`Open ${app.root_dir} in Finder`}
                       // Content is just the path, so without this the button
                       // announces as "/Users/…" and never says what it does.
-                      aria-label={`Show ${app.root_dir} in Finder`}
+                      aria-label={`Open ${app.root_dir} in Finder`}
                       className="group min-w-0 inline-flex items-center gap-1.5 text-ink-2 font-mono hover:text-accent-ink transition-colors"
                     >
                       <span className="truncate max-w-[20rem]">{app.root_dir}</span>
@@ -1106,7 +1115,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                 {secondary.map((s) => (
                   <button
                     key={s.id}
-                    onClick={() => setOverlay(s.id)}
+                    onClick={() => (s.id === "files" ? select("files") : setOverlay("traffic"))}
                     className="group inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-control border border-subtle bg-surface-1 text-[12px] text-ink-3 hover:text-ink hover:border-strong hover:bg-white/[0.03] transition-colors duration-fast"
                   >
                     <span className="group-hover:text-accent transition-colors duration-fast">{s.icon}</span>
@@ -1350,14 +1359,29 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           ) : null
         )}
 
+        {filesSeen && (
+          <div hidden={tab !== "files"} className="h-full">
+            <Suspense fallback={null}>
+              <FileEditorModal
+                embedded
+                active={tab === "files"}
+                appId={app.id}
+                appName={app.name}
+                composePath={app.compose_file ?? null}
+                currentPort={app.port}
+                onClose={() => select("overview")}
+              />
+            </Suspense>
+          </div>
+        )}
+
         {/* Config (mockup 20) — app settings inline, not a full-screen modal.
             Mounted only while active (like the old modal); keyed by section so
             a deep-link re-seeds the sub-nav. */}
         {tab === "config" && (
           <div className="h-full">
             <Suspense fallback={null}>
-              <AppSettingsModal
-                embedded
+              <AppConfigTab
                 key={configSection ?? "general"}
                 app={app}
                 workspace={workspaces.find((w) => w.id === app.workspace_id) ?? null}
@@ -1374,23 +1398,12 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           <TrafficInspectorModal appId={app.id} appName={app.name} isOpen onClose={() => setOverlay(null)} />
         </Suspense>
       )}
-      {overlay === "files" && (
-        <Suspense fallback={null}>
-          <FileEditorModal
-            appId={app.id}
-            appName={app.name}
-            composePath={app.compose_file ?? null}
-            currentPort={app.port}
-            onClose={() => setOverlay(null)}
-          />
-        </Suspense>
-      )}
-
       {/* ── Log toast — auto-opens on start/stop, turns red on crash. Silent
            while the Logs tab is active (the logger already shows this). ── */}
       {logToastOpen && !inLogger && (
         <LogToast
           appName={isInstance ? instance!.branch : app.name}
+          appPort={app.port}
           logs={logs}
           isRunning={running}
           isStarting={isStarting}
@@ -1398,17 +1411,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           onExpand={() => { setLogToastOpen(false); select("logs"); }}
           onClose={() => setLogToastOpen(false)}
         />
-      )}
-
-      {accessSettingsSection && !isInstance && (
-        <Suspense fallback={null}>
-          <AccessSettingsDrawer
-            app={app}
-            workspace={workspaces.find((w) => w.id === app.workspace_id) ?? null}
-            initialSection={accessSettingsSection}
-            onClose={() => setAccessSettingsSection(null)}
-          />
-        </Suspense>
       )}
 
     </div>

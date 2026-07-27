@@ -263,7 +263,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
   useEffect(() => {
     if (!mainOpen) return;
     const unlisten: Array<() => void> = [];
-    import("@tauri-apps/api/event").then(({ listen }) => {
+    import("../../lib/tauri-event").then(({ listen }) => {
       for (const inst of instances) {
         listen(`instance:ready:${inst.id}`, () => refreshInstances(app.id)).then((u) => unlisten.push(u));
         listen(`instance:exit:${inst.id}`, () => refreshInstances(app.id)).then((u) => unlisten.push(u));

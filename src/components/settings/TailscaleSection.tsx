@@ -14,6 +14,7 @@ import {
   setCachedTailscaleServes,
 } from "../../lib/tailscaleCache";
 import { usePortaStore } from "../../store";
+import { RefreshIcon, Spinner } from "../ui";
 
 /** Global Tailscale management — install/login status, active serves, reset. */
 export default function TailscaleSection() {
@@ -154,7 +155,7 @@ export default function TailscaleSection() {
           disabled={loading}
           className="text-[10px] text-ink-3 hover:text-ink transition-colors disabled:opacity-50"
         >
-          {loading ? "Loading…" : "↻ Refresh"}
+          {loading ? "Loading…" : <><RefreshIcon /> Refresh</>}
         </button>
       </div>
 
@@ -195,10 +196,8 @@ export default function TailscaleSection() {
             className="self-start flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
-              <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            ) : "↻"}
+              <Spinner size={10} />
+            ) : <RefreshIcon />}
             {loading ? "Checking…" : "Check again"}
           </button>
           {recheckedWithoutChange && (
@@ -233,10 +232,8 @@ export default function TailscaleSection() {
             className="self-start flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
-              <svg className="animate-spin" width="10" height="10" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1.5A4.5 4.5 0 1 1 1.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            ) : "↻"}
+              <Spinner size={10} />
+            ) : <RefreshIcon />}
             {loading
               ? "Checking…"
               : !status.running ? "I've started it" : "I'm logged in"}

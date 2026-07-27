@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../../lib/tauri-event";
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -12,6 +12,7 @@ import {
   type AccessLogEntry,
   type AccessLogStreamEvent,
 } from "../../lib/commands";
+import { confirmDialog } from "../../lib/confirm";
 
 const EMPTY_HOST: RemoteHost = {
   id: "",
@@ -31,21 +32,6 @@ const EMPTY_HOST: RemoteHost = {
 
 const inputCls =
   "w-full rounded-control bg-surface-input border border-subtle px-3 py-2 text-sm text-ink placeholder-white/30 focus:outline-none focus:border-strong";
-
-/**
- * Native confirmation dialog via the Tauri dialog plugin. `window.confirm` is
- * unreliable inside the WKWebView (it can return without ever showing a dialog),
- * so use the plugin's async `confirm`, falling back to `window.confirm` in a
- * plain browser (dev/preview).
- */
-async function confirmDialog(message: string, title: string): Promise<boolean> {
-  try {
-    const { confirm } = await import("@tauri-apps/plugin-dialog");
-    return await confirm(message, { title, kind: "warning" });
-  } catch {
-    return window.confirm(message);
-  }
-}
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -283,7 +269,7 @@ export default function RemoteSection() {
                 </button>
                 <button
                   onClick={async () => {
-                    if (await confirmDialog(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`, "Delete remote server"))
+                    if (await confirmDialog(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`, { title: "Delete remote server", okLabel: "Delete" }))
                       deleteRemoteHost(h.id);
                   }}
                   className="text-xs rounded-control px-2.5 py-1.5 bg-bad-bg hover:bg-[rgba(248,113,113,0.25)] text-bad"
@@ -321,7 +307,7 @@ export default function RemoteSection() {
                       </span>
                       <button
                         onClick={async () => {
-                          if (await confirmDialog(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`, "Remove foreign routes"))
+                          if (await confirmDialog(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`, { title: "Remove foreign routes", okLabel: "Remove" }))
                             runRemoveForeign(h.id, fh);
                         }}
                         className="shrink-0 rounded px-2 py-1 bg-bad-bg hover:bg-[rgba(248,113,113,0.25)] text-bad"

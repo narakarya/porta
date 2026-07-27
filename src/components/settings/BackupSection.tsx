@@ -1,18 +1,23 @@
 import { useState, useEffect } from "react";
 import {
   listBackups,
+  backupDirPath,
   restoreBackup,
   revealInFinder,
+  openInFinder,
   exportFullBackup,
   importFullBackup,
   getPortaEnv,
   getBackupSchedule,
   setBackupSchedule,
   runBackupNowViaSchedule,
+  type BackupEntry,
   type BackupSchedule,
   type ScheduleFreq,
 } from "../../lib/commands";
 import { yieldToFrame } from "../../lib/ui";
+import { confirmDialog, confirmRestoreBackup } from "../../lib/confirm";
+import { Spinner } from "../ui";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -34,6 +39,18 @@ function formatRelative(ts: number | null): string {
   return `${Math.round(diff / 86400)}d ago`;
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
 function formatAbsolute(ts: number | null): string {
   if (!ts) return "—";
   const d = new Date(ts * 1000);
@@ -46,9 +63,11 @@ function formatAbsolute(ts: number | null): string {
 }
 
 export default function BackupSection() {
-  const [backups, setBackups] = useState<string[]>([]);
+  const [backups, setBackups] = useState<BackupEntry[]>([]);
+  const [backupsDir, setBackupsDir] = useState<string>("");
   const [backupsLoading, setBackupsLoading] = useState(true);
   const [restoreStatus, setRestoreStatus] = useState<Record<string, "idle" | "loading" | "success" | "error">>({});
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const [portaEnv, setPortaEnv] = useState<string>("prod");
   const [fullExportStatus, setFullExportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -61,6 +80,7 @@ export default function BackupSection() {
 
   useEffect(() => {
     getPortaEnv().then(setPortaEnv).catch(() => {});
+    backupDirPath().then(setBackupsDir).catch(() => {});
     listBackups()
       .then(setBackups)
       .catch(() => setBackups([]))
@@ -103,15 +123,22 @@ export default function BackupSection() {
     }
   }
 
-  async function handleRestore(filename: string) {
-    if (!window.confirm(`Restore from ${filename}? This will replace your current database. You'll need to reload the app.`)) return;
-    setRestoreStatus((prev) => ({ ...prev, [filename]: "loading" }));
+  async function handleRestore(entry: BackupEntry) {
+    const label = entry.created_at
+      ? `${formatAbsolute(entry.created_at)} (${formatRelative(entry.created_at)})`
+      : entry.filename;
+    if (!(await confirmRestoreBackup(label))) return;
+    setRestoreStatus((prev) => ({ ...prev, [entry.filename]: "loading" }));
     await yieldToFrame();
     try {
-      await restoreBackup(filename);
-      setRestoreStatus((prev) => ({ ...prev, [filename]: "success" }));
-    } catch {
-      setRestoreStatus((prev) => ({ ...prev, [filename]: "error" }));
+      await restoreBackup(entry.filename);
+      setRestoreStatus((prev) => ({ ...prev, [entry.filename]: "success" }));
+      // The restore also wrote an "undo" snapshot of where we were, so the
+      // list the user is looking at is already out of date.
+      listBackups().then(setBackups).catch(() => {});
+    } catch (e) {
+      setRestoreStatus((prev) => ({ ...prev, [entry.filename]: "error" }));
+      setRestoreError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -149,7 +176,11 @@ export default function BackupSection() {
       }) as string | null;
     }
     if (typeof selected !== "string" || !selected) return;
-    if (!window.confirm(`Import "${selected.split("/").pop()}" and replace all current data? A backup will be created first. You'll need to restart the app.`)) return;
+    const ok = await confirmDialog(
+      `Import "${selected.split("/").pop()}" and replace all current data?\n\nPorta snapshots your current database first, so this is undoable. You'll need to restart the app afterwards.`,
+      { title: "Import database", okLabel: "Import" },
+    );
+    if (!ok) return;
     setFullImportStatus("loading");
     await yieldToFrame();
     try {
@@ -160,11 +191,6 @@ export default function BackupSection() {
     }
   }
 
-  function parseBackupDate(filename: string): string {
-    const match = filename.match(/(\d{4}-\d{2}-\d{2})/);
-    if (match) return match[1];
-    return filename;
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -204,10 +230,7 @@ export default function BackupSection() {
             className="px-4 py-2 text-[13px] font-medium bg-accent hover:opacity-90 disabled:opacity-50 text-white rounded-control transition-colors flex items-center gap-1.5"
           >
             {fullExportStatus === "loading" && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={14} />
             )}
             {fullExportStatus === "loading" ? "Exporting..." : "Export Database"}
           </button>
@@ -217,10 +240,7 @@ export default function BackupSection() {
             className="px-4 py-2 text-[13px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 text-ink-2 rounded-control transition-colors flex items-center gap-1.5"
           >
             {fullImportStatus === "loading" && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              <Spinner size={14} />
             )}
             {fullImportStatus === "loading" ? "Importing..." : "Import Database"}
           </button>
@@ -458,50 +478,95 @@ export default function BackupSection() {
               <path d="M3 10v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5v-5" stroke="currentColor" strokeWidth="1.5"/>
             </svg>
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-[13px] font-medium text-ink">Automatic Backups</p>
             <p className="text-[12px] text-ink-3 mt-0.5 leading-relaxed">
-              Porta keeps the last 10 snapshots, taken automatically on data changes. Restore any of them below.
+              Porta keeps the last 10 snapshots, taken before every change to your
+              apps, workspaces and settings. Restoring replaces the whole database
+              with that moment — and snapshots where you are first, so it's undoable.
             </p>
           </div>
+          {backupsDir && (
+            <button
+              onClick={() => openInFinder(backupsDir)}
+              title={backupsDir}
+              className="shrink-0 text-[11px] text-ink-3 hover:text-ink underline underline-offset-2 transition-colors"
+            >
+              Show folder
+            </button>
+          )}
         </div>
 
+        {restoreError && (
+          <p className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+            {restoreError}
+          </p>
+        )}
+
         {backupsLoading ? (
-          <p className="text-[12px] text-ink-3">Loading backups...</p>
+          <p className="text-[12px] text-ink-3 flex items-center gap-2"><Spinner size={12} /> Loading snapshots…</p>
         ) : backups.length === 0 ? (
           <p className="text-[12px] text-ink-3">No automatic backups yet.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {backups.map((filename) => {
-              const status = restoreStatus[filename] ?? "idle";
+            {/* Newest first (the backend sorts on the parsed stamp). The list is
+                keyed on *when*, not on the raw `20260727_041003.db` filename —
+                that stamp is a UTC blob nobody can read at a glance, and the old
+                "date" line under it was a regex for `YYYY-MM-DD` that never
+                matched the naming scheme, so it just printed the filename twice. */}
+            {backups.map((entry, i) => {
+              const status = restoreStatus[entry.filename] ?? "idle";
+              const isLatest = i === 0;
+              // The count is what actually distinguishes two snapshots minutes
+              // apart: "6 apps" vs "5 apps" is the deleted one.
+              const contents = [
+                entry.app_count === null ? null : `${entry.app_count} app${entry.app_count === 1 ? "" : "s"}`,
+                entry.workspace_count === null
+                  ? null
+                  : `${entry.workspace_count} workspace${entry.workspace_count === 1 ? "" : "s"}`,
+              ].filter(Boolean).join(" · ");
               return (
                 <div
-                  key={filename}
-                  className="flex items-center justify-between px-3 py-2 rounded-control bg-white/[0.02] border border-subtle"
+                  key={entry.filename}
+                  className={`flex items-center justify-between px-3 py-2 rounded-control border ${
+                    isLatest ? "bg-accent-bg border-[rgba(96,165,250,0.25)]" : "bg-white/[0.02] border-subtle"
+                  }`}
                 >
                   <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-[12px] text-ink-2 font-mono truncate">{filename}</span>
-                    <span className="text-[11px] text-ink-3">{parseBackupDate(filename)}</span>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-[12px] text-ink truncate">
+                        {formatAbsolute(entry.created_at)}
+                      </span>
+                      <span className="text-[11px] text-ink-3 shrink-0">
+                        {formatRelative(entry.created_at)}
+                      </span>
+                      {isLatest && (
+                        <span className="shrink-0 text-[9px] uppercase tracking-wider px-1.5 py-px rounded bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.3)]">
+                          latest
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-ink-3 truncate" title={entry.filename}>
+                      {contents ? `${contents} · ` : ""}
+                      {formatBytes(entry.size_bytes)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 ml-3 shrink-0">
                     {status === "success" && (
-                      <span className="text-[11px] text-ok">Restored! Reload to apply</span>
+                      <span className="text-[11px] text-ok">Restored — reload to apply</span>
                     )}
                     {status === "error" && (
                       <span className="text-[11px] text-bad">Failed</span>
                     )}
                     <button
-                      onClick={() => handleRestore(filename)}
+                      onClick={() => { void handleRestore(entry); }}
                       disabled={status === "loading"}
                       className="px-2.5 py-1 text-[12px] font-medium bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-not-allowed text-ink-2 rounded-control transition-colors flex items-center gap-1.5"
                     >
                       {status === "loading" && (
-                        <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
-                          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                          <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
+                        <Spinner size={12} />
                       )}
-                      {status === "loading" ? "Restoring..." : "Restore"}
+                      {status === "loading" ? "Restoring…" : "Restore"}
                     </button>
                   </div>
                 </div>

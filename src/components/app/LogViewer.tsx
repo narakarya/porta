@@ -12,7 +12,7 @@ import {
 } from "../../lib/commands";
 import { listen } from "@tauri-apps/api/event";
 import Tooltip from "../shared/Tooltip";
-import { confirmClearLogs } from "../../lib/confirm";
+import { ClearIcon, DownloadIcon } from "../ui";
 
 // ── Service source ────────────────────────────────────────────────────────────
 // Process apps stream stdout/stderr from the spawned process; docker/compose
@@ -244,16 +244,34 @@ function serviceDotClass(state: string): string {
 // redundant leading `[LEVEL]` marker off the visible body. Level detection,
 // filtering, and search still run on the full untouched line text; this only
 // shapes what each column shows.
-const LEAD_TS_RE = /^(\d{1,2}:\d{2}:\d{2}(?:\.\d{1,6})?)\s+/;
+// Wall-clock stamp: `10:23:45`, `10:23:45.123`. Porta's own log writer emits
+// this shape for any line the program didn't already stamp itself.
+const LEAD_TS_RE = /^(\d{1,2}:\d{2}:\d{2})(?:\.(\d{1,6}))?\s+/;
+// Full RFC3339: what `docker logs --timestamps` prefixes every container line
+// with, and what Go services (cloudflared, most `slog` setups) print. Without
+// this the whole `2026-07-27T04:10:02.938473Z` blob stayed in the message body,
+// so container logs both lacked a timestamp column *and* wasted half their
+// width repeating a date.
+const LEAD_ISO_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:?\d{2})?\s+/;
 const LEAD_LEVEL_RE = /^\[(?:ERROR|ERRO|FATAL|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE|SUCCESS)\]\s*/i;
 
+/** Peel a leading clock into its own column, normalised to `HH:MM:SS.mmm`. */
 function splitLeadingMeta(text: string, stripLevel: boolean): { ts: string; body: string } {
   let body = text;
   let ts = "";
-  const m = body.match(LEAD_TS_RE);
-  if (m) {
-    ts = m[1];
-    body = body.slice(m[0].length);
+  const iso = body.match(LEAD_ISO_RE);
+  if (iso) {
+    // The date is dropped from the column — every line in view is from the same
+    // session, so repeating it costs width and says nothing. It survives in the
+    // copied text, which is the untouched line.
+    ts = iso[3] ? `${iso[2]}.${iso[3].slice(0, 3)}` : iso[2];
+    body = body.slice(iso[0].length);
+  } else {
+    const m = body.match(LEAD_TS_RE);
+    if (m) {
+      ts = m[2] ? `${m[1]}.${m[2].slice(0, 3)}` : m[1];
+      body = body.slice(m[0].length);
+    }
   }
   if (stripLevel) body = body.replace(LEAD_LEVEL_RE, "");
   return { ts, body };
@@ -987,14 +1005,17 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         <div className="flex-1" />
 
-        {/* Icon-only controls: find, timestamps, wrap, export, follow, clear.
-            View toggles first, then the two that act on the stream. Follow lives
-            here rather than in the status bar — it's an action, not a readout.
+        {/* Icon-only controls, in order of how often they get touched:
+            find + export (the two "I'm going digging" actions), then the view
+            toggles, then follow and clear which act on the stream.
+
+            Export sits next to Find deliberately — it's the rarest button here,
+            and it used to sit between Wrap and Follow where it collected
+            mis-clicks meant for them.
 
             Every button carries a Tooltip, not just a `title`: an icon-only bar
             is unreadable until you've hovered each one, and the native tooltip
-            arrives too late to be that answer. The separator that used to sit
-            after Follow is gone — the state colour already sets it apart. */}
+            arrives too late to be that answer. */}
         <div className="flex items-center gap-0.5 shrink-0">
           <Tooltip label="Find in logs (⌘F)" side="bottom" className="inline-flex">
           <button
@@ -1011,6 +1032,16 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             </svg>
           </button>
           </Tooltip>
+          <Tooltip label="Export logs to a file" side="bottom" className="inline-flex">
+          <button
+            onClick={handleExport}
+            aria-label="Export logs to a file"
+            className="p-1.5 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
+          >
+            <DownloadIcon size={15} />
+          </button>
+          </Tooltip>
+          <span className="w-px h-4 mx-1 bg-white/[0.08]" aria-hidden />
           <Tooltip label={showTimestamps ? "Hide timestamps" : "Show timestamps"} side="bottom" className="inline-flex">
           <button
             onClick={() => setShowTimestamps((s) => !s)}
@@ -1037,20 +1068,6 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           >
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
               <path d="M2 3.5h12M2 8h9a2.5 2.5 0 110 5H8m0 0l1.8-1.8M8 13l1.8 1.8M2 12.5h3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-          </Tooltip>
-          <Tooltip label="Export logs to a file" side="bottom" className="inline-flex">
-          <button
-            onClick={handleExport}
-            aria-label="Export logs to a file"
-            className="p-1.5 rounded-control text-ink-3 hover:text-ink hover:bg-white/[0.06] transition-colors"
-          >
-            {/* Arrow into a tray — the download shape, now that Follow has
-                stopped borrowing it. */}
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2v6.5m0 0L5.5 6M8 8.5L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M3 10v2.2c0 .44.36.8.8.8h8.4c.44 0 .8-.36.8-.8V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
           </Tooltip>
@@ -1084,10 +1101,13 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             )}
           </button>
           </Tooltip>
+          {/* No confirm. Clearing a log is not destroying work — the app keeps
+              writing the moment it has something to say, and the alternative
+              (scrolling past ten thousand stale lines) is the actual cost. The
+              dialog was a speed bump on the most-used button in the bar. */}
           <Tooltip label="Clear logs — wipes the log file on disk" side="bottom" className="inline-flex">
           <button
             onClick={async () => {
-              if (!(await confirmClearLogs(appName))) return;
               try {
                 await clearAppLogFile(appId);
               } catch {
@@ -1100,14 +1120,10 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             aria-label="Clear logs"
             className="p-1.5 rounded-control text-ink-3 hover:text-bad hover:bg-white/[0.06] transition-colors"
           >
-            {/* Broom, not a trash can: this sweeps a stream clean, it doesn't
-                delete a thing you can point at. The destructive hover colour
-                carries the "and it's gone from disk" half. */}
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <path d="M12.8 2.2L8.4 6.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              <path d="M6.84 5.04L9.96 8.16L8.83 9.29L5.71 6.17Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-              <path d="M6.33 6.79L4.63 8.49M7.27 7.73L5.57 9.43M8.21 8.67L6.51 10.37" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
+            {/* Was a hand-drawn broom, which at 15px is an unreadable diagonal
+                scribble. A trash can is the shape everyone already parses as
+                "and it's gone"; the destructive hover colour carries the rest. */}
+            <ClearIcon size={15} />
           </button>
           </Tooltip>
         </div>

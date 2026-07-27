@@ -34,7 +34,7 @@ pub fn add_workspace(
         sync_caddy(&state).ok();
     }
 
-    crate::backup::auto_backup(&state.db_path).ok();
+    crate::backup::auto_backup_state(&state).ok();
     Ok(w)
 }
 
@@ -52,15 +52,16 @@ pub fn update_workspace(
         .update_workspace(&id, &name, &domain)
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
+    crate::backup::auto_backup_state(&state).ok();
     Ok(Workspace { id, name, domain, deployment: None })
 }
 
 #[tauri::command]
 pub fn delete_workspace(state: State<AppState>, id: String) -> Result<(), String> {
+    // Snapshot first — see delete_app: a post-delete backup can't undo a delete.
+    crate::backup::auto_backup_state(&state).ok();
     state.db.lock().unwrap().delete_workspace(&id).map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
-    crate::backup::auto_backup(&state.db_path).ok();
     Ok(())
 }
 

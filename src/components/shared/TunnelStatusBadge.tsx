@@ -12,7 +12,7 @@ interface TunnelStatusBadgeProps {
 /**
  * Pill badge that shows tunnel status: Connected / Connecting... / Disconnected.
  * Connected is green for every provider; connecting stays amber.
- * Used in AppSettingsModal and TunnelQuickMenu.
+ * Used in AppConfigTab and TunnelQuickMenu.
  */
 export default function TunnelStatusBadge({ tunnelActive, tunnelUrl, provider, className = "" }: TunnelStatusBadgeProps) {
   const connected = tunnelActive && !!tunnelUrl;
