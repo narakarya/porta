@@ -4,6 +4,99 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.23]
+
+### Fixed
+
+- **Restoring a backup now actually restores it.** `restore_backup` copied the
+  snapshot over the database file while the WAL-mode connection was still open,
+  so `<db>-wal` kept describing the *old* database and the next open replayed it
+  straight back over the restored bytes. "Restored! Reload to apply" meant
+  nothing at all. It now checkpoints, drops the live connection, copies, clears
+  the WAL/SHM sidecars and reopens — and takes a snapshot of where you were
+  first, so a restore is itself undoable. Two supporting bugs went with it:
+  automatic snapshots were taken without a WAL checkpoint, so a snapshot could
+  be missing the very change that triggered it; and deleting an app snapshotted
+  *after* the row was gone, which is useless for the one case anybody restores
+  from. **Snapshots taken before this release may be missing recent writes and
+  none of them record the state just before a delete — treat existing ones as
+  approximate.**
+- **Quick tunnels no longer publish Cloudflare's licence-terms page as your
+  app's URL.** The scrape of `cloudflared`'s output accepted any
+  `*.cloudflare.com` link, and the first line of its banner is exactly that. It
+  arrived seconds before the real URL and latched, so the tunnel came up and
+  the link Porta showed you went to Cloudflare's legal text. Only
+  `*.trycloudflare.com` hosts count now.
+- **Log timestamps show up.** The viewer's timestamp column only ever displayed
+  a clock the program printed itself, so anything that just writes to stdout had
+  an empty column and the toggle looked broken; container logs had the opposite
+  problem, with `docker logs --timestamps`' full RFC3339 stamp left sitting in
+  the message body. Porta now stamps lines that arrive without one, and the
+  viewer parses both shapes. Lines already on disk from earlier runs stay as
+  they are.
+- **The log toast offers to kill whatever is in the way again.** It matched
+  `held by process N`, a phrasing almost nothing prints. It now recognises what
+  runtimes actually emit — `EADDRINUSE`, Erlang's `:eaddrinuse`, "Port 3000 is
+  in use", "Address already in use" — and can free the port, not just kill a
+  PID.
+- **"Are you sure?" prompts are real dialogs.** Sixteen call sites used
+  `window.confirm`, which inside the WKWebView can return without ever painting
+  anything — so several destructive confirmations were effectively an
+  unconditional yes. All of them now go through the OS dialog.
+- **Fixed a crash reading `transformCallback`.** Ten `listen()` subscriptions
+  had no `isTauri` guard; outside a Tauri window (a plain `npm run dev`, an
+  extension iframe) `listen` reaches for `window.__TAURI_INTERNALS__`
+  synchronously and throws, taking the subscribing component down with it.
+- **"Open in Finder" opens the folder.** It used `open -R`, which selects the
+  folder from *outside*, leaving you in its parent.
+
+### Added
+
+- **Files is a workbench tab.** It was a full-screen overlay, so opening an
+  app's `.env` hid the app, and any trip to a log or the terminal closed it.
+  Edits now survive a tab switch.
+- **Routes and Tunnel are sections of the Config tab.** They previously existed
+  only in a separate drawer reached from the Open popover, which is why links
+  that asked for them from elsewhere silently landed on General.
+- **The backup list says when each snapshot was taken and what is in it** —
+  relative and absolute time, size, and the number of apps and workspaces
+  inside, which is what actually distinguishes two snapshots minutes apart. The
+  old list showed a raw `20260727_041003.db` filename twice, because the date
+  parser looked for `YYYY-MM-DD` and never matched the naming scheme.
+- **Reconnect a tunnel in one click**, instead of Disconnect then remembering
+  to Connect.
+- **"Open in Finder" in the app and instance context menus.**
+
+### Changed
+
+- **One settings surface instead of three.** The same component was mounted as a
+  full-screen modal (right-click → Settings), as a "Routes & Access" drawer, and
+  as the Config tab — and only the tab had the new sections, so which one you
+  landed in decided what you could change. The modal and the drawer are gone.
+- **Tunnel settings stay readable and editable while a tunnel is live.** You had
+  to disconnect a working tunnel before you could so much as look at its
+  hostname, its named tunnel, or its Cloudflare Access policy. Changes that need
+  a restart say so and offer the reconnect.
+- **Basic Auth is no longer behind the Advanced disclosure.** Putting a password
+  on an app you are about to expose is a first-visit task; port bindings, which
+  Advanced still holds, genuinely are not.
+- **Remove is off the app context menu.** Deleting an app took its routes, its
+  worktree instances and its running process with it, one row below "Settings"
+  on a menu whose every other entry is harmless. Deletion lives in Config →
+  Danger, behind typing the app's name.
+- **Clearing the log doesn't ask.** Clearing a stream isn't destroying work —
+  the app writes again the moment it has something to say — and the dialog sat
+  on the most-used button in the bar. Its icon is a trash can rather than a
+  broom, which at 15px was an unreadable scribble.
+- **Tunnel screens got a lot faster.** Every Quick↔Named and Cloudflare↔
+  Tailscale toggle re-ran `tailscale status` *and* `cloudflared tunnel list` —
+  two subprocesses and a round-trip to Cloudflare — to re-answer a question
+  whose answer hadn't changed. Probes run once per visit, the tunnel list is
+  cached for 30s behind the Refresh buttons, and the cloudflared lookup is
+  memoised.
+- **Refresh, loading and clear icons come from Phosphor** rather than a `↻` text
+  character and a hand-drawn arc that read as a broken circle.
+
 ## [0.14.0-beta.22]
 
 ### Fixed
