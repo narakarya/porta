@@ -377,8 +377,16 @@ export const markAppStopped = (id: string): Promise<void> =>
 export const markAppReady = (id: string): Promise<void> =>
   isTauri ? invoke("mark_app_ready", { id }) : Promise.resolve();
 
-export const getAppLogs = (id: string): Promise<string[]> =>
-  isTauri ? invoke("get_app_logs", { id }) : Promise.resolve([]);
+// The viewer only shows the last ~10k lines on open, so cap the disk read to the
+// trailing 16 MiB by default (holds far more than 10k lines of any normal log)
+// instead of slurping a huge log file every time. Pass `null` explicitly to read
+// the whole file — used by "Load full history".
+export const DEFAULT_LOG_TAIL_BYTES = 16 * 1024 * 1024;
+export const getAppLogs = (
+  id: string,
+  tailBytes: number | null = DEFAULT_LOG_TAIL_BYTES,
+): Promise<string[]> =>
+  isTauri ? invoke("get_app_logs", { id, tailBytes }) : Promise.resolve([]);
 
 // ── Docker image updates ────────────────────────────────────────────────────
 

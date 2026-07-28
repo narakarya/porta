@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { getVersion } from "@tauri-apps/api/app";
 import { usePortaStore } from "../../store";
-import { checkForUpdate, dismissUpdater, restartForUpdate, startUpdateDownload } from "../../lib/updater";
+import { checkForUpdate, dismissUpdater, onChannelChange, restartForUpdate, startUpdateDownload } from "../../lib/updater";
 
 export default function AboutSection() {
   const [version, setVersion] = useState<string>("");
@@ -87,7 +87,12 @@ export default function AboutSection() {
             </p>
           </div>
           <button
-            onClick={() => setBetaUpdates(!betaUpdates)}
+            onClick={() => {
+              setBetaUpdates(!betaUpdates);
+              // Re-check on the newly-selected channel right away so the switch
+              // surfaces (or clears) an update instead of silently doing nothing.
+              onChannelChange();
+            }}
             className={`relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 ${
               betaUpdates ? "bg-accent" : "bg-white/[0.14]"
             }`}

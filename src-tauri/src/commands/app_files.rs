@@ -1,9 +1,38 @@
+/// Read an app's log file. `tail_bytes` caps the read to the trailing N bytes —
+/// the viewer only renders the last ~10k lines on open, so slurping a
+/// multi-hundred-MB log into a `String` every time is wasted work + a memory
+/// spike. The frontend passes a sensible cap by default and `None` (whole file)
+/// only when the user clicks "Load full history".
 #[tauri::command]
-pub fn get_app_logs(id: String) -> Vec<String> {
+pub fn get_app_logs(id: String, tail_bytes: Option<u64>) -> Vec<String> {
     let path = crate::process_manager::log_file_path(&id);
-    let Ok(bytes) = std::fs::read(&path) else { return vec![] };
-    String::from_utf8_lossy(&bytes)
-        .lines()
+    read_log_tail(&path, tail_bytes)
+}
+
+/// Read a log file, optionally only its trailing `tail_bytes`. When the file is
+/// larger than the cap we seek to `len - cap` and drop the first (partial) line,
+/// so the viewer never shows a line chopped mid-way. `None` reads the whole file.
+fn read_log_tail(path: &std::path::Path, tail_bytes: Option<u64>) -> Vec<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else { return vec![] };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut landed_mid_line = false;
+    if let Some(cap) = tail_bytes {
+        if len > cap {
+            let _ = file.seek(SeekFrom::Start(len - cap));
+            landed_mid_line = true;
+        }
+    }
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return vec![];
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines = text.lines();
+    if landed_mid_line {
+        lines.next(); // discard the truncated head line
+    }
+    lines
         .filter(|l| !l.is_empty())
         .map(|l| l.to_string())
         .collect()
@@ -773,6 +802,45 @@ EMPTY_TOKEN=
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "DB_PASSWORD=filled-in\n");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_log_tail_reads_whole_file_when_uncapped() {
+        let dir = std::env::temp_dir().join(format!("porta-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("app.log");
+        std::fs::write(&log, "line1\nline2\n\nline3\n").unwrap();
+
+        // None → whole file, blanks filtered.
+        assert_eq!(read_log_tail(&log, None), vec!["line1", "line2", "line3"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_log_tail_caps_and_drops_partial_head() {
+        let dir = std::env::temp_dir().join(format!("porta-log-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("app.log");
+        // 4 lines of 10 bytes each ("aaaaaaaaa\n" = 10 bytes) = 40 bytes total.
+        std::fs::write(&log, "aaaaaaaaa\nbbbbbbbbb\nccccccccc\nddddddddd\n").unwrap();
+
+        // Cap at 25 bytes → seek to byte 15, landing mid-"bbbbbbbbb"; that
+        // partial head is dropped, leaving the last two whole lines.
+        assert_eq!(read_log_tail(&log, Some(25)), vec!["ccccccccc", "ddddddddd"]);
+        // A cap larger than the file returns everything, no head dropped.
+        assert_eq!(
+            read_log_tail(&log, Some(1000)),
+            vec!["aaaaaaaaa", "bbbbbbbbb", "ccccccccc", "ddddddddd"]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_log_tail_missing_file_is_empty() {
+        let missing = std::env::temp_dir().join(format!("porta-nope-{}.log", std::process::id()));
+        assert!(read_log_tail(&missing, None).is_empty());
     }
 
     #[test]

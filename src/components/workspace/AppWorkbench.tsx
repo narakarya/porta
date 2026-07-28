@@ -754,7 +754,12 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             )}
             {/* The instance title already is its branch. Keeping GitBadge here
                 duplicated the same long label and made the header unreadable. */}
-            {!isInstance && <GitBadge app={app} onOpenTerminal={() => select("terminal")} />}
+            {/* Key by app.id: the workbench isn't remounted when you switch apps
+                (`<AppWorkbench app={selectedApp}>` has no key), so without this a
+                single GitBadge instance is reused across apps and its local
+                fetch/pull/push `busy`/`error` state leaks onto whatever app you
+                open next. The keyed grid cards never had this; the header did. */}
+            {!isInstance && <GitBadge key={app.id} app={app} onOpenTerminal={() => select("terminal")} />}
           </div>
         </div>
         <div className="flex gap-2 shrink-0">

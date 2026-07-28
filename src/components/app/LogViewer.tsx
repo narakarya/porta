@@ -153,6 +153,12 @@ interface ProcessedLine {
 function processLine(raw: string): ProcessedLine | null {
   const clean = stripAnsi(raw);
   if (NOISE_RE.test(clean)) return null;
+  // Drop blank lines so they never claim a numbered gutter row. The live stream
+  // (process_manager) passes blanks through verbatim, but the disk-history read
+  // (get_app_logs) already filters them out — so without this the live tail grew
+  // strings of empty, numbered rows ("banyak bolong") that vanished the moment
+  // full history reloaded. Filtering here makes both paths consistent.
+  if (clean.length === 0) return null;
   return { text: clean, level: detectLevel(clean), seq: 0 };
 }
 
@@ -246,13 +252,20 @@ function serviceDotClass(state: string): string {
 // shapes what each column shows.
 // Wall-clock stamp: `10:23:45`, `10:23:45.123`. Porta's own log writer emits
 // this shape for any line the program didn't already stamp itself.
-const LEAD_TS_RE = /^(\d{1,2}:\d{2}:\d{2})(?:\.(\d{1,6}))?\s+/;
+//
+// Only ONE separator whitespace is consumed (`\s`, not `\s+`): the Rust stamper
+// joins the clock to the raw line with a single space, so a greedy `\s+` would
+// swallow the *original* leading indentation of a continuation line (an Ecto
+// SQL body, a pretty-printed GraphQL/JSON result) and render it left-aligned.
+// Peeling exactly one space keeps the timestamp in its column and the body's
+// own indentation intact under `white-space: pre`.
+const LEAD_TS_RE = /^(\d{1,2}:\d{2}:\d{2})(?:\.(\d{1,6}))?\s/;
 // Full RFC3339: what `docker logs --timestamps` prefixes every container line
 // with, and what Go services (cloudflared, most `slog` setups) print. Without
 // this the whole `2026-07-27T04:10:02.938473Z` blob stayed in the message body,
 // so container logs both lacked a timestamp column *and* wasted half their
 // width repeating a date.
-const LEAD_ISO_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:?\d{2})?\s+/;
+const LEAD_ISO_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:?\d{2})?\s/;
 const LEAD_LEVEL_RE = /^\[(?:ERROR|ERRO|FATAL|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE|SUCCESS)\]\s*/i;
 
 /** Peel a leading clock into its own column, normalised to `HH:MM:SS.mmm`. */
@@ -338,7 +351,16 @@ const LogLine = memo(function LogLine({
         {seq + 1}
       </span>
       {showTimestamps && ts && (
-        <span className="text-[11px] text-[#5f5f5f] tabular-nums mr-2 shrink-0 pt-[2px] select-none">
+        // Continuation rows (an Ecto SQL body, a pretty-printed GraphQL/JSON
+        // result) get their own clock stamped by the Rust stamper, but they
+        // belong to the header entry above — repeating a near-identical time on
+        // every line is pure noise. Keep the column (render the same stamp) but
+        // hide it with `invisible` so bodies stay aligned without the clutter.
+        <span
+          className={`text-[11px] text-[#5f5f5f] tabular-nums mr-2 shrink-0 pt-[2px] select-none ${
+            isContinuation ? "invisible" : ""
+          }`}
+        >
           {ts}
         </span>
       )}
@@ -888,7 +910,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   }
 
   async function loadFullHistory() {
-    const raw = await getAppLogs(appId);
+    // null → read the whole file, not just the default trailing-bytes tail.
+    const raw = await getAppLogs(appId, null);
     const processed: ProcessedLine[] = [];
     for (const line of raw) {
       const p = processLine(line);

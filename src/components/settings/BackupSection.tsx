@@ -133,9 +133,12 @@ export default function BackupSection() {
     try {
       await restoreBackup(entry.filename);
       setRestoreStatus((prev) => ({ ...prev, [entry.filename]: "success" }));
-      // The restore also wrote an "undo" snapshot of where we were, so the
-      // list the user is looking at is already out of date.
-      listBackups().then(setBackups).catch(() => {});
+      // The Rust side swapped the whole DB in place, but every Zustand slice is
+      // still holding the pre-restore data — it only re-hydrates on a fresh
+      // mount. Reload the webview so the restored state shows up immediately
+      // instead of forcing the user to close and reopen the app. (A full reload
+      // is the right hammer here: restore replaces the entire database.)
+      setTimeout(() => window.location.reload(), 700);
     } catch (e) {
       setRestoreStatus((prev) => ({ ...prev, [entry.filename]: "error" }));
       setRestoreError(e instanceof Error ? e.message : String(e));
@@ -177,7 +180,7 @@ export default function BackupSection() {
     }
     if (typeof selected !== "string" || !selected) return;
     const ok = await confirmDialog(
-      `Import "${selected.split("/").pop()}" and replace all current data?\n\nPorta snapshots your current database first, so this is undoable. You'll need to restart the app afterwards.`,
+      `Import "${selected.split("/").pop()}" and replace all current data?\n\nPorta snapshots your current database first, so this is undoable. The app reloads automatically once it's done.`,
       { title: "Import database", okLabel: "Import" },
     );
     if (!ok) return;
@@ -186,6 +189,9 @@ export default function BackupSection() {
     try {
       await importFullBackup(selected);
       setFullImportStatus("success");
+      // Same re-hydration story as restore: the DB was swapped under a stale
+      // store. Reload the webview instead of asking the user to restart.
+      setTimeout(() => window.location.reload(), 700);
     } catch {
       setFullImportStatus("error");
     }
@@ -264,7 +270,7 @@ export default function BackupSection() {
             <span className="text-[12px] text-bad">Export failed</span>
           )}
           {fullImportStatus === "success" && (
-            <span className="text-[12px] text-ok">Imported! Restart the app to apply.</span>
+            <span className="text-[12px] text-ok">Imported — reloading…</span>
           )}
           {fullImportStatus === "error" && (
             <span className="text-[12px] text-bad">Import failed</span>
@@ -553,7 +559,7 @@ export default function BackupSection() {
                   </div>
                   <div className="flex items-center gap-2 ml-3 shrink-0">
                     {status === "success" && (
-                      <span className="text-[11px] text-ok">Restored — reload to apply</span>
+                      <span className="text-[11px] text-ok">Restored — reloading…</span>
                     )}
                     {status === "error" && (
                       <span className="text-[11px] text-bad">Failed</span>

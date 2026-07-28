@@ -146,6 +146,44 @@ export function autoCheckForUpdate(): void {
   void checkForUpdate({ silent: true, source: "background" });
 }
 
+/**
+ * React to the user flipping the beta/stable channel toggle. The toggle used to
+ * only write the store flag, so nothing observable happened: any update already
+ * surfaced under the old channel stayed on screen (and would have downloaded the
+ * wrong channel's binary), and a fresh update on the *new* channel wouldn't show
+ * until the next manual check or the 30-min auto-check gap elapsed — which read
+ * as "the switch does nothing, I still have to grab the build myself".
+ *
+ * So: discard any surfaced/cached update from the old channel and immediately
+ * re-check on the new one. Call this AFTER `setBetaUpdates` has written the flag
+ * (the check reads `betaUpdates` from the store). A download/install already in
+ * flight is left alone — the new channel takes effect on its next check.
+ */
+export function onChannelChange(): void {
+  if (!isTauri) return;
+  const phase = usePortaStore.getState().updaterPhase;
+  if (
+    phase === "downloading" ||
+    phase === "installing" ||
+    phase === "restarting" ||
+    phase === "ready"
+  ) {
+    return;
+  }
+  // Invalidate any in-flight check and stale surfaced update so the old
+  // channel's binary can't be downloaded and the toast starts clean.
+  checkGeneration++;
+  activeCheck = null;
+  cachedUpdate = null;
+  pendingIsBeta = false;
+  downloadInFlight = false;
+  lastAutoCheckAt = 0;
+  setPhase("idle", { updaterError: null, updaterInfo: null });
+  // User-initiated (silent: false) so an "up to date" / "available" result is
+  // surfaced as visible confirmation that the switch actually did something.
+  void checkForUpdate({ silent: false, source: "menu" });
+}
+
 function isCurrentCheck(generation: number): boolean {
   return generation === checkGeneration;
 }
