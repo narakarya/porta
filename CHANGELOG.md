@@ -4,6 +4,56 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.24]
+
+### Fixed
+
+- **Restoring a backup shows up right away — no close-and-reopen.** The Rust side
+  swapped the whole database in place, but every React/Zustand slice kept holding
+  the pre-restore data until the app was fully re-launched, so the restore looked
+  like it did nothing. Restore (and Import Database, which has the same shape) now
+  reload the webview automatically once the swap lands, re-hydrating the restored
+  state without closing the native window.
+- **The beta-updates toggle now actually switches channels.** Flipping it only
+  wrote a flag: any update already surfaced under the old channel stayed on
+  screen (and would have downloaded the wrong channel's binary), and a new build
+  on the channel you just switched to wouldn't appear until the next manual check
+  or the 30-minute auto-check gap. It read as "the switch does nothing, I still
+  have to grab the build myself." Toggling now discards the stale surfaced update
+  and re-checks the newly-selected channel immediately, surfacing an "up to date"
+  or "update available" result as visible confirmation. A download already in
+  flight is left untouched.
+- **Indented log output keeps its indentation.** Porta stamps every un-stamped
+  line with a leading clock, and the viewer peeled that stamp back off with a
+  greedy whitespace match — which also swallowed the *original* leading
+  indentation of the line, so pretty-printed GraphQL/JSON results and Ecto SQL
+  bodies rendered flush-left. It now consumes only the single separator space and
+  leaves the body's own indentation intact.
+- **No more strings of empty, numbered log rows.** The live tail passed blank
+  lines through verbatim while the disk-history read filtered them out, so the
+  running log filled with empty gutter-numbered rows that vanished the moment
+  full history reloaded. Blank lines are now dropped on the live path too, so
+  both views match.
+- **Multi-line log entries don't repeat the timestamp on every line.** Porta
+  stamps each un-stamped line with a clock, so a pretty-printed GraphQL/JSON
+  result or an Ecto SQL body showed the same time on every continuation row. The
+  timestamp column is now hidden on continuation rows (the body stays aligned),
+  so a block reads as one entry with a single stamp.
+
+- **Restoring or importing a backup applies without a manual restart.** The
+  Rust side swaps the whole database in place, but the Zustand slices kept
+  showing pre-restore data until the next mount — so "Restored!" looked like it
+  did nothing until you quit and reopened. Restore and full-import now reload the
+  webview automatically once the swap completes.
+
+### Changed
+
+- **Opening a log viewer no longer slurps the entire log file.** It read the
+  whole file into memory every time even though only the last ~10k lines render;
+  a long-running app's multi-hundred-MB log meant a real hitch and memory spike
+  on open. It now reads just the trailing 16 MiB by default (far more than 10k
+  lines of any normal log); "Load full history" still reads the whole file.
+
 ## [0.14.0-beta.23]
 
 ### Fixed
