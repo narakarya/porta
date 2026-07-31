@@ -4,6 +4,45 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.28]
+
+### Added
+
+- **The Traffic Inspector can replay a captured request.** Reproducing a bug
+  used to mean rebuilding the request by hand in curl. An entry now has a
+  Replay pane: method, URI, headers, and body are editable, the request is
+  re-issued through the local proxy, and the response — status, timing,
+  headers, body — appears next to the original for comparison. Hop-by-hop
+  headers are stripped automatically so an edited request stays valid.
+- **Projects that ship a `.porta.yml` can be adopted, with a preview first.**
+  Import used to be a blind write: point it at a YAML and a new workspace
+  appeared, duplicates and port collisions included. Adopting now shows what
+  will happen before anything is written — each app is classified as new, port
+  taken (with a suggested free port), or already registered, and a workspace
+  that already owns the config's domain is offered as the target instead of a
+  second copy. The + menu and the Add App modal detect a config in the chosen
+  folder and offer the flow directly.
+
+### Fixed
+
+- **One hiccup in the session monitor could take every running app down.** The
+  tmux monitor read a failed `list-panes` query as "there are no sessions" and
+  responded by declaring every hosted app dead — and killing their perfectly
+  live sessions. A failed query is now just skipped, and a session has to be
+  missing from two consecutive listings before it counts as gone, which also
+  stops a just-started app from being reaped because it was born mid-snapshot.
+- **"Port in use" no longer points at innocent bystanders.** The port check and
+  the Kill button matched any socket touching the port — a browser's lingering
+  half-closed connection, Caddy's upstream dials, Porta's own health probes —
+  so a free port could show as taken by a process that would "come back" after
+  every kill, and the reaper could SIGKILL Caddy or Porta itself. Both now only
+  consider actual listeners.
+- **Restarting an app can no longer race its previous run for the port.**
+  Replacing a session waits for the old process to actually die before booting
+  the new one, instead of starting it into an EADDRINUSE. A stop that found
+  nothing to signal also no longer leaves a stale flag behind that would mark
+  the next real crash as intentional and swallow its notification.
+
 ## [0.14.0-beta.27]
 
 ### Added
