@@ -4,6 +4,36 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.25]
+
+### Removed
+
+- **The workbench Git tab is gone; `git-manager` is the Git surface.** The
+  built-in tab had been hidden since beta.16 while it was rebuilt to match the
+  `git-manager` extension screen by screen. That rebuild is off: the extension is
+  already the better tool, and folding it into core would have tied every Git fix
+  to a Porta release instead of letting it ship on its own cadence. Install it
+  from Settings → Extensions → `narakarya/porta-git-manager`.
+- **Advanced Git tools setting.** The checkbox under Settings → Git only chose
+  which tabs the removed Git tab showed, so it no longer decided anything.
+  Background fetch and its interval are untouched.
+
+### Internal
+
+- Dropped roughly 3,800 lines that only the Git tab reached: the tab and its
+  panels, the vendored in-process copy of `git-manager`, the markdown/Shiki/
+  Mermaid preview pipeline with its stylesheets and fonts, and 65 Git IPC
+  commands (staging, commits, history, stash, tags, rebase, pull requests) with
+  their Rust implementations. `markdown-it`, `mermaid` and `shiki` are no longer
+  dependencies.
+
+### Unchanged
+
+- Everything the app card and workbench header do with Git still works: the
+  branch chip, ahead/behind counts, fetch, pull, push, and branch switching, plus
+  background autofetch and its interval. Branch instances backed by git worktrees
+  are untouched.
+
 ## [0.14.0-beta.24]
 
 ### Fixed
