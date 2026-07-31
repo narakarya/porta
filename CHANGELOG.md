@@ -4,6 +4,19 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.29]
+
+### Fixed
+
+- **The "port in use" toast names the port that is actually blocked.** An app
+  with a second listener (a Phoenix admin endpoint, LiveDebugger) dies with
+  `:eaddrinuse` as its last lines, and the toast used to blame the app's
+  registered port — often the one port that was free — with a Free button
+  pointed at nothing. The detector now prefers the log line that names the
+  real port over the vaguer exit summary printed below it, and understands
+  Bandit's "port 4001 already in use" phrasing plus the port inside Ranch's
+  listen args.
+
 ## [0.14.0-beta.28]
 
 ### Added
