@@ -13,6 +13,12 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import Tooltip from "../shared/Tooltip";
 import { ClearIcon, DownloadIcon } from "../ui";
+import {
+  parseFilter,
+  blockMatchesFilter,
+  buildHighlightRegex,
+  type ParsedFilter,
+} from "../../lib/log-filter";
 
 // ── Service source ────────────────────────────────────────────────────────────
 // Process apps stream stdout/stderr from the spawned process; docker/compose
@@ -142,6 +148,11 @@ const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }>
 // ── Ingest pipeline ───────────────────────────────────────────────────────────
 interface ProcessedLine {
   text: string;
+  /** `text` lower-cased once at ingest. Find and the text filter both scan the
+   *  whole buffer on every debounced keystroke; folding case here turns that
+   *  from "allocate a fresh copy of all 10k lines per keystroke" into a plain
+   *  substring scan. */
+  lower: string;
   level: LogLevel;
   /** Absolute, monotonic line number in the stream. Assigned once at ingestion
    *  and never reassigned, so the gutter number for a given physical line stays
@@ -159,7 +170,7 @@ function processLine(raw: string): ProcessedLine | null {
   // strings of empty, numbered rows ("banyak bolong") that vanished the moment
   // full history reloaded. Filtering here makes both paths consistent.
   if (clean.length === 0) return null;
-  return { text: clean, level: detectLevel(clean), seq: 0 };
+  return { text: clean, lower: clean.toLowerCase(), level: detectLevel(clean), seq: 0 };
 }
 
 const MAX_LINES = 10000;
@@ -192,12 +203,15 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 // ── Search highlight ───────────────────────────────────────────────────────────
-function highlightLine(line: string, query: string): React.ReactNode {
-  if (!query) return line;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = line.split(new RegExp(`(${escaped})`, "gi"));
+// `re` is a single capture group built once per query (see buildHighlightRegex),
+// so splitting hands back [text, hit, text, hit, …] and the odd slots are the
+// matches — no per-part case-folding, and one regex object shared by every row.
+function highlightLine(line: string, re: RegExp | null): React.ReactNode {
+  if (!re) return line;
+  const parts = line.split(re);
+  if (parts.length === 1) return line;
   return parts.map((part, i) =>
-    part.toLowerCase() === query.toLowerCase()
+    i % 2 === 1
       ? <mark key={i} style={{ background: "rgba(251,191,36,0.25)", color: "#fde68a", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
       : part
   );
@@ -300,7 +314,8 @@ interface LogLineProps {
   /** Stable absolute line number for the gutter (see ProcessedLine.seq). */
   seq: number;
   crashed: boolean;
-  query: string;
+  /** Memoized alternation regex for the active query; null when nothing to mark. */
+  highlightRe: RegExp | null;
   isActiveMatch: boolean;
   isAlternateBlock: boolean;
   copied: boolean;
@@ -312,7 +327,7 @@ interface LogLineProps {
 }
 
 const LogLine = memo(function LogLine({
-  text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, query,
+  text, level, isContinuation, ownerLevel, originalIndex, seq, crashed, highlightRe,
   isActiveMatch, isAlternateBlock, copied, blockCopied, wrap, showTimestamps, onCopy, onCopyBlock,
 }: LogLineProps) {
   const effectiveLevel = crashed ? "error" : level;
@@ -346,7 +361,7 @@ const LogLine = memo(function LogLine({
       : "bg-transparent hover:bg-white/[0.025]";
 
   return (
-    <div className={`flex py-[2.5px] rounded px-1 group items-start ${rowBg}`}>
+    <div data-testid="log-row" data-seq={seq} className={`flex py-[2.5px] rounded px-1 group items-start ${rowBg}`}>
       <span className="text-[11px] text-ink-3 w-8 shrink-0 mr-2 text-right tabular-nums pt-[2px] group-hover:text-ink-2 select-none">
         {seq + 1}
       </span>
@@ -385,7 +400,7 @@ const LogLine = memo(function LogLine({
           isContinuation ? `border-l ${railCls} pl-2` : ""
         }`}
       >
-        {highlightLine(body, query)}
+        {highlightLine(body, highlightRe)}
       </span>
       <span className="shrink-0 ml-2 flex items-center pt-[2px] select-none">
         <button
@@ -423,6 +438,12 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   // used to be a permanent pill in the toolbar, which cost header width on every
   // session whether or not anyone was searching.
   const [searchOpen, setSearchOpen] = useState(false);
+  // The same overlay does double duty. Find (⌘F) keeps every line on screen and
+  // walks the hits; Filter (⌘⇧F) hides everything the query doesn't match, which
+  // is the only way to make a chatty stream readable — jumping between 400
+  // scattered matches is not the same task as reading the 12 lines about one
+  // request.
+  const [filterMode, setFilterMode] = useState(false);
   // Additive level filter: empty = no filter, show everything. Toggling a pill
   // ON narrows the view to *only* the selected levels.
   const [enabledLevels, setEnabledLevels] = useState<EnabledLevels>(new Set());
@@ -600,7 +621,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           })
           .catch((e) => {
             if (!cancelled) {
-              setLocalLogs([{ text: `error: ${String(e)}`, level: "error", seq: 0 }]);
+              const msg = `error: ${String(e)}`;
+              setLocalLogs([{ text: msg, lower: msg.toLowerCase(), level: "error", seq: 0 }]);
             }
           });
       }
@@ -674,7 +696,23 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
   };
   const handleCopyBlock = useMemo(() => (index: number) => copyBlockRef.current(index), []);
 
-  const filterActive = enabledLevels.size > 0;
+  const levelFilterActive = enabledLevels.size > 0;
+
+  // Parsed once per debounced keystroke, not once per line. Null when the query
+  // carries no usable term (empty, or still just a lone `-`).
+  const textFilter = useMemo<ParsedFilter | null>(
+    () => (filterMode ? parseFilter(debouncedQuery) : null),
+    [filterMode, debouncedQuery],
+  );
+  const filterActive = levelFilterActive || textFilter !== null;
+
+  // Marks the query in both modes: the literal string when finding, every
+  // include term when filtering (exclusions have nothing on screen to mark).
+  // Memoized so the regex identity is stable and `LogLine`'s memo still holds.
+  const highlightRe = useMemo(() => {
+    if (filterMode) return textFilter ? buildHighlightRegex(textFilter.include) : null;
+    return debouncedQuery ? buildHighlightRegex([debouncedQuery]) : null;
+  }, [filterMode, textFilter, debouncedQuery]);
 
   function toggleLevel(level: NonNullable<LogLevel>) {
     setEnabledLevels((prev) => {
@@ -735,39 +773,56 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     return meta;
   }, [allLogs]);
 
-  // Standalone level-less lines are always shown — filtering narrows, never
-  // gates unclassified output. A continuation, however, inherits its parent's
-  // level: hide the header and its nested body goes with it, so a filtered
-  // view never strands an orphan SQL body or `↳ caller` under nothing.
+  // Both filters run entry-at-a-time rather than line-at-a-time. An entry is a
+  // leveled header plus the continuation lines that belong to it (SQL body,
+  // `↳` caller, stacktrace), and it is the smallest unit that still makes sense
+  // on its own — keeping a header while dropping its stacktrace, or the reverse,
+  // strands text under nothing. Walking blocks also means the level test runs
+  // once per entry instead of once per line.
+  //
+  // Level filter: only the toggled levels survive, and when it is on, level-less
+  // standalone stdout goes too — the view is exactly what was toggled.
+  // Text filter: an entry survives when every include term appears *somewhere*
+  // in it and no exclude term appears anywhere in it (see log-filter.ts).
   const filteredLines = useMemo(() => {
     const out: { line: ProcessedLine; originalIndex: number }[] = [];
-    for (let i = 0; i < allLogs.length; i++) {
-      const line = allLogs[i];
-      if (filterActive) {
-        const meta = lineMeta[i];
-        const effLevel = meta.isContinuation ? meta.ownerLevel : line.level;
-        // Show only the selected levels (a continuation inherits its owner's
-        // level, so error stacktraces ride along with their header). When a
-        // filter is active, level-less standalone stdout is hidden too — the
-        // view is exactly what was toggled, nothing else.
-        if (!effLevel || !enabledLevels.has(effLevel)) continue;
+    if (!filterActive) {
+      for (let i = 0; i < allLogs.length; i++) out.push({ line: allLogs[i], originalIndex: i });
+      return out;
+    }
+    let i = 0;
+    while (i < allLogs.length) {
+      // Block = this header plus every continuation trailing it. lineMeta never
+      // marks index 0 as a continuation, so `end` always advances.
+      let end = i + 1;
+      while (end < allLogs.length && lineMeta[end].isContinuation) end++;
+      let keep = true;
+      if (levelFilterActive) {
+        const level = allLogs[i].level;
+        keep = !!level && enabledLevels.has(level);
       }
-      out.push({ line, originalIndex: i });
+      if (keep && textFilter) keep = blockMatchesFilter(allLogs, i, end, textFilter);
+      if (keep) {
+        for (let j = i; j < end; j++) out.push({ line: allLogs[j], originalIndex: j });
+      }
+      i = end;
     }
     return out;
-  }, [allLogs, lineMeta, enabledLevels, filterActive]);
+  }, [allLogs, lineMeta, enabledLevels, levelFilterActive, textFilter, filterActive]);
 
   // Indexes (into filteredLines) of lines containing the query — drives the
-  // match counter and scroll-to-match navigation.
+  // match counter and scroll-to-match navigation. Filter mode has no use for
+  // either: every line on screen is already a match, so there is nothing to
+  // step through and the counter reports the line count instead.
   const searchMatches = useMemo(() => {
-    if (!debouncedQuery) return [] as number[];
+    if (filterMode || !debouncedQuery) return [] as number[];
     const lower = debouncedQuery.toLowerCase();
     const matches: number[] = [];
     for (let i = 0; i < filteredLines.length; i++) {
-      if (filteredLines[i].line.text.toLowerCase().includes(lower)) matches.push(i);
+      if (filteredLines[i].line.lower.includes(lower)) matches.push(i);
     }
     return matches;
-  }, [filteredLines, debouncedQuery]);
+  }, [filteredLines, debouncedQuery, filterMode]);
 
   useEffect(() => {
     if (searchMatches.length === 0) {
@@ -798,10 +853,11 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     setActiveMatchIndex((prev) => (prev - 1 + searchMatches.length) % searchMatches.length);
   }, [searchMatches.length]);
 
-  const matchCount = debouncedQuery ? searchMatches.length : null;
+  const matchCount = filterMode || !debouncedQuery ? null : searchMatches.length;
   const hasMatches = (matchCount ?? 0) > 0;
 
-  const openSearch = useCallback(() => {
+  const openSearch = useCallback((asFilter: boolean) => {
+    setFilterMode(asFilter);
     setSearchOpen(true);
     // The input doesn't exist yet on the first ⌘F, so focus after it mounts.
     requestAnimationFrame(() => {
@@ -810,6 +866,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     });
   }, []);
 
+  // Closing always drops the query. A filter that outlives its visible input is
+  // a viewer silently hiding lines with nothing on screen to say so.
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setQuery("");
@@ -819,7 +877,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        openSearch();
+        openSearch(e.shiftKey);
         return;
       }
       if (e.key === "Escape") {
@@ -1042,17 +1100,41 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         <div className="flex items-center gap-0.5 shrink-0">
           <Tooltip label="Find in logs (⌘F)" side="bottom" className="inline-flex">
           <button
-            onClick={() => (searchOpen ? closeSearch() : openSearch())}
+            onClick={() => (searchOpen && !filterMode ? closeSearch() : openSearch(false))}
             aria-label="Find in logs"
-            aria-pressed={searchOpen}
+            aria-pressed={searchOpen && !filterMode}
             className={`p-1.5 rounded-control transition-colors ${
-              searchOpen ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+              searchOpen && !filterMode ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
             }`}
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
               <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
+          </button>
+          </Tooltip>
+          <Tooltip
+            label={`Filter lines by text (⌘⇧F)${textFilter ? " — active" : ""}`}
+            side="bottom"
+            className="inline-flex"
+          >
+          <button
+            onClick={() => (searchOpen && filterMode ? closeSearch() : openSearch(true))}
+            aria-label="Filter lines by text"
+            aria-pressed={searchOpen && filterMode}
+            className={`relative p-1.5 rounded-control transition-colors ${
+              searchOpen && filterMode ? "text-accent" : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
+            }`}
+          >
+            {/* Funnel — the one glyph nobody confuses with the search lens. */}
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M2.5 3.5h11l-4.2 5v4.2l-2.6 1.3V8.5L2.5 3.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+            </svg>
+            {/* A filter hides lines. When one is on, that has to be visible from
+                the toolbar, not only from inside the overlay. */}
+            {textFilter && (
+              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent" aria-hidden />
+            )}
           </button>
           </Tooltip>
           <Tooltip label="Export logs to a file" side="bottom" className="inline-flex">
@@ -1206,43 +1288,75 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
       {/* Find widget — floats over the log body like the terminal's, so it costs
           no toolbar width when nobody is searching. */}
       {searchOpen && (
-        <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#1a1a1d] pl-2 pr-1.5 py-1 shadow-[0_10px_28px_rgba(0,0,0,0.55)]">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-600">
-            <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          </svg>
+        <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#1a1a1d] pl-1 pr-1.5 py-1 shadow-[0_10px_28px_rgba(0,0,0,0.55)]">
+          {/* Mode switch. Two words beat two icons here — "am I hiding lines or
+              stepping through them?" is the one thing this widget must never be
+              ambiguous about. */}
+          <div className="flex shrink-0 items-center rounded bg-black/30 p-px text-[10px] font-medium select-none">
+            {([false, true] as const).map((asFilter) => (
+              <button
+                key={String(asFilter)}
+                onClick={() => {
+                  setFilterMode(asFilter);
+                  searchRef.current?.focus();
+                }}
+                aria-pressed={filterMode === asFilter}
+                title={asFilter
+                  ? "Filter (⌘⇧F) — show only matching lines"
+                  : "Find (⌘F) — highlight and step through matches"}
+                className={`px-1.5 py-0.5 rounded transition-colors ${
+                  filterMode === asFilter
+                    ? "bg-white/[0.1] text-zinc-100"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {asFilter ? "Filter" : "Find"}
+              </button>
+            ))}
+          </div>
           <input
             ref={searchRef}
             spellCheck={false}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find in logs…"
-            className="w-[190px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none select-text"
+            placeholder={filterMode ? "Filter lines…" : "Find in logs…"}
+            title={filterMode
+              ? "Terms are ANDed · \"quoted phrase\" · -exclude"
+              : undefined}
+            className="w-[170px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none select-text"
           />
           <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">
-            {matchCount === null ? "" : matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
+            {filterMode
+              // Nothing to step through when every visible line matches — the
+              // useful number is how much of the buffer survived.
+              ? (textFilter ? `${filteredLines.length.toLocaleString()} lines` : "")
+              : matchCount === null ? "" : matchCount === 0 ? "0/0" : `${activeMatchIndex + 1}/${matchCount}`}
           </span>
-          <span className="w-px h-4 bg-white/[0.1] shrink-0" />
-          <button
-            onClick={goToPrevMatch}
-            disabled={!hasMatches}
-            className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
-            title="Previous match (⇧⏎)"
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M2.5 6.75L5.5 3.75l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-          <button
-            onClick={goToNextMatch}
-            disabled={!hasMatches}
-            className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
-            title="Next match (⏎)"
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M2.5 4.25l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          {!filterMode && (
+            <>
+              <span className="w-px h-4 bg-white/[0.1] shrink-0" />
+              <button
+                onClick={goToPrevMatch}
+                disabled={!hasMatches}
+                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                title="Previous match (⇧⏎)"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M2.5 6.75L5.5 3.75l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={goToNextMatch}
+                disabled={!hasMatches}
+                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                title="Next match (⏎)"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M2.5 4.25l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </>
+          )}
           <button
             onClick={closeSearch}
             className="shrink-0 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08] transition-colors"
@@ -1290,7 +1404,9 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         {filteredLines.length === 0 ? (
           <p className="text-[12px] text-zinc-600 mt-8 text-center select-none">
-            {filterActive ? "No lines match your filter." : "No output yet."}
+            {textFilter
+              ? `No lines match “${debouncedQuery.trim()}”.`
+              : filterActive ? "No lines match your filter." : "No output yet."}
           </p>
         ) : (
           // Virtualized: only the lines in/near the viewport are mounted to the
@@ -1311,7 +1427,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   originalIndex={originalIndex}
                   seq={line.seq}
                   crashed={!!crashed}
-                  query={debouncedQuery}
+                  highlightRe={highlightRe}
                   isActiveMatch={isActiveMatch}
                   isAlternateBlock={lineMeta[originalIndex].isAlternateBlock}
                   copied={copiedLine === originalIndex}
