@@ -389,6 +389,11 @@ impl ProcessManager {
                 signal_tree(pid, Signal::SIGKILL);
                 pids.lock().unwrap().remove(&app_id);
             });
+        } else {
+            // Nothing was running, so no exit watcher will ever consume the
+            // flag. Left in place, it marks the *next* run's first crash as
+            // intentional and swallows its notification and auto-restart.
+            self.stopping.lock().unwrap().remove(app_id);
         }
         Ok(())
     }
@@ -404,7 +409,12 @@ impl ProcessManager {
             pids.get(app_id).copied()
         };
 
-        let Some(pid) = pid_opt else { return Ok(()) };
+        let Some(pid) = pid_opt else {
+            // No process, no watcher — drop the flag so it can't mislabel the
+            // next run's exit as intentional (see `stop`).
+            self.stopping.lock().unwrap().remove(app_id);
+            return Ok(());
+        };
 
         // Graceful SIGTERM to the entire tree (group + setsid'd children) first
         signal_tree(pid, Signal::SIGTERM);
@@ -435,10 +445,16 @@ impl ProcessManager {
     /// Force-kill a process with SIGKILL (no cleanup, immediate termination).
     pub fn kill(&self, app_id: &str) -> Result<()> {
         self.stopping.lock().unwrap().insert(app_id.to_string());
-        let mut pids = self.pids.lock().unwrap();
-        if let Some(pid) = pids.remove(app_id) {
-            // Kill the entire tree (group + setsid'd children like Chromium)
-            signal_tree(pid, Signal::SIGKILL);
+        let removed = self.pids.lock().unwrap().remove(app_id);
+        match removed {
+            Some(pid) => {
+                // Kill the entire tree (group + setsid'd children like Chromium)
+                signal_tree(pid, Signal::SIGKILL);
+            }
+            // No process, no watcher — see `stop`.
+            None => {
+                self.stopping.lock().unwrap().remove(app_id);
+            }
         }
         Ok(())
     }
@@ -714,6 +730,16 @@ struct TmuxApp {
     /// Fired with `(exit_code, was_intentional)` once the pane dies, standing in
     /// for the piped path's `child.wait()`.
     on_exit: Box<dyn Fn(i32, bool) + Send>,
+    /// Consecutive monitor ticks whose listing did not contain this session.
+    ///
+    /// A session may legitimately be absent from one snapshot without being
+    /// gone: `start()` can create and register it *while* the monitor's
+    /// `list-panes` output is already in flight, so the freshly started app is
+    /// in the registry but not in that tick's (stale) listing. Declaring it
+    /// dead on a single miss killed the session the user just started. Two
+    /// consecutive misses are 400 ms apart, which no in-flight listing can
+    /// straddle.
+    missing_ticks: u8,
 }
 
 /// Read everything appended to `path` since `offset`, emitting whole lines.
@@ -818,22 +844,33 @@ impl ProcessManager {
             if apps.lock().unwrap().is_empty() {
                 continue;
             }
-            let panes = crate::tmux::panes();
+            // A failed listing says nothing about the sessions — skip the tick
+            // rather than treating it as "everything is gone". One transient
+            // spawn failure here used to reap (and kill!) every hosted app.
+            let Ok(panes) = crate::tmux::panes() else { continue };
             // Collect first, fire callbacks after: `on_exit` re-enters the
             // manager (auto-restart calls `start` again), so it must never run
             // while this map's lock is held.
             let finished: Vec<(String, i32)> = {
-                let map = apps.lock().unwrap();
-                map.iter()
+                let mut map = apps.lock().unwrap();
+                map.iter_mut()
                     .filter_map(|(id, w)| {
                         match panes.iter().find(|p| p.session == w.session) {
-                            Some(p) if !p.dead => None,
+                            Some(p) if !p.dead => {
+                                w.missing_ticks = 0;
+                                None
+                            }
                             Some(p) => Some((id.clone(), p.dead_status.unwrap_or(-1))),
-                            // Session gone outright — killed from another
-                            // terminal, or torn down by a stop. No status left
-                            // to read, and `stopping` already knows whether the
-                            // user asked for it.
-                            None => Some((id.clone(), 0)),
+                            // Session absent from the listing — killed from
+                            // another terminal, torn down by a stop, or (see
+                            // `missing_ticks`) simply newer than the snapshot.
+                            // Only two consecutive misses count as gone; no
+                            // status is left to read then, and `stopping`
+                            // already knows whether the user asked for it.
+                            None => {
+                                w.missing_ticks = w.missing_ticks.saturating_add(1);
+                                (w.missing_ticks >= 2).then(|| (id.clone(), 0))
+                            }
                         }
                     })
                     .collect()
@@ -868,7 +905,22 @@ impl ProcessManager {
         // A previous run usually leaves a husk: `remain-on-exit` holds the pane
         // open so its status can be read, and `new-session` refuses a duplicate
         // name. Starting an app is an explicit "replace whatever is there".
-        if crate::tmux::has_session(&session) {
+        if let Some(old) = crate::tmux::pane(&session) {
+            let _ = crate::tmux::kill_session(&session);
+            // `kill-session` only *delivers* SIGHUP; it doesn't wait. If the
+            // old pane still had a live process, starting the replacement
+            // immediately races it for the port — the new app boots while the
+            // old one is still dying and fails with EADDRINUSE. Wait (bounded)
+            // for the old root process to actually be gone.
+            if !old.dead {
+                for _ in 0..20 {
+                    if kill(Pid::from_raw(old.pid as i32), None).is_err() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        } else if crate::tmux::has_session(&session) {
             let _ = crate::tmux::kill_session(&session);
         }
 
@@ -919,7 +971,7 @@ impl ProcessManager {
         );
         self.tmux_apps.lock().unwrap().insert(
             app_id.to_string(),
-            TmuxApp { session, stop_tail, on_exit: Box::new(on_exit) },
+            TmuxApp { session, stop_tail, on_exit: Box::new(on_exit), missing_ticks: 0 },
         );
         self.ensure_tmux_monitor();
     }

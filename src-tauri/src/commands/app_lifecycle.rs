@@ -711,12 +711,18 @@ pub fn kill_pid(pid: u32) -> Result<(), String> {
         .or_else(|e| if e == nix::errno::Errno::ESRCH { Ok(()) } else { Err(e.to_string()) })
 }
 
-/// Kill whatever process is currently holding `port`.
-/// Kills ALL PIDs found on the port (not just the first one).
+/// Kill whatever process is currently LISTENING on `port`.
+/// Kills ALL listener PIDs found (not just the first one).
+///
+/// `-sTCP:LISTEN` is load-bearing: without it, `lsof -i` also matches every
+/// process that merely has a *connection* touching the port — Caddy's upstream
+/// dials, a browser's lingering half-closed sockets, Porta's own health
+/// probes — and this command SIGKILLed those bystanders. Killing Caddy (or
+/// Porta itself) mid-stop is how "stop one app" turned into "everything died".
 #[tauri::command]
 pub fn kill_port_holder(port: u16) -> Result<u32, String> {
     let output = std::process::Command::new("lsof")
-        .args(["-ti", &format!("tcp:{}", port)])
+        .args(["-nP", "-ti", &format!("tcp:{}", port), "-sTCP:LISTEN"])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -788,7 +794,9 @@ fn restart_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Re
     // by the user's own service or nothing at all.
     if !is_docker && !is_compose && !is_static && !is_proxy { if let Some(port) = port_opt {
         if let Ok(output) = std::process::Command::new("lsof")
-            .args(["-ti", &format!("tcp:{}", port)])
+            // Listeners only — a connection *to* the port (Caddy, a browser,
+            // Porta's own probes) must never be treated as the orphan.
+            .args(["-nP", "-ti", &format!("tcp:{}", port), "-sTCP:LISTEN"])
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);

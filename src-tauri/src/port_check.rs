@@ -8,12 +8,17 @@ pub struct PortCheckResult {
     pub process_name: Option<String>,
 }
 
-/// Check whether a TCP port is currently in use.
+/// Check whether a TCP port is currently in use (i.e. something LISTENS on it).
 /// Uses `lsof` to find the holding PID, then `ps` to resolve the process name.
+///
+/// `-sTCP:LISTEN` matters: without it any process with a mere connection
+/// touching the port matched — a browser's half-closed socket to a dead dev
+/// server, Caddy's upstream dial — and the UI reported "port in use" for a
+/// port that was actually free, naming an innocent PID for the user to kill.
 pub fn check_port(port: u16) -> PortCheckResult {
-    // lsof -i :{port} -t  →  prints PIDs (one per line) holding the port
+    // lsof -nP -ti tcp:{port} -sTCP:LISTEN  →  listener PIDs, one per line
     let lsof = Command::new("lsof")
-        .args(["-i", &format!(":{port}"), "-t"])
+        .args(["-nP", "-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
         .output();
 
     let pid = match lsof {

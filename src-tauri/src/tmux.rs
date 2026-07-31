@@ -225,34 +225,42 @@ fn parse_pane_line(line: &str) -> Option<Pane> {
     Some(Pane { session, pid, tty, dead, dead_status, piped })
 }
 
-/// Every pane on Porta's socket. Empty when no server is running — that is the
-/// normal cold-start state, not an error, so it isn't reported as one.
-pub fn panes() -> Vec<Pane> {
-    let Ok(mut cmd) = tmux() else { return Vec::new() };
-    let Ok(out) = cmd
+/// Every pane on Porta's socket.
+///
+/// `Ok(vec![])` means tmux answered and there really are no sessions — either
+/// the listing succeeded empty or the server itself is down ("no server
+/// running" / "error connecting"), both of which genuinely mean no pane can be
+/// alive. `Err` means the query itself failed (spawn failure under load, an
+/// unexpected tmux error) and says *nothing* about the sessions. The monitor
+/// must treat those differently: acting on a failed query as if it were an
+/// empty listing once declared every hosted app dead and killed their live
+/// sessions in one tick.
+pub fn panes() -> Result<Vec<Pane>> {
+    let mut cmd = tmux()?;
+    let out = cmd
         .args([
             "list-panes",
             "-a",
             "-F",
             "#{session_name}|#{pane_pid}|#{pane_tty}|#{pane_dead}|#{pane_dead_status}|#{pane_pipe}",
         ])
-        .stderr(Stdio::null())
-        .output()
-    else {
-        return Vec::new();
-    };
+        .output()?;
     if !out.status.success() {
-        return Vec::new();
+        let err = String::from_utf8_lossy(&out.stderr);
+        if err.contains("no server running") || err.contains("error connecting") {
+            return Ok(Vec::new());
+        }
+        return Err(anyhow!("tmux list-panes failed: {}", err.trim()));
     }
-    String::from_utf8_lossy(&out.stdout)
+    Ok(String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(parse_pane_line)
-        .collect()
+        .collect())
 }
 
 /// The single pane of `session`, if it exists.
 pub fn pane(session: &str) -> Option<Pane> {
-    panes().into_iter().find(|p| p.session == session)
+    panes().unwrap_or_default().into_iter().find(|p| p.session == session)
 }
 
 /// Does `session` exist (alive *or* holding a dead pane)?
