@@ -93,6 +93,9 @@ pub use proxy_limits::*;
 pub mod access_log;
 pub use access_log::*;
 
+mod replay;
+pub use replay::*;
+
 mod extensions;
 pub use extensions::*;
 

@@ -1714,6 +1714,30 @@ export const liveAccessLogStart = (appId: string): Promise<string> =>
 export const liveAccessLogStop = (streamId: string): Promise<void> =>
   isTauri ? invoke("live_access_log_stop", { streamId }) : Promise.resolve();
 
+// ── Replay ───────────────────────────────────────────────────────────────────
+
+export interface ReplayRequestInput {
+  method: string;
+  host: string;
+  uri: string;
+  headers: Record<string, string[]>;
+  body?: string | null;
+}
+
+export interface ReplayResponse {
+  status: number;
+  duration_ms: number;
+  headers: Record<string, string[]>;
+  body: string;
+  body_truncated: boolean;
+}
+
+/** Re-issue a captured request through the local proxy, as sent or edited. */
+export const replayRequest = (req: ReplayRequestInput): Promise<ReplayResponse> =>
+  isTauri
+    ? invoke("replay_request", { req })
+    : Promise.reject(new Error("replay_request not available in browser mode"));
+
 // ── Extensions ───────────────────────────────────────────────────────────────
 
 export type { ExtensionInfo, ExtensionActionContrib } from "../types/extension";

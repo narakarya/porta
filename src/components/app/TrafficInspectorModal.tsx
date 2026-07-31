@@ -4,9 +4,11 @@ import {
   liveAccessLogStart,
   liveAccessLogStop,
   tailAccessLog,
+  replayRequest,
   isTauri,
   type AccessLogEntry,
   type AccessLogStreamEvent,
+  type ReplayResponse,
 } from "../../lib/commands";
 
 interface Props {
@@ -142,7 +144,7 @@ function JsonSyntax({ text }: { text: string }) {
 
 // --- Copy button ---
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [state, setState] = useState<"idle" | "copied" | "err">("idle");
 
   const handleCopy = useCallback(async () => {
@@ -166,7 +168,7 @@ function CopyButton({ text }: { text: string }) {
           : "text-zinc-500 hover:text-zinc-200 bg-white/[0.04] hover:bg-white/[0.08]"
       }`}
     >
-      {state === "copied" ? "Copied!" : state === "err" ? "Failed" : "Copy"}
+      {state === "copied" ? "Copied!" : state === "err" ? "Failed" : label}
     </button>
   );
 }
@@ -179,7 +181,9 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [methodFilter, setMethodFilter] = useState<string>("ALL");
   const [pathFilter, setPathFilter] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"headers" | "body" | "response">("headers");
+  const [activeTab, setActiveTab] = useState<"headers" | "body" | "response" | "replay">("headers");
+  /** Bumped by the toolbar's Replay to fire a send inside the replay panel. */
+  const [replayNonce, setReplayNonce] = useState(0);
   // clearKey: increment to restart stream from current offset without loading old entries.
   const [clearKey, setClearKey] = useState(0);
   const streamIdRef = useRef<string | null>(null);
@@ -468,7 +472,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
             <>
               {/* Tab bar */}
               <div className="flex items-center gap-1 px-4 py-2 border-b border-white/[0.06] shrink-0">
-                {(["headers", "body", "response"] as const).map((t) => (
+                {(["headers", "body", "response", "replay"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setActiveTab(t)}
@@ -478,11 +482,27 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                         : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05]"
                     }`}
                   >
-                    {t === "headers" ? "Headers" : t === "body" ? "Body" : "Response"}
+                    {t === "headers" ? "Headers" : t === "body" ? "Body" : t === "response" ? "Response" : "Replay"}
                   </button>
                 ))}
                 <div className="flex-1" />
-                <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[40ch]" title={`${selected.method} ${selected.host}${selected.uri} ${selected.status || ""}`}>
+                <CopyButton text={toCurl(selected)} label="Copy as cURL" />
+                {isTauri && (
+                  <button
+                    onClick={() => {
+                      setActiveTab("replay");
+                      setReplayNonce((n) => n + 1);
+                    }}
+                    title="Send this request again"
+                    className="shrink-0 px-2 py-0.5 text-[10px] font-mono rounded text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+                  >
+                    Replay
+                  </button>
+                )}
+              </div>
+
+              <div className="px-4 pt-2 shrink-0">
+                <span className="text-[10px] font-mono text-zinc-500 truncate block" title={`${selected.method} ${selected.host}${selected.uri} ${selected.status || ""}`}>
                   <span className={methodColor(selected.method)}>{selected.method}</span>{" "}
                   {selected.host}{selected.uri}
                   {selected.status ? (
@@ -496,6 +516,16 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                 {activeTab === "headers" && <DetailHeaders entry={selected} />}
                 {activeTab === "body" && <DetailBody entry={selected} />}
                 {activeTab === "response" && <DetailResponse entry={selected} />}
+                {activeTab === "replay" && (
+                  <DetailReplay
+                    // Editing a replay then picking another request must not
+                    // carry the edits over — identity, not list position, since
+                    // the index shifts as new entries stream in.
+                    key={`${selected.ts}:${selected.method}:${selected.uri}`}
+                    entry={selected}
+                    autoSend={replayNonce}
+                  />
+                )}
               </div>
             </>
           )}
@@ -594,6 +624,210 @@ function DetailResponse({ entry }: { entry: AccessLogEntry }) {
       <Row label="Method" value={entry.method} valueClass={methodColor(entry.method)} />
       <Row label="URI" value={entry.uri} />
       <Row label="Timestamp" value={new Date(entry.ts * 1000).toISOString()} />
+    </div>
+  );
+}
+
+// --- Replay ---
+
+/** Headers that a replay must not carry over — see `commands/replay.rs`. */
+const UNSENT_HEADERS = new Set(["host", "content-length", "connection", "transfer-encoding"]);
+
+function headersToText(headers: Record<string, string[]>): string {
+  return Object.keys(headers)
+    .sort()
+    .flatMap((k) => headers[k].map((v) => `${k}: ${v}`))
+    .join("\n");
+}
+
+/** Parse the editable "Name: value" block back into header pairs. */
+export function textToHeaders(text: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const sep = trimmed.indexOf(":");
+    if (sep <= 0) continue;
+    const name = trimmed.slice(0, sep).trim();
+    const value = trimmed.slice(sep + 1).trim();
+    (out[name] ??= []).push(value);
+  }
+  return out;
+}
+
+/** Single-quote a value for a POSIX shell: close, escape, reopen. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+export function toCurl(entry: AccessLogEntry): string {
+  const parts = [`curl -X ${entry.method}`, shellQuote(`https://${entry.host}${entry.uri || "/"}`)];
+  for (const name of Object.keys(entry.req_headers).sort()) {
+    if (UNSENT_HEADERS.has(name.toLowerCase())) continue;
+    for (const value of entry.req_headers[name]) {
+      parts.push(`-H ${shellQuote(`${name}: ${value}`)}`);
+    }
+  }
+  if (entry.req_body) parts.push(`--data-raw ${shellQuote(entry.req_body)}`);
+  return parts.join(" \\\n  ");
+}
+
+/**
+ * Send this request again. Prefilled from the capture and editable, because
+ * the reason to replay a webhook is usually to try it with one field changed.
+ * `autoSend` fires a send without an edit — bumped by the toolbar's Replay.
+ */
+function DetailReplay({ entry, autoSend }: { entry: AccessLogEntry; autoSend: number }) {
+  const [method, setMethod] = useState(entry.method);
+  const [uri, setUri] = useState(entry.uri);
+  const [headersText, setHeadersText] = useState(() => headersToText(entry.req_headers));
+  const [body, setBody] = useState(entry.req_body ?? "");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<ReplayResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const send = useCallback(async () => {
+    setSending(true);
+    setError(null);
+    try {
+      setResult(
+        await replayRequest({
+          method,
+          host: entry.host,
+          uri,
+          headers: textToHeaders(headersText),
+          body: body.length > 0 ? body : null,
+        })
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setResult(null);
+    } finally {
+      setSending(false);
+    }
+  }, [method, uri, headersText, body, entry.host]);
+
+  // Runs on bump only — never on mount, or merely opening the tab would fire a
+  // request. Sends whatever the panel currently holds, which on a fresh open is
+  // the capture verbatim.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    void send();
+    // `send` is deliberately out of the deps: a bump replays the request as it
+    // stands, and re-running whenever an edit changes `send` would resend on
+    // every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSend]);
+
+  return (
+    <div className="flex flex-col gap-3 font-mono text-[11px]">
+      <div className="flex items-center gap-2">
+        <select
+          value={method}
+          onChange={(e) => setMethod(e.target.value)}
+          className="bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-1 text-[11px] text-zinc-200 outline-none"
+        >
+          {METHOD_OPTIONS.filter((m) => m !== "ALL").map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <input
+          value={uri}
+          onChange={(e) => setUri(e.target.value)}
+          spellCheck={false}
+          className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[11px] text-zinc-200 outline-none focus:border-blue-500/60"
+        />
+        <button
+          onClick={() => void send()}
+          disabled={sending}
+          className="shrink-0 px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-50 transition-colors"
+        >
+          {sending ? "Sending…" : "Send"}
+        </button>
+      </div>
+      <div className="text-[10px] text-zinc-600">
+        Goes to <span className="text-zinc-400">{entry.host}</span> through the local
+        proxy, so auth and TLS behave as they did originally.
+      </div>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-zinc-500">Headers</span>
+        <textarea
+          value={headersText}
+          onChange={(e) => setHeadersText(e.target.value)}
+          spellCheck={false}
+          rows={6}
+          className="bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-zinc-300 outline-none focus:border-blue-500/60 resize-y"
+        />
+        <span className="text-[10px] text-zinc-600">
+          Host and Content-Length are recomputed and ignored here.
+        </span>
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-zinc-500">Body</span>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          spellCheck={false}
+          rows={8}
+          placeholder="(empty)"
+          className="bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-zinc-300 outline-none focus:border-blue-500/60 resize-y placeholder:text-zinc-600"
+        />
+      </label>
+
+      {error && (
+        <div className="px-2.5 py-2 bg-red-500/10 border border-red-500/20 rounded text-[11px] text-red-400">
+          {error}
+        </div>
+      )}
+
+      {result && <ReplayResult result={result} />}
+    </div>
+  );
+}
+
+function ReplayResult({ result }: { result: ReplayResponse }) {
+  const [parsed, pretty] = useMemo<[boolean, string]>(() => {
+    try {
+      return [true, JSON.stringify(JSON.parse(result.body), null, 2)];
+    } catch {
+      return [false, result.body];
+    }
+  }, [result.body]);
+
+  return (
+    <div className="border-t border-white/[0.06] pt-3 flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <span className={`text-[12px] font-medium ${statusColor(result.status)}`}>
+          {result.status}
+        </span>
+        <span className="text-[10px] text-zinc-500">{fmtDuration(result.duration_ms)}</span>
+        <span className="text-[10px] text-zinc-500">{fmtSize(result.body.length)}</span>
+        <div className="flex-1" />
+        {result.body.length > 0 && <CopyButton text={pretty} />}
+      </div>
+      <HeaderTable title="Response headers" headers={result.headers} />
+      {result.body.length === 0 ? (
+        <div className="text-zinc-600 italic text-[11px]">(empty response body)</div>
+      ) : parsed ? (
+        <JsonSyntax text={pretty} />
+      ) : (
+        <pre className="whitespace-pre-wrap break-all text-zinc-300 leading-relaxed text-[11px]">
+          {pretty}
+        </pre>
+      )}
+      {result.body_truncated && (
+        <div className="text-[10px] text-zinc-600">
+          Response truncated to the first 256 KB.
+        </div>
+      )}
     </div>
   );
 }

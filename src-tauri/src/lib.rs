@@ -511,6 +511,7 @@ pub fn run() {
             commands::clear_access_log,
             commands::live_access_log_start,
             commands::live_access_log_stop,
+            commands::replay_request,
             // Extensions
             commands::list_extensions,
             commands::get_extensions_for_app,
