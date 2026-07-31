@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { detectStartCommand, nextAvailablePort, listAvailableCommands, parseComposeString, parseDockerCompose } from "../../lib/commands";
+import { detectStartCommand, detectPortaConfig, nextAvailablePort, listAvailableCommands, parseComposeString, parseDockerCompose } from "../../lib/commands";
 import type { CommandSuggestion } from "../../lib/commands";
 import type { AppKind } from "../../types";
 import { usePortaStore } from "../../store";
 import { yieldToFrame } from "../../lib/ui";
 import YamlEditor from "../shared/YamlEditor";
 import { RefreshIcon, Spinner } from "../ui";
+
+const AdoptProjectModal = lazy(() => import("../workspace/AdoptProjectModal"));
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -104,6 +106,9 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
   const [wsId, setWsId] = useState<string | null>(workspaceId ?? workspaces[0]?.id ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
+  /** Set when the picked folder ships a `.porta.yml`. */
+  const [portaConfigPath, setPortaConfigPath] = useState<string | null>(null);
+  const [showAdopt, setShowAdopt] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const cmdInputRef = useRef<HTMLInputElement>(null);
   // Prevents accidental modal close when a press starts inside the form (or
@@ -156,6 +161,10 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
     const selected = await pickDirectory();
     if (!selected) return;
     setRootDir(selected);
+    // A folder that ships its own config describes a whole workspace, not the
+    // single app this form builds. Offer the project route rather than making
+    // the user re-type by hand what the repo already states.
+    detectPortaConfig(selected).then(setPortaConfigPath).catch(() => setPortaConfigPath(null));
     const parts = selected.split("/");
     const folderName = parts[parts.length - 1] ?? "";
     setName(folderName);
@@ -385,6 +394,25 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
               </button>
             </div>
           </label>
+        )}
+
+        {/* This repo ships a .porta.yml — the whole project is one click away */}
+        {portaConfigPath && (
+          <div className="flex items-center gap-2.5 bg-accent-bg border border-[rgba(96,165,250,0.35)] rounded-lg px-3 py-2">
+            <span className="text-[12px] text-accent-ink flex-1">
+              This project ships a Porta config
+              <span className="block text-[11px] text-ink-3 mt-0.5">
+                Set up its whole workspace instead of adding one app by hand.
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowAdopt(true)}
+              className="px-2.5 py-1 text-[11px] font-medium bg-accent text-white rounded-control shrink-0 hover:brightness-110 transition-[filter] duration-fast"
+            >
+              Set up project
+            </button>
+          </div>
         )}
 
         {/* Stack-detection success banner */}
@@ -758,6 +786,18 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
           </button>
         </div>
       </form>
+
+      <Suspense fallback={null}>
+        {showAdopt && portaConfigPath && (
+          <AdoptProjectModal
+            configPath={portaConfigPath}
+            onClose={() => setShowAdopt(false)}
+            // The project route replaces this form — once its apps exist there
+            // is nothing left for a half-filled Add app to contribute.
+            onImported={onClose}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

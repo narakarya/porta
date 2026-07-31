@@ -493,6 +493,8 @@ pub fn run() {
             commands::prune_app_old_images,
             commands::export_porta_config,
             commands::import_porta_config,
+            commands::detect_porta_config,
+            commands::preview_porta_config,
             commands::containers_for_app,
             commands::container_stats,
             commands::start_container_logs,

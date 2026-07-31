@@ -60,6 +60,23 @@ pub struct PortaProfileConfig {
     pub build_command: Option<String>,
 }
 
+// ── Discovery ────────────────────────────────────────────────────────────────
+
+/// Filenames Porta recognises as a project's portable config, in the order it
+/// looks for them. Dotted first: a config that ships with a repo is metadata,
+/// not something the reader of a directory listing needs to trip over.
+pub const CONFIG_FILENAMES: [&str; 4] = [".porta.yml", ".porta.yaml", "porta.yml", "porta.yaml"];
+
+/// Find a Porta config directly inside `dir`. Only the directory itself is
+/// checked — walking up to a parent would silently adopt a sibling project's
+/// config when someone points Porta at a subfolder.
+pub fn find_in_dir(dir: &Path) -> Option<PathBuf> {
+    CONFIG_FILENAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
 /// Serialize a workspace and its apps to YAML. Absolute root_dirs are converted
@@ -330,6 +347,31 @@ workspace:
         let parsed = parse_config(yaml, Path::new("/tmp")).unwrap();
         assert!(parsed.workspace.apps[0].profiles.is_empty());
         assert!(parsed.workspace.apps[0].active_profile.is_none());
+    }
+
+    #[test]
+    fn test_find_in_dir_prefers_dotted_and_ignores_other_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(find_in_dir(dir.path()).is_none());
+
+        std::fs::write(dir.path().join("porta.yml"), "version: 1").unwrap();
+        assert_eq!(find_in_dir(dir.path()).unwrap().file_name().unwrap(), "porta.yml");
+
+        // Dotted wins once both exist.
+        std::fs::write(dir.path().join(".porta.yml"), "version: 1").unwrap();
+        assert_eq!(find_in_dir(dir.path()).unwrap().file_name().unwrap(), ".porta.yml");
+
+        // A config in a subfolder is not this folder's config.
+        let sub = dir.path().join("packages");
+        std::fs::create_dir(&sub).unwrap();
+        assert!(find_in_dir(&sub).is_none());
+    }
+
+    #[test]
+    fn test_find_in_dir_ignores_a_directory_named_like_a_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".porta.yml")).unwrap();
+        assert!(find_in_dir(dir.path()).is_none());
     }
 
     #[test]

@@ -25,6 +25,7 @@ const AddWorkspaceModal = lazy(() => import("../workspace/AddWorkspaceModal"));
 const WorkspaceSettingsModal = lazy(() => import("../workspace/WorkspaceSettingsModal"));
 const AddAppModal = lazy(() => import("../app/AddAppModal"));
 const ImportComposeModal = lazy(() => import("../workspace/ImportComposeModal"));
+const AdoptProjectModal = lazy(() => import("../workspace/AdoptProjectModal"));
 
 interface ContextMenuState {
   ws: Workspace;
@@ -80,6 +81,8 @@ export default function Sidebar() {
   const [showAddWs, setShowAddWs] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
   const [showImportCompose, setShowImportCompose] = useState(false);
+  /** Path of a `.porta.yml` awaiting the adopt confirmation step. */
+  const [adoptConfigPath, setAdoptConfigPath] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [settingsWs, setSettingsWs] = useState<Workspace | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -817,9 +820,8 @@ export default function Sidebar() {
               onClick: async () => {
                 if (!isTauri) return;
                 const { open } = await import("@tauri-apps/plugin-dialog");
-                const { importPortaConfig } = await import("../../lib/commands");
                 const src = await open({ multiple: false, filters: [{ name: "YAML", extensions: ["yml", "yaml"] }] });
-                if (src) { await importPortaConfig(src as string); usePortaStore.getState().load(); }
+                if (src) setAdoptConfigPath(src as string);
               },
             },
           ]}
@@ -848,6 +850,7 @@ export default function Sidebar() {
         {showAddWs && <AddWorkspaceModal onClose={() => setShowAddWs(false)} />}
         {showAddApp && <AddAppModal workspaceId={selectedWorkspaceId} onClose={() => setShowAddApp(false)} />}
         {showImportCompose && <ImportComposeModal workspaceId={selectedWorkspaceId} onClose={() => setShowImportCompose(false)} />}
+        {adoptConfigPath && <AdoptProjectModal configPath={adoptConfigPath} onClose={() => setAdoptConfigPath(null)} />}
         {settingsWs && <WorkspaceSettingsModal workspace={settingsWs} onClose={() => setSettingsWs(null)} />}
       </Suspense>
     </SidebarFrame>

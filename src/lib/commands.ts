@@ -1526,8 +1526,58 @@ export const parseDockerCompose = (path: string): Promise<ComposeProject> =>
 export const exportPortaConfig = (workspaceId: string, destPath: string): Promise<void> =>
   isTauri ? invoke("export_porta_config", { workspaceId, destPath }) : Promise.resolve();
 
-export const importPortaConfig = (srcPath: string): Promise<void> =>
-  isTauri ? invoke("import_porta_config", { srcPath }) : Promise.resolve();
+/** What Porta intends to do with one app in a config, decided before writing. */
+export interface AdoptAppPreview {
+  name: string;
+  root_dir: string;
+  port: number;
+  start_command: string;
+  status: "new" | "port_taken" | "duplicate";
+  suggested_port: number | null;
+  existing_app: string | null;
+}
+
+export interface AdoptPreview {
+  config_path: string;
+  workspace_name: string;
+  workspace_domain: string;
+  existing_workspace_id: string | null;
+  existing_workspace_name: string | null;
+  apps: AdoptAppPreview[];
+}
+
+export interface ImportSummary {
+  workspace_id: string;
+  workspace_name: string;
+  imported: string[];
+  skipped: { name: string; reason: string }[];
+}
+
+/** Path to the `.porta.yml` this folder ships, if it ships one. */
+export const detectPortaConfig = (dir: string): Promise<string | null> =>
+  isTauri ? invoke("detect_porta_config", { dir }) : Promise.resolve(null);
+
+export const previewPortaConfig = (srcPath: string): Promise<AdoptPreview> =>
+  isTauri
+    ? invoke("preview_porta_config", { srcPath })
+    : Promise.reject(new Error("preview_porta_config not available in browser mode"));
+
+export const importPortaConfig = (
+  srcPath: string,
+  opts?: { workspaceId?: string | null; reassignPorts?: boolean }
+): Promise<ImportSummary> =>
+  isTauri
+    ? invoke("import_porta_config", {
+        srcPath,
+        workspaceId: opts?.workspaceId ?? null,
+        reassignPorts: opts?.reassignPorts ?? false,
+      })
+    : Promise.resolve({
+        workspace_id: "",
+        workspace_name: "",
+        imported: [],
+        skipped: [],
+      });
 
 // ── Certificate management ────────────────────────────────────────────────────
 
