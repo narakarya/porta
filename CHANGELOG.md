@@ -4,6 +4,39 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.26]
+
+### Added
+
+- **Your apps keep running when Porta restarts itself to install an update.**
+  An app's output used to be a pipe Porta held open, so the app could not
+  outlive Porta even in principle — quitting, crashing, or updating took every
+  dev server down with it, and you came back to an empty dashboard and a round
+  of manual restarts. Apps now run inside tmux sessions, which belong to no
+  parent process; Porta picks them back up on the next launch with their status,
+  PID and log stream intact rather than starting a second copy against a port
+  the first one is still holding. Terminal panes work the same way: the shell
+  you left running, its history, and whatever was running in it are still there.
+- **Apps get a real terminal, so coloured output and progress bars survive.**
+  A pipe is not a TTY, and most tooling downgrades its output when it can't see
+  one. Logs keep the same timestamped format they had before.
+- **Reach any session from your own terminal.** Sessions live on a private tmux
+  socket, listed under Settings → Sessions, so they never show up in a plain
+  `tmux ls` and your own `tmux kill-server` cannot touch them.
+- **A Sessions section in Settings** to install tmux, toggle hosting for apps
+  and terminals separately, and choose whether quitting stops your apps.
+
+### Changed
+
+- **Quitting Porta no longer stops your apps.** Quitting was the only path that
+  treated "Porta is closing" as "stop everything" — Stop, Force Kill and
+  deleting an app all record that intent explicitly, and still stop an app
+  immediately. Turn it back off under Settings → Sessions if you would rather
+  quitting took everything down with it.
+- **tmux joins Caddy, dnsmasq and mkcert in setup.** It is optional: without it
+  every path falls back to the previous behaviour, and a failed install does not
+  block setup.
+
 ## [0.14.0-beta.25]
 
 ### Removed
