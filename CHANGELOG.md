@@ -4,6 +4,27 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.27]
+
+### Added
+
+- **Logs can be filtered down to just the lines you care about.** Find could
+  only walk a chatty stream one hit at a time, which is the wrong tool when the
+  thing you actually want is to read the twelve lines about one request without
+  the other four thousand around them. The log viewer's find widget now has a
+  Filter mode — ⌘⇧F, or the funnel next to the search icon — that hides every
+  line the query doesn't match. Terms are ANDed (`timeout POST`), a
+  `"quoted phrase"` stays whole, and `-term` drops anything containing it. The
+  toolbar funnel carries a dot while a filter is on, so a narrowed view never
+  looks like an empty one, and the filter clears when you close the widget.
+  Matching runs per entry rather than per line: a matched `[error]` header
+  brings its SQL body and stacktrace with it instead of stranding them, a term
+  is found whether it sits on the header or three lines into the stacktrace, and
+  an exclusion takes the whole entry rather than leaving an orphaned body
+  behind. Filtering composes with the level chips, and lines are now case-folded
+  once when they arrive rather than once per keystroke — which also takes a
+  full-buffer copy off every Find pass on a 10,000-line view.
+
 ## [0.14.0-beta.26]
 
 ### Added
