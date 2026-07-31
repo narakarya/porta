@@ -3,7 +3,6 @@ import type { SetupStatus } from "../../types";
 import type { AllSlices } from "../index";
 import type { ExtensionInfo } from "../../types/extension";
 import * as cmd from "../../lib/commands";
-import { type GitTheme, DEFAULT_GIT_THEME, isGitTheme } from "../../lib/git-theme";
 
 export type ExtensionSidebarState = {
   appId: string;
@@ -82,10 +81,6 @@ export interface UiSlice {
   openToasts: string[];
   notificationsEnabled: boolean;
   imageUpdateNotifyEnabled: boolean;
-  /** Advanced Git tools (stage/unstage/commit/branch ops) toggle; persisted in Rust config. */
-  gitAdvancedEnabled: boolean;
-  /** Git tab colour palette; persisted in Rust config. Applied by Task 7's shell. */
-  gitTheme: GitTheme;
   extensionSidebar: ExtensionSidebarState | null;
   /**
    * Per-app cache of extensions matching each app's kind+tags, keyed by app id.
@@ -158,8 +153,6 @@ export interface UiSlice {
   getToastIndex: (id: string) => number;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
-  setGitAdvancedEnabled: (enabled: boolean) => void;
-  setGitTheme: (theme: GitTheme) => Promise<void>;
   setBetaUpdates: (enabled: boolean) => void;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
@@ -261,8 +254,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   openToasts: [],
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
-  gitAdvancedEnabled: true,
-  gitTheme: DEFAULT_GIT_THEME,
   extensionSidebar: null,
   pinnedExtensions: loadPinnedExtensions(),
   sidebarWidth: loadSidebarWidth(),
@@ -290,17 +281,13 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   loadSettings: async () => {
     try {
-      const [enabled, imageUpdateEnabled, gitAdvancedEnabled, gitThemeLoaded] = await Promise.all([
+      const [enabled, imageUpdateEnabled] = await Promise.all([
         cmd.getNotificationsEnabled(),
         cmd.getImageUpdateNotifyEnabled(),
-        cmd.getGitAdvancedEnabled(),
-        cmd.getGitTheme(),
       ]);
       set({
         notificationsEnabled: enabled,
         imageUpdateNotifyEnabled: imageUpdateEnabled,
-        gitAdvancedEnabled,
-        gitTheme: isGitTheme(gitThemeLoaded) ? gitThemeLoaded : DEFAULT_GIT_THEME,
       });
     } catch {}
   },
@@ -325,22 +312,6 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
     set({ imageUpdateNotifyEnabled: enabled });
   },
 
-  setGitAdvancedEnabled: (enabled) => set({ gitAdvancedEnabled: enabled }),
-
-  // Optimistic: the palette applies on the click, then goes to the Tauri
-  // config. If that write fails the config still holds the old palette, so
-  // keeping the new one on screen would be a lie the next launch corrects —
-  // roll the store back and re-throw so the caller can say what happened.
-  setGitTheme: async (theme) => {
-    const previous = get().gitTheme;
-    set({ gitTheme: theme });
-    try {
-      await cmd.setGitThemeCmd(theme);
-    } catch (cause) {
-      set({ gitTheme: previous });
-      throw cause;
-    }
-  },
 
   setBetaUpdates: (enabled) => {
     if (typeof localStorage !== "undefined") {

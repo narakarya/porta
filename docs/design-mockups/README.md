@@ -37,9 +37,9 @@ features. Non-negotiables:
   search + match-count, follow, wrap, clear. Wire the redesigned Logs tab to the
   actual log stream, not a static mock.
 - **Git** — the core git (poller-backed `appGit`, GitBadge fetch/pull/push/branch
-  switch) must keep working. The workbench Git tab / full manager builds on the
-  same commands + store; reconcile with the `git-manager` extension rather than
-  replacing working core git.
+  switch) must keep working. There is no workbench Git tab: the full manager is
+  the `git-manager` extension, which ships and updates on its own cadence.
+  Core git is the header/app-card surface only.
 - **Terminal** — must keep working AND gain the agreed improvements: **split panes**
   and **multiple tabs** (plus fullscreen). Preserve keep-warm mounting so switching
   domains/tabs never disposes an xterm/PTY or drops listeners.
@@ -60,7 +60,7 @@ Because the scope is large, implement **phase by phase**, validating each increm
 - Workspaces list: **collapse/expand per workspace**, **add app inline** from the list (`03`).
 - App primary actions: Start/Stop/Restart **+ Open-in-browser**, accommodate tunnel state (`05`).
 - Terminal: **multi-tab, split, fullscreen** (`06`).
-- Git: keep the **core git** (GitBadge) but the workbench Git tab is a **full manager** — reconcile with the `git-manager` extension (`08`, `19`); reference the `porta-git-manager` project.
+- Git: keep the **core git** (GitBadge) only — the full manager is the `git-manager` extension (`08`, `19`), not a workbench tab; reference the `porta-git-manager` project.
 - Deploy = **kamal** extension, Packages = **phoenix-packages** extension (`14`, `16`, `30`).
 - Settings: **regroup**, fold updater in (currently under Settings), Cloudflare hub (`07`, `13`, `15`).
 - Design tokens + motion language defined (`18`); redesign-friendly architecture = Tokens → Primitives → Features → Shell (`31`).

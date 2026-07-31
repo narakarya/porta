@@ -26,9 +26,6 @@ const TrafficInspectorModal = lazy(() => import("../app/TrafficInspectorModal"))
 const FileEditorModal = lazy(() => import("../app/FileEditorModal"));
 const AppConfigTab = lazy(() => import("../app/AppConfigTab"));
 const ExtensionPanel = lazy(() => import("../app/ExtensionPanel"));
-// SPIKE — lazy so the 215KB of vendored git-manager JS only loads if the tab is
-// actually opened.
-const GitManagerTab = lazy(() => import("./GitManagerTab"));
 type ConfigSection = import("../app/AppConfigTab").Section;
 type AppInstance = import("../../lib/commands").AppInstance;
 const EMPTY_INSTANCES: AppInstance[] = [];
@@ -50,12 +47,8 @@ function toStatus(s: string, crashed = false): Status {
 
 const I = { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none" } as const;
 
-// The native Git tab is gone; the vendored git-manager UI ("Git 2") stays in the
-// tree but is hidden until we come back to it. Flip this to surface the tab —
-// its lazy chunk and render branch below are still wired up.
-const SHOW_GIT2_TAB = false;
-const GIT2_TAB: TabItem = { id: "git2", label: "Git 2", icon: <svg {...I}><circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><circle cx="11.5" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.3"/><path d="M4.5 5.1v5.8M11.5 6.1c0 2.5-1.9 3.4-4.2 3.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> };
-
+// Git lives in the `git-manager` extension, not in core. The workbench keeps
+// only the header GitBadge; anything richer is the extension's job.
 const TABS: TabItem[] = [
   { id: "overview", label: "Overview", icon: <svg {...I}><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg> },
   { id: "logs", label: "Logs", icon: <svg {...I}><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg> },
@@ -209,7 +202,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   const [tab, setTab] = useState("overview");
   const [logsSeen, setLogsSeen] = useState(false);
   const [termSeen, setTermSeen] = useState(false);
-  const [git2Seen, setGit2Seen] = useState(false);
   // Config tab (mockup 20) — the app settings surface, rendered inline instead
   // of a full-screen modal. `configSection` deep-links the sub-nav (e.g. from
   // the Publish tab → Tunneling). Remounted per section so the initial deep
@@ -627,7 +619,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
     setTab(id);
     if (id === "logs") setLogsSeen(true);
     if (id === "terminal") setTermSeen(true);
-    if (id === "git2") setGit2Seen(true);
     if (id === "files") setFilesSeen(true);
   }
 
@@ -675,7 +666,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
   // Instance mode hides Config because a branch instance inherits its parent.
   const visibleTabs: TabItem[] = [
     ...(isInstance ? TABS.filter((t) => t.id !== "config") : TABS),
-    ...(SHOW_GIT2_TAB ? [GIT2_TAB] : []),
     ...pinnedExts.map((e) => ({
       id: `ext:${e.id}`,
       label: e.name,
@@ -1337,17 +1327,6 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               pendingSession={pendingTerm}
               autoSeed
             />
-          </div>
-        )}
-
-        {/* Kept mounted on purpose: surviving a tab switch with scroll,
-            filters and a draft commit message intact is the whole point of
-            running it in-process rather than in an iframe. */}
-        {git2Seen && (
-          <div hidden={tab !== "git2"} className="h-full">
-            <Suspense fallback={null}>
-              <GitManagerTab app={app} />
-            </Suspense>
           </div>
         )}
 

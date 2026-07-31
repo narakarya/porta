@@ -156,39 +156,6 @@ pub fn set_git_autofetch_interval_secs(secs: u64) {
     write_porta_config(&cfg);
 }
 
-// ── Git advanced tools ────────────────────────────────────────────────────────
-
-pub(crate) fn git_advanced_enabled() -> bool {
-    read_porta_config()["git_advanced_enabled"].as_bool().unwrap_or(true)
-}
-
-#[tauri::command]
-pub fn get_git_advanced_enabled() -> bool {
-    git_advanced_enabled()
-}
-
-#[tauri::command]
-pub fn set_git_advanced_enabled(enabled: bool) {
-    let mut cfg = read_porta_config();
-    cfg["git_advanced_enabled"] = serde_json::json!(enabled);
-    write_porta_config(&cfg);
-}
-
-#[tauri::command]
-pub fn get_git_theme() -> String {
-    read_porta_config()["git_theme"]
-        .as_str()
-        .unwrap_or("dark")
-        .to_string()
-}
-
-#[tauri::command]
-pub fn set_git_theme(theme: String) {
-    let mut cfg = read_porta_config();
-    cfg["git_theme"] = serde_json::json!(theme);
-    write_porta_config(&cfg);
-}
-
 #[tauri::command]
 pub fn notify_image_updates_found(app: tauri::AppHandle, app_names: Vec<String>) {
     if !image_update_notify_enabled() { return; }

@@ -126,7 +126,7 @@ function AppConfigForm({
   return (
     <AppConfigProvider value={draft}>
     <div className="h-full w-full bg-surface-0 text-ink font-sans flex flex-col overflow-hidden">
-      {/* Horizontal sub-nav, matching every other workbench tab's (see GitTab).
+      {/* Horizontal sub-nav, matching every other workbench tab's.
           The vertical sidebar this replaced belonged to the standalone modal —
           inside a tab it was a second column re-stating the app name and domain
           that the workbench header already shows. */}
