@@ -37,6 +37,31 @@ describe("detectBlocker", () => {
     ).toEqual({ kind: "port", port: null, label: "That port is already in use" });
   });
 
+  it("pulls the port out of Ranch's listen args and Bandit's phrasing", () => {
+    expect(
+      detectBlocker([
+        "[error] Failed to start Ranch listener MyAppWeb.Endpoint.HTTP in :ranch_tcp:listen([port: 4000]) for reason :eaddrinuse (address already in use)",
+      ]),
+    ).toMatchObject({ kind: "port", port: 4000 });
+    expect(
+      detectBlocker(["[error] Running AdminWeb.Endpoint with Bandit 1.12.1 at http failed, port 4001 already in use"]),
+    ).toMatchObject({ kind: "port", port: 4001 });
+  });
+
+  // The failure that motivated this: an app with a second endpoint on :4001
+  // died with ":eaddrinuse" as its *last* lines, and the toast blamed the
+  // app's configured port — the one port that was actually free.
+  it("prefers the line that names the port over the vaguer exit summary below it", () => {
+    const lines = [
+      "[error] Running AdminWeb.Endpoint with Bandit 1.12.1 at http failed, port 4001 already in use",
+      "[notice] Application tanya_obat exited: shutdown: failed to start child: AdminWeb.Endpoint",
+      "            ** (EXIT) :eaddrinuse",
+      "** (Mix) Could not start application tanya_obat:",
+      "            ** (EXIT) :eaddrinuse",
+    ];
+    expect(detectBlocker(lines)).toMatchObject({ kind: "port", port: 4001 });
+  });
+
   it("reports the newest blocker, not the first", () => {
     const lines = [
       "listen EADDRINUSE: address already in use :::4000",

@@ -21,6 +21,21 @@ type Rule = {
   build: (m: RegExpMatchArray) => Blocker | null;
 };
 
+/** A port number named elsewhere on the line — Ranch puts it in the listen
+ *  args (`[port: 4000]`), before the error atom the rule anchors on. */
+function portHint(line: string | undefined): number | null {
+  const m = line?.match(/\bport:?\s*(\d{2,5})\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+function portBlocker(port: number | null): Blocker {
+  return {
+    kind: "port",
+    port,
+    label: port !== null ? `Port :${port} is already in use` : "That port is already in use",
+  };
+}
+
 const RULES: Rule[] = [
   // ── A named process is sitting on a lock ──────────────────────────────────
   {
@@ -38,30 +53,20 @@ const RULES: Rule[] = [
   // ── The port is taken ─────────────────────────────────────────────────────
   {
     // Node/Vite/Bun: "listen EADDRINUSE: address already in use :::4000",
-    // "Error: listen EADDRINUSE 127.0.0.1:4000"
+    // "Error: listen EADDRINUSE 127.0.0.1:4000". Case-insensitive, so this
+    // also anchors Erlang's ":eaddrinuse" — where the port sits *before* the
+    // atom, in Ranch's listen args — hence the portHint fallback.
     test: /EADDRINUSE[^0-9]*(\d{2,5})?/i,
-    build: (m) => ({
-      kind: "port",
-      port: m[1] ? Number(m[1]) : null,
-      label: m[1] ? `Port :${m[1]} is already in use` : "That port is already in use",
-    }),
+    build: (m) => portBlocker(m[1] ? Number(m[1]) : portHint(m.input)),
   },
   {
-    // Erlang/Elixir: "Failed to start Ranch listener … :eaddrinuse"
-    test: /:eaddrinuse\b/i,
-    build: () => ({ kind: "port", port: null, label: "That port is already in use" }),
-  },
-  {
-    // Vite: "Port 3000 is in use", Rails: "Address already in use - bind(2) for
-    // 127.0.0.1:3000", Go: "bind: address already in use"
-    test: /(?:port\s+(\d{2,5})\s+is (?:already )?in use|address already in use(?:[^0-9]*(\d{2,5}))?)/i,
+    // Vite: "Port 3000 is in use", Bandit: "at http failed, port 4001 already
+    // in use", Rails: "Address already in use - bind(2) for 127.0.0.1:3000",
+    // Go: "bind: address already in use"
+    test: /(?:port:?\s+(\d{2,5})\s+(?:is\s+)?(?:already\s+)?in use|address already in use(?:[^0-9]*(\d{2,5}))?)/i,
     build: (m) => {
       const p = m[1] ?? m[2];
-      return {
-        kind: "port",
-        port: p ? Number(p) : null,
-        label: p ? `Port :${p} is already in use` : "That port is already in use",
-      };
+      return portBlocker(p ? Number(p) : null);
     },
   },
 ];
@@ -74,6 +79,13 @@ const RULES: Rule[] = [
  */
 export function detectBlocker(lines: string[], tail = 40): Blocker | null {
   const start = Math.max(0, lines.length - tail);
+  // A port-taken report that doesn't name the port is usually the exit
+  // summary — Elixir prints "** (EXIT) :eaddrinuse" several lines *after* the
+  // endpoint line that says "port 4001 already in use". Returning the vague
+  // hit immediately would blame the app's configured port, which for a
+  // multi-endpoint app is exactly the port that ISN'T blocked. So a vague hit
+  // is held as a fallback while the scan keeps looking for one with a number.
+  let vague: Blocker | null = null;
   for (let i = lines.length - 1; i >= start; i--) {
     const line = stripAnsi(lines[i] ?? "");
     if (!line) continue;
@@ -81,11 +93,17 @@ export function detectBlocker(lines: string[], tail = 40): Blocker | null {
       const m = line.match(rule.test);
       if (!m) continue;
       const blocker = rule.build(m);
-      // A bare `EADDRINUSE` with a junk capture (a PID-looking number that is
-      // really part of an IPv6 address) still tells us the port is taken; the
-      // caller falls back to the app's own port.
-      if (blocker) return blocker;
+      if (!blocker) continue;
+      // Newest-first still decides between unrelated failures: a pid lock
+      // found below a vague port hit belongs to an older failure, so the
+      // newer (vague) one wins.
+      if (blocker.kind === "pid") return vague ?? blocker;
+      if (blocker.port === null) {
+        vague ??= blocker;
+        break;
+      }
+      return blocker;
     }
   }
-  return null;
+  return vague;
 }
