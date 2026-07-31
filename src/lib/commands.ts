@@ -1941,3 +1941,38 @@ export const sshTrustHost = (sessionId: string): Promise<void> =>
 
 export const sshProvideSecret = (sessionId: string, value: string, remember: boolean): Promise<void> =>
   isTauri ? invoke("ssh_provide_secret", { sessionId, value, remember }) : Promise.resolve();
+
+// ── Session hosting (tmux) ───────────────────────────────────────────────────
+
+export interface TmuxStatus {
+  installed: boolean;
+  version: string | null;
+  sessionsEnabled: boolean;
+  terminalEnabled: boolean;
+  keepRunningOnQuit: boolean;
+  socket: string;
+}
+
+const TMUX_STATUS_FALLBACK: TmuxStatus = {
+  installed: false,
+  version: null,
+  sessionsEnabled: true,
+  terminalEnabled: true,
+  keepRunningOnQuit: true,
+  socket: "porta",
+};
+
+export const getTmuxStatus = (): Promise<TmuxStatus> =>
+  isTauri ? invoke("get_tmux_status") : Promise.resolve(TMUX_STATUS_FALLBACK);
+
+export const setTmuxSessionsEnabled = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_tmux_sessions_enabled", { enabled }) : Promise.resolve();
+
+export const setTmuxTerminalEnabled = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_tmux_terminal_enabled", { enabled }) : Promise.resolve();
+
+export const setKeepAppsRunningOnQuit = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_keep_apps_running_on_quit", { enabled }) : Promise.resolve();
+
+export const installTmux = (): Promise<void> =>
+  isTauri ? invoke("install_tmux") : Promise.resolve();

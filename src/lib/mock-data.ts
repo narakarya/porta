@@ -201,6 +201,7 @@ export const mockSetupStatus: SetupStatus = {
   caddy_running: true,
   mkcert_installed: true,
   certs_generated: true,
+  tmux_installed: true,
 };
 
 export const mockDetectResult: DetectResult = {

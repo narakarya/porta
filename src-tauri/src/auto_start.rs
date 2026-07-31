@@ -71,9 +71,18 @@ pub fn spawn_auto_start(app: &tauri::App) {
     let tray_db_path = app.state::<AppState>().db_path.clone();
     let auto_start_handle = app.handle().clone();
     std::thread::spawn(move || {
+        // Pick up whatever outlived the last Porta run before deciding what to
+        // start. Without this, an app whose tmux session survived an update
+        // would be launched a second time against a port the first copy still
+        // holds — and the DB snapshot above is too old to notice, since
+        // adoption is what marks those apps running again.
+        let adopted = crate::commands::app_lifecycle::adopt_running_apps(&auto_start_handle);
         let mut docker_ready: Option<bool> = None;
 
         for app_data in &apps_to_start {
+            if adopted.contains(&app_data.id) {
+                continue;
+            }
             // Skip apps that are already running (survived from previous session)
             if app_data.status == "running" {
                 continue;

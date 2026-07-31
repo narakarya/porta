@@ -11,6 +11,7 @@ import type { SettingsSection as Section } from "../../store/slices/ui";
 const SetupSection = lazy(() => import("./SetupSection"));
 const NotificationsSection = lazy(() => import("./NotificationsSection"));
 const GitSection = lazy(() => import("./GitSection"));
+const SessionsSection = lazy(() => import("./SessionsSection"));
 const BackupSection = lazy(() => import("./BackupSection"));
 const CloudflareSection = lazy(() => import("./CloudflareSection"));
 const TailscaleSection = lazy(() => import("./TailscaleSection"));
@@ -46,6 +47,7 @@ const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] =
     label: "System",
     items: [
       { id: "setup", label: "Setup & dependencies" },
+      { id: "sessions", label: "Sessions" },
       { id: "disk", label: "Disk Usage" },
       { id: "extensions", label: "Extensions" },
     ],
@@ -170,6 +172,11 @@ export default function SettingsPage({ onBack }: Props) {
           {visited.has("notifications") && (
             <div hidden={activeSection !== "notifications"}>
               <NotificationsSection />
+            </div>
+          )}
+          {visited.has("sessions") && (
+            <div hidden={activeSection !== "sessions"}>
+              <SessionsSection />
             </div>
           )}
           {visited.has("git") && (

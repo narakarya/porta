@@ -37,6 +37,12 @@ pub(super) struct TerminalHandle {
     /// later reattach can still replay the final screen; only `terminal_close`
     /// removes it.
     pub exit_code: Mutex<Option<i32>>,
+    /// The tmux session this PTY holds a *client* for, when terminals are
+    /// hosted in tmux. `None` means the PTY runs the shell directly — the
+    /// original arrangement, still used when tmux is unavailable or switched
+    /// off. Its presence changes where foreground state must be read from, and
+    /// what closing the pane has to tear down.
+    pub tmux_session: Option<String>,
 }
 
 /// What a UI gets when it opens a session id: either a freshly spawned shell
@@ -123,6 +129,42 @@ fn attach_existing(h: &TerminalHandle) -> TerminalAttach {
         spawned: false,
         backlog: h.backlog.lock().unwrap().iter().copied().collect(),
     }
+}
+
+/// Should terminal panes be hosted in tmux?
+///
+/// The win is the same one app hosting gets: the shell, its history, and
+/// whatever is running in it survive Porta restarting, because the PTY holds a
+/// tmux client rather than the shell itself.
+fn tmux_terminals_enabled() -> bool {
+    crate::tmux::available()
+        && crate::commands::settings::read_porta_config()["tmux_terminal_enabled"]
+            .as_bool()
+            .unwrap_or(true)
+}
+
+/// Where a session's foreground state has to be read from, and which pid counts
+/// as "the shell" — returned together because with tmux in the loop both move.
+///
+/// `tcgetpgrp` on the PTY master reports the tmux *client*, which is never the
+/// shell's group: read naively, every pane would look permanently busy, and ^C
+/// would be aimed at the client instead of the user's command. The pane's own
+/// tty still answers correctly.
+fn foreground_probe(h: &TerminalHandle) -> (i32, i32) {
+    if let Some(session) = &h.tmux_session {
+        return match crate::tmux::pane(session) {
+            Some(p) => (crate::tmux::pane_foreground_pgid(&p.tty), p.pid as i32),
+            // Session gone: nothing is running in it by definition.
+            None => (-1, h.child_pid as i32),
+        };
+    }
+    let fd = h.fd.lock().unwrap();
+    let fg = if is_writable(*fd) {
+        unsafe { libc::tcgetpgrp(*fd) }
+    } else {
+        -1
+    };
+    (fg, h.child_pid as i32)
 }
 
 /// Ensure the spawned shell sees a UTF-8 locale.
@@ -220,16 +262,42 @@ pub fn terminal_open(
     )};
 
     let cwd = std::path::PathBuf::from(&root_dir);
-    let mut cmd = std::process::Command::new("zsh");
-    // Login + interactive: `-l` sources ~/.zprofile/~/.zlogin (where Homebrew's
-    // `brew shellenv` typically puts /opt/homebrew/bin on PATH), `-i` sources
-    // ~/.zshrc (aliases, `eval "$(starship init zsh)"`). Without `-l`, a .app
-    // bundle's minimal PATH means `starship` isn't found and the prompt silently
-    // falls back to the bare zsh prompt — matches the process launcher, which
-    // also runs a login shell.
-    cmd.arg("-i").arg("-l")
-       .env("TERM", "xterm-256color")
-       .current_dir(&cwd);
+    let tmux_session = if tmux_terminals_enabled() {
+        Some(crate::tmux::term_session(&app_id))
+    } else {
+        None
+    };
+    // Whether *tmux* already has this session, which is a different question
+    // from whether Porta has a handle for it: after a Porta restart the handle
+    // is gone but the shell is still there. Only a genuinely new session should
+    // be sent the startup command — replaying it into a session the user left
+    // running would type over whatever is in front of them.
+    let session_is_new = tmux_session
+        .as_deref()
+        .map(|s| !crate::tmux::has_session(s))
+        .unwrap_or(true);
+
+    let mut cmd = match (&tmux_session, crate::tmux::binary()) {
+        // The PTY holds a tmux client; the shell lives in the tmux server and
+        // outlives this process.
+        (Some(session), Some(bin)) => {
+            let mut c = std::process::Command::new(bin);
+            c.args(crate::tmux::interactive_client_args(session, &cwd, "zsh"));
+            c
+        }
+        // Login + interactive: `-l` sources ~/.zprofile/~/.zlogin (where Homebrew's
+        // `brew shellenv` typically puts /opt/homebrew/bin on PATH), `-i` sources
+        // ~/.zshrc (aliases, `eval "$(starship init zsh)"`). Without `-l`, a .app
+        // bundle's minimal PATH means `starship` isn't found and the prompt silently
+        // falls back to the bare zsh prompt — matches the process launcher, which
+        // also runs a login shell.
+        _ => {
+            let mut c = std::process::Command::new("zsh");
+            c.arg("-i").arg("-l");
+            c
+        }
+    };
+    cmd.env("TERM", "xterm-256color").current_dir(&cwd);
 
     for (key, val) in utf8_locale_overrides(|k| std::env::var(k).ok()) {
         cmd.env(key, val);
@@ -260,12 +328,13 @@ pub fn terminal_open(
         child_pid,
         backlog: Mutex::new(VecDeque::new()),
         exit_code: Mutex::new(None),
+        tmux_session,
     });
     terminals().lock().unwrap().insert(app_id.clone(), Arc::clone(&handle));
 
     // If a startup command was requested, write it to the PTY after a short
     // delay so the interactive shell has a chance to print its prompt first.
-    if let Some(cmd_text) = startup_cmd {
+    if let Some(cmd_text) = startup_cmd.filter(|_| session_is_new) {
         let cmd_trimmed = cmd_text.trim().to_string();
         if !cmd_trimmed.is_empty() {
             thread::spawn(move || {
@@ -423,13 +492,15 @@ pub struct TerminalState {
 /// A foreground pgid that isn't the shell's own means a command is running in
 /// front of the prompt. `-1` means the fd is unreadable — treat as idle rather
 /// than inventing activity.
-fn session_state(h: &TerminalHandle, fg_pgid: i32) -> TerminalState {
+fn session_state(h: &TerminalHandle, fg_pgid: i32, shell_pid: i32) -> TerminalState {
     let exit_code = *h.exit_code.lock().unwrap();
     let alive = exit_code.is_none();
     TerminalState {
         alive,
-        running: alive && fg_pgid > 0 && fg_pgid != h.child_pid as i32,
-        pid: h.child_pid,
+        // Compared against the *shell's* pid, which for a tmux-hosted pane is
+        // the pane's process rather than the PTY's direct child (the client).
+        running: alive && fg_pgid > 0 && fg_pgid != shell_pid,
+        pid: shell_pid as u32,
         exit_code,
     }
 }
@@ -446,14 +517,8 @@ pub fn terminal_state(app_id: String) -> Result<TerminalState, String> {
     // Guard on the descriptor, not `exit_code`, so this stays consistent with
     // `terminal_write`/`terminal_resize`: an exited session has its fd
     // retired to -1, and tcgetpgrp on a recycled number would be meaningless.
-    let fd = h.fd.lock().unwrap();
-    let fg_pgid = if is_writable(*fd) {
-        unsafe { libc::tcgetpgrp(*fd) }
-    } else {
-        -1
-    };
-    drop(fd);
-    Ok(session_state(&h, fg_pgid))
+    let (fg_pgid, shell_pid) = foreground_probe(&h);
+    Ok(session_state(&h, fg_pgid, shell_pid))
 }
 
 /// Which signal `terminal_signal` should deliver.
@@ -486,11 +551,8 @@ pub fn terminal_signal(app_id: String, signal: String) -> Result<bool, String> {
         return Ok(false);
     }
 
-    let fd = h.fd.lock().unwrap();
-    let fg_pgid = if is_writable(*fd) { unsafe { libc::tcgetpgrp(*fd) } } else { -1 };
-    drop(fd);
-
-    if fg_pgid <= 0 || fg_pgid == h.child_pid as i32 {
+    let (fg_pgid, shell_pid) = foreground_probe(&h);
+    if fg_pgid <= 0 || fg_pgid == shell_pid {
         return Ok(false);
     }
     // killpg, not kill: a pipeline is several processes in one group, and the
@@ -520,6 +582,12 @@ pub fn terminal_signal(app_id: String, signal: String) -> Result<bool, String> {
 pub fn terminal_close(app_id: String) -> Result<(), String> {
     let handle = terminals().lock().unwrap().remove(&app_id);
     if let Some(h) = handle {
+        // Signalling the client would only detach it. The session and the shell
+        // inside it have to go too, or a closed pane leaks a session that the
+        // next `-A` open would silently reattach to.
+        if let Some(session) = &h.tmux_session {
+            let _ = crate::tmux::kill_session(session);
+        }
         let alive = h.exit_code.lock().unwrap().is_none();
         if alive {
             unsafe {
@@ -553,6 +621,7 @@ mod tests {
             child_pid: 0,
             backlog: Mutex::new(backlog.iter().copied().collect()),
             exit_code: Mutex::new(exit_code),
+            tmux_session: None,
         }
     }
 
@@ -714,9 +783,9 @@ mod tests {
     #[test]
     fn a_foreground_process_other_than_the_shell_reads_as_running() {
         let h = handle(b"", None);
-        // child_pid is 0 in the fixture; a different foreground pgid means
+        // The shell is pid 0 in the fixture; a different foreground pgid means
         // something is running in front of the prompt.
-        let state = session_state(&h, 4242);
+        let state = session_state(&h, 4242, 0);
         assert!(state.alive);
         assert!(state.running);
         assert_eq!(state.exit_code, None);
@@ -724,13 +793,13 @@ mod tests {
 
     #[test]
     fn a_shell_at_its_own_prompt_reads_as_idle() {
-        // PIDs must be nonzero to exercise the comparison fg_pgid != h.child_pid,
+        // PIDs must be nonzero to exercise the comparison fg_pgid != shell_pid,
         // which is the production case: a shell sitting at its prompt has the
         // same foreground process group as its own pid.
         let mut h = handle(b"", None);
         h.child_pid = 4242;
 
-        let state = session_state(&h, 4242);
+        let state = session_state(&h, 4242, 4242);
 
         assert!(state.alive);
         assert!(!state.running);
@@ -740,7 +809,7 @@ mod tests {
     #[test]
     fn an_exited_session_is_neither_alive_nor_running() {
         let h = handle(b"", Some(1));
-        let state = session_state(&h, 4242);
+        let state = session_state(&h, 4242, 0);
         assert!(!state.alive);
         assert!(!state.running);
         assert_eq!(state.exit_code, Some(1));
@@ -750,7 +819,7 @@ mod tests {
     fn an_unreadable_foreground_pgid_reads_as_idle() {
         // tcgetpgrp returns -1 when the fd is gone; don't report phantom work.
         let h = handle(b"", None);
-        assert!(!session_state(&h, -1).running);
+        assert!(!session_state(&h, -1, 0).running);
     }
 
     // Finding 2 (CRITICAL): the reader thread's append and the fd-using
@@ -777,6 +846,7 @@ mod tests {
             child_pid: 0,
             backlog: Mutex::new(VecDeque::new()),
             exit_code: Mutex::new(None),
+            tmux_session: None,
         });
 
         // Simulate `terminal_write` parked deep inside a slow `write` by
@@ -835,6 +905,7 @@ mod tests {
             child_pid: 0,
             backlog: Mutex::new(VecDeque::new()),
             exit_code: Mutex::new(None),
+            tmux_session: None,
         });
 
         let barrier = Arc::new(Barrier::new(2));

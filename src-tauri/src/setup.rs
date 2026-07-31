@@ -10,6 +10,9 @@ pub struct SetupStatus {
     pub caddy_running: bool,
     pub mkcert_installed: bool,
     pub certs_generated: bool,
+    /// Optional, unlike the others: without it Porta still works, it just goes
+    /// back to piping app output and losing every app when it quits.
+    pub tmux_installed: bool,
 }
 
 pub fn check() -> SetupStatus {
@@ -20,6 +23,7 @@ pub fn check() -> SetupStatus {
         caddy_running: crate::caddy::CaddyManager::new().is_running(),
         mkcert_installed: is_installed("mkcert"),
         certs_generated: certs_exist(),
+        tmux_installed: is_installed("tmux"),
     }
 }
 
@@ -317,6 +321,17 @@ pub fn run_full_setup(
         on_step("dnsmasq_installed");
         on_log("Installing dnsmasq via Homebrew…");
         brew_install("dnsmasq", on_log)?;
+    }
+    if !status.tmux_installed {
+        on_step("tmux_installed");
+        on_log("Installing tmux via Homebrew — it hosts app and terminal sessions…");
+        // Non-fatal: tmux only buys session survival across restarts. Failing
+        // setup over it would block a machine that is otherwise ready to go.
+        if let Err(e) = brew_install("tmux", on_log) {
+            on_log(&format!(
+                "tmux install failed ({e}); apps will run on pipes and stop when Porta quits"
+            ));
+        }
     }
     if !status.test_resolver_exists {
         on_step("test_resolver_exists");

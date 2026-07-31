@@ -185,3 +185,73 @@ pub fn set_launch_at_login(app: tauri::AppHandle, enabled: bool) -> Result<(), S
         mgr.disable().map_err(|e| e.to_string())
     }
 }
+
+// ── Session hosting (tmux) ────────────────────────────────────────────────────
+
+/// What the Sessions settings section renders.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TmuxStatus {
+    /// A usable tmux is on disk. Everything below is inert without it — the
+    /// app falls back to piping, and apps die with Porta as they always did.
+    pub installed: bool,
+    pub version: Option<String>,
+    /// Host app processes in tmux sessions.
+    pub sessions_enabled: bool,
+    /// Host terminal panes in tmux sessions.
+    pub terminal_enabled: bool,
+    /// Leave hosted apps running when Porta exits.
+    pub keep_running_on_quit: bool,
+    /// The socket sessions live on, so the UI can show how to reach them from
+    /// a terminal.
+    pub socket: String,
+}
+
+#[tauri::command]
+pub fn get_tmux_status() -> TmuxStatus {
+    let cfg = read_porta_config();
+    let installed = crate::tmux::available();
+    let version = crate::tmux::binary().and_then(|bin| {
+        std::process::Command::new(bin)
+            .arg("-V")
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    });
+    TmuxStatus {
+        installed,
+        version,
+        sessions_enabled: cfg["tmux_sessions_enabled"].as_bool().unwrap_or(true),
+        terminal_enabled: cfg["tmux_terminal_enabled"].as_bool().unwrap_or(true),
+        keep_running_on_quit: cfg["keep_apps_running_on_quit"].as_bool().unwrap_or(true),
+        socket: crate::tmux::socket().to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn set_tmux_sessions_enabled(enabled: bool) {
+    let mut cfg = read_porta_config();
+    cfg["tmux_sessions_enabled"] = serde_json::json!(enabled);
+    write_porta_config(&cfg);
+}
+
+#[tauri::command]
+pub fn set_tmux_terminal_enabled(enabled: bool) {
+    let mut cfg = read_porta_config();
+    cfg["tmux_terminal_enabled"] = serde_json::json!(enabled);
+    write_porta_config(&cfg);
+}
+
+#[tauri::command]
+pub fn set_keep_apps_running_on_quit(enabled: bool) {
+    let mut cfg = read_porta_config();
+    cfg["keep_apps_running_on_quit"] = serde_json::json!(enabled);
+    write_porta_config(&cfg);
+}
+
+/// Install tmux via Homebrew, for the Sessions section's one-click setup.
+#[tauri::command]
+pub fn install_tmux() -> Result<(), String> {
+    crate::setup::brew_install("tmux", &|line| println!("[tmux install] {line}"))
+        .map_err(|e| e.to_string())
+}

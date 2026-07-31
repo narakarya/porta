@@ -186,6 +186,7 @@ export interface SetupStatus {
   caddy_running: boolean;
   mkcert_installed: boolean;
   certs_generated: boolean;
+  tmux_installed: boolean;
 }
 
 export type AddAppParams = {

@@ -179,6 +179,12 @@ pub struct ProcessManager {
     pub stopping: Arc<Mutex<HashSet<String>>>,
     /// Tracks retry counts per app for auto-restart logic.
     pub retry_counts: Arc<Mutex<HashMap<String, u32>>>,
+    /// Apps hosted in a tmux session rather than on a pipe, keyed by app id.
+    /// Holds what the piped path gets from owning the child: where to stream
+    /// output from, and who to tell when it exits.
+    tmux_apps: Arc<Mutex<HashMap<String, TmuxApp>>>,
+    /// Set once the shared tmux monitor thread is running.
+    tmux_monitor: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for ProcessManager {
@@ -193,6 +199,8 @@ impl ProcessManager {
             pids: Arc::new(Mutex::new(HashMap::new())),
             stopping: Arc::new(Mutex::new(HashSet::new())),
             retry_counts: Arc::new(Mutex::new(HashMap::new())),
+            tmux_apps: Arc::new(Mutex::new(HashMap::new())),
+            tmux_monitor: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -216,6 +224,26 @@ impl ProcessManager {
     ) -> Result<u32> {
         if command.trim().is_empty() {
             return Err(anyhow!("empty command"));
+        }
+
+        // Prefer a tmux session — it outlives Porta, which the piped path below
+        // cannot. Failing over to a pipe rather than propagating the error
+        // keeps a broken tmux from making apps unstartable, and the closures
+        // are only consumed once the session is known to exist.
+        if tmux_hosting_enabled() {
+            match self.start_tmux_session(
+                app_id, command, root_dir, port, env_file, extra_env, log_start,
+            ) {
+                Ok((pane, log_offset)) => {
+                    let pid = pane.pid;
+                    self.pids.lock().unwrap().insert(app_id.to_string(), pid);
+                    self.register_tmux(app_id, pane.session, log_offset, on_log, on_exit);
+                    return Ok(pid);
+                }
+                Err(e) => {
+                    eprintln!("[tmux] hosting {app_id} failed, falling back to a pipe: {e}")
+                }
+            }
         }
 
         let mut cmd = shell_command(command, root_dir, port, env_file, extra_env);
@@ -576,5 +604,395 @@ mod tests {
         assert!(!starts_with_timestamp(""));
         assert!(!starts_with_timestamp("12:3"));
         assert!(!starts_with_timestamp("2026-07-2"));
+    }
+}
+
+// ── tmux-hosted app processes ───────────────────────────────────────────────
+//
+// The piped path above ties an app's lifetime to Porta's: its stdout is a pipe
+// whose read end lives in this process, so the app dies when Porta does — an
+// auto-update restart takes every dev server with it. Hosting the same command
+// in a tmux session breaks that link (see `crate::tmux`), at the cost of losing
+// the two things the pipe gave us for free: line-by-line output, and a
+// `child.wait()` to learn the exit code. Both are rebuilt here.
+
+/// argv flag that turns a Porta launch into a log-filter process rather than
+/// the GUI. Handled in `main.rs` before any Tauri setup.
+pub const LOG_FILTER_FLAG: &str = "--log-filter";
+
+/// Append pane output arriving on stdin to `app_id`'s log file, timestamped.
+///
+/// This runs as a *separate* Porta process, spawned by tmux's `pipe-pane` and
+/// therefore a child of the tmux server rather than of the app. That is the
+/// whole point: it keeps writing the log across a Porta quit, crash, or update,
+/// so the window in which an app is running unsupervised is not also a window
+/// in which its output is lost.
+///
+/// Reusing `stream_child_output` is deliberate — it is the single definition of
+/// how a log line is timestamped, so a tmux-hosted app's log file is
+/// byte-for-byte the same shape as a piped one's, and `get_app_logs` needs no
+/// idea which backend produced it. `LogStart::Continue` because the caller
+/// already wiped or marked the file before starting the session; a filter that
+/// wiped on its own would erase the run it is about to record.
+pub fn run_log_filter(app_id: &str) {
+    let writer = open_log_writer(app_id, LogStart::Continue);
+    stream_child_output(std::io::stdin(), writer, Arc::new(|_line: String| {}));
+}
+
+/// The binary tmux re-invokes as a log filter — normally Porta itself.
+///
+/// Overridable through `PORTA_LOG_FILTER_BIN` so integration tests can point at
+/// the real Porta binary: inside a test harness `current_exe()` is the test
+/// runner, which knows nothing about `--log-filter`, and every hosted app would
+/// silently capture nothing. Nothing sets this in production.
+fn log_filter_exe() -> Result<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("PORTA_LOG_FILTER_BIN") {
+        return Ok(std::path::PathBuf::from(path));
+    }
+    Ok(std::env::current_exe()?)
+}
+
+/// Should app processes be hosted in tmux?
+///
+/// Both halves matter: tmux has to be installed *and* the user must not have
+/// turned session hosting off. Defaults to on, so installing tmux is all it
+/// takes to stop losing dev servers to an update.
+pub fn tmux_hosting_enabled() -> bool {
+    crate::tmux::available()
+        && crate::commands::settings::read_porta_config()["tmux_sessions_enabled"]
+            .as_bool()
+            .unwrap_or(true)
+}
+
+/// Should apps keep running after Porta exits?
+///
+/// Read at quit time rather than cached, so toggling it takes effect without a
+/// restart. Only meaningful for tmux-hosted apps — a piped app dies with its
+/// pipe no matter what this says.
+pub fn keep_apps_running_on_quit() -> bool {
+    crate::commands::settings::read_porta_config()["keep_apps_running_on_quit"]
+        .as_bool()
+        .unwrap_or(true)
+}
+
+/// The environment a tmux-hosted process is started with, mirroring
+/// `shell_command`'s precedence exactly: `.env` file first, inline vars on top,
+/// and `PORT` winning over both (which is why it is excluded from both loops
+/// rather than merely written first).
+fn tmux_env(
+    root_dir: &Path,
+    port: u16,
+    env_file: Option<&str>,
+    extra_env: &HashMap<String, String>,
+) -> Vec<(String, String)> {
+    let mut env = vec![("PORT".to_string(), port.to_string())];
+    if let Some(path) = env_file {
+        let resolved = if Path::new(path).is_absolute() {
+            path.to_string()
+        } else {
+            root_dir.join(path).to_string_lossy().to_string()
+        };
+        for (key, val) in parse_env_file(&resolved) {
+            if key != "PORT" {
+                env.push((key, val));
+            }
+        }
+    }
+    for (key, val) in extra_env {
+        if key != "PORT" {
+            env.push((key.clone(), val.clone()));
+        }
+    }
+    env
+}
+
+/// One tmux-hosted app, as the monitor thread sees it.
+struct TmuxApp {
+    session: String,
+    /// Tells this app's log tailer to drain and stop.
+    stop_tail: Arc<std::sync::atomic::AtomicBool>,
+    /// Fired with `(exit_code, was_intentional)` once the pane dies, standing in
+    /// for the piped path's `child.wait()`.
+    on_exit: Box<dyn Fn(i32, bool) + Send>,
+}
+
+/// Read everything appended to `path` since `offset`, emitting whole lines.
+///
+/// Returns the new offset and keeps any trailing partial line in `pending` for
+/// the next pass, so a line split across two writes is never delivered twice or
+/// truncated. A file that *shrank* was truncated in place by
+/// `log_rotation::rotate_log` or `clear_log_file` — the only correct response is
+/// to start over from the top rather than seek past the new end.
+fn drain_log(
+    path: &Path,
+    offset: &mut u64,
+    pending: &mut Vec<u8>,
+    on_log: &(impl Fn(String) + Send + Sync + 'static),
+) {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let Ok(mut file) = File::open(path) else { return };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if len < *offset {
+        *offset = 0;
+        pending.clear();
+    }
+    if len == *offset {
+        return;
+    }
+    if file.seek(SeekFrom::Start(*offset)).is_err() {
+        return;
+    }
+    // Cap one pass so a log that grew by hundreds of MB while Porta was away
+    // doesn't get slurped into memory in a single read; the next tick picks up
+    // where this one stopped.
+    let want = (len - *offset).min(1 << 20) as usize;
+    let mut buf = vec![0u8; want];
+    let Ok(n) = file.read(&mut buf) else { return };
+    buf.truncate(n);
+    *offset += n as u64;
+    pending.extend_from_slice(&buf);
+
+    while let Some(pos) = pending.iter().position(|&b| b == b'\n') {
+        let line: Vec<u8> = pending.drain(..=pos).collect();
+        let mut end = line.len() - 1;
+        // Output came off a real tty, so lines arrive CRLF-terminated.
+        if end > 0 && line[end - 1] == b'\r' {
+            end -= 1;
+        }
+        on_log(String::from_utf8_lossy(&line[..end]).into_owned());
+    }
+}
+
+/// Follow `path` and forward each appended line to `on_log`.
+///
+/// The piped backend pushes lines straight from the child's pipe; here the
+/// log-filter process owns the file and Porta reads it back, which is what lets
+/// a re-adopted app resume streaming without having been its parent. Polling
+/// rather than watching: the file changes in bursts a few times a second at
+/// most, and a 200 ms tick costs a `stat` while an fsevents watcher would need
+/// its own lifecycle across rotation's in-place truncate.
+fn spawn_log_tail(
+    path: std::path::PathBuf,
+    start_offset: u64,
+    on_log: Arc<impl Fn(String) + Send + Sync + 'static>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+    thread::spawn(move || {
+        let mut offset = start_offset;
+        let mut pending = Vec::new();
+        loop {
+            drain_log(&path, &mut offset, &mut pending, on_log.as_ref());
+            if stop.load(Ordering::Relaxed) {
+                // One last pass: the lines an app printed as it died are the
+                // interesting ones, and they land after the pane is already gone.
+                thread::sleep(Duration::from_millis(120));
+                drain_log(&path, &mut offset, &mut pending, on_log.as_ref());
+                return;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+    });
+}
+
+impl ProcessManager {
+    /// Start the one thread that watches every tmux-hosted app.
+    ///
+    /// One thread for all of them, not one per app: `tmux::panes()` reports the
+    /// whole socket in a single subprocess, so N apps cost the same as one. A
+    /// watcher per app would spawn N `tmux` processes every tick.
+    ///
+    /// Idempotent via a compare-and-set, and free when nothing is hosted — the
+    /// loop skips the subprocess entirely while the registry is empty, so it
+    /// costs a timer wakeup rather than being torn down and rebuilt.
+    fn ensure_tmux_monitor(&self) {
+        use std::sync::atomic::Ordering;
+        if self.tmux_monitor.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let apps = Arc::clone(&self.tmux_apps);
+        let pids = Arc::clone(&self.pids);
+        let stopping = Arc::clone(&self.stopping);
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(400));
+            if apps.lock().unwrap().is_empty() {
+                continue;
+            }
+            let panes = crate::tmux::panes();
+            // Collect first, fire callbacks after: `on_exit` re-enters the
+            // manager (auto-restart calls `start` again), so it must never run
+            // while this map's lock is held.
+            let finished: Vec<(String, i32)> = {
+                let map = apps.lock().unwrap();
+                map.iter()
+                    .filter_map(|(id, w)| {
+                        match panes.iter().find(|p| p.session == w.session) {
+                            Some(p) if !p.dead => None,
+                            Some(p) => Some((id.clone(), p.dead_status.unwrap_or(-1))),
+                            // Session gone outright — killed from another
+                            // terminal, or torn down by a stop. No status left
+                            // to read, and `stopping` already knows whether the
+                            // user asked for it.
+                            None => Some((id.clone(), 0)),
+                        }
+                    })
+                    .collect()
+            };
+            for (id, code) in finished {
+                let Some(w) = apps.lock().unwrap().remove(&id) else { continue };
+                w.stop_tail.store(true, Ordering::Relaxed);
+                let _ = crate::tmux::kill_session(&w.session);
+                pids.lock().unwrap().remove(&id);
+                let intentional = stopping.lock().unwrap().remove(&id);
+                (w.on_exit)(code, intentional);
+            }
+        });
+    }
+
+    /// Create the tmux session for `app_id` and point a log filter at it.
+    ///
+    /// Split out from the streaming setup so a failure here can fall back to
+    /// the piped path without having consumed the caller's `on_log`/`on_exit`
+    /// closures. Returns the pane plus the log offset the tailer must start at.
+    fn start_tmux_session(
+        &self,
+        app_id: &str,
+        command: &str,
+        root_dir: &Path,
+        port: u16,
+        env_file: Option<&str>,
+        extra_env: &HashMap<String, String>,
+        log_start: LogStart,
+    ) -> Result<(crate::tmux::Pane, u64)> {
+        let session = crate::tmux::app_session(app_id);
+        // A previous run usually leaves a husk: `remain-on-exit` holds the pane
+        // open so its status can be read, and `new-session` refuses a duplicate
+        // name. Starting an app is an explicit "replace whatever is there".
+        if crate::tmux::has_session(&session) {
+            let _ = crate::tmux::kill_session(&session);
+        }
+
+        // Wipe (or mark) the log before the session exists, and note where this
+        // run begins. Taking the offset here rather than after `pipe-pane`
+        // attaches is what stops the tailer from either replaying the previous
+        // run or skipping the first lines of this one.
+        drop(open_log_writer(app_id, log_start));
+        let log_path = log_file_path(app_id);
+        let offset = std::fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
+
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        // Identical wrapping to `shell_command`, so a tmux-hosted app resolves
+        // binaries through the same profile as a piped one.
+        let wrapped =
+            format!("source ~/.zprofile 2>/dev/null; source ~/.zshrc 2>/dev/null; {command}");
+        let env = tmux_env(root_dir, port, env_file, extra_env);
+        // Capture is set up in the same tmux command list as the session, so an
+        // app that prints the moment it starts still has those lines recorded.
+        let exe = log_filter_exe()?;
+        let pipe = crate::tmux::filter_target(&exe, app_id);
+        let pane = crate::tmux::start_detached(
+            &session,
+            root_dir,
+            &shell,
+            &wrapped,
+            &env,
+            Some(&pipe),
+        )?;
+        Ok((pane, offset))
+    }
+
+    /// Attach output streaming and exit watching to an already-running session.
+    fn register_tmux(
+        &self,
+        app_id: &str,
+        session: String,
+        log_offset: u64,
+        on_log: impl Fn(String) + Send + Sync + 'static,
+        on_exit: impl Fn(i32, bool) + Send + 'static,
+    ) {
+        let stop_tail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        spawn_log_tail(
+            log_file_path(app_id),
+            log_offset,
+            Arc::new(on_log),
+            Arc::clone(&stop_tail),
+        );
+        self.tmux_apps.lock().unwrap().insert(
+            app_id.to_string(),
+            TmuxApp { session, stop_tail, on_exit: Box::new(on_exit) },
+        );
+        self.ensure_tmux_monitor();
+    }
+
+    /// Re-attach to `app_id`'s session if it outlived a previous Porta run.
+    ///
+    /// This is the payoff for hosting in tmux: after an update restart the app
+    /// is still serving, and Porta picks it back up — status, PID, live log —
+    /// instead of showing it stopped and making the user start it again.
+    /// Returns the running PID, or `None` when there is nothing to adopt.
+    pub fn adopt_tmux(
+        &self,
+        app_id: &str,
+        on_log: impl Fn(String) + Send + Sync + 'static,
+        on_exit: impl Fn(i32, bool) + Send + 'static,
+    ) -> Option<u32> {
+        let session = crate::tmux::app_session(app_id);
+        let pane = crate::tmux::pane(&session)?;
+        if pane.dead {
+            // It exited while Porta was away. Nothing to adopt, and the husk
+            // would block the next start on a duplicate session name.
+            let _ = crate::tmux::kill_session(&session);
+            return None;
+        }
+
+        // Only attach a pipe if the pane has none. The filter started before
+        // the restart is a child of the tmux server, so it is normally still
+        // writing — and `pipe-pane -o` *toggles*, so re-piping here would turn
+        // that surviving capture off and leave the adopted app running with a
+        // log frozen at the moment Porta restarted.
+        if !pane.piped {
+            if let Ok(exe) = log_filter_exe() {
+                let _ = crate::tmux::pipe_to_filter(&session, &exe, app_id);
+            }
+        }
+
+        self.pids.lock().unwrap().insert(app_id.to_string(), pane.pid);
+        // Resume at the current end of the log. Everything written while Porta
+        // was away is already on disk, and the viewer loads it via
+        // `get_app_logs`; replaying it as live events would show it twice.
+        let offset = std::fs::metadata(log_file_path(app_id))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        self.register_tmux(app_id, session, offset, on_log, on_exit);
+        Some(pane.pid)
+    }
+
+    /// Is this app hosted in a tmux session (rather than piped)?
+    pub fn is_tmux_hosted(&self, app_id: &str) -> bool {
+        self.tmux_apps.lock().unwrap().contains_key(app_id)
+    }
+
+    /// The command a user can run to attach to `app_id`'s session themselves.
+    pub fn tmux_attach_command(&self, app_id: &str) -> Option<String> {
+        let map = self.tmux_apps.lock().unwrap();
+        map.get(app_id).map(|w| crate::tmux::attach_command(&w.session))
+    }
+
+    /// Destroy every hosted session.
+    ///
+    /// Only correct when the user actually wants apps stopped — quitting Porta
+    /// does *not* imply that (see `keep_apps_running_on_quit`), which is the
+    /// distinction this whole backend exists to make.
+    pub fn kill_tmux_sessions(&self) {
+        let sessions: Vec<String> = self
+            .tmux_apps
+            .lock()
+            .unwrap()
+            .values()
+            .map(|w| w.session.clone())
+            .collect();
+        for s in sessions {
+            let _ = crate::tmux::kill_session(&s);
+        }
     }
 }

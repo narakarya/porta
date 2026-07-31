@@ -35,34 +35,35 @@ fn emit_start_failed(handle: &tauri::AppHandle, id: &str, msg: String, show_aler
     handle.emit(&format!("app:start-failed:{id}"), payload).ok();
 }
 
-/// Start a single app process without dependency resolution.
-pub(crate) fn start_single(
+/// The log sink for `id`: every line the app prints becomes an `app:log:{id}`
+/// event for the viewer.
+fn log_callback(handle: &tauri::AppHandle, id: &str) -> impl Fn(String) + Send + Sync + 'static {
+    let log_id = id.to_string();
+    let log_handle = handle.clone();
+    move |line: String| {
+        log_handle.emit(&format!("app:log:{}", log_id), line).ok();
+    }
+}
+
+/// The exit handler for `app_data` — crash notification, restart policy, and
+/// retry accounting.
+///
+/// Lifted out of `start_single` so `adopt_running_apps` can install exactly the
+/// same behaviour on a session Porta did not start. An app that survived an
+/// update restart still has to notify and auto-restart when it eventually
+/// crashes, and a second copy of these rules would be a second place for them
+/// to drift.
+fn exit_callback(
     handle: &tauri::AppHandle,
     app_data: &App,
-    truncate_log: bool,
-    show_start_failed_alert: bool,
-) -> Result<(), String> {
-    let state: State<AppState> = handle.state();
-    let id = &app_data.id;
-
-    // Any start (manual, wake, auto-restart, dependency) clears the auto-slept
-    // flag so the 💤 badge doesn't linger after the app is up again.
-    let _ = state.db.lock().unwrap().set_app_auto_slept(id, false);
-
-    let log_id = id.clone();
-    let log_handle = handle.clone();
-    let on_log = move |line: String| {
-        log_handle.emit(&format!("app:log:{}", log_id), line).ok();
-    };
-
-    // Capture auto-restart parameters for the on_exit closure
-    let exit_id = id.clone();
+) -> impl Fn(i32, bool) + Send + 'static {
+    let exit_id = app_data.id.clone();
     let exit_handle = handle.clone();
     let exit_name = app_data.name.clone();
     let restart_policy = app_data.restart_policy.clone();
     let max_retries = app_data.max_retries;
     let is_docker_exit = app_data.is_docker();
-    let on_exit = move |exit_code: i32, is_stop: bool| {
+    move |exit_code: i32, is_stop: bool| {
         let reported = if is_stop { 0 } else { exit_code };
         exit_handle.emit(&format!("app:exit:{}", exit_id), reported).ok();
 
@@ -128,8 +129,61 @@ pub(crate) fn start_single(
                 start_single(&restart_handle, &app, false, true).ok();
             }
         });
-    };
+    }
+}
 
+/// Re-attach to app sessions that outlived a previous Porta run.
+///
+/// Called at boot before auto-start. Without it, a tmux-hosted app that kept
+/// serving across an update would show as stopped, and auto-start would launch
+/// a *second* copy against a port the first one still holds. Returns the ids it
+/// adopted so auto-start can skip them.
+pub(crate) fn adopt_running_apps(handle: &tauri::AppHandle) -> std::collections::HashSet<String> {
+    let mut adopted = std::collections::HashSet::new();
+    if !crate::process_manager::tmux_hosting_enabled() {
+        return adopted;
+    }
+    let state: State<AppState> = handle.state();
+    let apps = state.db.lock().unwrap().list_apps().unwrap_or_default();
+    for app_data in apps {
+        // Docker and compose apps have their own supervision; only the
+        // process-backed ones are hosted in tmux.
+        if app_data.is_docker() || app_data.is_compose() || app_data.start_command.is_empty() {
+            continue;
+        }
+        let on_log = log_callback(handle, &app_data.id);
+        let on_exit = exit_callback(handle, &app_data);
+        let Some(pid) = state.processes.adopt_tmux(&app_data.id, on_log, on_exit) else {
+            continue;
+        };
+        state
+            .db
+            .lock()
+            .unwrap()
+            .update_app_status(&app_data.id, "running", Some(pid))
+            .ok();
+        handle.emit(&format!("app:adopted:{}", app_data.id), pid).ok();
+        adopted.insert(app_data.id.clone());
+    }
+    adopted
+}
+
+/// Start a single app process without dependency resolution.
+pub(crate) fn start_single(
+    handle: &tauri::AppHandle,
+    app_data: &App,
+    truncate_log: bool,
+    show_start_failed_alert: bool,
+) -> Result<(), String> {
+    let state: State<AppState> = handle.state();
+    let id = &app_data.id;
+
+    // Any start (manual, wake, auto-restart, dependency) clears the auto-slept
+    // flag so the 💤 badge doesn't linger after the app is up again.
+    let _ = state.db.lock().unwrap().set_app_auto_slept(id, false);
+
+    let on_log = log_callback(handle, id);
+    let on_exit = exit_callback(handle, app_data);
     if app_data.is_compose() {
         let compose_file = app_data
             .compose_file

@@ -137,7 +137,8 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = w.set_focus();
                 }
             } else if id == "quit" {
-                app.state::<AppState>().processes.stop_all();
+                // Same rule as ⌘Q — `app.exit` raises ExitRequested, which
+                // decides whether the apps go down with Porta.
                 app.exit(0);
             } else if id == "start-all" {
                 let handle = app.clone();

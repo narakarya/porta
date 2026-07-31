@@ -23,6 +23,7 @@ pub mod menu;
 pub mod metrics;
 pub mod setup;
 pub mod ssh;
+pub mod tmux;
 pub mod tray;
 pub mod wake_server;
 
@@ -453,6 +454,11 @@ pub fn run() {
             commands::remote_log_live_stop,
             commands::get_launch_at_login,
             commands::set_launch_at_login,
+            commands::get_tmux_status,
+            commands::set_tmux_sessions_enabled,
+            commands::set_tmux_terminal_enabled,
+            commands::set_keep_apps_running_on_quit,
+            commands::install_tmux,
             commands::check_port_available,
             commands::find_free_port,
             commands::who_uses_port,
@@ -569,8 +575,20 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 let state = app.state::<AppState>();
-                state.processes.stop_all();
-                state.docker.stop_all();
+                // Quitting Porta is not the same as asking for the apps to
+                // stop. This was the one place that conflated the two — every
+                // other kill path (Stop, Force Kill, delete an app) records the
+                // user's intent in `processes.stopping` — and it is why an
+                // auto-update restart used to take every dev server with it.
+                //
+                // tmux-hosted apps now stay up and are re-adopted on the next
+                // launch. A piped app still dies here no matter what the
+                // setting says: its stdout is a pipe this process owns.
+                if !crate::process_manager::keep_apps_running_on_quit() {
+                    state.processes.stop_all();
+                    state.processes.kill_tmux_sessions();
+                    state.docker.stop_all();
+                }
             }
         });
 }

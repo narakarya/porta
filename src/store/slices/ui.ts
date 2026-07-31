@@ -26,6 +26,7 @@ export type SettingsSection =
   | "remote"
   | "notifications"
   | "git"
+  | "sessions"
   | "backup"
   | "disk"
   | "extensions"
