@@ -2,6 +2,7 @@ import { usePortaStore } from "../../store";
 import type { SshSession } from "../../store/slices/ssh";
 import SshTerminal from "./SshTerminal";
 import SshConnectingOverlay from "./SshConnectingOverlay";
+import SnippetBar from "./SnippetBar";
 
 const STATUS_DOT: Record<SshSession["status"], string> = {
   connected: "bg-ok",
@@ -18,7 +19,8 @@ export default function SshSessionTabs() {
   const connectSsh = usePortaStore((s) => s.connectSsh);
   const retrySsh = usePortaStore((s) => s.retrySsh);
 
-  const activeHostId = sessions.find((s) => s.id === active)?.hostId;
+  const activeSession = sessions.find((s) => s.id === active);
+  const activeHostId = activeSession?.hostId;
 
   if (sessions.length === 0) {
     return (
@@ -30,7 +32,8 @@ export default function SshSessionTabs() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-1 px-2 h-9 border-b border-subtle overflow-x-auto shrink-0">
+      <div className="flex items-center h-9 border-b border-subtle shrink-0">
+        <div className="flex-1 min-w-0 h-full flex items-center gap-1 px-2 overflow-x-auto">
         {sessions.map((s) => (
           <div
             key={s.id}
@@ -65,6 +68,16 @@ export default function SshSessionTabs() {
             ＋
           </button>
         )}
+        </div>
+        {/* Outside the scrolling strip on purpose: `overflow-x-auto` clips an
+            absolutely-positioned popover, so the picker rendered off-screen
+            when it lived among the tabs. */}
+        <div className="shrink-0 px-2">
+          <SnippetBar
+            hostId={activeHostId ?? null}
+            sessionReady={activeSession?.status === "connected"}
+          />
+        </div>
       </div>
       <div className="flex-1 min-h-0 p-1">
         {sessions.map((s) =>

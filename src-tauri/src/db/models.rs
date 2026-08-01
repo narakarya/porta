@@ -682,6 +682,27 @@ pub enum SshAuth {
     Password,
 }
 
+/// A saved command, typed into a session's shell on demand.
+///
+/// There is no "run" plumbing behind this — running a snippet writes its text
+/// into the existing PTY, exactly as if the user had typed it. That is what
+/// makes the output land in scrollback, the shell's own history, and any
+/// interactive prompt the command triggers; an out-of-band exec channel would
+/// give a tidier API and a worse tool.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshSnippet {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+    /// `None` = available on every host. Scoping is per host rather than per
+    /// workspace because a snippet is about what the *remote* box understands.
+    #[serde(default)]
+    pub host_id: Option<String>,
+    pub created_at: i64,
+    #[serde(default)]
+    pub last_used_at: Option<i64>,
+}
+
 /// Mirrors OpenSSH's `-L` / `-R` / `-D`. Only `Local` can be started today; the
 /// other two exist so persisted rows and the IPC shape stay stable when they
 /// land. Stored as a plain lowercase string, not JSON.

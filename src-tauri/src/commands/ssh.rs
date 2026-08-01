@@ -4,7 +4,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::db::models::{SshAuth, SshHost, SshPortForward};
+use crate::db::models::{SshAuth, SshHost, SshPortForward, SshSnippet};
 use crate::ssh::config_import::{self, SshConfigEntry};
 
 // Re-exported so `commands::SshManager` resolves for `.manage(...)` and
@@ -227,6 +227,74 @@ pub async fn ssh_connect(
         .connect(app, session_id.clone(), host, state.db.clone())
         .await?;
     Ok(session_id)
+}
+
+// ── Snippets ─────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn ssh_list_snippets(state: State<AppState>) -> Result<Vec<SshSnippet>, String> {
+    state
+        .db
+        .lock_or_recover()
+        .list_ssh_snippets()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ssh_add_snippet(
+    mut snippet: SshSnippet,
+    state: State<AppState>,
+) -> Result<SshSnippet, String> {
+    if snippet.label.trim().is_empty() {
+        return Err("Give the snippet a name so you can find it later.".into());
+    }
+    if snippet.command.trim().is_empty() {
+        return Err("A snippet needs a command to run.".into());
+    }
+    if snippet.id.is_empty() {
+        snippet.id = Uuid::new_v4().to_string();
+    }
+    snippet.created_at = now_epoch();
+    state
+        .db
+        .lock_or_recover()
+        .insert_ssh_snippet(&snippet)
+        .map_err(|e| e.to_string())?;
+    Ok(snippet)
+}
+
+#[tauri::command]
+pub fn ssh_update_snippet(snippet: SshSnippet, state: State<AppState>) -> Result<(), String> {
+    if snippet.label.trim().is_empty() || snippet.command.trim().is_empty() {
+        return Err("A snippet needs both a name and a command.".into());
+    }
+    state
+        .db
+        .lock_or_recover()
+        .update_ssh_snippet(&snippet)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ssh_delete_snippet(id: String, state: State<AppState>) -> Result<(), String> {
+    state
+        .db
+        .lock_or_recover()
+        .delete_ssh_snippet(&id)
+        .map_err(|e| e.to_string())
+}
+
+/// Record that a snippet was used, so the picker can float it to the top.
+/// Separate from running it: running is a plain `ssh_write`, and making the
+/// write depend on a DB round-trip would put a disk hiccup between the user's
+/// keystroke and their terminal.
+#[tauri::command]
+pub fn ssh_touch_snippet(id: String, state: State<AppState>) -> Result<(), String> {
+    state
+        .db
+        .lock_or_recover()
+        .touch_ssh_snippet(&id, now_epoch())
+        .map_err(|e| e.to_string())
 }
 
 // ── Port forwards ────────────────────────────────────────────────────────────

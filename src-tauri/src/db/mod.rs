@@ -7,6 +7,7 @@ mod remote_repo;
 mod instance_repo;
 mod ssh_forward_repo;
 mod ssh_repo;
+mod ssh_snippet_repo;
 pub use ssh_repo::{fingerprint_sha256, HostKeyVerdict};
 
 use anyhow::Result;
@@ -323,6 +324,21 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_ssh_port_forwards_host
                 ON ssh_port_forwards(host_id);
+        ")?;
+
+        // Saved commands. `host_id` NULL means the snippet is offered on every
+        // host; the FK is nullable for exactly that reason, so no DEFAULT here.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_snippets (
+                id           TEXT PRIMARY KEY,
+                label        TEXT NOT NULL DEFAULT '',
+                command      TEXT NOT NULL DEFAULT '',
+                host_id      TEXT REFERENCES ssh_hosts(id) ON DELETE CASCADE,
+                created_at   INTEGER NOT NULL DEFAULT 0,
+                last_used_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_ssh_snippets_host
+                ON ssh_snippets(host_id);
         ")?;
 
         Ok(())

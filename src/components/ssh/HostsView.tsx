@@ -40,6 +40,7 @@ function HostVaultSkeleton() {
 export default function HostsView() {
   const hosts = usePortaStore((s) => s.sshHosts);
   const loadSshHosts = usePortaStore((s) => s.loadSshHosts);
+  const loadSnippets = usePortaStore((s) => s.loadSnippets);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,10 +49,13 @@ export default function HostsView() {
     loadSshHosts().finally(() => {
       if (alive) setLoading(false);
     });
+    // Independent of the host list — the picker is keyed off the active
+    // session, so a slow host load shouldn't leave it empty.
+    loadSnippets().catch(() => {});
     return () => {
       alive = false;
     };
-  }, [loadSshHosts]);
+  }, [loadSshHosts, loadSnippets]);
 
   const showSkeleton = loading && hosts.length === 0;
 

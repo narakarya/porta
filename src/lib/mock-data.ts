@@ -3,7 +3,7 @@
  * Only used when `window.__TAURI_INTERNALS__` is absent.
  */
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
-import type { AppInstance, SshConfigCandidate, SshHost, SshPortForward } from "./commands";
+import type { AppInstance, SshConfigCandidate, SshHost, SshPortForward, SshSnippet } from "./commands";
 
 export const mockWorkspaces: Workspace[] = [
   { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
@@ -509,6 +509,33 @@ export const mockSshHosts: SshHost[] = [
     last_used_at: 1_751_000_000,
     workspace_ids: [],
     detected_os: null,
+  },
+];
+
+export const mockSshSnippets: SshSnippet[] = [
+  {
+    id: "snip-1",
+    label: "Disk usage",
+    command: "df -h",
+    host_id: null,
+    created_at: 1_752_000_000,
+    last_used_at: 1_752_900_000,
+  },
+  {
+    id: "snip-2",
+    label: "Tail nginx errors",
+    command: "sudo tail -f /var/log/nginx/error.log",
+    host_id: null,
+    created_at: 1_752_000_000,
+    last_used_at: null,
+  },
+  {
+    id: "snip-3",
+    label: "Restart app",
+    command: "sudo systemctl restart narakarya-web",
+    host_id: "host-1",
+    created_at: 1_752_100_000,
+    last_used_at: null,
   },
 ];
 

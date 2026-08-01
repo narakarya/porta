@@ -3,7 +3,7 @@ import { listen } from "../../lib/tauri-event";
 import type { UnlistenFn } from "../../lib/tauri-event";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
-import type { SshForwardRuntime, SshHost, SshPortForward } from "../../lib/commands";
+import type { SshForwardRuntime, SshHost, SshPortForward, SshSnippet } from "../../lib/commands";
 
 // Non-serializable listener handles keyed by sessionId — kept out of Zustand
 // state on purpose. Registered before `ssh_connect` is invoked so backend
@@ -86,6 +86,15 @@ export interface SshSlice {
   sshForwards: Record<string, SshPortForward[]>;
   /** Live state per forward id, fed by `ssh:forward:{id}`. Absent = not running. */
   forwardRuntime: Record<string, SshForwardRuntime>;
+  /** Saved commands, globals first, most-recently-used first within a group. */
+  sshSnippets: SshSnippet[];
+
+  loadSnippets: () => Promise<void>;
+  addSnippet: (snippet: SshSnippet) => Promise<void>;
+  updateSnippet: (snippet: SshSnippet) => Promise<void>;
+  deleteSnippet: (id: string) => Promise<void>;
+  /** Type a snippet into a session's shell, as if the user had typed it. */
+  runSnippet: (snippet: SshSnippet, sessionId?: string) => Promise<void>;
 
   loadForwards: (hostId: string) => Promise<void>;
   addForward: (forward: SshPortForward) => Promise<void>;
@@ -124,6 +133,42 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   sshPrompt: null,
   sshForwards: {},
   forwardRuntime: {},
+  sshSnippets: [],
+
+  loadSnippets: async () => set({ sshSnippets: await cmd.sshListSnippets() }),
+  addSnippet: async (snippet) => {
+    const saved = await cmd.sshAddSnippet(snippet);
+    set({ sshSnippets: [...get().sshSnippets, saved] });
+  },
+  updateSnippet: async (snippet) => {
+    await cmd.sshUpdateSnippet(snippet);
+    set({ sshSnippets: get().sshSnippets.map((s) => (s.id === snippet.id ? snippet : s)) });
+  },
+  deleteSnippet: async (id) => {
+    await cmd.sshDeleteSnippet(id);
+    set({ sshSnippets: get().sshSnippets.filter((s) => s.id !== id) });
+  },
+
+  runSnippet: async (snippet, sessionId) => {
+    const target = sessionId ?? get().activeSessionId;
+    const session = get().sshSessions.find((s) => s.id === target);
+    if (!session || session.status !== "connected") {
+      throw new Error("Open a session on a host first — a snippet runs in a live shell.");
+    }
+    // Sent as keystrokes, not through a side channel: the output belongs in the
+    // scrollback the user is looking at, and anything interactive the command
+    // triggers has to reach the same PTY. The trailing newline is what makes it
+    // run rather than just sit on the prompt.
+    const bytes = Array.from(new TextEncoder().encode(`${snippet.command}\n`));
+    await cmd.sshWrite(session.id, bytes);
+    // Ordering matters only for the picker's sort, so it never blocks the write.
+    cmd.sshTouchSnippet(snippet.id).catch(() => {});
+    set({
+      sshSnippets: get().sshSnippets.map((s) =>
+        s.id === snippet.id ? { ...s, last_used_at: Math.floor(Date.now() / 1000) } : s
+      ),
+    });
+  },
 
   loadForwards: async (hostId) => {
     const list = await cmd.sshListForwards(hostId);

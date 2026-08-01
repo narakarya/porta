@@ -27,6 +27,7 @@ import {
   mockInstances,
   mockSshConfigCandidates,
   mockSshForwards,
+  mockSshSnippets,
   mockSshHosts,
   startMockService,
   stopMockService,
@@ -2031,6 +2032,32 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+/** A saved command, typed into a session's shell on demand. */
+export interface SshSnippet {
+  id: string;
+  label: string;
+  command: string;
+  /** null = offered on every host. */
+  host_id: string | null;
+  created_at: number;
+  last_used_at: number | null;
+}
+
+export const sshListSnippets = (): Promise<SshSnippet[]> =>
+  isTauri ? invoke("ssh_list_snippets") : Promise.resolve([...mockSshSnippets]);
+
+export const sshAddSnippet = (snippet: SshSnippet): Promise<SshSnippet> =>
+  isTauri ? invoke("ssh_add_snippet", { snippet }) : Promise.resolve(snippet);
+
+export const sshUpdateSnippet = (snippet: SshSnippet): Promise<void> =>
+  isTauri ? invoke("ssh_update_snippet", { snippet }) : Promise.resolve();
+
+export const sshDeleteSnippet = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_delete_snippet", { id }) : Promise.resolve();
+
+export const sshTouchSnippet = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_touch_snippet", { id }) : Promise.resolve();
 
 export type SshForwardKind = "local" | "remote" | "dynamic";
 
