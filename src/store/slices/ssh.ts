@@ -3,6 +3,7 @@ import { listen } from "../../lib/tauri-event";
 import type { UnlistenFn } from "../../lib/tauri-event";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
+import { pasteIntoSession } from "../../components/ssh/SshTerminal";
 import type { SshForwardRuntime, SshHost, SshPortForward, SshSnippet } from "../../lib/commands";
 
 // Non-serializable listener handles keyed by sessionId — kept out of Zustand
@@ -137,8 +138,11 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
 
   loadSnippets: async () => set({ sshSnippets: await cmd.sshListSnippets() }),
   addSnippet: async (snippet) => {
-    const saved = await cmd.sshAddSnippet(snippet);
-    set({ sshSnippets: [...get().sshSnippets, saved] });
+    await cmd.sshAddSnippet(snippet);
+    // Re-read rather than append: ordering (globals first, then most-recently
+    // used) is the SQL query's contract, and appending put a new global below
+    // the host-scoped ones until the next load.
+    await get().loadSnippets();
   },
   updateSnippet: async (snippet) => {
     await cmd.sshUpdateSnippet(snippet);
@@ -159,8 +163,18 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     // scrollback the user is looking at, and anything interactive the command
     // triggers has to reach the same PTY. The trailing newline is what makes it
     // run rather than just sit on the prompt.
-    const bytes = Array.from(new TextEncoder().encode(`${snippet.command}\n`));
-    await cmd.sshWrite(session.id, bytes);
+    // Routed through the terminal's paste path rather than written straight to
+    // the PTY: a raw write of a multi-line snippet loses every line after the
+    // first as soon as line 1 prompts for anything (see pasteIntoSession).
+    if (!pasteIntoSession(session.id, snippet.command)) {
+      // No terminal mounted for this session. A raw write is the honest
+      // fallback — it is the old behaviour, and it is correct for the
+      // single-line snippets that are the common case.
+      await cmd.sshWrite(
+        session.id,
+        Array.from(new TextEncoder().encode(`${snippet.command}\n`))
+      );
+    }
     // Ordering matters only for the picker's sort, so it never blocks the write.
     cmd.sshTouchSnippet(snippet.id).catch(() => {});
     set({

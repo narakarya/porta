@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { SshSnippet } from "../../lib/commands";
+import { confirmDialog } from "../../lib/confirm";
 
 type Props = { hostId: string | null; sessionReady: boolean };
 
@@ -47,17 +48,18 @@ export default function SnippetBar({ hostId, sessionReady }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    // A half-typed command is real work. Clicking into the terminal to copy a
+    // path — or hitting Escape, a reflex in any command field — used to throw
+    // it away with no warning, so auto-dismiss only applies with no draft open.
+    const dismiss = () => {
+      if (draft) return;
+      setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        setDraft(null);
-      }
+      if (e.key === "Escape") dismiss();
     };
     const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setDraft(null);
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) dismiss();
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onClick);
@@ -65,7 +67,23 @@ export default function SnippetBar({ hostId, sessionReady }: Props) {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onClick);
     };
-  }, [open]);
+  }, [open, draft]);
+
+  // Delete used to report failures into `error`, which only renders inside the
+  // edit form — so a rejected delete (a second Porta process holding the SQLite
+  // write lock, say) left the row in place with no explanation at all.
+  async function remove(s: SshSnippet) {
+    const ok = await confirmDialog(`Delete snippet "${s.label}"?`, {
+      title: "Delete snippet",
+      okLabel: "Delete",
+    });
+    if (!ok) return;
+    try {
+      await deleteSnippet(s.id);
+    } catch (e) {
+      notifyError(`Couldn't delete "${s.label}"`, e);
+    }
+  }
 
   async function run(s: SshSnippet) {
     try {
@@ -164,7 +182,7 @@ export default function SnippetBar({ hostId, sessionReady }: Props) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => deleteSnippet(s.id).catch((e) => setError(String(e)))}
+                  onClick={() => remove(s)}
                   title="Delete snippet"
                   aria-label="Delete snippet"
                   className="shrink-0 opacity-0 group-hover/sn:opacity-100 w-5 h-5 flex items-center justify-center rounded-control text-ink-3 hover:text-bad transition-colors"

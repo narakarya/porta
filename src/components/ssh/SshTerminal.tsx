@@ -11,6 +11,36 @@ interface Props {
   visible: boolean;
 }
 
+/** Live xterm instances by session id, so a snippet can be delivered through
+ *  the terminal's own paste path rather than written straight to the PTY. */
+const terminals = new Map<string, Terminal>();
+
+/**
+ * Paste `text` into a session's terminal exactly as a real paste would, then
+ * press Enter.
+ *
+ * The detour through xterm exists because a raw write is unsafe for anything
+ * multi-line. Writing `line1\nline2\n` to the PTY makes the remote line editor
+ * accept line 1 immediately; the rest sits in the tty input queue and, the
+ * moment line 1 forks something that prompts, is either discarded (sudo flushes
+ * with TCSAFLUSH) or swallowed as the answer to that prompt — silently, either
+ * way. `term.paste()` wraps the text in bracketed-paste markers *when the
+ * remote shell actually enabled that mode*, so the snippet lands in the line
+ * buffer as one unit and the trailing Enter runs it. Emitting those markers
+ * ourselves would print raw escape bytes on a shell that never asked for them.
+ *
+ * Returns false when the session has no mounted terminal, so the caller can
+ * decide rather than silently doing nothing.
+ */
+export function pasteIntoSession(sessionId: string, text: string): boolean {
+  const term = terminals.get(sessionId);
+  if (!term) return false;
+  term.paste(text);
+  // Separate from the paste: inside brackets, Enter is what submits.
+  term.input("\r", true);
+  return true;
+}
+
 export default function SshTerminal({ sessionId, visible }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -89,6 +119,7 @@ export default function SshTerminal({ sessionId, visible }: Props) {
 
     termRef.current = term;
     fitRef.current = fitAddon;
+    terminals.set(sessionId, term);
 
     // Forward keyboard input to the remote shell.
     term.onData((data) => {
@@ -140,6 +171,7 @@ export default function SshTerminal({ sessionId, visible }: Props) {
       window.removeEventListener("resize", onResize);
       unlistenData?.();
       unlistenExit?.();
+      terminals.delete(sessionId);
       term.dispose();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
