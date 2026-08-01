@@ -5,7 +5,11 @@
 /* ── Design tokens (Porta dark) ──────────────────────────────────────────
    Single source of truth for surfaces/text/status/radius. A redesign changes
    these vars (and the primitives in src/components/ui/), not every file.
-   Values mirror the current look so adopting them is non-breaking. */
+
+   These are the *fallback* values — the shipped Porta Dark theme. At runtime
+   src/lib/theme.ts overwrites them on <html> with whichever theme the user
+   picked (Settings → Appearance), which wins over :root. Keep the two in sync:
+   this block is what renders if that code never runs. */
 :root {
   --surface-0: #0d0d0f;   /* page */
   --surface-1: #151517;   /* raised / rail */
@@ -29,6 +33,13 @@
   --warning-bg: rgba(251, 191, 36, 0.15);
   --danger: #f87171;
   --danger-bg: rgba(248, 113, 113, 0.15);
+  /* Status/accent at border strength — these were spelled out as literal
+     rgba() in ~200 places, which pinned those borders to one palette no
+     matter the theme. */
+  --accent-border: rgba(96, 165, 250, 0.30);
+  --success-border: rgba(52, 211, 153, 0.30);
+  --warning-border: rgba(251, 191, 36, 0.30);
+  --danger-border: rgba(248, 113, 113, 0.30);
 
   --radius-control: 6px;
   --radius: 8px;
@@ -45,14 +56,14 @@
   }
 
   body {
-    @apply bg-[#0d0d0f] text-zinc-100 select-none overflow-hidden;
+    @apply bg-surface-0 text-ink select-none overflow-hidden;
     font-size: 13px;
   }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { @apply bg-zinc-700 rounded-full; }
-  ::-webkit-scrollbar-thumb:hover { @apply bg-zinc-600; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
 }
 
 .drag-region { -webkit-app-region: drag; }
@@ -60,21 +71,27 @@
 
 @layer components {
   .input-base {
-    @apply w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100
-           placeholder:text-zinc-700 outline-none focus:border-blue-500/50 transition-colors;
+    @apply w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink
+           placeholder:text-ink-3 outline-none transition-colors;
+  }
+  .input-base:focus {
+    border-color: var(--accent);
   }
   /* Themed select that hides the native macOS chevron and renders our own.
      Use this on every <select> instead of input-base — input-base leaves the
      OS up/down spinner visible on a webkit dropdown. */
   .select-base {
-    @apply w-full bg-[#111113] border border-white/[0.08] rounded-lg pl-3 pr-7 py-2 text-[13px] text-zinc-100
-           outline-none focus:border-blue-500/50 transition-colors cursor-pointer disabled:opacity-50;
+    @apply w-full bg-surface-input border border-subtle rounded-lg pl-3 pr-7 py-2 text-[13px] text-ink
+           outline-none transition-colors cursor-pointer disabled:opacity-50;
     appearance: none;
     -webkit-appearance: none;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10' fill='none'><path d='M2 3.5L5 6.5L8 3.5' stroke='%23a1a1aa' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     background-repeat: no-repeat;
     background-position: right 0.5rem center;
     background-size: 10px;
+  }
+  .select-base:focus {
+    border-color: var(--accent);
   }
   /* Hide webkit number spinner — used on inline value inputs (e.g. CF zone
      settings) where the OS spinner clashes with the dark theme. */

@@ -8,6 +8,7 @@ import type { SettingsSection as Section } from "../../store/slices/ui";
 // instantly. Without this, opening Settings forced a synchronous parse of
 // every section's module + transitive deps (Codemirror, dialog plugin,
 // xterm in Tailscale, etc.) and the user saw a macOS beachball cursor.
+const AppearanceSection = lazy(() => import("./AppearanceSection"));
 const SetupSection = lazy(() => import("./SetupSection"));
 const NotificationsSection = lazy(() => import("./NotificationsSection"));
 const GitSection = lazy(() => import("./GitSection"));
@@ -38,6 +39,7 @@ const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] =
   {
     label: "General",
     items: [
+      { id: "appearance", label: "Appearance" },
       { id: "notifications", label: "Notifications" },
       { id: "git", label: "Git & defaults" },
       { id: "about", label: "About & updates" },
@@ -152,6 +154,11 @@ export default function SettingsPage({ onBack }: Props) {
           {visited.has("setup") && (
             <div hidden={activeSection !== "setup"}>
               <SetupSection onOpenWizard={() => setShowSetupWizard(true)} />
+            </div>
+          )}
+          {visited.has("appearance") && (
+            <div hidden={activeSection !== "appearance"}>
+              <AppearanceSection />
             </div>
           )}
           {visited.has("cloudflare") && (

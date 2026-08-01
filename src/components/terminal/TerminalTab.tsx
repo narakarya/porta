@@ -4,6 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { listen } from "@tauri-apps/api/event";
 import { terminalOpen, terminalWrite, terminalResize, isTauri } from "../../lib/commands";
+import { usePortaStore } from "../../store";
+import { getTheme, terminalTheme } from "../../lib/theme";
 import "@xterm/xterm/css/xterm.css";
 
 const SCROLLBACK_LINES = 100_000;
@@ -97,28 +99,10 @@ export default function TerminalTab({
     if (!containerRef.current) return;
 
     const term = new Terminal({
-      theme: {
-        background: "#0d0d0f",
-        foreground: "#d4d4d4",
-        cursor: "#a0a0a0",
-        black: "#1e1e20",
-        red: "#f87171",
-        green: "#4ade80",
-        yellow: "#fbbf24",
-        blue: "#60a5fa",
-        magenta: "#c084fc",
-        cyan: "#22d3ee",
-        white: "#d4d4d4",
-        brightBlack: "#52525b",
-        brightRed: "#fca5a5",
-        brightGreen: "#86efac",
-        brightYellow: "#fde68a",
-        brightBlue: "#93c5fd",
-        brightMagenta: "#d8b4fe",
-        brightCyan: "#67e8f9",
-        brightWhite: "#f4f4f5",
-        selectionBackground: "#3f3f46",
-      },
+      // xterm has its own colour model and can't resolve CSS vars, so the
+      // active theme is handed over explicitly here and re-pushed by the
+      // subscription below whenever the user switches theme.
+      theme: terminalTheme(getTheme(usePortaStore.getState().theme)),
       fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, monospace',
       fontSize: 12,
       lineHeight: 1.4,
@@ -356,20 +340,31 @@ export default function TerminalTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId, rootDir]);
 
+  // Repaint an already-open terminal when the theme changes. Subscribed to the
+  // store directly rather than via a hook so a theme switch doesn't re-render
+  // (and so re-run the mount effect of) every live pane.
+  useEffect(() => {
+    return usePortaStore.subscribe((s, prev) => {
+      if (s.theme === prev.theme) return;
+      const term = termRef.current;
+      if (term) term.options.theme = terminalTheme(getTheme(s.theme));
+    });
+  }, []);
+
   // The gutter lives on the wrapper below, not on the element xterm opens into:
   // FitAddon measures `term.element.parentElement` (i.e. `containerRef`), so
   // padding there would size the grid to the full width and let the last column
   // sit underneath it.
   return (
     <div
-      className="relative h-full w-full bg-[#0d0d0f] pl-3 pr-2 py-2"
+      className="relative h-full w-full bg-surface-code pl-3 pr-2 py-2"
       // A click landing in the gutter never reaches xterm, so focus it here —
       // otherwise the outer few pixels read as a dead zone.
       onMouseDown={(e) => { if (e.target === e.currentTarget) termRef.current?.focus(); }}
     >
       <div
         ref={containerRef}
-        className="h-full w-full bg-[#0d0d0f]"
+        className="h-full w-full bg-surface-code"
         // Let xterm.js handle all keyboard events inside the terminal area.
         onKeyDown={(e) => e.stopPropagation()}
       />

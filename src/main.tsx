@@ -3,6 +3,12 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { usePortaStore } from "./store";
+import { applyTheme, loadThemeId, loadAccentId } from "./lib/theme";
+
+// Paint the saved theme onto <html> before React mounts. Done here rather than
+// in a component effect so a non-default theme never flashes the default
+// palette on launch.
+applyTheme(loadThemeId(), loadAccentId());
 
 // Global error handler — helps debug blank screen in Tauri.
 //

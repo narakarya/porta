@@ -3,6 +3,15 @@ import type { SetupStatus } from "../../types";
 import type { AllSlices } from "../index";
 import type { ExtensionInfo } from "../../types/extension";
 import * as cmd from "../../lib/commands";
+import {
+  applyTheme,
+  loadThemeId,
+  loadAccentId,
+  LS_THEME,
+  LS_ACCENT,
+  type ThemeId,
+  type AccentId,
+} from "../../lib/theme";
 
 export type ExtensionSidebarState = {
   appId: string;
@@ -20,6 +29,7 @@ export type ExtensionSidebarState = {
 };
 
 export type SettingsSection =
+  | "appearance"
   | "setup"
   | "cloudflare"
   | "tailscale"
@@ -113,6 +123,10 @@ export interface UiSlice {
   /** Who initiated the current check — lets the toast stay quiet for checks
    *  started from the sidebar popover (the popover shows progress itself). */
   updaterCheckSource: "popover" | "menu" | "background";
+  /** Active colour theme id (see src/lib/theme.ts). Persisted. */
+  theme: ThemeId;
+  /** Accent override; "theme" defers to the active theme's own accent. Persisted. */
+  accent: AccentId;
   /** Where the terminal renders: full-screen modal vs. bottom-docked panel. */
   terminalPlacement: TerminalPlacement;
   /** Panel-mode height as a fraction of the viewport (0.15 – 0.92). */
@@ -172,6 +186,8 @@ export interface UiSlice {
    */
   openAppTab: (appId: string, tab: string, instanceId?: string) => void;
   clearWorkbenchTab: () => void;
+  setTheme: (id: ThemeId) => void;
+  setAccent: (id: AccentId) => void;
   setTerminalPlacement: (p: TerminalPlacement) => void;
   setTerminalPanelHeight: (frac: number) => void;
   /** Bump `extensionListVersion` to trigger re-fetches in subscribed views. */
@@ -274,6 +290,8 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterError: null,
   betaUpdates: loadBetaUpdates(),
   updaterCheckSource: "background",
+  theme: loadThemeId(),
+  accent: loadAccentId(),
   terminalPlacement: loadPlacement(),
   terminalPanelHeight: loadPanelHeight(),
   collapsedWorkspaces: loadStringSet(LS_COLLAPSED_WS),
@@ -385,6 +403,20 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
       workbenchTab: { appId, tab },
     }),
   clearWorkbenchTab: () => set({ workbenchTab: null }),
+
+  // Both setters repaint <html> immediately — the CSS vars are the render
+  // path, the store value only exists so Settings can show what's selected and
+  // so the terminal (which can't read CSS vars) can react.
+  setTheme: (id) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_THEME, id);
+    applyTheme(id, get().accent);
+    set({ theme: id });
+  },
+  setAccent: (id) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(LS_ACCENT, id);
+    applyTheme(get().theme, id);
+    set({ accent: id });
+  },
 
   setTerminalPlacement: (p) => {
     if (typeof localStorage !== "undefined") localStorage.setItem(LS_PLACEMENT, p);
