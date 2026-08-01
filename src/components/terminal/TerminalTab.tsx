@@ -163,8 +163,20 @@ export default function TerminalTab({
       clear: () => searchAddon.clearDecorations(),
     });
 
+    // True only while the reattach backlog is being parsed — see `openSession`.
+    let replayingBacklog = false;
+
     // Forward keyboard input to the PTY shell.
     term.onData((data) => {
+      // `onData` also carries xterm's *answers* to terminal queries (device
+      // attributes and friends), not just keystrokes. Replayed history is full
+      // of queries the shell asked the last time it attached, and answering
+      // those now is worse than useless: nothing is waiting to read the reply,
+      // so it lands at the prompt, the shell echoes it as literal
+      // `1;2c0;276;0c`, and the echo is itself captured into the backlog — one
+      // more copy every time the pane is reopened. Nobody is at the keyboard
+      // during a replay either, so dropping everything is safe.
+      if (replayingBacklog) return;
       const bytes = Array.from(new TextEncoder().encode(data));
       terminalWrite(appId, bytes).catch(console.error);
     });
@@ -231,8 +243,17 @@ export default function TerminalTab({
 
       if (backlog.length > 0) {
         // Reattaching to a session that outlived its last view: replay what it
-        // printed while nothing was watching.
-        consume(backlog);
+        // printed while nothing was watching. Muted for the duration (see
+        // `onData`): the history contains the queries the shell sent on its
+        // last attach, and replying to them again is what produced the
+        // ever-growing `1;2c0;276;0c` litter. xterm runs write callbacks in
+        // submission order, right after the chunk is parsed, so the queued
+        // live chunks written below are still ordered after the backlog even
+        // though nothing awaits this.
+        replayingBacklog = true;
+        term.write(new Uint8Array(backlog), () => { replayingBacklog = false; });
+        scheduleLineCount();
+        onOutputRef.current?.();
       }
       backlogWritten = true;
       for (const chunk of queued) consume(chunk);

@@ -4,6 +4,18 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.31]
+
+### Fixed
+
+- **Terminal no longer prints `1;2c0;276;0c` on open, growing by one copy each
+  time.** Reattaching replays the pane's stored output, which contains the
+  device-attribute queries the shell sent when it last attached. The terminal
+  answered them again, the answer arrived at a prompt with nothing reading it,
+  the shell echoed it as literal text, and that echo was itself retained —
+  so every reopen added another copy. Replies are now suppressed while the
+  backlog is being replayed.
+
 ## [0.14.0-beta.30]
 
 ### Added

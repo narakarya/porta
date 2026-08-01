@@ -75,8 +75,18 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
     emitInput(data: string) {
       this.onDataHandler?.(data);
     }
-    write(data: Uint8Array | string) {
+    // Real xterm parses asynchronously and only then runs the callback, so
+    // the callback is held here rather than fired inline — `flushWrites()`
+    // stands in for "the parser caught up".
+    pendingWriteCallbacks: (() => void)[] = [];
+    write(data: Uint8Array | string, cb?: () => void) {
       this.writes.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+      if (cb) this.pendingWriteCallbacks.push(cb);
+    }
+    flushWrites() {
+      const cbs = this.pendingWriteCallbacks;
+      this.pendingWriteCallbacks = [];
+      for (const cb of cbs) cb();
     }
     writeln(data: string) {
       this.writes.push(data);
@@ -200,6 +210,26 @@ describe("TerminalTab lifecycle", () => {
     eventHandlers.get("terminal:data:pane-4")!({ payload: bytes("second") });
 
     await vi.waitFor(() => expect(lastTerminal().writes).toEqual(["backlog", "second"]));
+  });
+
+  // The reported bug: every reopen printed one more `1;2c0;276;0c`. Replaying
+  // the backlog re-feeds xterm the device-attribute queries the shell sent on
+  // its previous attach; xterm dutifully answers, the answer reaches a prompt
+  // that isn't reading it, the shell echoes it, and the echo joins the backlog.
+  it("does not answer terminal queries contained in the replayed backlog", async () => {
+    terminalOpen.mockResolvedValueOnce({ spawned: true, backlog: bytes("history\x1b[c") });
+
+    render(<TerminalTab appId="pane-9" rootDir="/src/porta" visible />);
+    await vi.waitFor(() => expect(lastTerminal().writes).toEqual(["history\x1b[c"]));
+
+    // xterm's reply to the replayed query — must go nowhere.
+    lastTerminal().emitInput("\x1b[?1;2c");
+    expect(terminalWrite).not.toHaveBeenCalled();
+
+    // Once the replay is parsed, the pane is a normal terminal again.
+    lastTerminal().flushWrites();
+    lastTerminal().emitInput("ls");
+    expect(terminalWrite).toHaveBeenCalledWith("pane-9", bytes("ls"));
   });
 
   it("passes the numeric exit code from the event payload to onExit", async () => {
