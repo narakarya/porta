@@ -4,6 +4,59 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.1]
+
+### Added
+
+- **ProxyJump chains.** A host can now route through a bastion, and the chain is
+  followed as deep as it goes. `jump_host_id` had been in the schema since the
+  vault shipped but nothing read it, so any host behind a bastion was simply
+  unreachable. The jump-host picker hides candidates that would form a loop; a
+  chain that loops or runs past eight hops reports which host to fix rather than
+  hanging.
+
+- **Import from `~/.ssh/config`.** Reads `HostName`, `User`, `Port`,
+  `IdentityFile` and `ProxyJump`, follows `Include` (including the `dir/*` form),
+  and honours OpenSSH's first-value-wins rule and `!` negation. `Match` blocks are
+  skipped — their branch depends on runtime state, and guessing would import hosts
+  that don't exist. `ProxyJump` aliases resolve to real vault rows on import.
+  Duplicates are shown as already-imported rather than hidden, and your config
+  file is never modified.
+
+- **Local port forwarding (`ssh -L`).** Saved per host, opened automatically when
+  a session connects. Loopback-only for now: a wildcard bind turns a forward into
+  a LAN-reachable hole into the remote network. Forwards die with the session that
+  carries them, and with the app on quit — a listener that outlives its tunnel
+  accepts connections that then hang forever, which is worse than failing.
+
+- **Snippets.** Saved commands, global or scoped to one host, typed into the
+  session's own shell so output lands in the scrollback you're already reading and
+  interactive prompts still reach you. Delivered through the terminal's paste path,
+  which brackets the text when the remote shell has that mode enabled — a raw write
+  loses every line after the first the moment line one prompts for anything.
+
+- **Remote file browsing and editing over SFTP.** Browse the remote filesystem and
+  edit files in Porta's editor. Saves go through a temp file and two renames, never
+  an in-place truncate, and the remote mtime is checked first so a file edited
+  elsewhere reports a conflict instead of silently losing that change. Files that
+  aren't valid UTF-8 are refused rather than lossily decoded.
+
+  No download or upload yet, and deliberately no local filesystem writes at all —
+  that is where the genuinely dangerous cases live (names that collide on
+  case-insensitive APFS, that normalise onto a neighbour, or that escape the
+  target directory). Transfers land in a later release with those handled.
+
+### Changed
+
+- **SSH sessions now send keepalives** (30s, three strikes). Without them a laptop
+  that slept or changed networks kept a session that looked alive while every
+  keystroke vanished into a dead socket. A dropped session now becomes a real
+  disconnect the UI can act on.
+
+- A session that ends on its own — `exit` in the shell, a remote logout, a drop
+  caught by keepalive — now updates the sidebar and tears down its forwards and
+  file browser. Only the terminal used to hear about it.
+
 ## [0.14.0-beta.32]
 
 ### Added
