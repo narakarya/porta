@@ -4,6 +4,9 @@ import type { SshPortForward } from "../../lib/commands";
 
 type Props = { hostId: string | null };
 
+/** Shared empty list — a stable reference, see the selector below. */
+const EMPTY: SshPortForward[] = [];
+
 const field =
   "bg-surface-input border border-subtle rounded-lg px-2.5 py-1.5 text-[12.5px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
 
@@ -31,7 +34,11 @@ function blank(hostId: string): SshPortForward {
  *  session is. A modal is the wrong place to put controls whose result you
  *  can't see while it's open. */
 export default function ForwardsSection({ hostId }: Props) {
-  const forwards = usePortaStore((s) => (hostId ? (s.sshForwards[hostId] ?? []) : []));
+  // Select the raw value and default outside the selector: `?? []` inside it
+  // mints a new array on every render while the host has no entry yet, and a
+  // snapshot that never compares equal makes Zustand re-render forever.
+  const stored = usePortaStore((s) => (hostId ? s.sshForwards[hostId] : undefined));
+  const forwards = stored ?? EMPTY;
   const loadForwards = usePortaStore((s) => s.loadForwards);
   const addForward = usePortaStore((s) => s.addForward);
   const updateForward = usePortaStore((s) => s.updateForward);

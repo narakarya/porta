@@ -348,9 +348,9 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
         // transport — and now that forwards die with the pump, their rows would
         // have kept claiming to be listening on a port that is already free.
         get().setSessionStatus(sessionId, "disconnected");
-        const runtime = { ...get().forwardRuntime };
-        for (const f of get().sshForwards[hostId] ?? []) delete runtime[f.id];
-        set({ forwardRuntime: runtime });
+        // The forwards this session owned are told individually by the backend
+        // (`stopped` on their own channel). Clearing the host's forwards here
+        // would also blank ones still running on a second session to it.
       }),
       listen(`ssh:host-os:${sessionId}`, (e) => {
         const os = (e.payload as { os: string }).os;
@@ -382,18 +382,12 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   },
 
   disconnectSsh: async (sessionId) => {
-    const closing = get().sshSessions.find((s) => s.id === sessionId);
+    // `ssh_close` aborts this session's forwards and emits `stopped` for each,
+    // so their rows update themselves — clearing them here would also blank
+    // forwards belonging to another session on the same host.
     await cmd.sshClose(sessionId);
     sessionUnlisteners.get(sessionId)?.forEach((unlisten) => unlisten());
     sessionUnlisteners.delete(sessionId);
-    // The backend aborts this session's forwards with it, and an aborted task
-    // can't emit — so the runtime entries have to be cleared here or every row
-    // would stay stuck on "listening" against a port that is already free.
-    if (closing) {
-      const runtime = { ...get().forwardRuntime };
-      for (const f of get().sshForwards[closing.hostId] ?? []) delete runtime[f.id];
-      set({ forwardRuntime: runtime });
-    }
     set({ sshSessions: get().sshSessions.filter((s) => s.id !== sessionId) });
     if (get().activeSessionId === sessionId) set({ activeSessionId: get().sshSessions[0]?.id ?? null });
     if (get().sshPrompt?.sessionId === sessionId) set({ sshPrompt: null });

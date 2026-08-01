@@ -340,8 +340,13 @@ impl SshManager {
     }
 
     /// Close a session, tearing down its pump (and the SSH transport with it).
-    pub async fn close(&self, session_id: &str) {
-        self.abort_session_forwards(session_id).await;
+    pub async fn close(&self, app: &AppHandle, session_id: &str) {
+        // Tell each forward's row it is gone. The frontend used to blank the
+        // whole host's runtime state itself, which was wrong the moment a
+        // second session to that host had forwards of its own still running.
+        for id in self.abort_session_forwards(session_id).await {
+            crate::ssh::forward::emit_stopped(app, &id, None);
+        }
         if let Some(s) = self.sessions.lock().await.remove(session_id) {
             let _ = s.input.send(ChannelCmd::Close);
         }

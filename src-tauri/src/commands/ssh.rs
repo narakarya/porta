@@ -352,8 +352,12 @@ pub async fn ssh_resize(
 }
 
 #[tauri::command]
-pub async fn ssh_close(session_id: String, manager: State<'_, SshManager>) -> Result<(), String> {
-    manager.close(&session_id).await;
+pub async fn ssh_close(
+    app: tauri::AppHandle,
+    session_id: String,
+    manager: State<'_, SshManager>,
+) -> Result<(), String> {
+    manager.close(&app, &session_id).await;
     Ok(())
 }
 
