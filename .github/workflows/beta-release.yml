@@ -31,11 +31,19 @@ name: Beta Release
 # package.json / tauri.conf.json / Cargo.toml, e.g. `beta-v0.12.0-beta.1`. The
 # `beta-` prefix keeps it out of `release.yml`'s `v*` trigger, so the two
 # pipelines never both fire on one tag.
+#
+# Manual dispatch does the same thing without a local tag push: it reads the
+# version off `next` — which is already carrying the release bump commit by the
+# time you dispatch — and creates the tag here. Useful when the tag can't be
+# pushed from the machine doing the release. Unlike `release.yml`'s dispatch it
+# does NOT bump any version file; `next` is the source of truth and a mismatch
+# is an error, not something to paper over.
 
 on:
   push:
     tags:
       - "beta-v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -50,23 +58,33 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'next' || github.ref }}
           fetch-depth: 0
 
       - name: Resolve + verify version (tag beta-v<version> == the three files)
         id: resolve
         run: |
           set -euo pipefail
-          # Trigger tag is `beta-v<version>`; strip the `beta-v` prefix.
-          TRIGGER="${GITHUB_REF_NAME}"
-          VER="${TRIGGER#beta-v}"
           PKG=$(node -p "require('./package.json').version")
           CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
           CARGO=$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
-          echo "tag-version=$VER package.json=$PKG tauri.conf.json=$CONF Cargo.toml=$CARGO"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # No tag to read yet — `next` already carries the bump commit, so
+            # the tree is the source of truth and the tag follows from it.
+            VER="$PKG"
+            TAG="beta-v$VER"
+          else
+            # Trigger tag is `beta-v<version>`; strip the `beta-v` prefix.
+            TAG="${GITHUB_REF_NAME}"
+            VER="${TAG#beta-v}"
+          fi
+
+          echo "tag=$TAG version=$VER package.json=$PKG tauri.conf.json=$CONF Cargo.toml=$CARGO"
           if [ "$VER" != "$PKG" ] || [ "$VER" != "$CONF" ] || [ "$VER" != "$CARGO" ]; then
             echo "::error::Version mismatch — the beta-v<version> tag must equal package.json/tauri.conf.json/Cargo.toml. Bump all three to $VER before tagging."
             exit 1
@@ -76,6 +94,25 @@ jobs:
             *) echo "::error::Beta version '$VER' must carry a prerelease suffix (e.g. -beta.1) so the updater orders it correctly."; exit 1 ;;
           esac
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create the trigger tag (manual dispatch only)
+        # A tag pushed with GITHUB_TOKEN does not start another workflow run,
+        # so this stays the only run — the same property `release.yml`'s
+        # dispatch path relies on.
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin — reusing it."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Open the versioned release as a draft
         # Create the `beta-v<version>` release up front so the two matrix build
@@ -88,7 +125,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.resolve.outputs.tag }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
@@ -119,7 +156,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -158,7 +195,7 @@ jobs:
           # release only goes live once merge-updater has the manifest ready.
           # Same regular config as stable → same app identifier → same
           # ~/.porta data dir.
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: "Porta Beta ${{ needs.prepare.outputs.version }}"
           releaseBody: "Opt-in beta build. Enable Settings → About → Beta updates to receive these."
           releaseDraft: true
@@ -175,11 +212,11 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       VERSION: ${{ needs.prepare.outputs.version }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
 
       - name: Collect release notes
