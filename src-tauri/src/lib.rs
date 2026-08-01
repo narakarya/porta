@@ -378,12 +378,30 @@ pub fn run() {
             commands::ssh_add_host,
             commands::ssh_update_host,
             commands::ssh_delete_host,
+            commands::ssh_scan_config,
+            commands::ssh_import_config_hosts,
             commands::ssh_connect,
             commands::ssh_write,
             commands::ssh_resize,
             commands::ssh_close,
             commands::ssh_trust_host,
             commands::ssh_provide_secret,
+            commands::ssh_sftp_home,
+            commands::ssh_sftp_list,
+            commands::ssh_sftp_read,
+            commands::ssh_sftp_save,
+            commands::ssh_list_snippets,
+            commands::ssh_add_snippet,
+            commands::ssh_update_snippet,
+            commands::ssh_delete_snippet,
+            commands::ssh_touch_snippet,
+            commands::ssh_list_forwards,
+            commands::ssh_add_forward,
+            commands::ssh_update_forward,
+            commands::ssh_delete_forward,
+            commands::ssh_start_forward,
+            commands::ssh_stop_forward,
+            commands::ssh_running_forwards,
             commands::list_services,
             commands::add_service,
             commands::update_service,
@@ -601,6 +619,14 @@ pub fn run() {
                     state.processes.kill_tmux_sessions();
                     state.docker.stop_all();
                 }
+
+                // SSH forwards go down unconditionally, outside that setting: a
+                // forward is not a dev server the user asked to keep running,
+                // and its listener is bound by *this* process. Leaving one up
+                // means the next launch finds the port taken by a tunnel that
+                // no longer has an SSH session behind it.
+                let manager = app.state::<commands::SshManager>().inner().clone();
+                tauri::async_runtime::block_on(manager.stop_all_forwards());
             }
         });
 }

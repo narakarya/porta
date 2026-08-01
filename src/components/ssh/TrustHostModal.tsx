@@ -15,7 +15,12 @@ export default function TrustHostModal() {
         className="w-96 p-4 bg-surface-2 border border-white/[0.08] rounded-lg space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-[13px] text-ink font-medium">Unknown host key</div>
+        <div className="text-[13px] text-ink font-medium">
+          {/* Name the hop: on a jump chain this prompt can be about a bastion
+              the user never clicked, and trusting the wrong key is the one
+              mistake this dialog exists to prevent. */}
+          {prompt.hop ? `Unknown host key — ${prompt.hop}` : "Unknown host key"}
+        </div>
         <p className="text-[12px] text-ink-2">
           The authenticity of <span className="text-ink">{prompt.hostname}</span> can't be established.
           Key type <span className="text-ink">{prompt.keyType}</span>. Fingerprint:

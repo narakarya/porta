@@ -83,3 +83,42 @@ describe("ssh session status", () => {
     expect(usePortaStore.getState().sshSessions[0].phase).toBe("connected");
   });
 });
+
+/**
+ * A snippet is typed into a live PTY. Running one against a session that isn't
+ * connected has to fail loudly rather than write into the void — the shell it
+ * would land in is exactly what makes a snippet useful.
+ */
+describe("running a snippet", () => {
+  const snippet = {
+    id: "sn1",
+    label: "Disk usage",
+    command: "df -h",
+    host_id: null,
+    created_at: 0,
+    last_used_at: null,
+  };
+
+  beforeEach(() => {
+    usePortaStore.setState({
+      sshSessions: [session({ id: "s1", status: "connecting" })],
+      activeSessionId: "s1",
+      sshSnippets: [snippet],
+    });
+  });
+
+  it("refuses to run when the active session isn't connected yet", async () => {
+    await expect(usePortaStore.getState().runSnippet(snippet)).rejects.toThrow(/live shell/i);
+  });
+
+  it("refuses to run when there is no session at all", async () => {
+    usePortaStore.setState({ sshSessions: [], activeSessionId: null });
+    await expect(usePortaStore.getState().runSnippet(snippet)).rejects.toThrow();
+  });
+
+  it("marks the snippet used once it runs, so the picker can float it up", async () => {
+    usePortaStore.getState().setSessionStatus("s1", "connected");
+    await usePortaStore.getState().runSnippet(snippet);
+    expect(usePortaStore.getState().sshSnippets[0].last_used_at).not.toBeNull();
+  });
+});

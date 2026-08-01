@@ -682,6 +682,94 @@ pub enum SshAuth {
     Password,
 }
 
+/// A saved command, typed into a session's shell on demand.
+///
+/// There is no "run" plumbing behind this — running a snippet writes its text
+/// into the existing PTY, exactly as if the user had typed it. That is what
+/// makes the output land in scrollback, the shell's own history, and any
+/// interactive prompt the command triggers; an out-of-band exec channel would
+/// give a tidier API and a worse tool.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshSnippet {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+    /// `None` = available on every host. Scoping is per host rather than per
+    /// workspace because a snippet is about what the *remote* box understands.
+    #[serde(default)]
+    pub host_id: Option<String>,
+    pub created_at: i64,
+    #[serde(default)]
+    pub last_used_at: Option<i64>,
+}
+
+/// Mirrors OpenSSH's `-L` / `-R` / `-D`. Only `Local` can be started today; the
+/// other two exist so persisted rows and the IPC shape stay stable when they
+/// land. Stored as a plain lowercase string, not JSON.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SshForwardKind {
+    Local,
+    Remote,
+    Dynamic,
+}
+
+impl SshForwardKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Remote => "remote",
+            Self::Dynamic => "dynamic",
+        }
+    }
+
+    /// Unknown values fall back to `Local` rather than failing the row — a
+    /// forward written by a newer build must not make the whole host unlistable.
+    pub fn from_db(s: &str) -> Self {
+        match s {
+            "remote" => Self::Remote,
+            "dynamic" => Self::Dynamic,
+            _ => Self::Local,
+        }
+    }
+}
+
+fn default_forward_kind() -> SshForwardKind {
+    SshForwardKind::Local
+}
+
+fn default_bind_address() -> String {
+    "127.0.0.1".into()
+}
+
+/// A saved port-forward rule attached to an SSH host. Runtime state (resolved
+/// bound port, live connection count, last error) is deliberately absent: it is
+/// pushed on `ssh:forward:{id}` and never persisted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SshPortForward {
+    pub id: String,
+    pub host_id: String,
+    #[serde(default = "default_forward_kind")]
+    pub kind: SshForwardKind,
+    /// Optional display name; the UI falls back to `remote_host:remote_port`.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Local interface to bind. Loopback-only in this release — a wildcard bind
+    /// turns a forward into a LAN-reachable hole into the remote network. The
+    /// column exists so a future gateway toggle needs no migration.
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    /// 0 = let the kernel pick. The actually-bound port is reported in the
+    /// event and never written back, so "auto" stays auto across restarts.
+    pub local_port: u16,
+    pub remote_host: String,
+    pub remote_port: u16,
+    /// Open this forward automatically when a session to the host connects.
+    #[serde(default)]
+    pub auto_start: bool,
+    pub created_at: i64,
+}
+
 /// A trusted server host key fingerprint, keyed by (host, port). Mirrors
 /// OpenSSH's `known_hosts` semantics so Porta can flag a mismatched key
 /// (potential MITM) instead of silently accepting whatever key the server

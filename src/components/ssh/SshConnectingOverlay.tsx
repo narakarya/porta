@@ -183,6 +183,15 @@ export default function SshConnectingOverlay({ session }: { session: SshSession 
           <span className="text-[10px] tabular-nums text-ink-3">{(elapsed / 1000).toFixed(1)}s</span>
         </div>
 
+        {/* Which box the current gate is against. Only set while walking a jump
+            chain — without it, a bastion sitting on a password prompt looks
+            exactly like the target host asking. */}
+        {session.hop && (
+          <div className="mt-1 text-[11px] text-ink-3 truncate max-w-full">
+            on <span className="text-ink-2">{session.hop}</span>
+          </div>
+        )}
+
         <p className={`mt-1.5 text-[11px] leading-snug ${slow ? "text-warn" : "text-transparent"}`} aria-hidden={!slow}>
           {/* Reserved line — the hint appearing must not shift the chain. */}
           {slow ? step.slow : " "}

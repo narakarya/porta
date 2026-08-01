@@ -5,11 +5,12 @@ import { createServiceSlice, type ServiceSlice } from "./slices/service";
 import { createUiSlice, type UiSlice } from "./slices/ui";
 import { createRemoteSlice, type RemoteSlice } from "./slices/remote";
 import { createSshSlice, type SshSlice } from "./slices/ssh";
+import { createSftpSlice, type SftpSlice } from "./slices/sftp";
 import { createNotifySlice, type NotifySlice } from "./slices/notify";
 import { createTerminalSlice, type TerminalSlice } from "./slices/terminal";
 import { subscribeToAppEvents } from "./subscriptions";
 
-export type AllSlices = WorkspaceSlice & AppSlice & ServiceSlice & UiSlice & RemoteSlice & SshSlice & NotifySlice & TerminalSlice & {
+export type AllSlices = WorkspaceSlice & AppSlice & ServiceSlice & UiSlice & RemoteSlice & SshSlice & SftpSlice & NotifySlice & TerminalSlice & {
   _subscribeToAppEvents: () => () => void;
 };
 
@@ -23,6 +24,7 @@ export const usePortaStore = create<AllSlices>((...a) => ({
   ...createUiSlice(...a),
   ...createRemoteSlice(...a),
   ...createSshSlice(...a),
+  ...createSftpSlice(...a),
   ...createNotifySlice(...a),
   ...createTerminalSlice(...a),
   _subscribeToAppEvents: () => {

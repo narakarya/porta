@@ -25,6 +25,11 @@ import {
   mockNextPort,
   mockServices,
   mockInstances,
+  mockSshConfigCandidates,
+  mockSshForwards,
+  mockSftpListing,
+  mockSftpRead,
+  mockSshSnippets,
   mockSshHosts,
   startMockService,
   stopMockService,
@@ -2029,6 +2034,165 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+// ── SFTP (remote file browsing) ──────────────────────────────────────────────
+
+export type SftpKind = "file" | "dir" | "symlink" | "other";
+
+export interface SftpEntry {
+  name: string;
+  path: string;
+  kind: SftpKind;
+  size: number | null;
+  mtime: number | null;
+  permissions: number | null;
+  modeStr: string | null;
+  /** Name didn't survive the server's UTF-8 decode — list it, never act on it. */
+  lossyName: boolean;
+}
+
+export interface SftpListing {
+  path: string;
+  entries: SftpEntry[];
+  /** Hit the entry cap; the directory holds more than is shown. */
+  truncated: boolean;
+  totalSeen: number;
+}
+
+export interface SftpFileContent {
+  path: string;
+  content: string;
+  size: number;
+  mtime: number | null;
+  permissions: number | null;
+  /** Not valid UTF-8 — `content` is empty and the editor refuses. */
+  binary: boolean;
+}
+
+export type SftpSaveOutcome =
+  | { status: "saved"; mtime: number | null }
+  | { status: "conflict"; remoteMtime: number | null };
+
+export const sftpHome = (sessionId: string): Promise<string> =>
+  isTauri ? invoke("ssh_sftp_home", { sessionId }) : Promise.resolve("/home/deploy");
+
+export const sftpList = (sessionId: string, path: string): Promise<SftpListing> =>
+  isTauri ? invoke("ssh_sftp_list", { sessionId, path }) : Promise.resolve(mockSftpListing(path));
+
+export const sftpRead = (sessionId: string, path: string): Promise<SftpFileContent> =>
+  isTauri ? invoke("ssh_sftp_read", { sessionId, path }) : Promise.resolve(mockSftpRead(path));
+
+export const sftpSave = (
+  sessionId: string,
+  path: string,
+  content: string,
+  expectedMtime: number | null
+): Promise<SftpSaveOutcome> =>
+  isTauri
+    ? invoke("ssh_sftp_save", { sessionId, path, content, expectedMtime })
+    : Promise.resolve({ status: "saved", mtime: Math.floor(Date.now() / 1000) });
+
+/** A saved command, typed into a session's shell on demand. */
+export interface SshSnippet {
+  id: string;
+  label: string;
+  command: string;
+  /** null = offered on every host. */
+  host_id: string | null;
+  created_at: number;
+  last_used_at: number | null;
+}
+
+export const sshListSnippets = (): Promise<SshSnippet[]> =>
+  isTauri ? invoke("ssh_list_snippets") : Promise.resolve([...mockSshSnippets]);
+
+export const sshAddSnippet = (snippet: SshSnippet): Promise<SshSnippet> =>
+  isTauri ? invoke("ssh_add_snippet", { snippet }) : Promise.resolve(snippet);
+
+export const sshUpdateSnippet = (snippet: SshSnippet): Promise<void> =>
+  isTauri ? invoke("ssh_update_snippet", { snippet }) : Promise.resolve();
+
+export const sshDeleteSnippet = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_delete_snippet", { id }) : Promise.resolve();
+
+export const sshTouchSnippet = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_touch_snippet", { id }) : Promise.resolve();
+
+export type SshForwardKind = "local" | "remote" | "dynamic";
+
+/** A saved port-forward rule on a host. Runtime state is never stored here —
+ *  it arrives on `ssh:forward:{id}`. */
+export interface SshPortForward {
+  id: string;
+  host_id: string;
+  kind: SshForwardKind;
+  label: string | null;
+  /** Loopback-only in this release. */
+  bind_address: string;
+  /** 0 = auto; the resolved port arrives in the runtime event. */
+  local_port: number;
+  remote_host: string;
+  remote_port: number;
+  auto_start: boolean;
+  created_at: number;
+}
+
+/** Pushed on `ssh:forward:{forwardId}` — never persisted. */
+export interface SshForwardRuntime {
+  state: "starting" | "listening" | "stopped" | "failed";
+  local_port: number;
+  active_conns: number;
+  capped: boolean;
+  error: string | null;
+}
+
+export const sshListForwards = (hostId: string): Promise<SshPortForward[]> =>
+  isTauri
+    ? invoke("ssh_list_forwards", { hostId })
+    : Promise.resolve(mockSshForwards.filter((f) => f.host_id === hostId));
+
+export const sshAddForward = (forward: SshPortForward): Promise<SshPortForward> =>
+  isTauri ? invoke("ssh_add_forward", { forward }) : Promise.resolve(forward);
+
+export const sshUpdateForward = (forward: SshPortForward): Promise<void> =>
+  isTauri ? invoke("ssh_update_forward", { forward }) : Promise.resolve();
+
+export const sshDeleteForward = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_delete_forward", { id }) : Promise.resolve();
+
+/** Resolves to the actually-bound local port (differs from the rule when 0). */
+export const sshStartForward = (sessionId: string, forwardId: string): Promise<number> =>
+  isTauri ? invoke("ssh_start_forward", { sessionId, forwardId }) : Promise.resolve(0);
+
+/** Keyed by forward id alone — the backend knows which session owns it, and a
+ *  host can have more than one session open. */
+export const sshStopForward = (forwardId: string): Promise<void> =>
+  isTauri ? invoke("ssh_stop_forward", { forwardId }) : Promise.resolve();
+
+export const sshRunningForwards = (sessionId: string): Promise<string[]> =>
+  isTauri ? invoke("ssh_running_forwards", { sessionId }) : Promise.resolve([]);
+
+/** A `~/.ssh/config` entry offered for import. */
+export interface SshConfigCandidate {
+  alias: string;
+  hostname: string;
+  port: number;
+  username: string;
+  identity_file: string | null;
+  /** The alias named by `ProxyJump` — resolved to a host id on import. */
+  proxy_jump: string | null;
+  /** The vault already has a host with this user@hostname:port. */
+  already_in_vault: boolean;
+}
+
+export const sshScanConfig = (): Promise<SshConfigCandidate[]> =>
+  isTauri ? invoke("ssh_scan_config") : Promise.resolve([...mockSshConfigCandidates]);
+
+export const sshImportConfigHosts = (
+  aliases: string[],
+  workspaceIds: string[]
+): Promise<SshHost[]> =>
+  isTauri ? invoke("ssh_import_config_hosts", { aliases, workspaceIds }) : Promise.resolve([]);
 
 export const sshConnect = (hostId: string, sessionId: string): Promise<string> =>
   isTauri ? invoke("ssh_connect", { hostId, sessionId }) : Promise.resolve(sessionId);

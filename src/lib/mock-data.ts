@@ -3,7 +3,16 @@
  * Only used when `window.__TAURI_INTERNALS__` is absent.
  */
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
-import type { AppInstance, SshHost } from "./commands";
+import type {
+  AppInstance,
+  SftpEntry,
+  SftpFileContent,
+  SftpListing,
+  SshConfigCandidate,
+  SshHost,
+  SshPortForward,
+  SshSnippet,
+} from "./commands";
 
 export const mockWorkspaces: Workspace[] = [
   { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
@@ -509,6 +518,136 @@ export const mockSshHosts: SshHost[] = [
     last_used_at: 1_751_000_000,
     workspace_ids: [],
     detected_os: null,
+  },
+];
+
+/** Browser-dev stand-in for a remote directory listing. */
+export function mockSftpListing(path: string): SftpListing {
+  const dir = (name: string): SftpEntry => ({
+    name,
+    path: `${path.replace(/\/$/, "")}/${name}`,
+    kind: "dir",
+    size: null,
+    mtime: 1_752_800_000,
+    permissions: 0o40755,
+    modeStr: "drwxr-xr-x",
+    lossyName: false,
+  });
+  const file = (name: string, size: number, mode = 0o100644): SftpEntry => ({
+    name,
+    path: `${path.replace(/\/$/, "")}/${name}`,
+    kind: "file",
+    size,
+    mtime: 1_752_900_000,
+    permissions: mode,
+    modeStr: "-rw-r--r--",
+    lossyName: false,
+  });
+  const entries: SftpEntry[] =
+    path === "/"
+      ? [dir("etc"), dir("home"), dir("var")]
+      : [dir("releases"), dir("shared"), file(".env", 412, 0o100600), file("docker-compose.yml", 1_842), file("nginx.conf", 2_310)];
+  return { path, entries, truncated: false, totalSeen: entries.length + 2 };
+}
+
+export function mockSftpRead(path: string): SftpFileContent {
+  const body = path.endsWith(".env")
+    ? "DATABASE_URL=postgres://localhost/app_prod\nSECRET_KEY_BASE=n0t-a-real-secret\nPORT=4000\n"
+    : "server {\n  listen 80;\n  server_name app.narakarya.id;\n}\n";
+  return {
+    path,
+    content: body,
+    size: body.length,
+    mtime: 1_752_900_000,
+    permissions: 0o100644,
+    binary: false,
+  };
+}
+
+export const mockSshSnippets: SshSnippet[] = [
+  {
+    id: "snip-1",
+    label: "Disk usage",
+    command: "df -h",
+    host_id: null,
+    created_at: 1_752_000_000,
+    last_used_at: 1_752_900_000,
+  },
+  {
+    id: "snip-2",
+    label: "Tail nginx errors",
+    command: "sudo tail -f /var/log/nginx/error.log",
+    host_id: null,
+    created_at: 1_752_000_000,
+    last_used_at: null,
+  },
+  {
+    id: "snip-3",
+    label: "Restart app",
+    command: "sudo systemctl restart narakarya-web",
+    host_id: "host-1",
+    created_at: 1_752_100_000,
+    last_used_at: null,
+  },
+];
+
+export const mockSshForwards: SshPortForward[] = [
+  {
+    id: "fwd-1",
+    host_id: "host-1",
+    kind: "local",
+    label: "Postgres",
+    bind_address: "127.0.0.1",
+    local_port: 15432,
+    remote_host: "127.0.0.1",
+    remote_port: 5432,
+    auto_start: true,
+    created_at: 1_752_000_000,
+  },
+  {
+    id: "fwd-2",
+    host_id: "host-1",
+    kind: "local",
+    label: null,
+    bind_address: "127.0.0.1",
+    local_port: 0,
+    remote_host: "redis.internal",
+    remote_port: 6379,
+    auto_start: false,
+    created_at: 1_752_100_000,
+  },
+];
+
+/** Browser-dev stand-in for a `~/.ssh/config` scan. `prod-web` is deliberately
+ *  a duplicate of `mockSshHosts[0]` so the import modal's already-in-vault
+ *  state is reachable without a real config file. */
+export const mockSshConfigCandidates: SshConfigCandidate[] = [
+  {
+    alias: "prod-web",
+    hostname: "web.narakarya.id",
+    port: 22,
+    username: "deploy",
+    identity_file: null,
+    proxy_jump: null,
+    already_in_vault: true,
+  },
+  {
+    alias: "bastion",
+    hostname: "bastion.narakarya.id",
+    port: 22,
+    username: "jump",
+    identity_file: "~/.ssh/id_ed25519",
+    proxy_jump: null,
+    already_in_vault: false,
+  },
+  {
+    alias: "analytics",
+    hostname: "10.20.0.14",
+    port: 22,
+    username: "ubuntu",
+    identity_file: "~/.ssh/id_analytics",
+    proxy_jump: "bastion",
+    already_in_vault: false,
   },
 ];
 
