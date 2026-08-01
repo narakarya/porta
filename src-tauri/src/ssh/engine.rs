@@ -288,6 +288,16 @@ pub struct SshManager {
     /// bound every auto-start forward a second time (on a different ephemeral
     /// port, invisible to the UI), and Stop only ever killed one of them.
     forwards: Arc<Mutex<HashMap<String, RunningForward>>>,
+    /// Session ids closed while their handshake was still running.
+    ///
+    /// `close()` can only remove a session that is already registered, and
+    /// `connect()` registers one only after the whole handshake — so cancelling
+    /// a slow connect used to do nothing at all on the backend while the
+    /// frontend threw the id away. The connect then finished against an id
+    /// nobody held: a live transport, a shell pump with no subscriber, and
+    /// auto-started forwards binding real ports, none of which could be closed
+    /// again short of quitting the app.
+    cancelled: Arc<Mutex<std::collections::HashSet<String>>>,
     secrets: Arc<dyn SecretStore>,
 }
 
@@ -318,6 +328,7 @@ impl SshManager {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             forwards: Arc::new(Mutex::new(HashMap::new())),
+            cancelled: Arc::new(Mutex::new(std::collections::HashSet::new())),
             secrets,
         }
     }
@@ -381,9 +392,34 @@ impl SshManager {
         for id in self.abort_session_forwards(session_id).await {
             crate::ssh::forward::emit_stopped(app, &id, None);
         }
-        if let Some(s) = self.sessions.lock().await.remove(session_id) {
-            let _ = s.input.send(ChannelCmd::Close);
+        self.take_or_tombstone(session_id).await;
+    }
+
+    /// Remove a live session and tell its pump to stop; if there wasn't one,
+    /// leave a tombstone instead.
+    ///
+    /// Split out from `close()` purely so it is testable — `close()` needs an
+    /// `AppHandle` to emit with, and this is the half that carries the cancel
+    /// semantics.
+    async fn take_or_tombstone(&self, session_id: &str) -> bool {
+        let existed = {
+            let mut map = self.sessions.lock().await;
+            match map.remove(session_id) {
+                Some(s) => {
+                    let _ = s.input.send(ChannelCmd::Close);
+                    true
+                }
+                None => false,
+            }
+        };
+        if !existed {
+            // Either the handshake is still running — in which case `connect()`
+            // must abandon it rather than register a session nobody can reach —
+            // or the id was already gone and this is a harmless no-op that
+            // `connect()` sweeps on its next run.
+            self.cancelled.lock().await.insert(session_id.to_string());
         }
+        existed
     }
 
     /// Abort every forward riding on one session's transport. Returns the ids,
@@ -881,6 +917,10 @@ impl SshManager {
         host: SshHost,
         db: Arc<std::sync::Mutex<Database>>,
     ) -> Result<(), String> {
+        // Ids are fresh UUIDs, so a tombstone under this one can only be debris
+        // from an earlier close that no connect consumed.
+        self.cancelled.lock().await.remove(&session_id);
+
         // 1-3. Transport + host-key gate + auth, once per hop in the chain.
         let (handle, jumps, key_type) = self
             .open_transport(&app, &session_id, &host, &db)
@@ -912,6 +952,18 @@ impl SshManager {
             .map_err(|e| e.to_string())?;
 
         // 5. Register the live session (replacing any placeholder from prompts).
+        //
+        // Last chance to notice the user cancelled while we were handshaking.
+        // Past this point the session is reachable by `close()`; before it, it
+        // was not, so bailing here is what makes Cancel mean anything on a slow
+        // or jump-chained host.
+        if self.cancelled.lock().await.remove(&session_id) {
+            self.sessions.lock().await.remove(&session_id);
+            // `transport` drops with this frame, taking the target handle and
+            // every jump hop with it.
+            return Err("Connection cancelled.".into());
+        }
+
         let (input_tx, mut input_rx) = mpsc::unbounded_channel::<ChannelCmd>();
         {
             let mut map = self.sessions.lock().await;
@@ -1207,6 +1259,38 @@ mod tests {
         let db = db_with(&hosts);
         let err = resolve_chain(&target, &db).unwrap_err();
         assert!(err.contains("hops deep"), "unexpected error: {err}");
+    }
+
+    /// A manager with no live sessions, for the cancel-path tests.
+    fn manager() -> SshManager {
+        SshManager::new(Arc::new(crate::ssh::keychain::MemoryStore::new()))
+    }
+
+    #[tokio::test]
+    async fn closing_an_unregistered_session_leaves_a_cancel_tombstone() {
+        // The whole point: `connect()` registers a session only after the
+        // handshake, so a Cancel during the handshake has nothing to remove.
+        // Without the tombstone the connect finished anyway and left a live
+        // transport plus bound forwards that nothing could reach.
+        let m = manager();
+        assert!(!m.take_or_tombstone("s1").await, "no live session to take");
+        assert!(m.cancelled.lock().await.contains("s1"));
+    }
+
+    #[tokio::test]
+    async fn closing_a_live_session_does_not_tombstone() {
+        let m = manager();
+        m.sessions
+            .lock()
+            .await
+            .insert("s1".into(), placeholder_session());
+        assert!(m.take_or_tombstone("s1").await, "live session was taken");
+        assert!(
+            m.cancelled.lock().await.is_empty(),
+            "a session that existed needs no tombstone — one left here would \
+             abort the NEXT connect that happened to reuse the id"
+        );
+        assert!(m.sessions.lock().await.is_empty());
     }
 
     #[test]

@@ -4,7 +4,7 @@ import CodeEditor, { type CodeLanguage } from "../shared/CodeEditor";
 import { Spinner } from "../ui";
 import { confirmDialog } from "../../lib/confirm";
 
-type Props = { sessionId: string };
+type Props = { sessionId: string; active: boolean };
 
 /** Pick a highlighting mode from the filename. Unknown extensions fall back to
  *  plain text rather than guessing — wrong highlighting on a config file reads
@@ -18,7 +18,7 @@ function languageFor(path: string): CodeLanguage {
 }
 
 /** Edit one remote file in place. */
-export default function SftpFileEditor({ sessionId }: Props) {
+export default function SftpFileEditor({ sessionId, active }: Props) {
   const open = usePortaStore((s) => s.sftpOpen[sessionId]);
   const edit = usePortaStore((s) => s.sftpEditDraft);
   const save = usePortaStore((s) => s.sftpSaveFile);
@@ -26,9 +26,12 @@ export default function SftpFileEditor({ sessionId }: Props) {
 
   const dirty = !!open && open.draft !== open.content;
 
-  // ⌘S saves. Scoped to this component's lifetime, so it can't fire against a
-  // file the user already closed.
+  // ⌘S saves — but only in the pane you can actually see. Every session tab
+  // stays mounted (the hidden ones are just display:none), so an unguarded
+  // window listener meant one ⌘S saved every open editor at once, including
+  // files in sessions the user had switched away from.
   useEffect(() => {
+    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -37,7 +40,7 @@ export default function SftpFileEditor({ sessionId }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sessionId, save]);
+  }, [sessionId, save, active]);
 
   if (!open) return null;
 

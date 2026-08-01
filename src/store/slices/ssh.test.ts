@@ -122,3 +122,54 @@ describe("running a snippet", () => {
     expect(usePortaStore.getState().sshSnippets[0].last_used_at).not.toBeNull();
   });
 });
+
+/**
+ * ⌘S reached the store directly, bypassing the Save button's guards. A binary
+ * file is held with an empty draft because the editor refuses to decode it, so
+ * one keystroke could replace a remote binary with nothing.
+ */
+describe("saving a remote file", () => {
+  const base = {
+    path: "/srv/app/logo.png",
+    content: "",
+    size: 4096,
+    mtime: 100,
+    permissions: 0o100644,
+    binary: true,
+    draft: "",
+    saving: false,
+    error: null,
+    conflict: false,
+  };
+
+  beforeEach(() => {
+    usePortaStore.setState({
+      sshSessions: [session({ id: "s1", status: "connected" })],
+      activeSessionId: "s1",
+      sftpOpen: { s1: { ...base } },
+    });
+  });
+
+  it("refuses to write a binary file", async () => {
+    await usePortaStore.getState().sftpSaveFile("s1");
+    // Never entered the saving state, so no write was attempted.
+    expect(usePortaStore.getState().sftpOpen.s1.saving).toBe(false);
+    expect(usePortaStore.getState().sftpOpen.s1.content).toBe("");
+  });
+
+  it("refuses when the buffer matches what is on the server", async () => {
+    usePortaStore.setState({
+      sftpOpen: { s1: { ...base, binary: false, content: "same", draft: "same" } },
+    });
+    await usePortaStore.getState().sftpSaveFile("s1");
+    expect(usePortaStore.getState().sftpOpen.s1.saving).toBe(false);
+  });
+
+  it("writes when the buffer actually differs", async () => {
+    usePortaStore.setState({
+      sftpOpen: { s1: { ...base, binary: false, content: "old", draft: "new" } },
+    });
+    await usePortaStore.getState().sftpSaveFile("s1");
+    expect(usePortaStore.getState().sftpOpen.s1.content).toBe("new");
+  });
+});

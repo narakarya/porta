@@ -452,7 +452,16 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     // so their rows update themselves — clearing them here would also blank
     // forwards belonging to another session on the same host.
     await cmd.sshClose(sessionId);
-    get().sftpForgetSession(sessionId);
+    // The same warning the ssh:exit path raises. Dropping this return value
+    // meant the deliberate close — the one the user triggers by hand — was the
+    // silent one, while an involuntary drop got a message.
+    const lost = get().sftpForgetSession(sessionId);
+    if (lost) {
+      get().notify({
+        kind: "error",
+        message: `Unsaved changes to ${lost} were lost when the session closed.`,
+      });
+    }
     sessionUnlisteners.get(sessionId)?.forEach((unlisten) => unlisten());
     sessionUnlisteners.delete(sessionId);
     set({ sshSessions: get().sshSessions.filter((s) => s.id !== sessionId) });

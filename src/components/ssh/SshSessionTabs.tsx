@@ -5,6 +5,7 @@ import SshTerminal from "./SshTerminal";
 import SshConnectingOverlay from "./SshConnectingOverlay";
 import SnippetBar from "./SnippetBar";
 import SftpBrowser from "./SftpBrowser";
+import { confirmDialog } from "../../lib/confirm";
 
 const STATUS_DOT: Record<SshSession["status"], string> = {
   connected: "bg-ok",
@@ -27,6 +28,20 @@ export default function SshSessionTabs() {
   // second tab carried "files" over to it, and a session that isn't connected
   // renders no Files pane at all — so the tab looked empty.
   const [views, setViews] = useState<Record<string, "terminal" | "files">>({});
+
+  // Closing a tab tears down the session, and with it any remote file open in
+  // its editor. Ask before throwing away edits the user can't get back.
+  async function closeSession(id: string) {
+    const open = usePortaStore.getState().sftpOpen[id];
+    if (open && open.draft !== open.content) {
+      const ok = await confirmDialog(
+        `${open.path} has unsaved changes. Close the session anyway?`,
+        { title: "Unsaved changes", okLabel: "Close session" }
+      );
+      if (!ok) return;
+    }
+    disconnect(id);
+  }
   const view = (id: string) => views[id] ?? "terminal";
   const setView = (id: string, v: "terminal" | "files") =>
     setViews((prev) => ({ ...prev, [id]: v }));
@@ -61,7 +76,7 @@ export default function SshSessionTabs() {
               className="text-ink-3 hover:text-bad"
               onClick={(e) => {
                 e.stopPropagation();
-                disconnect(s.id);
+                closeSession(s.id);
               }}
             >
               ✕

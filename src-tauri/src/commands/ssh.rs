@@ -179,9 +179,13 @@ pub fn ssh_import_config_hosts(
     // created and whatever was already in the vault.
     // Owned keys/values: pass 2 takes `&mut imported`, so this map can't hold
     // borrows into it.
-    let by_label: std::collections::HashMap<String, String> = imported
+    // Existing rows first so the freshly imported ones overwrite them: labels
+    // are not unique in the vault, and a config that imports `bastion` should
+    // point its own hosts at the `bastion` it just created, not at an unrelated
+    // older row that happens to share the name.
+    let by_label: std::collections::HashMap<String, String> = existing
         .iter()
-        .chain(existing.iter())
+        .chain(imported.iter())
         .map(|h| (h.label.clone(), h.id.clone()))
         .collect();
     let jump_of: std::collections::HashMap<&str, &str> = entries

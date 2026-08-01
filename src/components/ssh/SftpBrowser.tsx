@@ -82,7 +82,7 @@ export default function SftpBrowser({ sessionId, active }: Props) {
     }
   }
 
-  if (open) return <SftpFileEditor sessionId={sessionId} />;
+  if (open) return <SftpFileEditor sessionId={sessionId} active={active} />;
 
   return (
     <div className="h-full flex flex-col">

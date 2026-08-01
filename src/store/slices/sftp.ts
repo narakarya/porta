@@ -128,6 +128,11 @@ export const createSftpSlice: StateCreator<AllSlices, [], [], SftpSlice> = (set,
     sftpSaveFile: async (sessionId) => {
       const open = get().sftpOpen[sessionId];
       if (!open) return;
+      // These used to live only on the Save button, so ⌘S went straight past
+      // them. A binary file is held with an EMPTY draft (the editor refuses to
+      // decode it), which meant one keystroke could overwrite a remote binary
+      // with nothing at all.
+      if (open.binary || open.saving || open.draft === open.content) return;
       const patch = (p: Partial<SftpOpenFile>) => {
         const cur = get().sftpOpen[sessionId];
         if (!cur) return;
