@@ -47,6 +47,9 @@ export interface SftpSlice {
   sftpEditDraft: (sessionId: string, draft: string) => void;
   sftpSaveFile: (sessionId: string) => Promise<void>;
   sftpCloseFile: (sessionId: string) => void;
+  /** Drop a dead session's browse state. Returns the path of an open file that
+   *  still had unsaved edits, so the caller can say so out loud. */
+  sftpForgetSession: (sessionId: string) => string | null;
 }
 
 export const createSftpSlice: StateCreator<AllSlices, [], [], SftpSlice> = (set, get) => {
@@ -150,6 +153,20 @@ export const createSftpSlice: StateCreator<AllSlices, [], [], SftpSlice> = (set,
       const next = { ...get().sftpOpen };
       delete next[sessionId];
       set({ sftpOpen: next });
+    },
+
+    sftpForgetSession: (sessionId) => {
+      const open = get().sftpOpen[sessionId];
+      // The draft is genuinely gone — the channel it would have been written
+      // through died with the session. Report the loss rather than letting the
+      // pane quietly disappear with the work in it.
+      const lost = open && open.draft !== open.content ? open.path : null;
+      const panes = { ...get().sftpPanes };
+      const files = { ...get().sftpOpen };
+      delete panes[sessionId];
+      delete files[sessionId];
+      set({ sftpPanes: panes, sftpOpen: files });
+      return lost;
     },
   };
 };

@@ -407,6 +407,13 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
         // transport — and now that forwards die with the pump, their rows would
         // have kept claiming to be listening on a port that is already free.
         get().setSessionStatus(sessionId, "disconnected");
+        const lost = get().sftpForgetSession(sessionId);
+        if (lost) {
+          get().notify({
+            kind: "error",
+            message: `Unsaved changes to ${lost} were lost — the session ended before saving.`,
+          });
+        }
         // The forwards this session owned are told individually by the backend
         // (`stopped` on their own channel). Clearing the host's forwards here
         // would also blank ones still running on a second session to it.
@@ -445,6 +452,7 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     // so their rows update themselves — clearing them here would also blank
     // forwards belonging to another session on the same host.
     await cmd.sshClose(sessionId);
+    get().sftpForgetSession(sessionId);
     sessionUnlisteners.get(sessionId)?.forEach((unlisten) => unlisten());
     sessionUnlisteners.delete(sessionId);
     set({ sshSessions: get().sshSessions.filter((s) => s.id !== sessionId) });

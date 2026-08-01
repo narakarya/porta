@@ -23,7 +23,13 @@ export default function SshSessionTabs() {
 
   const activeSession = sessions.find((s) => s.id === active);
   const activeHostId = activeSession?.hostId;
-  const [view, setView] = useState<"terminal" | "files">("terminal");
+  // Per session, not one shared value: with a single toggle, switching to a
+  // second tab carried "files" over to it, and a session that isn't connected
+  // renders no Files pane at all — so the tab looked empty.
+  const [views, setViews] = useState<Record<string, "terminal" | "files">>({});
+  const view = (id: string) => views[id] ?? "terminal";
+  const setView = (id: string, v: "terminal" | "files") =>
+    setViews((prev) => ({ ...prev, [id]: v }));
 
   if (sessions.length === 0) {
     return (
@@ -80,9 +86,11 @@ export default function SshSessionTabs() {
             {(["terminal", "files"] as const).map((v) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => active && setView(active, v)}
                 className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
-                  view === v ? "bg-white/[0.10] text-ink" : "text-ink-3 hover:text-ink-2"
+                  active && view(active) === v
+                    ? "bg-white/[0.10] text-ink"
+                    : "text-ink-3 hover:text-ink-2"
                 }`}
               >
                 {v === "terminal" ? "Terminal" : "Files"}
@@ -143,16 +151,30 @@ export default function SshSessionTabs() {
             >
               <div
                 className="h-full w-full"
-                style={{ display: view === "terminal" ? "block" : "none" }}
+                style={{ display: view(s.id) === "terminal" ? "block" : "none" }}
               >
-                <SshTerminal sessionId={s.id} visible={active === s.id && view === "terminal"} />
+                <SshTerminal
+                  sessionId={s.id}
+                  visible={active === s.id && view(s.id) === "terminal"}
+                />
               </div>
               {/* Sibling, not a replacement: unmounting the terminal would drop
                   the data listener registered on its mount, and the session's
                   output would vanish while the user was in Files. */}
-              {view === "files" && s.status === "connected" && (
+              {view(s.id) === "files" && (
                 <div className="absolute inset-0 bg-surface-0">
-                  <SftpBrowser sessionId={s.id} active={active === s.id} />
+                  {s.status === "connected" ? (
+                    <SftpBrowser sessionId={s.id} active={active === s.id} />
+                  ) : (
+                    // Say why rather than rendering nothing — a blank pane
+                    // reads as a broken feature.
+                    <div className="h-full flex items-center justify-center px-6 text-center">
+                      <p className="text-[12.5px] text-ink-3">
+                        This session isn't connected, so there's nothing to browse. Reconnect to
+                        open its files.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               {s.status === "connecting" && (

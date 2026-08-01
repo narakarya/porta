@@ -11,7 +11,9 @@
 //! malformed packet from a hostile server would take the whole app down.
 
 use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use serde::Serialize;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Entries returned for one directory. `read_dir` in russh-sftp is eager — it
 /// materialises the whole listing before returning — so this bounds the IPC
@@ -232,20 +234,25 @@ pub async fn read(sftp: &SftpSession, path: &str) -> Result<SftpFileContent, Str
         .metadata(path.to_string())
         .await
         .map_err(|e| format!("stat {path}: {e}"))?;
-    let size = meta.size.unwrap_or(0);
-    if size > MAX_EDIT_BYTES {
-        return Err(format!(
-            "{path} is {:.1} MB. Porta opens remote files up to {} MB — use the terminal for \
-             anything larger.",
-            size as f64 / (1024.0 * 1024.0),
-            MAX_EDIT_BYTES / (1024 * 1024)
-        ));
+
+    // Only regular files. A character device (/dev/zero, /dev/urandom) reports
+    // size 0 and then never ends, and a FIFO blocks until someone writes to the
+    // other end — both would hang or exhaust memory behind a size check that
+    // looked fine.
+    if let Some(mode) = meta.permissions {
+        if mode & 0o170000 != 0o100000 {
+            return Err(format!(
+                "{path} isn't a regular file, so there's nothing to edit. Use the terminal for it."
+            ));
+        }
     }
 
-    let bytes = sftp
-        .read(path.to_string())
-        .await
-        .map_err(|e| format!("read {path}: {e}"))?;
+    let size = meta.size.unwrap_or(0);
+    if size > MAX_EDIT_BYTES {
+        return Err(too_large(path, size));
+    }
+
+    let bytes = read_capped(sftp, path).await?;
 
     // Refuse rather than lossily decode: round-tripping U+FFFD back through
     // save would silently corrupt the file.
@@ -267,6 +274,49 @@ pub async fn read(sftp: &SftpSession, path: &str) -> Result<SftpFileContent, Str
             binary: true,
         }),
     }
+}
+
+fn too_large(path: &str, size: u64) -> String {
+    format!(
+        "{path} is {:.1} MB. Porta opens remote files up to {} MB — use the terminal for \
+         anything larger.",
+        size as f64 / (1024.0 * 1024.0),
+        MAX_EDIT_BYTES / (1024 * 1024)
+    )
+}
+
+/// Read a file with a hard ceiling on what is actually transferred.
+///
+/// Not `SftpSession::read`, which is `read_to_end`: that trusts the server's
+/// framing twice over. It bounds nothing itself, so a file that grew since the
+/// stat — or a server that simply lies about size — allocates without limit.
+/// And tokio's `read_to_end` probes with a 32-byte buffer, so a reply larger
+/// than the request trips a `ReadBuf` assertion inside the crate; with
+/// `panic = "abort"` in release, that is a remote app-kill rather than an
+/// error. A fixed 32 KiB buffer plus an explicit cap closes the realistic
+/// version of both.
+async fn read_capped(sftp: &SftpSession, path: &str) -> Result<Vec<u8>, String> {
+    let mut file = sftp
+        .open(path.to_string())
+        .await
+        .map_err(|e| format!("open {path}: {e}"))?;
+
+    let mut chunk = vec![0u8; 32 * 1024];
+    let mut out: Vec<u8> = Vec::new();
+    loop {
+        let n = file
+            .read(&mut chunk)
+            .await
+            .map_err(|e| format!("read {path}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&chunk[..n]);
+        if out.len() as u64 > MAX_EDIT_BYTES {
+            return Err(too_large(path, out.len() as u64));
+        }
+    }
+    Ok(out)
 }
 
 /// Write `content` back, via a temp file and two renames.
@@ -304,16 +354,53 @@ pub async fn save(
     let tmp = join_path(&dir, &format!(".{base}.porta-{token}"));
     let backup = join_path(&dir, &format!(".{base}.porta-bak-{token}"));
 
-    sftp.write(tmp.clone(), content.as_bytes())
+    // Not `SftpSession::write`: it opens with SSH_FXF_WRITE alone — no CREAT,
+    // no TRUNC — so creating a fresh temp file fails outright on OpenSSH, and
+    // it never awaits the server's write acknowledgements, so a write that the
+    // server rejected (ENOSPC, quota) still returns Ok.
+    //
+    // The mode is set at creation rather than afterwards, so the file is never
+    // briefly readable at the server's umask — which matters, since the file
+    // being edited is as likely as not a .env full of secrets.
+    let mut attrs = FileAttributes::default();
+    attrs.permissions = meta.permissions.map(|m| m & 0o7777);
+    let mut file = sftp
+        .open_with_flags_and_attributes(
+            tmp.clone(),
+            // EXCLUDE so a leftover temp from a crashed save is never written
+            // into rather than replaced.
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE | OpenFlags::EXCLUDE,
+            attrs,
+        )
         .await
-        .map_err(|e| format!("write temp file: {e}"))?;
+        .map_err(|e| format!("create temp file: {e}"))?;
 
-    // Preserve the original mode; a fresh file would otherwise land with the
-    // server's default umask and quietly widen or narrow access.
-    if let Some(mode) = meta.permissions {
-        let mut attrs = russh_sftp::protocol::FileAttributes::default();
-        attrs.permissions = Some(mode);
-        let _ = sftp.set_metadata(tmp.clone(), attrs).await;
+    // write_all queues; flush and shutdown are what actually wait for the
+    // server's status for every queued write and for the CLOSE, which is where
+    // a deferred out-of-space error surfaces. Dropping the handle instead would
+    // discard exactly those errors.
+    let write_result = async {
+        file.write_all(content.as_bytes()).await?;
+        file.flush().await?;
+        file.shutdown().await
+    }
+    .await;
+    if let Err(e) = write_result {
+        let _ = sftp.remove_file(tmp).await;
+        return Err(format!("write temp file: {e}"));
+    }
+
+    // Independent confirmation before anything touches the original: the size
+    // the server reports back must match what we sent.
+    let written = sftp.metadata(tmp.clone()).await.ok().and_then(|m| m.size);
+    if written != Some(content.len() as u64) {
+        let _ = sftp.remove_file(tmp).await;
+        return Err(format!(
+            "The server stored {} of {} bytes. Nothing was changed — check free space and quota \
+             on the remote host.",
+            written.unwrap_or(0),
+            content.len()
+        ));
     }
 
     if let Err(e) = sftp.rename(path.to_string(), backup.clone()).await {
@@ -339,6 +426,135 @@ pub async fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Drive the real OpenSSH `sftp-server` over its stdio.
+    ///
+    /// Every other test in this module is a pure function, which is exactly how
+    /// a broken `save` shipped: it opened the temp file without SSH_FXF_CREAT,
+    /// so every save failed against a real server, and nothing here could see
+    /// it. These talk to the same binary sshd runs.
+    mod live {
+        use super::*;
+        use std::path::Path;
+
+        const SERVER: &str = "/usr/libexec/sftp-server";
+
+        async fn session() -> Option<SftpSession> {
+            if !Path::new(SERVER).exists() {
+                return None;
+            }
+            let mut child = tokio::process::Command::new(SERVER)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok()?;
+            let stdin = child.stdin.take()?;
+            let stdout = child.stdout.take()?;
+            // The child is deliberately leaked for the test's lifetime: dropping
+            // the handle would kill the server mid-request.
+            std::mem::forget(child);
+            SftpSession::new(tokio::io::join(stdout, stdin)).await.ok()
+        }
+
+        #[tokio::test]
+        async fn save_writes_a_file_that_did_not_exist_before() {
+            let Some(sftp) = session().await else { return };
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("app.conf");
+            std::fs::write(&path, "old contents\n").expect("seed");
+            let path = path.to_string_lossy().to_string();
+
+            let before = read(&sftp, &path).await.expect("read");
+            assert_eq!(before.content, "old contents\n");
+
+            // The regression: `save` creates a brand-new temp file. Opening it
+            // without CREATE fails with ENOENT on this exact server.
+            let outcome = save(&sftp, &path, "new contents\n", before.mtime)
+                .await
+                .expect("save must succeed against a real sftp-server");
+            assert!(matches!(outcome, SftpSaveOutcome::Saved { .. }));
+            assert_eq!(std::fs::read_to_string(&path).expect("reread"), "new contents\n");
+        }
+
+        #[tokio::test]
+        async fn save_shrinking_a_file_leaves_no_stale_tail() {
+            let Some(sftp) = session().await else { return };
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("big.txt");
+            std::fs::write(&path, "x".repeat(900)).expect("seed");
+            let path = path.to_string_lossy().to_string();
+
+            let before = read(&sftp, &path).await.expect("read");
+            save(&sftp, &path, "short", before.mtime).await.expect("save");
+            // Without TRUNCATE this would be "short" followed by 895 stale bytes.
+            assert_eq!(std::fs::read_to_string(&path).expect("reread"), "short");
+        }
+
+        #[tokio::test]
+        async fn save_preserves_the_original_mode() {
+            let Some(sftp) = session().await else { return };
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join(".env");
+            std::fs::write(&path, "SECRET=1\n").expect("seed");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+            let path = path.to_string_lossy().to_string();
+
+            let before = read(&sftp, &path).await.expect("read");
+            save(&sftp, &path, "SECRET=2\n", before.mtime).await.expect("save");
+
+            // A secrets file must not come back world-readable because the save
+            // recreated it under the server's umask.
+            let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "mode must survive the save");
+        }
+
+        #[tokio::test]
+        async fn save_refuses_when_the_file_changed_underneath() {
+            let Some(sftp) = session().await else { return };
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("shared.txt");
+            std::fs::write(&path, "one\n").expect("seed");
+            let path = path.to_string_lossy().to_string();
+
+            let before = read(&sftp, &path).await.expect("read");
+            // Someone else edits it. mtime has 1s resolution, so move it far
+            // enough that the change is unambiguous.
+            let stale = before.mtime.map(|m| m.saturating_sub(120));
+            let outcome = save(&sftp, &path, "mine\n", stale).await.expect("save");
+            assert!(matches!(outcome, SftpSaveOutcome::Conflict { .. }));
+            assert_eq!(
+                std::fs::read_to_string(&path).expect("reread"),
+                "one\n",
+                "a conflict must write nothing at all"
+            );
+        }
+
+        #[tokio::test]
+        async fn read_refuses_a_non_regular_file() {
+            let Some(sftp) = session().await else { return };
+            // /dev/zero reports size 0 and never ends; reading it to the end
+            // would exhaust memory behind a size check that looked fine.
+            let err = read(&sftp, "/dev/zero").await.unwrap_err();
+            assert!(err.contains("regular file"), "got: {err}");
+        }
+
+        #[tokio::test]
+        async fn listing_a_directory_sorts_and_types_entries() {
+            let Some(sftp) = session().await else { return };
+            let dir = tempfile::tempdir().expect("tempdir");
+            std::fs::create_dir(dir.path().join("sub")).expect("mkdir");
+            std::fs::write(dir.path().join("a.txt"), "a").expect("write");
+            let listing = list(&sftp, &dir.path().to_string_lossy()).await.expect("list");
+
+            let names: Vec<&str> = listing.entries.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(names, vec!["sub", "a.txt"], "directories lead");
+            assert_eq!(listing.entries[0].kind, SftpKind::Dir);
+            assert_eq!(listing.entries[1].kind, SftpKind::File);
+            assert!(!listing.truncated);
+        }
+    }
 
     #[test]
     fn mode_str_renders_common_modes() {
