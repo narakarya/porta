@@ -109,6 +109,25 @@ function needsValue(row: EnvRow): boolean {
 
 const SECRET_MASK = "••••••••";
 
+/** True for the lines the comment toggle hides: `#` comments and the blank
+ *  lines that separate them. Kept in sync with `parseEnvContent`, which folds
+ *  both into `kind: "comment"`. */
+function isCommentLine(line: string): boolean {
+  const t = line.trim();
+  return t === "" || t.startsWith("#");
+}
+
+// Drop comment/blank lines from the raw view. Display-only: the editor goes
+// read-only while they're hidden, so the stripped text is never written back.
+function stripComments(text: string): string {
+  return text.split("\n").filter((l) => !isCommentLine(l)).join("\n");
+}
+
+/** Comment lines proper — blanks aren't counted, they'd inflate the badge. */
+function countComments(text: string): number {
+  return text.split("\n").filter((l) => l.trim().startsWith("#")).length;
+}
+
 // Mask the values of sensitive KEY=VALUE lines for the raw view, leaving
 // comments, blank lines, and non-sensitive vars untouched.
 function maskRawSecrets(text: string): string {
@@ -166,6 +185,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
   // Global reveal — overrides per-row masking so every sensitive value shows at
   // once. Individual eye toggles still work when this is off.
   const [showAllSensitive, setShowAllSensitive] = useState(false);
+  // Comment/blank lines are noise when you just want to read the config, so
+  // they start hidden. A view preference, not per-file state: it survives file
+  // switches and reloads on purpose.
+  const [showComments, setShowComments] = useState(false);
   const [envMode, setEnvMode] = useState<"rows" | "raw">("rows");
   const [rawContent, setRawContent] = useState("");
 
@@ -218,6 +241,12 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
    *  empty already. A row with no key yet is one the user is still typing (see
    *  `addRow`), so it doesn't count. */
   const emptyValueCount = rows.filter((r) => r.kind === "var" && needsValue(r)).length;
+  /* Raw mode owns the text while it's active — `rows` is stale there. */
+  const commentCount = active?.kind !== "env"
+    ? 0
+    : envMode === "raw"
+      ? countComments(rawContent)
+      : rows.filter((r) => r.kind === "comment" && r.raw.trim().startsWith("#")).length;
   const isDirty = active?.kind === "env"
     ? envMode === "raw"
       ? rawContent !== serializeRows(originalRows)
@@ -380,7 +409,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
     lastCmQueryRef.current = ctxKey;
     setMatchInfo({ index, count });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, searchOpen, active, envMode, content, rawContent, showAllSensitive]);
+  }, [searchQuery, searchOpen, active, envMode, content, rawContent, showAllSensitive, showComments]);
 
   // ── Find-in-file search (env rows editor) ───────────────────────────────
 
@@ -866,7 +895,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
               stale, `rawContent` is the source of truth. */}
           {active?.kind === "env" && envMode === "rows" && emptyValueCount > 0 && (
             <span
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-warn-bg border border-[rgba(251,191,36,0.25)] text-warn"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-warn-bg border border-[var(--warning-border)] text-warn"
               title="Variables with an empty value"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-warn" />
@@ -900,6 +929,27 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
             </div>
           )}
 
+          {/* Comment/blank-line toggle — env files only. Hidden by default so the
+              file reads as a plain list of variables. */}
+          {active?.kind === "env" && (
+            <button
+              onClick={() => setShowComments((v) => !v)}
+              title={showComments ? "Hide comments and blank lines" : "Show comments and blank lines"}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] border transition-colors ${
+                showComments
+                  ? "bg-white/[0.10] text-ink border-strong"
+                  : "bg-white/[0.05] text-ink-2 border-subtle hover:text-ink hover:bg-white/[0.08]"
+              }`}
+            >
+              <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
+                <path d="M4 1.5L3 9.5M8 1.5L7 9.5M1.5 3.8h8M1 7.2h8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+              </svg>
+              {showComments
+                ? "Hide comments"
+                : commentCount > 0 ? `Show comments (${commentCount})` : "Show comments"}
+            </button>
+          )}
+
           {/* Reveal all sensitive values at once (per-row eye toggles still work).
               Shown in both modes so switching Rows/Raw doesn't shift the toolbar.
               Undo/redo is keyboard-only — ⌘Z / ⌘⇧Z, as in any editor. */}
@@ -909,7 +959,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
               title={showAllSensitive ? "Mask secret values again" : "Reveal masked secret values"}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] border transition-colors ${
                 showAllSensitive
-                  ? "bg-warn-bg text-warn border-[rgba(251,191,36,0.30)]"
+                  ? "bg-warn-bg text-warn border-[var(--warning-border)]"
                   : "bg-white/[0.05] text-ink-2 border-subtle hover:text-ink hover:bg-white/[0.08]"
               }`}
             >
@@ -933,7 +983,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           <button
             onClick={handleSave}
             disabled={!active || !isDirty || saving}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-accent-bg border border-[rgba(96,165,250,0.30)] text-accent-ink hover:bg-[rgba(96,165,250,0.24)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-control text-[11px] bg-accent-bg border border-[var(--accent-border)] text-accent-ink hover:bg-[var(--accent-border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? "Saving…" : "Save ⌘S"}
           </button>
@@ -953,7 +1003,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
         {/* Restart prompt — compose port drift */}
         {restartPrompt && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-warn-bg border-b border-[rgba(251,191,36,0.20)] text-[12px] text-warn">
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-warn-bg border-b border-[var(--warning-border)] text-[12px] text-warn">
             <span>
               Proxy port changed: <span className="font-mono">{restartPrompt.oldPort}</span> → <span className="font-mono">{restartPrompt.newPort}</span>. Restart to apply.
             </span>
@@ -971,7 +1021,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
         {templateCandidates.map((f) => (
           <div
             key={f.path}
-            className="flex items-center gap-3 px-4 py-2.5 bg-accent-bg border-b border-[rgba(96,165,250,0.20)] text-[12px] text-accent-ink"
+            className="flex items-center gap-3 px-4 py-2.5 bg-accent-bg border-b border-[var(--accent-border)] text-[12px] text-accent-ink"
           >
             <span>
               No <span className="font-mono">{baseName(f.templateTarget!)}</span> yet — create it from{" "}
@@ -1018,9 +1068,9 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                           </span>
                           <span className={`ml-auto text-[9px] uppercase tracking-wide px-1 py-0.5 rounded shrink-0 ${
                             f.kind === "compose"
-                              ? "bg-ok-bg border border-[rgba(52,211,153,0.20)] text-ok"
+                              ? "bg-ok-bg border border-[var(--success-border)] text-ok"
                               : f.kind === "generic"
-                                ? "bg-accent-bg border border-[rgba(96,165,250,0.20)] text-accent-ink"
+                                ? "bg-accent-bg border border-[var(--accent-border)] text-accent-ink"
                                 : "bg-white/[0.06] border border-subtle text-ink-2"
                           }`}>
                             {f.kind === "generic" ? (f.language ?? "file") : f.kind}
@@ -1044,7 +1094,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
           {/* Editor pane */}
           <div className="flex-1 min-w-0 flex flex-col bg-surface-code">
             {error && (
-              <div className="px-4 py-2 bg-bad-bg border-b border-[rgba(248,113,113,0.20)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+              <div className="px-4 py-2 bg-bad-bg border-b border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                 {error}
               </div>
             )}
@@ -1108,22 +1158,29 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
               /* ── Env raw editor ── secrets masked (read-only) until revealed,
                  so the raw view is as private as the rows view. */
               <div className="flex-1 min-h-0 flex flex-col">
-                {!showAllSensitive && (
+                {(!showAllSensitive || !showComments) && (
                   <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-ink-3 border-b border-white/[0.05] bg-white/[0.02]">
                     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-warn">
                       <path d="M1.5 5.5S3.5 2 5.5 2s4 3.5 4 3.5-2 3.5-4 3.5S1.5 5.5 1.5 5.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
                       <circle cx="5.5" cy="5.5" r="1.2" stroke="currentColor" strokeWidth="1.1"/>
                       <path d="M1.5 9.5l8-8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
                     </svg>
-                    Secrets hidden — click “Reveal secrets” to edit the raw file.
+                    {!showAllSensitive && !showComments
+                      ? "Secrets and comments hidden — reveal both to edit the raw file."
+                      : !showAllSensitive
+                        ? "Secrets hidden — click “Reveal secrets” to edit the raw file."
+                        : "Comments hidden — click “Show comments” to edit the raw file."}
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-auto p-4">
                   <CodeEditor
-                    value={showAllSensitive ? rawContent : maskRawSecrets(rawContent)}
+                    value={(() => {
+                      const text = showComments ? rawContent : stripComments(rawContent);
+                      return showAllSensitive ? text : maskRawSecrets(text);
+                    })()}
                     onChange={handleRawChange}
                     language="text"
-                    readOnly={!showAllSensitive}
+                    readOnly={!showAllSensitive || !showComments}
                     rows={28}
                     maxHeight="100%"
                     onReady={(view) => { searchViewRef.current = view; }}
@@ -1145,6 +1202,10 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
                   <tbody>
                     {rows.map((row, i) => {
                       if (row.kind === "comment") {
+                        // Rendered as null rather than filtered out: every action
+                        // below (updateRow, deleteRow, revealed, rowRefs) keys off
+                        // the index into `rows`, so the indices must stay intact.
+                        if (!showComments) return null;
                         // Blank lines become a small gap, not a bordered row, so
                         // stacked blanks don't pile up faint divider lines.
                         const blank = row.raw.trim() === "";
@@ -1270,7 +1331,7 @@ export default function FileEditorModal({ appId, appName, composePath, currentPo
 
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-control border text-[11px] shadow-lg ${
-          toast.ok ? "bg-surface-2 border-[rgba(52,211,153,0.30)] text-ok" : "bg-surface-2 border-[rgba(248,113,113,0.30)] text-bad"
+          toast.ok ? "bg-surface-2 border-[var(--success-border)] text-ok" : "bg-surface-2 border-[var(--danger-border)] text-bad"
         }`}>
           {toast.msg}
         </div>
