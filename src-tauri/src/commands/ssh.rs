@@ -4,7 +4,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::db::models::{SshAuth, SshHost};
+use crate::db::models::{SshAuth, SshHost, SshPortForward};
 use crate::ssh::config_import::{self, SshConfigEntry};
 
 // Re-exported so `commands::SshManager` resolves for `.manage(...)` and
@@ -47,11 +47,26 @@ pub fn ssh_update_host(host: SshHost, state: State<AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn ssh_delete_host(id: String, state: State<AppState>) -> Result<(), String> {
+pub async fn ssh_delete_host(
+    app: tauri::AppHandle,
+    id: String,
+    manager: State<'_, SshManager>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Stop the host's forwards before the rules vanish. Deleting only the rows
+    // left the listener bound and still tunnelling into the remote network,
+    // with the sidebar row — the only way to stop it — gone from the UI.
+    let forwards = state
+        .db
+        .lock_or_recover()
+        .list_ssh_forwards_for_host(&id)
+        .unwrap_or_default();
+    for f in &forwards {
+        manager.stop_forward_if_running(&app, &f.id).await;
+    }
     state
         .db
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .delete_ssh_host(&id)
         .map_err(|e| e.to_string())
 }
@@ -212,6 +227,107 @@ pub async fn ssh_connect(
         .connect(app, session_id.clone(), host, state.db.clone())
         .await?;
     Ok(session_id)
+}
+
+// ── Port forwards ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn ssh_list_forwards(host_id: String, state: State<AppState>) -> Result<Vec<SshPortForward>, String> {
+    state
+        .db
+        .lock_or_recover()
+        .list_ssh_forwards_for_host(&host_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ssh_add_forward(
+    mut forward: SshPortForward,
+    state: State<AppState>,
+) -> Result<SshPortForward, String> {
+    // Reject before persisting — a saved rule that can never start is worse
+    // than a rejected one, because it fails again on every reconnect.
+    crate::ssh::forward::validate(&forward)?;
+    if forward.id.is_empty() {
+        forward.id = Uuid::new_v4().to_string();
+    }
+    forward.created_at = now_epoch();
+    state
+        .db
+        .lock_or_recover()
+        .insert_ssh_forward(&forward)
+        .map_err(|e| e.to_string())?;
+    Ok(forward)
+}
+
+/// Edit a rule. A running forward is stopped rather than mutated in place: its
+/// listener is already bound to the old port, so the change would otherwise
+/// only take effect on the next reconnect while the UI showed the new values.
+#[tauri::command]
+pub async fn ssh_update_forward(
+    app: tauri::AppHandle,
+    forward: SshPortForward,
+    manager: State<'_, SshManager>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::ssh::forward::validate(&forward)?;
+    manager.stop_forward_if_running(&app, &forward.id).await;
+    state
+        .db
+        .lock_or_recover()
+        .update_ssh_forward(&forward)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ssh_delete_forward(
+    app: tauri::AppHandle,
+    id: String,
+    manager: State<'_, SshManager>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Stop first: deleting the row while the listener still holds the port
+    // leaves an orphan nothing in the UI can reach.
+    manager.stop_forward_if_running(&app, &id).await;
+    state
+        .db
+        .lock_or_recover()
+        .delete_ssh_forward(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ssh_start_forward(
+    app: tauri::AppHandle,
+    session_id: String,
+    forward_id: String,
+    manager: State<'_, SshManager>,
+    state: State<'_, AppState>,
+) -> Result<u16, String> {
+    let forward = state
+        .db
+        .lock_or_recover()
+        .get_ssh_forward(&forward_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("That forward no longer exists.")?;
+    manager.start_forward(app, &session_id, forward).await
+}
+
+#[tauri::command]
+pub async fn ssh_stop_forward(
+    app: tauri::AppHandle,
+    forward_id: String,
+    manager: State<'_, SshManager>,
+) -> Result<(), String> {
+    manager.stop_forward(&app, &forward_id).await
+}
+
+#[tauri::command]
+pub async fn ssh_running_forwards(
+    session_id: String,
+    manager: State<'_, SshManager>,
+) -> Result<Vec<String>, String> {
+    Ok(manager.running_forwards(&session_id).await)
 }
 
 #[tauri::command]

@@ -3,13 +3,39 @@ import { listen } from "../../lib/tauri-event";
 import type { UnlistenFn } from "../../lib/tauri-event";
 import type { AllSlices } from "../index";
 import * as cmd from "../../lib/commands";
-import type { SshHost } from "../../lib/commands";
+import type { SshForwardRuntime, SshHost, SshPortForward } from "../../lib/commands";
 
 // Non-serializable listener handles keyed by sessionId — kept out of Zustand
 // state on purpose. Registered before `ssh_connect` is invoked so backend
 // events (trust-request, need-secret, status, ...) are never emitted before
 // the frontend is subscribed; torn down in `disconnectSsh`.
 const sessionUnlisteners = new Map<string, UnlistenFn[]>();
+
+// Forward listeners are keyed by FORWARD id, not session id: a forward rule
+// outlives any one session (it auto-starts again on the next connect), so
+// tearing these down with the session would silently stop updating the row.
+const forwardUnlisteners = new Map<string, UnlistenFn>();
+
+type SshSet = Parameters<StateCreator<AllSlices, [], [], SshSlice>>[0];
+type SshGet = Parameters<StateCreator<AllSlices, [], [], SshSlice>>[1];
+
+/** Subscribe to a forward's runtime events, once. Idempotent so the repeated
+ *  calls from load/add/start don't stack duplicate listeners. */
+async function watchForward(id: string, set: SshSet, get: SshGet) {
+  if (forwardUnlisteners.has(id)) return;
+  const un = await listen(`ssh:forward:${id}`, (e) => {
+    set({ forwardRuntime: { ...get().forwardRuntime, [id]: e.payload as SshForwardRuntime } });
+  });
+  forwardUnlisteners.set(id, un);
+}
+
+/** Drop a forward's runtime entry — absent means "not running", which is what
+ *  a stopped or edited forward should read as. */
+function clearRuntime(id: string, set: SshSet, get: SshGet) {
+  const next = { ...get().forwardRuntime };
+  delete next[id];
+  set({ forwardRuntime: next });
+}
 
 /** Backend handshake steps, in the order `engine::connect` walks them. The
  *  coarse `status` can't drive a progress list — every gate before the shell
@@ -56,6 +82,18 @@ export interface SshSlice {
   sshSessions: SshSession[];
   activeSessionId: string | null;
   sshPrompt: SshPrompt | null;
+  /** Saved forward rules, keyed by host id. Loaded lazily per host. */
+  sshForwards: Record<string, SshPortForward[]>;
+  /** Live state per forward id, fed by `ssh:forward:{id}`. Absent = not running. */
+  forwardRuntime: Record<string, SshForwardRuntime>;
+
+  loadForwards: (hostId: string) => Promise<void>;
+  addForward: (forward: SshPortForward) => Promise<void>;
+  updateForward: (forward: SshPortForward) => Promise<void>;
+  deleteForward: (forward: SshPortForward) => Promise<void>;
+  /** Start on the host's live session; no-op with a reason if none is open. */
+  startForward: (forward: SshPortForward) => Promise<void>;
+  stopForward: (forward: SshPortForward) => Promise<void>;
 
   loadSshHosts: () => Promise<void>;
   /** Import the picked `~/.ssh/config` aliases; resolves to the rows created. */
@@ -84,8 +122,101 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   sshSessions: [],
   activeSessionId: null,
   sshPrompt: null,
+  sshForwards: {},
+  forwardRuntime: {},
 
-  loadSshHosts: async () => set({ sshHosts: await cmd.sshListHosts() }),
+  loadForwards: async (hostId) => {
+    const list = await cmd.sshListForwards(hostId);
+    set({ sshForwards: { ...get().sshForwards, [hostId]: list } });
+    // Subscribe before anything can start them. Tauri doesn't buffer events for
+    // late subscribers, and auto-start forwards fire during `ssh_connect` —
+    // subscribing afterwards would miss the only "listening" event they send.
+    await Promise.all(list.map((f) => watchForward(f.id, set, get)));
+  },
+
+  addForward: async (forward) => {
+    const saved = await cmd.sshAddForward(forward);
+    const host = saved.host_id;
+    set({ sshForwards: { ...get().sshForwards, [host]: [...(get().sshForwards[host] ?? []), saved] } });
+    await watchForward(saved.id, set, get);
+  },
+
+  updateForward: async (forward) => {
+    await cmd.sshUpdateForward(forward);
+    const host = forward.host_id;
+    set({
+      sshForwards: {
+        ...get().sshForwards,
+        [host]: (get().sshForwards[host] ?? []).map((f) => (f.id === forward.id ? forward : f)),
+      },
+    });
+    // The backend stops a running forward on edit (its listener is bound to the
+    // old port), so the row must stop claiming to be live.
+    clearRuntime(forward.id, set, get);
+  },
+
+  deleteForward: async (forward) => {
+    await cmd.sshDeleteForward(forward.id);
+    const host = forward.host_id;
+    set({
+      sshForwards: {
+        ...get().sshForwards,
+        [host]: (get().sshForwards[host] ?? []).filter((f) => f.id !== forward.id),
+      },
+    });
+    forwardUnlisteners.get(forward.id)?.();
+    forwardUnlisteners.delete(forward.id);
+    clearRuntime(forward.id, set, get);
+  },
+
+  startForward: async (forward) => {
+    const session = get().sshSessions.find(
+      (s) => s.hostId === forward.host_id && s.status === "connected"
+    );
+    if (!session) throw new Error("Connect to this host first — a forward needs a live session.");
+    await watchForward(forward.id, set, get);
+    // Optimistic: the bind can block on `lsof` when the port is taken, and a
+    // row that doesn't react to the click reads as a dead button.
+    set({
+      forwardRuntime: {
+        ...get().forwardRuntime,
+        [forward.id]: { state: "starting", local_port: 0, active_conns: 0, capped: false, error: null },
+      },
+    });
+    try {
+      await cmd.sshStartForward(session.id, forward.id);
+    } catch (e) {
+      set({
+        forwardRuntime: {
+          ...get().forwardRuntime,
+          [forward.id]: {
+            state: "failed",
+            local_port: forward.local_port,
+            active_conns: 0,
+            capped: false,
+            error: e instanceof Error ? e.message : String(e),
+          },
+        },
+      });
+      throw e;
+    }
+  },
+
+  stopForward: async (forward) => {
+    // No session lookup: picking "the first session for this host" stopped the
+    // wrong one whenever a dead session was still in the tab strip, leaving the
+    // port bound while the row claimed it was stopped.
+    await cmd.sshStopForward(forward.id);
+  },
+
+  loadSshHosts: async () => {
+    const hosts = await cmd.sshListHosts();
+    set({ sshHosts: hosts });
+    // Pull each host's forwards up front so the sidebar can list them without a
+    // live session, and so their listeners exist before any auto-start fires.
+    // One call per host, but the vault is tens of rows, not thousands.
+    await Promise.all(hosts.map((h) => get().loadForwards(h.id).catch(() => {})));
+  },
   importSshConfigHosts: async (aliases, workspaceIds) => {
     const created = await cmd.sshImportConfigHosts(aliases, workspaceIds);
     // Reload rather than appending `created` — an import can skip duplicates
@@ -155,6 +286,12 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     if (!host) return;
     const sessionId = crypto.randomUUID();
 
+    // Load + subscribe the host's forwards BEFORE connecting. The backend
+    // auto-starts them inside `ssh_connect`, and Tauri drops events that have
+    // no listener yet — subscribing after would leave an auto-started forward
+    // permanently rendered as stopped.
+    await get().loadForwards(hostId);
+
     // Register + await all listeners BEFORE invoking ssh_connect. Tauri events
     // are not buffered for late subscribers — the backend command blocks on
     // trust/secret oneshots and can emit trust-request/need-secret/connected
@@ -204,6 +341,17 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
         const msg = (e.payload as { message?: string } | null)?.message;
         get().setSessionStatus(sessionId, "error", undefined, msg || "Authentication failed");
       }),
+      listen(`ssh:exit:${sessionId}`, () => {
+        // The pump ended on its own: `exit` typed in the shell, a remote
+        // logout, or a drop that keepalive finally noticed. Only the terminal
+        // listened for this before, so the row stayed green over a dead
+        // transport — and now that forwards die with the pump, their rows would
+        // have kept claiming to be listening on a port that is already free.
+        get().setSessionStatus(sessionId, "disconnected");
+        const runtime = { ...get().forwardRuntime };
+        for (const f of get().sshForwards[hostId] ?? []) delete runtime[f.id];
+        set({ forwardRuntime: runtime });
+      }),
       listen(`ssh:host-os:${sessionId}`, (e) => {
         const os = (e.payload as { os: string }).os;
         set({ sshHosts: get().sshHosts.map((h) => (h.id === hostId ? { ...h, detected_os: os } : h)) });
@@ -234,9 +382,18 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   },
 
   disconnectSsh: async (sessionId) => {
+    const closing = get().sshSessions.find((s) => s.id === sessionId);
     await cmd.sshClose(sessionId);
     sessionUnlisteners.get(sessionId)?.forEach((unlisten) => unlisten());
     sessionUnlisteners.delete(sessionId);
+    // The backend aborts this session's forwards with it, and an aborted task
+    // can't emit — so the runtime entries have to be cleared here or every row
+    // would stay stuck on "listening" against a port that is already free.
+    if (closing) {
+      const runtime = { ...get().forwardRuntime };
+      for (const f of get().sshForwards[closing.hostId] ?? []) delete runtime[f.id];
+      set({ forwardRuntime: runtime });
+    }
     set({ sshSessions: get().sshSessions.filter((s) => s.id !== sessionId) });
     if (get().activeSessionId === sessionId) set({ activeSessionId: get().sshSessions[0]?.id ?? null });
     if (get().sshPrompt?.sessionId === sessionId) set({ sshPrompt: null });

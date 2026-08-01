@@ -5,6 +5,7 @@ mod app_repo;
 mod service_repo;
 mod remote_repo;
 mod instance_repo;
+mod ssh_forward_repo;
 mod ssh_repo;
 pub use ssh_repo::{fingerprint_sha256, HostKeyVerdict};
 
@@ -299,6 +300,30 @@ impl Database {
         // Remote OS detected on connect (added after the initial ssh_hosts table
         // shipped, so ALTER for existing installs; ignored if already present).
         let _ = self.conn.execute("ALTER TABLE ssh_hosts ADD COLUMN detected_os TEXT", []);
+
+        // Saved port-forward rules per SSH host (OpenSSH's -L, with -R/-D
+        // reserved in `kind`). Deliberately has no status/pid column, unlike
+        // remote_routes and app_instances: those describe things that outlive
+        // the process (a Caddy route, an OS pid), but a forward's listener
+        // cannot — a persisted "running" would be a lie after every crash.
+        // Runtime state lives only in SshManager and is pushed on
+        // `ssh:forward:{id}`.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS ssh_port_forwards (
+                id           TEXT PRIMARY KEY,
+                host_id      TEXT NOT NULL REFERENCES ssh_hosts(id) ON DELETE CASCADE,
+                kind         TEXT NOT NULL DEFAULT 'local',
+                label        TEXT,
+                bind_address TEXT NOT NULL DEFAULT '127.0.0.1',
+                local_port   INTEGER NOT NULL DEFAULT 0,
+                remote_host  TEXT NOT NULL DEFAULT '',
+                remote_port  INTEGER NOT NULL DEFAULT 0,
+                auto_start   INTEGER NOT NULL DEFAULT 1,
+                created_at   INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_ssh_port_forwards_host
+                ON ssh_port_forwards(host_id);
+        ")?;
 
         Ok(())
     }

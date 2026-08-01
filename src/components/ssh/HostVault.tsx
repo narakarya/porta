@@ -3,6 +3,7 @@ import { usePortaStore } from "../../store";
 import type { SshHost } from "../../lib/commands";
 import HostFormModal from "./HostFormModal";
 import ImportConfigModal from "./ImportConfigModal";
+import ForwardRows from "./ForwardRows";
 import { OsIcon } from "./OsIcon";
 import { Spinner } from "../ui";
 import { SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
@@ -264,8 +265,8 @@ export default function HostVault() {
               const selected = h.id === activeHostId;
               const menuHere = menu?.host.id === h.id;
               return (
+                <div key={h.id}>
                 <div
-                  key={h.id}
                   onContextMenu={(e) => openMenu(e, h)}
                   className={`group flex items-center gap-2 pl-1.5 pr-2 py-1.5 rounded-[6px] text-[13px] transition-colors ${
                     selected ? "bg-accent-bg text-ink" : menuHere ? "bg-white/[0.05]" : "text-ink hover:bg-white/[0.05]"
@@ -309,6 +310,8 @@ export default function HostVault() {
                   >
                     <DotsIcon />
                   </button>
+                </div>
+                  <ForwardRows hostId={h.id} connected={live > 0} />
                 </div>
               );
             })}

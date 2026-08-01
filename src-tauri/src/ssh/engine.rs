@@ -54,7 +54,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-use crate::db::models::{SshAuth, SshHost, SshKnownHost};
+use crate::db::models::{SshAuth, SshHost, SshKnownHost, SshPortForward};
 use crate::db::{Database, HostKeyVerdict};
 use crate::ssh::keychain::SecretStore;
 
@@ -87,6 +87,11 @@ pub fn auth_plan(auth: &SshAuth, agent_available: bool) -> Vec<AuthAttempt> {
 /// hard limit, but a chain this deep is far more likely to be a misconfigured
 /// loop than a real topology — and each hop costs a full handshake.
 const MAX_JUMPS: usize = 8;
+
+/// Returned when a forward is already listening — including on a *different*
+/// session to the same host. Never surfaced as a per-forward error event: the
+/// forward it names is healthy, and painting its row red would be a lie.
+const ALREADY_RUNNING: &str = "That forward is already running.";
 
 /// Shared client config for every hop.
 ///
@@ -156,6 +161,62 @@ enum ChannelCmd {
     Close,
 }
 
+/// The live SSH transport behind one session, held behind an `Arc` so port
+/// forwards can open their own channels without the shell pump owning it
+/// exclusively.
+///
+/// Keeping these handles alive is load-bearing, not bookkeeping: dropping a
+/// russh `Handle` drops the last `Sender<Msg>`, the run loop exits, and the
+/// transport dies. That applies to the jump hops too — a forward on a
+/// ProxyJump'd host is riding the bastion's transport, so if the pump owned
+/// those and the shell exited, the forward would die with no event to explain
+/// it.
+pub(crate) struct Transport {
+    target: russh::client::Handle<CaptureHandler>,
+    /// Jump hops the target rides on. Never used directly — held to keep the
+    /// tunnel underneath alive.
+    _jumps: Vec<russh::client::Handle<CaptureHandler>>,
+}
+
+impl Transport {
+    /// Open a `direct-tcpip` channel to `host:port` on the far side.
+    ///
+    /// The only way anything reaches the inner `Handle` — which keeps the field
+    /// private, so the day remote forwards (`-R`) need `&mut` access this
+    /// becomes one signature change rather than a rewrite of every caller.
+    ///
+    /// Time-boxed because `channel_open_direct_tcpip` has none of its own: a
+    /// black-holed target would otherwise park forever, leaking one task and
+    /// one server-side channel per connection attempt.
+    pub(crate) async fn open_direct_tcpip(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> Result<russh::Channel<russh::client::Msg>, String> {
+        let open = self
+            .target
+            .channel_open_direct_tcpip(host.to_string(), port as u32, "127.0.0.1", 0);
+        match tokio::time::timeout(std::time::Duration::from_secs(10), open).await {
+            Err(_) => Err(format!("{host}:{port} did not answer within 10s")),
+            // The server refuses opens for reasons the user can act on, but
+            // russh renders them all as one Display string. Name the common
+            // administrative case — it means sshd config, not a dead service.
+            Ok(Err(russh::Error::ChannelOpenFailure(reason))) => Err(match reason {
+                russh::ChannelOpenFailure::AdministrativelyProhibited => format!(
+                    "The server refused to forward to {host}:{port}. Check AllowTcpForwarding \
+                     and PermitOpen in its sshd config."
+                ),
+                russh::ChannelOpenFailure::ConnectFailed => {
+                    format!("The server couldn't reach {host}:{port}.")
+                }
+                other => format!("The server refused to forward to {host}:{port} ({other:?})."),
+            }),
+            Ok(Err(e)) => Err(format!("open {host}:{port}: {e}")),
+            Ok(Ok(ch)) => Ok(ch),
+        }
+    }
+}
+
 /// Per-session control the command layer resolves prompts through.
 struct Session {
     /// Send keystrokes / resizes / close to the channel pump.
@@ -164,12 +225,35 @@ struct Session {
     trust_tx: Option<oneshot::Sender<bool>>,
     /// Pending secret entry (`Some` while a need-secret is outstanding).
     secret_tx: Option<oneshot::Sender<(String, bool)>>,
+    /// `None` on a placeholder entry parked for a prompt — the transport only
+    /// exists once `connect()` has authenticated. Starting a forward against a
+    /// placeholder is a real error, not a panic.
+    transport: Option<Arc<Transport>>,
+}
+
+/// A forward's listener task plus the session whose transport it rides on.
+/// Aborting the task releases the local socket and, because the per-connection
+/// tasks live in a `JoinSet` owned by that task's future, kills everything in
+/// flight.
+struct RunningForward {
+    session_id: String,
+    task: tokio::task::JoinHandle<()>,
 }
 
 /// Owns the live-session registry and the secret store. Cloned into commands.
 #[derive(Clone)]
 pub struct SshManager {
     sessions: Arc<Mutex<HashMap<String, Session>>>,
+    /// Running forwards keyed by FORWARD id — deliberately global rather than a
+    /// field on `Session`.
+    ///
+    /// A forward rule belongs to a host and has exactly one UI row and one
+    /// `ssh:forward:{id}` event channel, but a host can have several sessions
+    /// open at once. With a per-session map the duplicate guard couldn't see
+    /// the other session's copy, so opening a second tab to the same host
+    /// bound every auto-start forward a second time (on a different ephemeral
+    /// port, invisible to the UI), and Stop only ever killed one of them.
+    forwards: Arc<Mutex<HashMap<String, RunningForward>>>,
     secrets: Arc<dyn SecretStore>,
 }
 
@@ -199,6 +283,7 @@ impl SshManager {
     pub fn new(secrets: Arc<dyn SecretStore>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            forwards: Arc::new(Mutex::new(HashMap::new())),
             secrets,
         }
     }
@@ -256,8 +341,120 @@ impl SshManager {
 
     /// Close a session, tearing down its pump (and the SSH transport with it).
     pub async fn close(&self, session_id: &str) {
+        self.abort_session_forwards(session_id).await;
         if let Some(s) = self.sessions.lock().await.remove(session_id) {
             let _ = s.input.send(ChannelCmd::Close);
+        }
+    }
+
+    /// Abort every forward riding on one session's transport. Returns the ids,
+    /// so the caller can tell the UI they are gone — an aborted task cannot
+    /// emit its own terminal event.
+    pub async fn abort_session_forwards(&self, session_id: &str) -> Vec<String> {
+        let mut map = self.forwards.lock().await;
+        let doomed: Vec<String> = map
+            .iter()
+            .filter(|(_, r)| r.session_id == session_id)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &doomed {
+            if let Some(r) = map.remove(id) {
+                r.task.abort();
+            }
+        }
+        doomed
+    }
+
+    /// Start `forward` on a live session. Returns the actually-bound local port
+    /// (which differs from the rule's when that is 0).
+    pub async fn start_forward(
+        &self,
+        app: AppHandle,
+        session_id: &str,
+        forward: SshPortForward,
+    ) -> Result<u16, String> {
+        let transport = {
+            let map = self.sessions.lock().await;
+            let sess = map
+                .get(session_id)
+                .ok_or("That session isn't connected any more.")?;
+            sess.transport
+                .clone()
+                .ok_or("That session hasn't finished connecting yet.")?
+        };
+        // Global check: the rule is already listening somewhere, possibly on
+        // another session to the same host.
+        if self.forwards.lock().await.contains_key(&forward.id) {
+            return Err(ALREADY_RUNNING.into());
+        }
+
+        // The locks are released across the bind + spawn on purpose — binding
+        // can block on `lsof` when the port is taken, and holding either map
+        // through that would stall every other session's keystrokes.
+        let (port, task) =
+            crate::ssh::forward::spawn_local_forward(app, forward.clone(), transport).await?;
+
+        // Re-check both facts that could have changed while the bind was in
+        // flight: the session may have ended (the listener would then accept
+        // into a dead tunnel), and a concurrent start may have won the race.
+        let session_gone = !self.sessions.lock().await.contains_key(session_id);
+        let mut running = self.forwards.lock().await;
+        if session_gone || running.contains_key(&forward.id) {
+            task.abort();
+            return Err(if session_gone {
+                "The session closed while the forward was starting.".into()
+            } else {
+                ALREADY_RUNNING.to_string()
+            });
+        }
+        running.insert(
+            forward.id,
+            RunningForward {
+                session_id: session_id.to_string(),
+                task,
+            },
+        );
+        Ok(port)
+    }
+
+    /// Stop one forward by id. Aborting the listener task releases the local
+    /// socket and kills every connection still running through it.
+    ///
+    /// Keyed by forward id alone: the caller (a row in the sidebar) knows which
+    /// rule it is stopping, but not which of the host's sessions happens to own
+    /// it, and guessing wrong used to return "that forward isn't running" while
+    /// the port stayed bound.
+    pub async fn stop_forward(&self, app: &AppHandle, forward_id: &str) -> Result<(), String> {
+        let running = self.forwards.lock().await.remove(forward_id);
+        running.ok_or("That forward isn't running.")?.task.abort();
+        crate::ssh::forward::emit_stopped(app, forward_id, None);
+        Ok(())
+    }
+
+    /// Like [`Self::stop_forward`] but silent when it wasn't running — for the
+    /// edit/delete paths, where stopping is a side effect rather than the ask.
+    pub async fn stop_forward_if_running(&self, app: &AppHandle, forward_id: &str) {
+        let _ = self.stop_forward(app, forward_id).await;
+    }
+
+    /// Ids of the forwards currently running on a session, so the UI can
+    /// reconcile after a window reload without waiting for the next event.
+    pub async fn running_forwards(&self, session_id: &str) -> Vec<String> {
+        self.forwards
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, r)| r.session_id == session_id)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Abort every forward. Called on app quit: a listener that survives the
+    /// process is exactly the "port already in use" ghost that is miserable to
+    /// diagnose later.
+    pub async fn stop_all_forwards(&self) {
+        for (_, r) in self.forwards.lock().await.drain() {
+            r.task.abort();
         }
     }
 
@@ -633,7 +830,12 @@ impl SshManager {
             "status",
             serde_json::json!({ "phase": "opening-shell" }),
         );
-        let mut channel = handle
+        let transport = Arc::new(Transport {
+            target: handle,
+            _jumps: jumps,
+        });
+        let mut channel = transport
+            .target
             .channel_open_session()
             .await
             .map_err(|e| e.to_string())?;
@@ -656,6 +858,7 @@ impl SshManager {
                     input: input_tx,
                     trust_tx: None,
                     secret_tx: None,
+                    transport: Some(transport.clone()),
                 },
             );
         }
@@ -672,7 +875,7 @@ impl SshManager {
         // 5b. Best-effort remote OS detection (Termius-style badge). Non-fatal and
         //     time-boxed so a slow/quiet host never holds up the shell.
         {
-            let probe = detect_remote_os(&handle);
+            let probe = detect_remote_os(&transport.target);
             if let Ok(Ok(os)) = tokio::time::timeout(std::time::Duration::from_secs(4), probe).await {
                 let os = os.trim().to_string();
                 if !os.is_empty() {
@@ -682,16 +885,37 @@ impl SshManager {
             }
         }
 
-        // 6. Spawn the read/write pump. The `Handle` is moved in and kept alive
-        //    for the session's lifetime (dropping it would close the transport).
+        // 5c. Open the host's auto-start forwards. Failures are per-forward and
+        //     never fail the session — a port conflict on a saved forward must
+        //     not cost the user their shell.
+        {
+            let saved = db
+                .lock_or_recover()
+                .list_ssh_forwards_for_host(&host.id)
+                .unwrap_or_default();
+            for f in saved.into_iter().filter(|f| f.auto_start) {
+                let id = f.id.clone();
+                match self.start_forward(app.clone(), &session_id, f).await {
+                    Ok(_) => {}
+                    // A second session to the same host re-runs this loop. The
+                    // rule is already listening on the first one, so this is
+                    // nothing to report — emitting on the shared per-forward
+                    // channel would repaint a healthy row as failed.
+                    Err(e) if e == ALREADY_RUNNING => {}
+                    Err(e) => crate::ssh::forward::emit_stopped(&app, &id, Some(e)),
+                }
+            }
+        }
+
+        // 6. Spawn the read/write pump. It holds an `Arc<Transport>` purely as
+        //    keep-alive — the registry entry holds the other one, so the SSH
+        //    connection lives exactly as long as the session does.
         let app2 = app.clone();
         let sid2 = session_id.clone();
         let sessions2 = self.sessions.clone();
+        let manager2 = self.clone();
         tokio::spawn(async move {
-            let _handle = handle;
-            // Every jump-host transport has to outlive the shell riding on it;
-            // dropping one here would close the tunnel under the session.
-            let _jumps = jumps;
+            let _keepalive = transport;
             loop {
                 tokio::select! {
                     msg = channel.wait() => match msg {
@@ -722,6 +946,14 @@ impl SshManager {
                         }
                     }
                 }
+            }
+            // Forwards die with the shell they ride on. A listener left running
+            // would keep accepting into a dead tunnel — the worst possible
+            // diagnostic, since the client connects and then hangs forever
+            // instead of failing. Their rows are told explicitly: an aborted
+            // task can't emit its own terminal event.
+            for id in manager2.abort_session_forwards(&sid2).await {
+                crate::ssh::forward::emit_stopped(&app2, &id, None);
             }
             sessions2.lock().await.remove(&sid2);
             Self::emit(&app2, &sid2, "exit", serde_json::json!(null));
@@ -773,6 +1005,7 @@ fn placeholder_session() -> Session {
         input: dummy_sender(),
         trust_tx: None,
         secret_tx: None,
+        transport: None,
     }
 }
 

@@ -26,6 +26,7 @@ import {
   mockServices,
   mockInstances,
   mockSshConfigCandidates,
+  mockSshForwards,
   mockSshHosts,
   startMockService,
   stopMockService,
@@ -2030,6 +2031,60 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+export type SshForwardKind = "local" | "remote" | "dynamic";
+
+/** A saved port-forward rule on a host. Runtime state is never stored here —
+ *  it arrives on `ssh:forward:{id}`. */
+export interface SshPortForward {
+  id: string;
+  host_id: string;
+  kind: SshForwardKind;
+  label: string | null;
+  /** Loopback-only in this release. */
+  bind_address: string;
+  /** 0 = auto; the resolved port arrives in the runtime event. */
+  local_port: number;
+  remote_host: string;
+  remote_port: number;
+  auto_start: boolean;
+  created_at: number;
+}
+
+/** Pushed on `ssh:forward:{forwardId}` — never persisted. */
+export interface SshForwardRuntime {
+  state: "starting" | "listening" | "stopped" | "failed";
+  local_port: number;
+  active_conns: number;
+  capped: boolean;
+  error: string | null;
+}
+
+export const sshListForwards = (hostId: string): Promise<SshPortForward[]> =>
+  isTauri
+    ? invoke("ssh_list_forwards", { hostId })
+    : Promise.resolve(mockSshForwards.filter((f) => f.host_id === hostId));
+
+export const sshAddForward = (forward: SshPortForward): Promise<SshPortForward> =>
+  isTauri ? invoke("ssh_add_forward", { forward }) : Promise.resolve(forward);
+
+export const sshUpdateForward = (forward: SshPortForward): Promise<void> =>
+  isTauri ? invoke("ssh_update_forward", { forward }) : Promise.resolve();
+
+export const sshDeleteForward = (id: string): Promise<void> =>
+  isTauri ? invoke("ssh_delete_forward", { id }) : Promise.resolve();
+
+/** Resolves to the actually-bound local port (differs from the rule when 0). */
+export const sshStartForward = (sessionId: string, forwardId: string): Promise<number> =>
+  isTauri ? invoke("ssh_start_forward", { sessionId, forwardId }) : Promise.resolve(0);
+
+/** Keyed by forward id alone — the backend knows which session owns it, and a
+ *  host can have more than one session open. */
+export const sshStopForward = (forwardId: string): Promise<void> =>
+  isTauri ? invoke("ssh_stop_forward", { forwardId }) : Promise.resolve();
+
+export const sshRunningForwards = (sessionId: string): Promise<string[]> =>
+  isTauri ? invoke("ssh_running_forwards", { sessionId }) : Promise.resolve([]);
 
 /** A `~/.ssh/config` entry offered for import. */
 export interface SshConfigCandidate {

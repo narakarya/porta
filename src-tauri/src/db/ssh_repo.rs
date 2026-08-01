@@ -49,6 +49,7 @@ impl Database {
     pub fn delete_ssh_host(&self, id: &str) -> Result<()> {
         // Explicit (not relying on FK cascade being enabled) so join rows never orphan.
         self.conn.execute("DELETE FROM ssh_host_workspaces WHERE host_id=?1", params![id])?;
+        self.conn.execute("DELETE FROM ssh_port_forwards WHERE host_id=?1", params![id])?;
         self.conn.execute("DELETE FROM ssh_hosts WHERE id=?1", params![id])?;
         Ok(())
     }

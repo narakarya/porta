@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { SshHost, SshAuth } from "../../lib/commands";
+import ForwardsSection from "./ForwardsSection";
 
 type Props = { host?: SshHost; onClose: () => void };
 
@@ -203,6 +204,8 @@ export default function HostFormModal({ host, onClose }: Props) {
             )}
           </div>
         </div>
+
+        <ForwardsSection hostId={host?.id ?? null} />
 
         {/* Workspaces */}
         {workspaces.length > 0 && (

@@ -3,7 +3,7 @@
  * Only used when `window.__TAURI_INTERNALS__` is absent.
  */
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
-import type { AppInstance, SshConfigCandidate, SshHost } from "./commands";
+import type { AppInstance, SshConfigCandidate, SshHost, SshPortForward } from "./commands";
 
 export const mockWorkspaces: Workspace[] = [
   { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
@@ -509,6 +509,33 @@ export const mockSshHosts: SshHost[] = [
     last_used_at: 1_751_000_000,
     workspace_ids: [],
     detected_os: null,
+  },
+];
+
+export const mockSshForwards: SshPortForward[] = [
+  {
+    id: "fwd-1",
+    host_id: "host-1",
+    kind: "local",
+    label: "Postgres",
+    bind_address: "127.0.0.1",
+    local_port: 15432,
+    remote_host: "127.0.0.1",
+    remote_port: 5432,
+    auto_start: true,
+    created_at: 1_752_000_000,
+  },
+  {
+    id: "fwd-2",
+    host_id: "host-1",
+    kind: "local",
+    label: null,
+    bind_address: "127.0.0.1",
+    local_port: 0,
+    remote_host: "redis.internal",
+    remote_port: 6379,
+    auto_start: false,
+    created_at: 1_752_100_000,
   },
 ];
 
