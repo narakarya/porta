@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { usePortaStore } from "../../store";
 import type { SshSession } from "../../store/slices/ssh";
 import SshTerminal from "./SshTerminal";
 import SshConnectingOverlay from "./SshConnectingOverlay";
 import SnippetBar from "./SnippetBar";
+import SftpBrowser from "./SftpBrowser";
 
 const STATUS_DOT: Record<SshSession["status"], string> = {
   connected: "bg-ok",
@@ -21,6 +23,7 @@ export default function SshSessionTabs() {
 
   const activeSession = sessions.find((s) => s.id === active);
   const activeHostId = activeSession?.hostId;
+  const [view, setView] = useState<"terminal" | "files">("terminal");
 
   if (sessions.length === 0) {
     return (
@@ -72,6 +75,21 @@ export default function SshSessionTabs() {
         {/* Outside the scrolling strip on purpose: `overflow-x-auto` clips an
             absolutely-positioned popover, so the picker rendered off-screen
             when it lived among the tabs. */}
+        {activeHostId && (
+          <div className="shrink-0 flex items-center gap-px p-0.5 rounded-md bg-white/[0.04]">
+            {(["terminal", "files"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                  view === v ? "bg-white/[0.10] text-ink" : "text-ink-3 hover:text-ink-2"
+                }`}
+              >
+                {v === "terminal" ? "Terminal" : "Files"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="shrink-0 px-2">
           <SnippetBar
             hostId={activeHostId ?? null}
@@ -123,7 +141,20 @@ export default function SshSessionTabs() {
               className="relative h-full w-full"
               style={{ display: active === s.id ? "block" : "none" }}
             >
-              <SshTerminal sessionId={s.id} visible={active === s.id} />
+              <div
+                className="h-full w-full"
+                style={{ display: view === "terminal" ? "block" : "none" }}
+              >
+                <SshTerminal sessionId={s.id} visible={active === s.id && view === "terminal"} />
+              </div>
+              {/* Sibling, not a replacement: unmounting the terminal would drop
+                  the data listener registered on its mount, and the session's
+                  output would vanish while the user was in Files. */}
+              {view === "files" && s.status === "connected" && (
+                <div className="absolute inset-0 bg-surface-0">
+                  <SftpBrowser sessionId={s.id} active={active === s.id} />
+                </div>
+              )}
               {s.status === "connecting" && (
                 <div className="absolute inset-0 z-10">
                   <SshConnectingOverlay session={s} />

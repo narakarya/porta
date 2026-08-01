@@ -3,7 +3,16 @@
  * Only used when `window.__TAURI_INTERNALS__` is absent.
  */
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
-import type { AppInstance, SshConfigCandidate, SshHost, SshPortForward, SshSnippet } from "./commands";
+import type {
+  AppInstance,
+  SftpEntry,
+  SftpFileContent,
+  SftpListing,
+  SshConfigCandidate,
+  SshHost,
+  SshPortForward,
+  SshSnippet,
+} from "./commands";
 
 export const mockWorkspaces: Workspace[] = [
   { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
@@ -511,6 +520,49 @@ export const mockSshHosts: SshHost[] = [
     detected_os: null,
   },
 ];
+
+/** Browser-dev stand-in for a remote directory listing. */
+export function mockSftpListing(path: string): SftpListing {
+  const dir = (name: string): SftpEntry => ({
+    name,
+    path: `${path.replace(/\/$/, "")}/${name}`,
+    kind: "dir",
+    size: null,
+    mtime: 1_752_800_000,
+    permissions: 0o40755,
+    modeStr: "drwxr-xr-x",
+    lossyName: false,
+  });
+  const file = (name: string, size: number, mode = 0o100644): SftpEntry => ({
+    name,
+    path: `${path.replace(/\/$/, "")}/${name}`,
+    kind: "file",
+    size,
+    mtime: 1_752_900_000,
+    permissions: mode,
+    modeStr: "-rw-r--r--",
+    lossyName: false,
+  });
+  const entries: SftpEntry[] =
+    path === "/"
+      ? [dir("etc"), dir("home"), dir("var")]
+      : [dir("releases"), dir("shared"), file(".env", 412, 0o100600), file("docker-compose.yml", 1_842), file("nginx.conf", 2_310)];
+  return { path, entries, truncated: false, totalSeen: entries.length + 2 };
+}
+
+export function mockSftpRead(path: string): SftpFileContent {
+  const body = path.endsWith(".env")
+    ? "DATABASE_URL=postgres://localhost/app_prod\nSECRET_KEY_BASE=n0t-a-real-secret\nPORT=4000\n"
+    : "server {\n  listen 80;\n  server_name app.narakarya.id;\n}\n";
+  return {
+    path,
+    content: body,
+    size: body.length,
+    mtime: 1_752_900_000,
+    permissions: 0o100644,
+    binary: false,
+  };
+}
 
 export const mockSshSnippets: SshSnippet[] = [
   {

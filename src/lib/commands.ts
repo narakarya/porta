@@ -27,6 +27,8 @@ import {
   mockInstances,
   mockSshConfigCandidates,
   mockSshForwards,
+  mockSftpListing,
+  mockSftpRead,
   mockSshSnippets,
   mockSshHosts,
   startMockService,
@@ -2032,6 +2034,63 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+// ── SFTP (remote file browsing) ──────────────────────────────────────────────
+
+export type SftpKind = "file" | "dir" | "symlink" | "other";
+
+export interface SftpEntry {
+  name: string;
+  path: string;
+  kind: SftpKind;
+  size: number | null;
+  mtime: number | null;
+  permissions: number | null;
+  modeStr: string | null;
+  /** Name didn't survive the server's UTF-8 decode — list it, never act on it. */
+  lossyName: boolean;
+}
+
+export interface SftpListing {
+  path: string;
+  entries: SftpEntry[];
+  /** Hit the entry cap; the directory holds more than is shown. */
+  truncated: boolean;
+  totalSeen: number;
+}
+
+export interface SftpFileContent {
+  path: string;
+  content: string;
+  size: number;
+  mtime: number | null;
+  permissions: number | null;
+  /** Not valid UTF-8 — `content` is empty and the editor refuses. */
+  binary: boolean;
+}
+
+export type SftpSaveOutcome =
+  | { status: "saved"; mtime: number | null }
+  | { status: "conflict"; remoteMtime: number | null };
+
+export const sftpHome = (sessionId: string): Promise<string> =>
+  isTauri ? invoke("ssh_sftp_home", { sessionId }) : Promise.resolve("/home/deploy");
+
+export const sftpList = (sessionId: string, path: string): Promise<SftpListing> =>
+  isTauri ? invoke("ssh_sftp_list", { sessionId, path }) : Promise.resolve(mockSftpListing(path));
+
+export const sftpRead = (sessionId: string, path: string): Promise<SftpFileContent> =>
+  isTauri ? invoke("ssh_sftp_read", { sessionId, path }) : Promise.resolve(mockSftpRead(path));
+
+export const sftpSave = (
+  sessionId: string,
+  path: string,
+  content: string,
+  expectedMtime: number | null
+): Promise<SftpSaveOutcome> =>
+  isTauri
+    ? invoke("ssh_sftp_save", { sessionId, path, content, expectedMtime })
+    : Promise.resolve({ status: "saved", mtime: Math.floor(Date.now() / 1000) });
 
 /** A saved command, typed into a session's shell on demand. */
 export interface SshSnippet {

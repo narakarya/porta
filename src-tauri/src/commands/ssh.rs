@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::app_state::AppState;
 use crate::db::models::{SshAuth, SshHost, SshPortForward, SshSnippet};
 use crate::ssh::config_import::{self, SshConfigEntry};
+use crate::ssh::sftp as sftp_ops;
 
 // Re-exported so `commands::SshManager` resolves for `.manage(...)` and
 // `State<'_, SshManager>` call sites in `lib.rs` (and brings the name into
@@ -227,6 +228,49 @@ pub async fn ssh_connect(
         .connect(app, session_id.clone(), host, state.db.clone())
         .await?;
     Ok(session_id)
+}
+
+// ── SFTP ─────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn ssh_sftp_home(
+    session_id: String,
+    manager: State<'_, SshManager>,
+) -> Result<String, String> {
+    let sftp = manager.sftp_for(&session_id).await?;
+    sftp_ops::home(&sftp).await
+}
+
+#[tauri::command]
+pub async fn ssh_sftp_list(
+    session_id: String,
+    path: String,
+    manager: State<'_, SshManager>,
+) -> Result<sftp_ops::SftpListing, String> {
+    let sftp = manager.sftp_for(&session_id).await?;
+    sftp_ops::list(&sftp, &path).await
+}
+
+#[tauri::command]
+pub async fn ssh_sftp_read(
+    session_id: String,
+    path: String,
+    manager: State<'_, SshManager>,
+) -> Result<sftp_ops::SftpFileContent, String> {
+    let sftp = manager.sftp_for(&session_id).await?;
+    sftp_ops::read(&sftp, &path).await
+}
+
+#[tauri::command]
+pub async fn ssh_sftp_save(
+    session_id: String,
+    path: String,
+    content: String,
+    expected_mtime: Option<u32>,
+    manager: State<'_, SshManager>,
+) -> Result<sftp_ops::SftpSaveOutcome, String> {
+    let sftp = manager.sftp_for(&session_id).await?;
+    sftp_ops::save(&sftp, &path, &content, expected_mtime).await
 }
 
 // ── Snippets ─────────────────────────────────────────────────────────────────

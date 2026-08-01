@@ -188,6 +188,28 @@ impl Transport {
     /// Time-boxed because `channel_open_direct_tcpip` has none of its own: a
     /// black-holed target would otherwise park forever, leaking one task and
     /// one server-side channel per connection attempt.
+    /// Open the SFTP subsystem on a fresh channel.
+    pub(crate) async fn open_sftp(&self) -> Result<russh_sftp::client::SftpSession, String> {
+        let channel = self
+            .target
+            .channel_open_session()
+            .await
+            .map_err(|e| format!("open SFTP channel: {e}"))?;
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            // The usual cause is a server with `Subsystem sftp` disabled, which
+            // is a config decision rather than a fault — say which.
+            .map_err(|_| {
+                "This server refused the SFTP subsystem. Check that sshd has an `sftp` \
+                 Subsystem line enabled."
+                    .to_string()
+            })?;
+        russh_sftp::client::SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|e| format!("start SFTP session: {e}"))
+    }
+
     pub(crate) async fn open_direct_tcpip(
         &self,
         host: &str,
@@ -229,6 +251,18 @@ struct Session {
     /// exists once `connect()` has authenticated. Starting a forward against a
     /// placeholder is a real error, not a panic.
     transport: Option<Arc<Transport>>,
+    /// SFTP channel, opened on first browse and shared afterwards.
+    ///
+    /// `OnceCell` rather than `Option`: two browse calls arriving together must
+    /// not each open a channel, and the guard on the sessions map cannot be
+    /// held across the open (`write` takes that same lock on every keystroke,
+    /// so holding it across a network round trip adds full RTT of lag to every
+    /// terminal tab).
+    ///
+    /// One channel is enough for any number of concurrent operations —
+    /// russh-sftp demultiplexes replies by request id through a `DashMap`, and
+    /// every `SftpSession` method takes `&self`.
+    sftp: Arc<tokio::sync::OnceCell<Arc<russh_sftp::client::SftpSession>>>,
 }
 
 /// A forward's listener task plus the session whose transport it rides on.
@@ -368,6 +402,30 @@ impl SshManager {
             }
         }
         doomed
+    }
+
+    /// The session's SFTP channel, opening it on first use.
+    ///
+    /// The sessions-map guard is cloned out and dropped before the channel is
+    /// opened — see the note on `Session::sftp`.
+    pub async fn sftp_for(
+        &self,
+        session_id: &str,
+    ) -> Result<Arc<russh_sftp::client::SftpSession>, String> {
+        let (cell, transport) = {
+            let map = self.sessions.lock().await;
+            let sess = map
+                .get(session_id)
+                .ok_or("That session isn't connected any more.")?;
+            let transport = sess
+                .transport
+                .clone()
+                .ok_or("That session hasn't finished connecting yet.")?;
+            (sess.sftp.clone(), transport)
+        };
+        cell.get_or_try_init(|| async { transport.open_sftp().await.map(Arc::new) })
+            .await
+            .cloned()
     }
 
     /// Start `forward` on a live session. Returns the actually-bound local port
@@ -864,6 +922,7 @@ impl SshManager {
                     trust_tx: None,
                     secret_tx: None,
                     transport: Some(transport.clone()),
+                    sftp: Arc::new(tokio::sync::OnceCell::new()),
                 },
             );
         }
@@ -1011,6 +1070,7 @@ fn placeholder_session() -> Session {
         trust_tx: None,
         secret_tx: None,
         transport: None,
+        sftp: Arc::new(tokio::sync::OnceCell::new()),
     }
 }
 
