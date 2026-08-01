@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use anyhow::{anyhow, Result};
 use std::collections::{HashMap, HashSet};
 use std::io::LineWriter;
@@ -206,7 +207,7 @@ impl DockerManager {
             return Err(anyhow!("docker run failed: {}", stderr.trim()));
         }
 
-        self.active.lock().unwrap().insert(app_id.to_string());
+        self.active.lock_or_recover().insert(app_id.to_string());
 
         // Prepare the per-app log file (same path as process-backed apps).
         let log_path = log_file_path(app_id);
@@ -287,16 +288,16 @@ impl DockerManager {
                             .nth(1)
                             .and_then(|x| x.parse().ok())
                             .unwrap_or(-1);
-                        active.lock().unwrap().remove(&app_id_str);
-                        let intentional = stopping.lock().unwrap().remove(&app_id_str);
+                        active.lock_or_recover().remove(&app_id_str);
+                        let intentional = stopping.lock_or_recover().remove(&app_id_str);
                         on_exit(exit_code, intentional);
                         return;
                     }
                 }
                 _ => {
                     // Container vanished (rm'd externally, docker stopped, etc.)
-                    active.lock().unwrap().remove(&app_id_str);
-                    let intentional = stopping.lock().unwrap().remove(&app_id_str);
+                    active.lock_or_recover().remove(&app_id_str);
+                    let intentional = stopping.lock_or_recover().remove(&app_id_str);
                     on_exit(-1, intentional);
                     return;
                 }
@@ -308,8 +309,8 @@ impl DockerManager {
 
     /// Best-effort async stop — spawns a thread to call `docker stop` + `rm`.
     pub fn stop(&self, app_id: &str) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
-        self.retry_counts.lock().unwrap().remove(app_id);
+        self.stopping.lock_or_recover().insert(app_id.to_string());
+        self.retry_counts.lock_or_recover().remove(app_id);
         let name = Self::container_name(app_id);
         let active = Arc::clone(&self.active);
         let app_id_str = app_id.to_string();
@@ -318,14 +319,14 @@ impl DockerManager {
                 .args(["stop", "-t", "10", &name])
                 .output();
             let _ = Command::new(docker_bin()).args(["rm", "-f", &name]).output();
-            active.lock().unwrap().remove(&app_id_str);
+            active.lock_or_recover().remove(&app_id_str);
         });
         Ok(())
     }
 
     /// Stop and block until the container is removed.
     pub fn stop_and_wait(&self, app_id: &str, timeout_ms: u64) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
+        self.stopping.lock_or_recover().insert(app_id.to_string());
         let name = Self::container_name(app_id);
         let grace = (timeout_ms / 1000).clamp(1, 30);
         let _ = Command::new(docker_bin())
@@ -334,7 +335,7 @@ impl DockerManager {
         let _ = Command::new(docker_bin())
             .args(["rm", "-f", &name])
             .output();
-        self.active.lock().unwrap().remove(app_id);
+        self.active.lock_or_recover().remove(app_id);
         // Port release grace
         thread::sleep(Duration::from_millis(300));
         Ok(())
@@ -342,7 +343,7 @@ impl DockerManager {
 
     /// Force-remove container (equivalent to SIGKILL for process-backed apps).
     pub fn kill(&self, app_id: &str) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
+        self.stopping.lock_or_recover().insert(app_id.to_string());
         let name = Self::container_name(app_id);
         let _ = Command::new(docker_bin())
             .args(["kill", &name])
@@ -350,14 +351,14 @@ impl DockerManager {
         let _ = Command::new(docker_bin())
             .args(["rm", "-f", &name])
             .output();
-        self.active.lock().unwrap().remove(app_id);
+        self.active.lock_or_recover().remove(app_id);
         Ok(())
     }
 
     pub fn stop_all(&self) {
-        let ids: Vec<String> = self.active.lock().unwrap().iter().cloned().collect();
+        let ids: Vec<String> = self.active.lock_or_recover().iter().cloned().collect();
         for id in &ids {
-            self.stopping.lock().unwrap().insert(id.clone());
+            self.stopping.lock_or_recover().insert(id.clone());
         }
         // Best-effort: an active id could be either a single container
         // (`porta-<id>`) or a compose project (`porta-<id>`). Try both — the one
@@ -375,15 +376,15 @@ impl DockerManager {
                 .args(["rm", "-f", &name])
                 .output();
         }
-        self.active.lock().unwrap().clear();
+        self.active.lock_or_recover().clear();
     }
 
     pub fn is_running(&self, app_id: &str) -> bool {
-        self.active.lock().unwrap().contains(app_id)
+        self.active.lock_or_recover().contains(app_id)
     }
 
     pub fn active_ids(&self) -> Vec<String> {
-        self.active.lock().unwrap().iter().cloned().collect()
+        self.active.lock_or_recover().iter().cloned().collect()
     }
 
     /// Register an app_id as active without starting a new container. Used at
@@ -391,7 +392,7 @@ impl DockerManager {
     /// and want stop/metrics commands to operate on it. No log stream or exit
     /// watcher is attached — if the user wants full management they can restart.
     pub fn adopt(&self, app_id: &str) {
-        self.active.lock().unwrap().insert(app_id.to_string());
+        self.active.lock_or_recover().insert(app_id.to_string());
     }
 
     // ── docker compose ─────────────────────────────────────────────────────────
@@ -520,12 +521,12 @@ impl DockerManager {
         // but if they did, undo it so the UI doesn't flip back to running
         // against their wishes. The error sentinel is recognised by
         // `start_single` so it doesn't pop a "Failed to start" alert.
-        if self.stopping.lock().unwrap().contains(app_id) {
+        if self.stopping.lock_or_recover().contains(app_id) {
             let _ = Command::new(docker_bin())
                 .args(["compose", "-f", &file_path, "-p", &project, "down"])
                 .current_dir(&work_dir)
                 .output();
-            self.active.lock().unwrap().remove(app_id);
+            self.active.lock_or_recover().remove(app_id);
             return Err(anyhow!("aborted by user stop request"));
         }
 
@@ -561,7 +562,7 @@ impl DockerManager {
             }
         }
 
-        self.active.lock().unwrap().insert(app_id.to_string());
+        self.active.lock_or_recover().insert(app_id.to_string());
 
         // Log streamer — `docker compose logs -f --tail 0`.
         let file_clone = file_path.clone();
@@ -600,8 +601,8 @@ impl DockerManager {
 
     /// Run `docker compose down` for the app's stack.
     pub fn compose_stop(&self, app_id: &str, compose_file: &str, root_dir: Option<&str>) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
-        self.retry_counts.lock().unwrap().remove(app_id);
+        self.stopping.lock_or_recover().insert(app_id.to_string());
+        self.retry_counts.lock_or_recover().remove(app_id);
         let file_path = resolve_compose_path(compose_file, root_dir);
         let project = Self::compose_project(app_id);
         let active = Arc::clone(&self.active);
@@ -615,7 +616,7 @@ impl DockerManager {
                 .args(["compose", "-f", &file_path, "-p", &project, "down"])
                 .current_dir(&work_dir)
                 .output();
-            active.lock().unwrap().remove(&app_id_str);
+            active.lock_or_recover().remove(&app_id_str);
         });
         Ok(())
     }
@@ -627,7 +628,7 @@ impl DockerManager {
         compose_file: &str,
         root_dir: Option<&str>,
     ) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
+        self.stopping.lock_or_recover().insert(app_id.to_string());
         let file_path = resolve_compose_path(compose_file, root_dir);
         let project = Self::compose_project(app_id);
         let work_dir = std::path::Path::new(&file_path)
@@ -638,7 +639,7 @@ impl DockerManager {
             .args(["compose", "-f", &file_path, "-p", &project, "down"])
             .current_dir(&work_dir)
             .output();
-        self.active.lock().unwrap().remove(app_id);
+        self.active.lock_or_recover().remove(app_id);
         thread::sleep(Duration::from_millis(300));
         Ok(())
     }

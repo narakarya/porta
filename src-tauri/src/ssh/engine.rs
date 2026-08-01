@@ -46,6 +46,7 @@
 //!    so dropping `handle` at the end of `connect()` (as the sketch did) would
 //!    tear the session down. Keeping it in the task ties its lifetime to the shell.
 
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -123,7 +124,7 @@ impl russh::client::Handler for CaptureHandler {
         let bytes = server_public_key.to_bytes().unwrap_or_default();
         let fingerprint = crate::db::fingerprint_sha256(&bytes);
         let key_type = server_public_key.algorithm().to_string();
-        *self.captured.lock().unwrap() = Some((fingerprint, key_type));
+        *self.captured.lock_or_recover() = Some((fingerprint, key_type));
         Ok(true)
     }
 }
@@ -508,7 +509,7 @@ impl SshManager {
             );
         }
         {
-            let _ = db.lock().unwrap().touch_ssh_host(&host.id, now_epoch());
+            let _ = db.lock_or_recover().touch_ssh_host(&host.id, now_epoch());
         }
         Self::emit(
             &app,
@@ -524,7 +525,7 @@ impl SshManager {
             if let Ok(Ok(os)) = tokio::time::timeout(std::time::Duration::from_secs(4), probe).await {
                 let os = os.trim().to_string();
                 if !os.is_empty() {
-                    let _ = db.lock().unwrap().set_detected_os(&host.id, &os);
+                    let _ = db.lock_or_recover().set_detected_os(&host.id, &os);
                     Self::emit(&app, &session_id, "host-os", serde_json::json!({ "os": os }));
                 }
             }

@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::io::Write as _;
 use std::time::{Duration, Instant};
 
@@ -63,7 +64,7 @@ fn append_auto_start_note(app_id: &str, message: &str) {
 pub fn spawn_auto_start(app: &tauri::App) {
     let apps_to_start = {
         let state = app.state::<AppState>();
-        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        let db = state.db.lock_or_recover();
         let all = db.list_apps().unwrap_or_default();
         auto_start_apps(all)
     };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { setCfApiToken, openExternalUrl } from "../../lib/commands";
+import { setCfApiToken, getCfTokenStorage, openExternalUrl, type CfTokenStorage } from "../../lib/commands";
 
 // Required scopes — kept here so the popover stays in sync with what the rest
 // of the CF integration actually calls.
@@ -27,7 +27,16 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scopesOpen, setScopesOpen] = useState(false);
+  const [storage, setStorage] = useState<CfTokenStorage | null>(null);
   const scopesRef = useRef<HTMLDivElement>(null);
+
+  // Where the token actually lives. Normally the keychain; "config" means the
+  // keychain was unusable and it fell back to plaintext, which the user
+  // deserves to know rather than assume it's protected.
+  useEffect(() => {
+    if (token === null) return;
+    getCfTokenStorage().then(setStorage).catch(() => setStorage(null));
+  }, [token]);
 
   // Close popover on outside click / Escape — same pattern as the tunnel menu.
   useEffect(() => {
@@ -60,7 +69,7 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await setCfApiToken(trimmed);
+      setStorage(await setCfApiToken(trimmed));
       onChange(trimmed);
       setEditing(false);
       setDraft("");
@@ -141,6 +150,14 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
             <code className="font-mono text-[10.5px] text-ink-3 px-1.5 py-0.5 rounded bg-white/[0.04]">
               {token.slice(0, 8)}…{token.slice(-4)}
             </code>
+            {storage === "keychain" && (
+              <span
+                className="text-[10px] text-ink-3 px-1.5 py-0.5 rounded bg-white/[0.04]"
+                title="Stored in the macOS Keychain"
+              >
+                Keychain
+              </span>
+            )}
             <button
               type="button"
               onClick={() => { setDraft(token); setEditing(true); }}
@@ -196,6 +213,14 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
             </svg>
           </span>
           icon above for required scopes & a link to create one.
+        </p>
+      )}
+
+      {storage === "config" && hasToken && (
+        <p className="text-[10px] text-warn leading-snug">
+          Keychain unavailable — this token is stored as plaintext in
+          <code className="font-mono mx-1">config.json</code>. Save it again once
+          the keychain is unlocked to move it there.
         </p>
       )}
 

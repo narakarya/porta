@@ -3,6 +3,7 @@
 //! for a branch (`git_worktree_add`) so an instance can be launched by branch,
 //! and runs the app from a worktree path.
 
+use crate::sync::LockExt;
 use crate::app_state::AppState;
 use crate::commands::git::git_bin;
 use crate::commands::setup::sync_caddy;
@@ -294,7 +295,7 @@ fn worktree_add_for(root_dir: &str, branch: &str, create_new: bool) -> Result<Wo
 pub async fn list_instances(app: AppHandle, app_id: String) -> Result<Vec<AppInstance>, String> {
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_instances_for(&app_id).map_err(|e| e.to_string())
     })
     .await
@@ -319,7 +320,7 @@ pub async fn stop_instance(app: AppHandle, instance_id: String) -> Result<(), St
         // also does this, but setting it here makes Stop deterministic instead
         // of racing the async exit callback.)
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock_or_recover();
             db.update_instance_status_only(&instance_id, "stopped")
                 .map_err(|e| e.to_string())?;
         }
@@ -342,7 +343,7 @@ pub async fn kill_instance(app: AppHandle, instance_id: String) -> Result<(), St
         // SIGKILL the process tree under the instance key (no-op if already dead).
         state.processes.kill(&instance_id).map_err(|e| e.to_string())?;
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock_or_recover();
             db.update_instance_status_only(&instance_id, "stopped")
                 .map_err(|e| e.to_string())?;
         }
@@ -365,7 +366,7 @@ pub async fn remove_instance(app: AppHandle, instance_id: String) -> Result<(), 
         crate::commands::tunnel::stop_instance_tunnel(instance_id.clone(), app.clone()).ok();
         state.processes.stop(&instance_id).map_err(|e| e.to_string())?;
         {
-            let mut db = state.db.lock().unwrap();
+            let mut db = state.db.lock_or_recover();
             db.delete_instance(&instance_id).map_err(|e| e.to_string())?;
         }
         sync_caddy(&state)?;
@@ -395,7 +396,7 @@ fn start_instance_inner(
 
     // 1. Load the parent app (no get-by-id in the repo; filter list_apps).
     let app_row = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps().map_err(|e| e.to_string())?
             .into_iter().find(|a| a.id == app_id)
             .ok_or_else(|| "app not found".to_string())?
@@ -422,14 +423,14 @@ fn start_instance_inner(
     // a stale stopped row, remove it first so we start clean.
     {
         let existing = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock_or_recover();
             db.list_instances_for(&app_id).map_err(|e| e.to_string())?
         };
         if let Some(prev) = existing.into_iter().find(|i| i.id == iid) {
             if state.processes.is_running(&iid) {
                 return Err("instance already running".to_string());
             }
-            let mut db = state.db.lock().unwrap();
+            let mut db = state.db.lock_or_recover();
             db.delete_instance(&prev.id).map_err(|e| e.to_string())?;
         }
     }
@@ -441,7 +442,7 @@ fn start_instance_inner(
     //    or Caddy would emit two routes for one host.
     let app_sub = app_row.subdomain.as_deref().unwrap_or(&app_row.name);
     let subdomain = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
         let domain = app_row.effective_domain(&workspaces);
         let instance_labels: Vec<String> = db.list_instances().map_err(|e| e.to_string())?
@@ -497,7 +498,7 @@ fn start_instance_inner(
     let on_exit = move |code: i32, intentional: bool| {
         let reported = if intentional { 0 } else { code };
         let st = exit_handle.state::<AppState>();
-        st.db.lock().unwrap().update_instance_status_only(&exit_id, "stopped").ok();
+        st.db.lock_or_recover().update_instance_status_only(&exit_id, "stopped").ok();
         sync_caddy(&st).ok();
         exit_handle.emit(&format!("instance:exit:{}", exit_id), reported).ok();
     };
@@ -565,14 +566,14 @@ fn start_instance_inner(
             // Spawn failed — roll back the row we inserted so we don't leak a
             // ghost "starting" instance and a permanently-reserved port
             // (delete_instance removes both the row and its port_registry entry).
-            let mut db = state.db.lock().unwrap();
+            let mut db = state.db.lock_or_recover();
             let _ = db.delete_instance(&iid);
             return Err(e.to_string());
         }
     };
 
     {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.update_instance_status(&iid, "starting", Some(pid)).map_err(|e| e.to_string())?;
     }
 
@@ -586,7 +587,7 @@ fn start_instance_inner(
     );
 
     // Return the freshly-inserted instance (with pid).
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let out = db.list_instances_for(&app_id).map_err(|e| e.to_string())?
         .into_iter().find(|i| i.id == iid)
         .ok_or_else(|| "instance vanished".to_string())?;
@@ -609,14 +610,14 @@ fn allocate_and_insert_instance(
     alloc_lock: &Mutex<()>,
     mut instance: AppInstance,
 ) -> Result<AppInstance, String> {
-    let _alloc = alloc_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let _alloc = alloc_lock.lock_or_recover();
     let used = {
-        let db = db.lock().unwrap();
+        let db = db.lock_or_recover();
         db.used_ports().map_err(|e| e.to_string())?
     };
     instance.port =
         find_available_port(&used, 3000, 9999).ok_or_else(|| "no free port".to_string())?;
-    db.lock().unwrap().insert_instance(&instance).map_err(|e| e.to_string())?;
+    db.lock_or_recover().insert_instance(&instance).map_err(|e| e.to_string())?;
     Ok(instance)
 }
 
@@ -790,7 +791,7 @@ fn spawn_instance_port_watcher(
 
         let resolve = |app: &AppHandle| {
             let state = app.state::<AppState>();
-            state.db.lock().unwrap().update_instance_status_only(&iid, "running").ok();
+            state.db.lock_or_recover().update_instance_status_only(&iid, "running").ok();
             app.emit(&format!("instance:ready:{}", iid), ()).ok();
         };
 

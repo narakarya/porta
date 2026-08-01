@@ -4,6 +4,38 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.30]
+
+### Added
+
+- **App-down alerts.** A running app that stops answering its health check now
+  raises a notification, and another when it starts answering again. Debounced
+  by consecutive failures (default 3 ≈ 90s) so a slow request or a restart
+  doesn't fire one, and it alerts once per outage rather than once per probe.
+  Configurable under Settings → Notifications; the outage is recorded in the
+  Activity feed even when macOS notifications are off. Covers worktree
+  instances, which are labelled `app (branch)`.
+
+### Changed
+
+- **The Cloudflare API token moved to the macOS Keychain.** It used to sit in
+  plaintext in `~/.porta/config.json` despite carrying DNS-edit, Tunnel, Access
+  and Email-routing scope. Existing tokens migrate on first read with no
+  re-paste. If the keychain is unusable the token falls back to the config file
+  and the token bar says so out loud instead of implying it's protected.
+- **One scheduler for every recurring poll.** Host metrics, tunnel metrics,
+  WireGuard, Tailscale, port checks and tunnel reachability now share a single
+  timer and pause while the window is hidden, catching up once on the way back.
+  Health, app-update and image-digest checks keep running in the background.
+  Async polls slower than their own interval are skipped rather than stacked.
+
+### Fixed
+
+- A panic while holding a mutex no longer takes the whole app down. Every lock
+  now recovers from poisoning instead of `unwrap()`-ing into a second panic —
+  with `panic = "abort"` in release builds, one wedged feature was enough to
+  kill the process.
+
 ## [0.14.0-beta.29]
 
 ### Fixed

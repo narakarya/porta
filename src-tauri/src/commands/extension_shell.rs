@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use serde::Serialize;
 use std::path::Path;
 use std::process::Stdio;
@@ -138,13 +139,13 @@ pub async fn extension_shell_run(
 ) -> Result<ShellResult, String> {
     // 1. Look up the app to get root_dir
     let root_dir: String = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         extension_target_root(&db, &app_id)?
     };
 
     // 2. Check extension permission
     {
-        let exts = state.extensions.lock().unwrap();
+        let exts = state.extensions.lock_or_recover();
         let ext = exts
             .iter()
             .find(|e| e.manifest.id == extension_id)
@@ -283,12 +284,12 @@ pub async fn extension_shell_spawn(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let root_dir: String = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         extension_target_root(&db, &app_id)?
     };
 
     {
-        let exts = state.extensions.lock().unwrap();
+        let exts = state.extensions.lock_or_recover();
         let ext = exts
             .iter()
             .find(|e| e.manifest.id == extension_id)

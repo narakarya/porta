@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::thread;
 use tauri::Emitter;
@@ -64,7 +65,7 @@ pub fn start_workspace_apps(
     app: tauri::AppHandle,
     workspace_id: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let all_apps = db.list_apps().map_err(|e| e.to_string())?;
     drop(db);
 
@@ -116,7 +117,7 @@ pub fn stop_workspace_apps(
     app: tauri::AppHandle,
     workspace_id: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let all_apps = db.list_apps().map_err(|e| e.to_string())?;
     drop(db);
 

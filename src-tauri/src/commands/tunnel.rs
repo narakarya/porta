@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
@@ -279,7 +280,7 @@ fn pick_free_port() -> Option<u16> {
 /// How many cloudflared tunnel processes Porta is currently managing. Used by
 /// the tray menu to decide whether "Disconnect all tunnels" is worth showing.
 pub fn active_cloudflared_count() -> usize {
-    tunnel_pids().lock().unwrap().len()
+    tunnel_pids().lock_or_recover().len()
 }
 
 /// Stop every cloudflared tunnel Porta started. Returns the count stopped.
@@ -287,30 +288,30 @@ pub fn stop_all_cloudflared_tunnels(app_handle: &tauri::AppHandle) -> usize {
     // Snapshot tunnel membership before clearing so we can notify each member
     // app of a named connector we're about to kill.
     let members_by_tunnel: HashMap<String, Vec<String>> = {
-        let m = tunnel_members().lock().unwrap();
+        let m = tunnel_members().lock_or_recover();
         m.iter()
             .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
             .collect()
     };
     let keys: Vec<String> = {
-        let mut pids = tunnel_pids().lock().unwrap();
+        let mut pids = tunnel_pids().lock_or_recover();
         let keys: Vec<String> = pids.keys().cloned().collect();
         for k in &keys {
             if let Some(pid) = pids.remove(k) {
                 if k.starts_with("cfd-tunnel:") {
                     // Silence the connector's watcher — we emit for its members below.
-                    restart_pids().lock().unwrap().insert(pid);
+                    restart_pids().lock_or_recover().insert(pid);
                 } else {
                     // Quick app/instance tunnel: its own watcher emits the final
                     // `active:false`; just suppress the error annotation.
-                    tunnel_stopping().lock().unwrap().insert(k.clone());
+                    tunnel_stopping().lock_or_recover().insert(k.clone());
                 }
                 let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
             }
         }
         keys
     };
-    tunnel_members().lock().unwrap().clear();
+    tunnel_members().lock_or_recover().clear();
     for k in &keys {
         if let Some(name) = k.strip_prefix("cfd-tunnel:") {
             if let Some(ids) = members_by_tunnel.get(name) {
@@ -352,7 +353,7 @@ pub fn stop_cloudflare_for_switch(id: &str, app_handle: &tauri::AppHandle) {
     // this app's channel now. reconcile's teardown is silent via `restart_pids`.
     let name = {
         let state = app_handle.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .unwrap_or_default()
             .into_iter()
@@ -363,7 +364,7 @@ pub fn stop_cloudflare_for_switch(id: &str, app_handle: &tauri::AppHandle) {
     };
     if let Some(name) = name {
         let was_member = {
-            let mut m = tunnel_members().lock().unwrap();
+            let mut m = tunnel_members().lock_or_recover();
             let present = m.get(&name).map(|s| s.contains(id)).unwrap_or(false);
             if let Some(set) = m.get_mut(&name) {
                 set.remove(id);
@@ -383,9 +384,9 @@ pub fn stop_cloudflare_for_switch(id: &str, app_handle: &tauri::AppHandle) {
     }
 
     // Quick tunnel keyed by app id (legacy trycloudflare path).
-    tunnel_switching().lock().unwrap().insert(id.to_string());
-    tunnel_stopping().lock().unwrap().insert(id.to_string());
-    if let Some(pid) = tunnel_pids().lock().unwrap().remove(id) {
+    tunnel_switching().lock_or_recover().insert(id.to_string());
+    tunnel_stopping().lock_or_recover().insert(id.to_string());
+    if let Some(pid) = tunnel_pids().lock_or_recover().remove(id) {
         let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
     }
 }
@@ -503,7 +504,7 @@ fn resolve_tunnel(app_handle: &tauri::AppHandle, name: &str) -> (Vec<MemberInfo>
     }
     let (apps, instances, workspaces) = {
         let state = app_handle.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         (
             db.list_apps().unwrap_or_default(),
             db.list_instances().unwrap_or_default(),
@@ -601,7 +602,7 @@ fn emit_members_active(app_handle: &tauri::AppHandle, name: &str) {
 /// no members remain. Serialized across the process by `reconcile_lock` so
 /// concurrent connects/disconnects can't spawn duplicate connectors.
 fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<(), String> {
-    let _guard = reconcile_lock().lock().unwrap();
+    let _guard = reconcile_lock().lock_or_recover();
     let cf = find_cloudflared().ok_or_else(|| {
         "cloudflared not installed. Run: brew install cloudflare/cloudflare/cloudflared".to_string()
     })?;
@@ -614,12 +615,12 @@ fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<
     // Wait for the exit and sweep the edge so a full disconnect can't leave
     // ghost registrations behind for the next connect to trip over.
     if infos.is_empty() || rules.is_empty() {
-        if let Some(pid) = tunnel_pids().lock().unwrap().remove(&key) {
-            restart_pids().lock().unwrap().insert(pid);
+        if let Some(pid) = tunnel_pids().lock_or_recover().remove(&key) {
+            restart_pids().lock_or_recover().insert(pid);
             terminate_and_wait(pid, std::time::Duration::from_secs(8));
             cleanup_stale_connections(&cf, &name, None);
         }
-        tunnel_metrics_ports().lock().unwrap().remove(&name);
+        tunnel_metrics_ports().lock_or_recover().remove(&name);
         return Ok(());
     }
 
@@ -656,15 +657,15 @@ fn reconcile_named_tunnel(app_handle: tauri::AppHandle, name: String) -> Result<
     // matters — cleanup while the new connector is up would kick its live
     // connections too, and spawning before the old one exits races both the
     // unregister handshake and the config file.
-    if let Some(pid) = tunnel_pids().lock().unwrap().remove(&key) {
-        restart_pids().lock().unwrap().insert(pid);
+    if let Some(pid) = tunnel_pids().lock_or_recover().remove(&key) {
+        restart_pids().lock_or_recover().insert(pid);
         terminate_and_wait(pid, std::time::Duration::from_secs(8));
     }
     // Even with no tracked pid, ghosts may exist from a crashed/force-quit
     // previous session (this machine had 8 dead registrations on one tunnel) —
     // sweep unconditionally so every connect starts from a clean edge.
     cleanup_stale_connections(&cf, &name, rules.first().map(|r| r.public.as_str()));
-    tunnel_stopping().lock().unwrap().remove(&key);
+    tunnel_stopping().lock_or_recover().remove(&key);
 
     let metrics_port = pick_free_port();
     if let Some(mp) = metrics_port {
@@ -726,7 +727,7 @@ fn spawn_named_connector(
             }
         };
         let my_pid = child.id();
-        tunnel_pids().lock().unwrap().insert(key.clone(), my_pid);
+        tunnel_pids().lock_or_recover().insert(key.clone(), my_pid);
 
         let stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -747,7 +748,7 @@ fn spawn_named_connector(
                     .map_while(Result::ok)
                 {
                     {
-                        let mut b = buf.lock().unwrap();
+                        let mut b = buf.lock_or_recover();
                         b.push(line.clone());
                         if b.len() > 30 {
                             let drop = b.len() - 30;
@@ -774,23 +775,23 @@ fn spawn_named_connector(
 
         // Compare-and-remove so a concurrent restart's successor pid survives.
         {
-            let mut pids = tunnel_pids().lock().unwrap();
+            let mut pids = tunnel_pids().lock_or_recover();
             if pids.get(&key).copied() == Some(my_pid) {
                 pids.remove(&key);
             }
         }
         // Deliberate restart/teardown → stay silent; the new connector (or the
         // stop path) owns the members' channels now.
-        if restart_pids().lock().unwrap().remove(&my_pid) {
+        if restart_pids().lock_or_recover().remove(&my_pid) {
             return;
         }
 
         // Unexpected exit (crash, auth failure, bad config). Report to every
         // current member and clear membership so a reconnect rebuilds cleanly.
-        tunnel_metrics_ports().lock().unwrap().remove(&name);
+        tunnel_metrics_ports().lock_or_recover().remove(&name);
         let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
         let err_text = if exit_code != 0 {
-            let buf = stderr_buf.lock().unwrap();
+            let buf = stderr_buf.lock_or_recover();
             let lines: Vec<String> = buf
                 .iter()
                 .rev()
@@ -824,7 +825,7 @@ fn spawn_named_connector(
         // Snapshot who to notify (with correct app/instance channels) BEFORE
         // clearing membership, so a reconnect rebuilds from an empty set.
         let (infos, _) = resolve_tunnel(&app_handle, &name);
-        tunnel_members().lock().unwrap().remove(&name);
+        tunnel_members().lock_or_recover().remove(&name);
         for info in &infos {
             app_handle
                 .emit(
@@ -1136,7 +1137,7 @@ fn start_tunnel_blocking(
     // tunnel name, merged ingress), quick tunnels are per-app trycloudflare.
     let (tunnel_name, single_host_host_header) = {
         let state = app_handle.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let apps = db.list_apps().unwrap_or_default();
         let workspaces = db.list_workspaces().unwrap_or_default();
         match apps.into_iter().find(|a| a.id == id) {
@@ -1194,12 +1195,12 @@ fn start_tunnel_blocking(
 
     // Kill any existing quick tunnel for this app and clear stale stopping marker.
     {
-        let mut pids = tunnel_pids().lock().unwrap();
+        let mut pids = tunnel_pids().lock_or_recover();
         if let Some(pid) = pids.remove(&id) {
             let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
         }
     }
-    tunnel_stopping().lock().unwrap().remove(&id);
+    tunnel_stopping().lock_or_recover().remove(&id);
 
     let id2 = id.clone();
     let handle = app_handle.clone();
@@ -1247,7 +1248,7 @@ fn start_tunnel_blocking(
                     .map_while(Result::ok)
                 {
                     {
-                        let mut b = buf.lock().unwrap();
+                        let mut b = buf.lock_or_recover();
                         b.push(line.clone());
                         if b.len() > 30 {
                             let drop = b.len() - 30;
@@ -1283,11 +1284,11 @@ fn start_tunnel_blocking(
         }
 
         // Tunnel ended — clean up and notify frontend.
-        tunnel_pids().lock().unwrap().remove(&id2);
-        let intentional = tunnel_stopping().lock().unwrap().remove(&id2);
+        tunnel_pids().lock_or_recover().remove(&id2);
+        let intentional = tunnel_stopping().lock_or_recover().remove(&id2);
         let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
         let err_text = if !intentional && exit_code != 0 {
-            let buf = stderr_buf.lock().unwrap();
+            let buf = stderr_buf.lock_or_recover();
             let lines: Vec<String> = buf
                 .iter()
                 .rev()
@@ -1326,7 +1327,7 @@ fn start_tunnel_blocking(
         };
         // Suppress the final emit when this connector is dying as part of a
         // provider switch — the incoming provider already owns this channel.
-        let switching = tunnel_switching().lock().unwrap().remove(&id2);
+        let switching = tunnel_switching().lock_or_recover().remove(&id2);
         if !switching {
             handle
                 .emit(
@@ -1346,7 +1347,7 @@ pub fn stop_tunnel(id: String, app_handle: tauri::AppHandle) -> Result<(), Strin
     // members keep serving, or the connector tears down if this was the last.
     let name = {
         let state = app_handle.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .unwrap_or_default()
             .into_iter()
@@ -1358,7 +1359,7 @@ pub fn stop_tunnel(id: String, app_handle: tauri::AppHandle) -> Result<(), Strin
 
     if let Some(name) = name {
         {
-            let mut m = tunnel_members().lock().unwrap();
+            let mut m = tunnel_members().lock_or_recover();
             if let Some(set) = m.get_mut(&name) {
                 set.remove(&id);
                 if set.is_empty() {
@@ -1383,8 +1384,8 @@ pub fn stop_tunnel(id: String, app_handle: tauri::AppHandle) -> Result<(), Strin
     }
 
     // Quick tunnel / instance path keyed by app id.
-    tunnel_stopping().lock().unwrap().insert(id.clone());
-    if let Some(pid) = tunnel_pids().lock().unwrap().remove(&id) {
+    tunnel_stopping().lock_or_recover().insert(id.clone());
+    if let Some(pid) = tunnel_pids().lock_or_recover().remove(&id) {
         let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
     }
     Ok(())
@@ -1432,12 +1433,12 @@ fn spawn_quick_tunnel_for_instance(
     // Kill any existing tunnel tracked under this key and clear a stale
     // "intentional stop" marker from a previous run.
     {
-        let mut pids = tunnel_pids().lock().unwrap();
+        let mut pids = tunnel_pids().lock_or_recover();
         if let Some(pid) = pids.remove(&key) {
             let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
         }
     }
-    tunnel_stopping().lock().unwrap().remove(&key);
+    tunnel_stopping().lock_or_recover().remove(&key);
 
     // Force IPv4 loopback: cloudflared resolves `localhost` to `::1` first on
     // macOS, but dev servers commonly bind only IPv4 `127.0.0.1`, so a
@@ -1467,7 +1468,7 @@ fn spawn_quick_tunnel_for_instance(
             }
         };
 
-        tunnel_pids().lock().unwrap().insert(key2.clone(), child.id());
+        tunnel_pids().lock_or_recover().insert(key2.clone(), child.id());
 
         // Capture last N stderr lines so we can surface a real error if
         // cloudflared exits non-zero, same as the app quick-tunnel path.
@@ -1486,7 +1487,7 @@ fn spawn_quick_tunnel_for_instance(
                     .map_while(Result::ok)
                 {
                     {
-                        let mut b = buf.lock().unwrap();
+                        let mut b = buf.lock_or_recover();
                         b.push(line.clone());
                         if b.len() > 30 {
                             let drop = b.len() - 30;
@@ -1521,11 +1522,11 @@ fn spawn_quick_tunnel_for_instance(
             let _ = h.join();
         }
 
-        tunnel_pids().lock().unwrap().remove(&key2);
-        let intentional = tunnel_stopping().lock().unwrap().remove(&key2);
+        tunnel_pids().lock_or_recover().remove(&key2);
+        let intentional = tunnel_stopping().lock_or_recover().remove(&key2);
         let exit_code = status.and_then(|s| s.code()).unwrap_or(-1);
         let err_text = if !intentional && exit_code != 0 {
-            let buf = stderr_buf.lock().unwrap();
+            let buf = stderr_buf.lock_or_recover();
             let lines: Vec<String> = buf
                 .iter()
                 .rev()
@@ -1571,7 +1572,7 @@ pub async fn start_instance_tunnel(
     instance_id: String,
 ) -> Result<(), String> {
     let (inst, parent_named) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let inst = db
             .list_instances()
             .map_err(|e| e.to_string())?
@@ -1595,8 +1596,8 @@ pub async fn start_instance_tunnel(
         // tracked under the instance id first so it can't linger. Only mark it
         // "stopping" if one actually existed, so we don't leave a stale marker
         // that would swallow a future quick tunnel's exit error.
-        if let Some(pid) = tunnel_pids().lock().unwrap().remove(&inst.id) {
-            tunnel_stopping().lock().unwrap().insert(inst.id.clone());
+        if let Some(pid) = tunnel_pids().lock_or_recover().remove(&inst.id) {
+            tunnel_stopping().lock_or_recover().insert(inst.id.clone());
             let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
         }
         tunnel_members()
@@ -1628,7 +1629,7 @@ pub fn stop_instance_tunnel(instance_id: String, app_handle: tauri::AppHandle) -
     // parent app's tunnel name, then confirm membership.
     let named = {
         let state = app_handle.state::<AppState>();
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let parent_id = db
             .list_instances()
             .unwrap_or_default()
@@ -1648,7 +1649,7 @@ pub fn stop_instance_tunnel(instance_id: String, app_handle: tauri::AppHandle) -
 
     if let Some(name) = named {
         let was_member = {
-            let mut m = tunnel_members().lock().unwrap();
+            let mut m = tunnel_members().lock_or_recover();
             let present = m.get(&name).map(|s| s.contains(&instance_id)).unwrap_or(false);
             if let Some(set) = m.get_mut(&name) {
                 set.remove(&instance_id);
@@ -1674,8 +1675,8 @@ pub fn stop_instance_tunnel(instance_id: String, app_handle: tauri::AppHandle) -
     }
 
     // Quick tunnel keyed by instance id.
-    tunnel_stopping().lock().unwrap().insert(instance_id.clone());
-    if let Some(pid) = tunnel_pids().lock().unwrap().remove(&instance_id) {
+    tunnel_stopping().lock_or_recover().insert(instance_id.clone());
+    if let Some(pid) = tunnel_pids().lock_or_recover().remove(&instance_id) {
         let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
     }
     Ok(())
@@ -2148,7 +2149,7 @@ pub fn set_tunnel_config(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     // Only update auto_start if explicitly provided, so callers that just want
     // to set provider/hostname don't reset the user's auto-start preference.
     if let Some(auto) = tunnel_auto_start {
@@ -2387,7 +2388,7 @@ pub async fn tunnel_metrics(tunnel_name: String) -> Result<TunnelMetrics, Tunnel
         });
     }
 
-    let port = tunnel_metrics_ports().lock().unwrap().get(&name).copied();
+    let port = tunnel_metrics_ports().lock_or_recover().get(&name).copied();
     let port = match port {
         Some(p) => p,
         None => {

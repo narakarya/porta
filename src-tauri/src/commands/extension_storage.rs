@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::path::PathBuf;
 use serde_json::{Map, Value};
 use tauri::State;
@@ -46,7 +47,7 @@ fn write_store(extension_id: &str, map: &Map<String, Value>) -> Result<(), Strin
 
 /// Confirm the extension exists, is enabled, and holds the `storage` permission.
 fn check_storage_permission(extension_id: &str, state: &State<'_, AppState>) -> Result<(), String> {
-    let exts = state.extensions.lock().unwrap();
+    let exts = state.extensions.lock_or_recover();
     let ext = exts
         .iter()
         .find(|e| e.manifest.id == extension_id)

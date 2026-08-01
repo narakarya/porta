@@ -82,6 +82,10 @@ export interface UiSlice {
   openToasts: string[];
   notificationsEnabled: boolean;
   imageUpdateNotifyEnabled: boolean;
+  /** Notify when a running app stops answering its health check. */
+  healthAlertEnabled: boolean;
+  /** Consecutive failed health checks before an app counts as down (1–10). */
+  healthAlertThreshold: number;
   extensionSidebar: ExtensionSidebarState | null;
   /**
    * Per-app cache of extensions matching each app's kind+tags, keyed by app id.
@@ -154,6 +158,8 @@ export interface UiSlice {
   getToastIndex: (id: string) => number;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setImageUpdateNotifyEnabled: (enabled: boolean) => Promise<void>;
+  setHealthAlertEnabled: (enabled: boolean) => Promise<void>;
+  setHealthAlertThreshold: (rounds: number) => Promise<void>;
   setBetaUpdates: (enabled: boolean) => void;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
@@ -255,6 +261,8 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   openToasts: [],
   notificationsEnabled: true,
   imageUpdateNotifyEnabled: true,
+  healthAlertEnabled: true,
+  healthAlertThreshold: 3,
   extensionSidebar: null,
   pinnedExtensions: loadPinnedExtensions(),
   sidebarWidth: loadSidebarWidth(),
@@ -282,13 +290,18 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
 
   loadSettings: async () => {
     try {
-      const [enabled, imageUpdateEnabled] = await Promise.all([
-        cmd.getNotificationsEnabled(),
-        cmd.getImageUpdateNotifyEnabled(),
-      ]);
+      const [enabled, imageUpdateEnabled, healthAlertEnabled, healthAlertThreshold] =
+        await Promise.all([
+          cmd.getNotificationsEnabled(),
+          cmd.getImageUpdateNotifyEnabled(),
+          cmd.getHealthAlertEnabled(),
+          cmd.getHealthAlertThreshold(),
+        ]);
       set({
         notificationsEnabled: enabled,
         imageUpdateNotifyEnabled: imageUpdateEnabled,
+        healthAlertEnabled,
+        healthAlertThreshold,
       });
     } catch {}
   },
@@ -311,6 +324,17 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   setImageUpdateNotifyEnabled: async (enabled) => {
     await cmd.setImageUpdateNotifyEnabled(enabled);
     set({ imageUpdateNotifyEnabled: enabled });
+  },
+
+  setHealthAlertEnabled: async (enabled) => {
+    await cmd.setHealthAlertEnabled(enabled);
+    set({ healthAlertEnabled: enabled });
+  },
+
+  setHealthAlertThreshold: async (rounds) => {
+    const clamped = Math.min(10, Math.max(1, Math.round(rounds)));
+    await cmd.setHealthAlertThreshold(clamped);
+    set({ healthAlertThreshold: clamped });
   },
 
 

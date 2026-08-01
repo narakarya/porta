@@ -7,7 +7,16 @@ import {
 } from "../../lib/commands";
 
 export default function NotificationsSection() {
-  const { notificationsEnabled, setNotificationsEnabled, imageUpdateNotifyEnabled, setImageUpdateNotifyEnabled } = usePortaStore();
+  const {
+    notificationsEnabled,
+    setNotificationsEnabled,
+    imageUpdateNotifyEnabled,
+    setImageUpdateNotifyEnabled,
+    healthAlertEnabled,
+    setHealthAlertEnabled,
+    healthAlertThreshold,
+    setHealthAlertThreshold,
+  } = usePortaStore();
   const [permissionStatus, setPermissionStatus] = useState<"idle" | "granted" | "denied" | "error">("idle");
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "error">("idle");
   const [testError, setTestError] = useState<string>("");
@@ -163,6 +172,56 @@ export default function NotificationsSection() {
                 imageUpdateNotifyEnabled && notificationsEnabled ? "left-[18px]" : "left-0.5"
               }`} />
             </button>
+          </div>
+
+          <div className={`flex flex-col gap-2 px-3 py-2 rounded-control bg-surface-1 border border-subtle ${!notificationsEnabled ? "opacity-50 pointer-events-none" : ""}`}>
+            <div className="flex items-center gap-3">
+              <span className="text-[12px] font-mono w-4 shrink-0 text-bad">!</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] text-ink-2">App stopped responding</p>
+                <p className="text-[11px] text-ink-3">
+                  Health checks failing while the app is still running — and again when it recovers
+                </p>
+              </div>
+              <button
+                onClick={() => setHealthAlertEnabled(!healthAlertEnabled)}
+                disabled={!notificationsEnabled}
+                className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                  healthAlertEnabled && notificationsEnabled ? "bg-accent" : "bg-white/[0.14]"
+                }`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                  healthAlertEnabled && notificationsEnabled ? "left-[18px]" : "left-0.5"
+                }`} />
+              </button>
+            </div>
+
+            {healthAlertEnabled && (
+              <div className="flex items-center gap-2 pl-7 flex-wrap">
+                <label htmlFor="health-alert-threshold" className="text-[11px] text-ink-3">
+                  Alert after
+                </label>
+                <select
+                  id="health-alert-threshold"
+                  value={healthAlertThreshold}
+                  onChange={(e) => setHealthAlertThreshold(Number(e.target.value))}
+                  disabled={!notificationsEnabled}
+                  className="bg-surface-input border border-subtle rounded-control px-2 py-0.5 text-[11px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+                >
+                  {[1, 2, 3, 5, 10].map((n) => (
+                    <option key={n} value={n}>
+                      {n} failed check{n === 1 ? "" : "s"}
+                    </option>
+                  ))}
+                </select>
+                {/* Health is polled every 30s, so the wait before an alert is
+                    threshold × 30s. Spelling it out beats making the user do
+                    the arithmetic to judge how twitchy the alert will be. */}
+                <span className="text-[11px] text-ink-3">
+                  ≈ {healthAlertThreshold * 30}s of downtime
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

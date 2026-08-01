@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::{Emitter, Manager, State};
 
 use crate::app_state::AppState;
@@ -64,7 +65,7 @@ fn caddy_has_legacy_broadcast_log_config() -> bool {
 
 /// Collect all unique domains that need SSL certs: workspace domains + app custom domains.
 fn all_domains(state: &AppState) -> Result<Vec<String>, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let mut domains: Vec<String> = db
         .list_workspaces()
         .map_err(|e| e.to_string())?
@@ -91,7 +92,7 @@ fn all_domains(state: &AppState) -> Result<Vec<String>, String> {
 }
 
 pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let apps = db.list_apps().map_err(|e| e.to_string())?;
     let mut routes: Vec<Route> = apps

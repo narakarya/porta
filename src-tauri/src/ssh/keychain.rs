@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -23,10 +24,10 @@ impl SecretStore for MemoryStore {
         Ok(())
     }
     fn get(&self, host_id: &str) -> Result<Option<String>, String> {
-        Ok(self.0.lock().unwrap().get(host_id).cloned())
+        Ok(self.0.lock_or_recover().get(host_id).cloned())
     }
     fn delete(&self, host_id: &str) -> Result<(), String> {
-        self.0.lock().unwrap().remove(host_id);
+        self.0.lock_or_recover().remove(host_id);
         Ok(())
     }
 }

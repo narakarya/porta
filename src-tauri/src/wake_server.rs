@@ -15,6 +15,7 @@
 //! Non-eligible hosts (manually stopped apps, unknown hosts) get a clean 502 so
 //! we don't resurrect something the user deliberately stopped.
 
+use crate::sync::LockExt;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -90,7 +91,7 @@ fn handle_request(
 
     let state = handle.state::<AppState>();
     let (apps, workspaces, alias_routes) = {
-        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        let db = state.db.lock_or_recover();
         (
             db.list_apps().unwrap_or_default(),
             db.list_workspaces().unwrap_or_default(),
@@ -116,7 +117,7 @@ fn handle_request(
     // and bail out with a 502 mid-wake.
     let already_waking = target
         .as_ref()
-        .is_some_and(|a| waking.lock().unwrap().contains(&a.id));
+        .is_some_and(|a| waking.lock_or_recover().contains(&a.id));
     let eligible = target.as_ref().is_some_and(|a| {
         a.auto_sleep_enabled && !a.is_static() && !a.is_proxy() && (a.auto_slept || already_waking)
     });
@@ -153,7 +154,7 @@ fn wake_and_redirect(
     // Claim the wake. If another request already owns it, skip the start and
     // just wait on the same port below.
     let is_leader = {
-        let mut set = waking.lock().unwrap();
+        let mut set = waking.lock_or_recover();
         set.insert(app.id.clone())
     };
 
@@ -174,7 +175,7 @@ fn wake_and_redirect(
         if current_status == "stopped" {
             if let Err(e) = start_single(handle, app, false, false) {
                 eprintln!("[wake] start {} failed: {}", app.id, e);
-                waking.lock().unwrap().remove(&app.id);
+                waking.lock_or_recover().remove(&app.id);
                 let body = "<!doctype html><meta charset=utf-8><title>502</title>\
                     <body style=\"font:14px system-ui;padding:3rem;color:#444\">\
                     <h2>Failed to wake app</h2>";
@@ -194,7 +195,7 @@ fn wake_and_redirect(
     .is_ok();
 
     if is_leader {
-        waking.lock().unwrap().remove(&app.id);
+        waking.lock_or_recover().remove(&app.id);
     }
 
     if !up {

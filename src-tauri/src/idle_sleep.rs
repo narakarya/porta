@@ -8,6 +8,7 @@
 //! Waking is handled separately and transparently by `wake_server` via Caddy's
 //! errors route. Static/proxy apps are skipped — they have no process to sleep.
 
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
@@ -36,7 +37,7 @@ pub fn spawn_idle_watcher(handle: tauri::AppHandle) {
             thread::sleep(POLL_INTERVAL);
 
             let state = handle.state::<AppState>();
-            let apps = match state.db.lock().unwrap_or_else(|e| e.into_inner()).list_apps() {
+            let apps = match state.db.lock_or_recover().list_apps() {
                 Ok(a) => a,
                 Err(_) => continue,
             };
@@ -107,7 +108,7 @@ fn sleep_app(handle: &tauri::AppHandle, app: &App) {
     if app.is_compose() {
         let root = if app.root_dir.is_empty() { None } else { Some(app.root_dir.as_str()) };
         let file = app.compose_file.as_deref().unwrap_or("");
-        state.docker.stopping.lock().unwrap().insert(id.clone());
+        state.docker.stopping.lock_or_recover().insert(id.clone());
         state.docker.compose_stop_and_wait(id, file, root).ok();
     } else if app.is_docker() {
         state.docker.stop(id).ok();
@@ -116,7 +117,7 @@ fn sleep_app(handle: &tauri::AppHandle, app: &App) {
     }
 
     {
-        let db = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        let db = state.db.lock_or_recover();
         db.update_app_status(id, "stopped", None).ok();
         db.set_app_auto_slept(id, true).ok();
     }

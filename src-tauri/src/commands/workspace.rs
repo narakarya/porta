@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::State;
 use uuid::Uuid;
 
@@ -7,7 +8,7 @@ use super::setup::sync_caddy;
 
 #[tauri::command]
 pub fn list_workspaces(state: State<AppState>) -> Result<Vec<Workspace>, String> {
-    state.db.lock().unwrap().list_workspaces().map_err(|e| e.to_string())
+    state.db.lock_or_recover().list_workspaces().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -17,7 +18,7 @@ pub fn add_workspace(
     domain: String,
 ) -> Result<Workspace, String> {
     let w = Workspace { id: Uuid::new_v4().to_string(), name, domain, deployment: None };
-    state.db.lock().unwrap().insert_workspace(&w).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().insert_workspace(&w).map_err(|e| e.to_string())?;
 
     // Regenerate certs so the new workspace domain gets its own wildcard
     if crate::setup::certs_exist() {
@@ -60,12 +61,12 @@ pub fn update_workspace(
 pub fn delete_workspace(state: State<AppState>, id: String) -> Result<(), String> {
     // Snapshot first — see delete_app: a post-delete backup can't undo a delete.
     crate::backup::auto_backup_state(&state).ok();
-    state.db.lock().unwrap().delete_workspace(&id).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().delete_workspace(&id).map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn reorder_workspaces(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
-    state.db.lock().unwrap().reorder_workspaces(&ids).map_err(|e| e.to_string())
+    state.db.lock_or_recover().reorder_workspaces(&ids).map_err(|e| e.to_string())
 }

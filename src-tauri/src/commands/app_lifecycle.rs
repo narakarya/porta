@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
@@ -92,7 +93,7 @@ fn exit_callback(
             } else {
                 &state.processes.retry_counts
             };
-            let mut retries = retries_map.lock().unwrap();
+            let mut retries = retries_map.lock_or_recover();
             let count = retries.entry(exit_id.clone()).or_insert(0);
             *count += 1;
             *count
@@ -108,7 +109,7 @@ fn exit_callback(
             } else {
                 &state.processes.retry_counts
             };
-            retries_map.lock().unwrap().remove(&exit_id);
+            retries_map.lock_or_recover().remove(&exit_id);
             return;
         }
 
@@ -122,7 +123,7 @@ fn exit_callback(
             thread::sleep(Duration::from_secs(2));
             let state: State<AppState> = restart_handle.state();
             // Re-read app from DB in case it was deleted
-            let app_opt = state.db.lock().unwrap().list_apps()
+            let app_opt = state.db.lock_or_recover().list_apps()
                 .ok()
                 .and_then(|apps| apps.into_iter().find(|a| a.id == restart_id));
             if let Some(app) = app_opt {
@@ -144,7 +145,7 @@ pub(crate) fn adopt_running_apps(handle: &tauri::AppHandle) -> std::collections:
         return adopted;
     }
     let state: State<AppState> = handle.state();
-    let apps = state.db.lock().unwrap().list_apps().unwrap_or_default();
+    let apps = state.db.lock_or_recover().list_apps().unwrap_or_default();
     for app_data in apps {
         // Docker and compose apps have their own supervision; only the
         // process-backed ones are hosted in tmux.
@@ -180,7 +181,7 @@ pub(crate) fn start_single(
 
     // Any start (manual, wake, auto-restart, dependency) clears the auto-slept
     // flag so the 💤 badge doesn't linger after the app is up again.
-    let _ = state.db.lock().unwrap().set_app_auto_slept(id, false);
+    let _ = state.db.lock_or_recover().set_app_auto_slept(id, false);
 
     let on_log = log_callback(handle, id);
     let on_exit = exit_callback(handle, app_data);
@@ -204,12 +205,12 @@ pub(crate) fn start_single(
         // Flip status to "starting" immediately and set the port watcher going
         // so the UI shows a spinner while `docker compose up -d` does the (slow)
         // image pull in a background thread.
-        state.docker.retry_counts.lock().unwrap().remove(id);
+        state.docker.retry_counts.lock_or_recover().remove(id);
         // Clear any leftover stop request — this is an intentional start, so
         // the prior compose_stop's flag must not abort us. A Stop click that
         // arrives *after* this point will re-set the flag, and `compose_start`
         // re-reads it after `up -d` to honor the user's intent.
-        state.docker.stopping.lock().unwrap().remove(id);
+        state.docker.stopping.lock_or_recover().remove(id);
         state
             .db
             .lock()
@@ -235,11 +236,11 @@ pub(crate) fn start_single(
             );
             if let Err(e) = result {
                 let msg = e.to_string();
-                state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                state.db.lock_or_recover().update_app_status(&id_owned, "stopped", None).ok();
                 if msg.contains("aborted by user stop") {
                     // User clicked Stop mid-start — emit a clean exit so the UI
                     // resets to "stopped" without the start-failed alert.
-                    state.docker.stopping.lock().unwrap().remove(&id_owned);
+                    state.docker.stopping.lock_or_recover().remove(&id_owned);
                     handle_owned.emit(&format!("app:exit:{}", id_owned), 0i32).ok();
                 } else {
                     emit_start_failed(&handle_owned, &id_owned, msg, show_start_failed_alert);
@@ -270,7 +271,7 @@ pub(crate) fn start_single(
         } else {
             None
         };
-        state.docker.retry_counts.lock().unwrap().remove(id);
+        state.docker.retry_counts.lock_or_recover().remove(id);
         state
             .db
             .lock()
@@ -303,7 +304,7 @@ pub(crate) fn start_single(
                 on_exit,
             );
             if let Err(e) = result {
-                state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                state.db.lock_or_recover().update_app_status(&id_owned, "stopped", None).ok();
                 emit_start_failed(
                     &handle_owned,
                     &id_owned,
@@ -325,10 +326,10 @@ pub(crate) fn start_single(
         // A build can run for minutes, and run_build blocks — so the whole
         // build→start sequence moves to a background thread and this command
         // returns immediately with the card already in "starting".
-        state.processes.retry_counts.lock().unwrap().remove(id);
+        state.processes.retry_counts.lock_or_recover().remove(id);
         // Clear any leftover stop flag: this is an intentional start, and a
         // stale flag would make run_build report the build as cancelled.
-        state.processes.stopping.lock().unwrap().remove(id);
+        state.processes.stopping.lock_or_recover().remove(id);
         state
             .db
             .lock()
@@ -368,8 +369,8 @@ pub(crate) fn start_single(
                 Err(e) => Some(format!("build failed to launch: {e}")),
                 Ok(BUILD_CANCELLED) => {
                     // Stopped mid-build — reset cleanly, no failure alert.
-                    state.processes.stopping.lock().unwrap().remove(&id_owned);
-                    state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                    state.processes.stopping.lock_or_recover().remove(&id_owned);
+                    state.db.lock_or_recover().update_app_status(&id_owned, "stopped", None).ok();
                     handle_owned.emit(&format!("app:exit:{}", id_owned), 0i32).ok();
                     return;
                 }
@@ -377,7 +378,7 @@ pub(crate) fn start_single(
                 Ok(code) => Some(format!("build exited with code {code}")),
             };
             if let Some(msg) = failure {
-                state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                state.db.lock_or_recover().update_app_status(&id_owned, "stopped", None).ok();
                 emit_start_failed(&handle_owned, &id_owned, msg, show_start_failed_alert);
                 handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
                 return;
@@ -398,13 +399,13 @@ pub(crate) fn start_single(
             ) {
                 Ok(pid) => pid,
                 Err(e) => {
-                    state.db.lock().unwrap().update_app_status(&id_owned, "stopped", None).ok();
+                    state.db.lock_or_recover().update_app_status(&id_owned, "stopped", None).ok();
                     emit_start_failed(&handle_owned, &id_owned, e.to_string(), show_start_failed_alert);
                     handle_owned.emit(&format!("app:exit:{}", id_owned), -1i32).ok();
                     return;
                 }
             };
-            state.db.lock().unwrap().update_app_status(&id_owned, "starting", Some(pid)).ok();
+            state.db.lock_or_recover().update_app_status(&id_owned, "starting", Some(pid)).ok();
             spawn_port_watcher(handle_owned.clone(), id_owned, port, app_name, health_path);
         });
         return Ok(());
@@ -426,7 +427,7 @@ pub(crate) fn start_single(
         .map_err(|e| e.to_string())?;
 
     // Reset retry count on successful start
-    state.processes.retry_counts.lock().unwrap().remove(id);
+    state.processes.retry_counts.lock_or_recover().remove(id);
 
     state
         .db
@@ -547,7 +548,7 @@ pub async fn start_app(app: tauri::AppHandle, id: String) -> Result<(), String> 
 }
 
 pub(crate) fn start_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let apps = db.list_apps().map_err(|e| e.to_string())?;
     let app_data = apps
         .iter()
@@ -559,7 +560,7 @@ pub(crate) fn start_app_inner(state: &AppState, app: &tauri::AppHandle, id: Stri
     // Static and proxy apps have no process — Caddy serves them as long as
     // it's running. Mark as "running" so the UI reflects it and skip spawn.
     if app_data.is_static() || app_data.is_proxy() {
-        state.db.lock().unwrap()
+        state.db.lock_or_recover()
             .update_app_status(&id, "running", None)
             .map_err(|e| e.to_string())?;
         app.emit(&format!("app:ready:{}", id), ()).ok();
@@ -648,7 +649,7 @@ pub async fn stop_app(app: tauri::AppHandle, id: String) -> Result<(), String> {
 }
 
 fn stop_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Result<(), String> {
-    let app_data = state.db.lock().unwrap().list_apps().ok()
+    let app_data = state.db.lock_or_recover().list_apps().ok()
         .and_then(|apps| apps.into_iter().find(|a| a.id == id));
     let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
     let is_proxy = app_data.as_ref().map(|a| a.is_proxy()).unwrap_or(false);
@@ -662,7 +663,7 @@ fn stop_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Resul
         if let Some(ref a) = app_data {
             let root = if a.root_dir.is_empty() { None } else { Some(a.root_dir.as_str()) };
             let file = a.compose_file.as_deref().unwrap_or("");
-            state.docker.stopping.lock().unwrap().insert(id.clone());
+            state.docker.stopping.lock_or_recover().insert(id.clone());
             state.docker.compose_stop_and_wait(&id, file, root).map_err(|e| e.to_string())?;
         }
     } else if is_docker {
@@ -762,7 +763,7 @@ pub async fn restart_app(app: tauri::AppHandle, id: String) -> Result<(), String
 fn restart_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Result<(), String> {
     // Read the port and kind before stopping so we can route to the right manager.
     let (port_opt, is_static, is_proxy, is_docker, is_compose, compose_file, root_dir) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let app_opt = db.list_apps().ok()
             .and_then(|apps| apps.into_iter().find(|a| a.id == id));
         (
@@ -816,7 +817,7 @@ fn restart_app_inner(state: &AppState, app: &tauri::AppHandle, id: String) -> Re
         }
     } }
 
-    state.db.lock().unwrap().update_app_status(&id, "stopped", None).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().update_app_status(&id, "stopped", None).map_err(|e| e.to_string())?;
     start_app_inner(state, app, id)
 }
 
@@ -862,7 +863,7 @@ fn kill_and_reap(handle: &tauri::AppHandle, id: &str, port: u16) {
 
 #[tauri::command]
 pub fn kill_app(state: State<AppState>, app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let app_data = state.db.lock().unwrap().list_apps().ok()
+    let app_data = state.db.lock_or_recover().list_apps().ok()
         .and_then(|apps| apps.into_iter().find(|a| a.id == id));
     let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
     let is_proxy = app_data.as_ref().map(|a| a.is_proxy()).unwrap_or(false);

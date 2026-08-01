@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use serde::Serialize;
 use std::net::TcpListener;
 use std::process::Command;
@@ -126,7 +127,7 @@ pub fn apply_port_change(
         return Ok(());
     }
     let app = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let apps = db.list_apps().map_err(|e| e.to_string())?;
         apps.into_iter()
             .find(|a| a.id == app_id)
@@ -156,7 +157,7 @@ pub fn apply_port_change(
 
     // ── 2. Update DB port column so Caddy's reverse proxy targets new_port ─
     {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.update_app_port(&app_id, new_port).map_err(|e| e.to_string())?;
     }
 

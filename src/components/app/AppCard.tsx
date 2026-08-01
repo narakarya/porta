@@ -26,6 +26,7 @@ import AppDiskBadge from "./AppDiskBadge";
 import GitBadge from "./GitBadge";
 import { yieldToFrame } from "../../lib/ui";
 import { deriveInstanceApp } from "../../lib/instance-app";
+import { registerPoll } from "../../lib/poll-scheduler";
 
 // Stable empty reference — mirrors GitBadge's own module-level const (not
 // exported from there). Returning `?? []` straight from a Zustand selector
@@ -274,8 +275,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
     // lsof IPC calls during workspace switch. Subsequent checks every 30s are
     // plenty — this isn't latency-critical info.
     const startDelay = setTimeout(check, 1000 + Math.random() * 2000);
-    const interval = setInterval(check, 30_000);
-    return () => { cancelled = true; clearTimeout(startDelay); clearInterval(interval); };
+    const stop = registerPoll(check, 30_000);
+    return () => { cancelled = true; clearTimeout(startDelay); stop(); };
   }, [app.port, isActive, isStatic, isProxy]);
 
   // Close port-check popover on outside click / Esc.

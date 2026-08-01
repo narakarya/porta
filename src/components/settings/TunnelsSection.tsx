@@ -18,6 +18,7 @@ import {
 import { getCachedTunnels, setCachedTunnels, getCachedDnsRoutes, setCachedDnsRoutes } from "../../lib/tunnelCache";
 import { usePortaStore } from "../../store";
 import { RefreshIcon, Spinner } from "../ui";
+import { registerPoll } from "../../lib/poll-scheduler";
 
 interface Props {
   /** Bumped by parent when API token changes — triggers DNS-routes refresh. */
@@ -141,8 +142,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
     const active = tunnels.filter((t) => !t._pending && t.connection_count > 0).map((t) => t.name);
     if (active.length === 0) return;
     refreshMetrics(active);
-    const id = window.setInterval(() => refreshMetrics(active), 5000);
-    return () => window.clearInterval(id);
+    return registerPoll(() => refreshMetrics(active), 5000);
   }, [tunnels, refreshMetrics]);
 
   const refresh = useCallback(async (force = false) => {

@@ -19,6 +19,7 @@
 //! Why anonymous bearer auth: Docker Hub gates manifest reads behind a token
 //! flow even for public images. The token is free, no account required.
 
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -530,7 +531,7 @@ pub async fn check_app_image_updates(
     id: String,
 ) -> Result<Vec<ImageUpdateInfo>, String> {
     let app = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -630,7 +631,7 @@ pub async fn update_app_images(
 ) -> Result<(), String> {
     let opts = options.unwrap_or_default();
     let app_data = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .map_err(|e| e.to_string())?
             .into_iter()

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/tauri-event";
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
+import { usePoll } from "../../lib/poll-scheduler";
 import {
   remoteLogTail,
   remoteLogLiveStart,
@@ -138,33 +139,11 @@ export default function RemoteSection() {
     loadRemoteHosts();
   }, [loadRemoteHosts]);
 
-  // Poll WireGuard status every 15s while this section is mounted and the
-  // window is visible, so the panel reflects tunnel health without manual
-  // refresh. Pauses when hidden to avoid wasted `wg show` calls.
-  const intervalRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    loadAllWgStatuses();
-    function start() {
-      if (intervalRef.current !== undefined) return;
-      intervalRef.current = window.setInterval(loadAllWgStatuses, 15_000);
-    }
-    function stop() {
-      if (intervalRef.current !== undefined) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = undefined;
-      }
-    }
-    function onVisibility() {
-      if (document.hidden) stop();
-      else { loadAllWgStatuses(); start(); }
-    }
-    if (!document.hidden) start();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [loadAllWgStatuses]);
+  // Poll WireGuard status every 15s while this section is mounted, so the
+  // panel reflects tunnel health without manual refresh. The scheduler pauses
+  // it while the window is hidden — no point burning `wg show` calls on a
+  // panel nobody is looking at — and catches up on the way back.
+  usePoll(loadAllWgStatuses, 15_000, { immediate: true });
 
   const editing = draft !== null && draft.id !== "";
 

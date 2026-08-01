@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -79,7 +80,7 @@ pub fn static_alias_routes(db: &Database) -> Vec<Route> {
         Ok(a) => a,
         Err(_) => return Vec::new(),
     };
-    let aliases = static_aliases().lock().unwrap();
+    let aliases = static_aliases().lock_or_recover();
     let mut out = Vec::new();
     for (app_id, host) in aliases.iter() {
         if let Some(app) = apps.iter().find(|a| &a.id == app_id) {
@@ -199,7 +200,7 @@ fn candidate_paths() -> Vec<String> {
 }
 
 fn find_tailscale() -> Option<String> {
-    let cached = active_binary().lock().unwrap().clone();
+    let cached = active_binary().lock_or_recover().clone();
     if let Some(p) = cached {
         if std::path::Path::new(&p).exists() {
             return Some(p);
@@ -217,7 +218,7 @@ fn find_tailscale() -> Option<String> {
             if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
                 let state = v.get("BackendState").and_then(|s| s.as_str()).unwrap_or("");
                 if state == "Running" {
-                    *active_binary().lock().unwrap() = Some(path.clone());
+                    *active_binary().lock_or_recover() = Some(path.clone());
                     return Some(path.clone());
                 }
                 // Still a real Tailscale binary even if not Running — keep as fallback.
@@ -228,7 +229,7 @@ fn find_tailscale() -> Option<String> {
         }
     }
     if let Some(ref p) = fallback {
-        *active_binary().lock().unwrap() = Some(p.clone());
+        *active_binary().lock_or_recover() = Some(p.clone());
     }
     fallback
 }
@@ -469,7 +470,7 @@ pub async fn start_tailscale_serve(
         // when no Caddy feature is in play.
         let route_through_caddy = {
             let state = app_handle.state::<AppState>();
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock_or_recover();
             let app = db
                 .list_apps()
                 .ok()
@@ -494,7 +495,7 @@ pub async fn start_tailscale_serve(
             let state = app_handle.state::<AppState>();
             if let Err(e) = crate::commands::sync_caddy(&state) {
                 // Rollback alias on caddy sync failure.
-                static_aliases().lock().unwrap().remove(&id);
+                static_aliases().lock_or_recover().remove(&id);
                 app_handle
                     .emit(
                         &format!("app:tunnel:{}", id),
@@ -534,7 +535,7 @@ pub async fn start_tailscale_serve(
             let hint = annotate_ts_error(&err_text);
             // Roll back tailnet alias if we registered one.
             if route_through_caddy {
-                static_aliases().lock().unwrap().remove(&id);
+                static_aliases().lock_or_recover().remove(&id);
                 let state = app_handle.state::<AppState>();
                 let _ = crate::commands::sync_caddy(&state);
             }
@@ -580,12 +581,12 @@ pub fn stop_tailscale_for_switch(id: &str, app_handle: &tauri::AppHandle) {
         Some(t) => t,
         None => return,
     };
-    let tracked = active_serves().lock().unwrap().remove(id);
+    let tracked = active_serves().lock_or_recover().remove(id);
     let (tailnet_port, was_funnel) = match tracked {
         Some((p, f)) => (p, f),
         None => {
             let state = app_handle.state::<AppState>();
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock_or_recover();
             let port = db
                 .list_apps()
                 .ok()
@@ -608,7 +609,7 @@ pub fn stop_tailscale_for_switch(id: &str, app_handle: &tauri::AppHandle) {
             ])
             .output();
     }
-    let had_alias = static_aliases().lock().unwrap().remove(id).is_some();
+    let had_alias = static_aliases().lock_or_recover().remove(id).is_some();
     if had_alias {
         let state = app_handle.state::<AppState>();
         let _ = crate::commands::sync_caddy(&state);
@@ -622,14 +623,14 @@ pub async fn stop_tailscale_serve(id: String, app_handle: tauri::AppHandle) -> R
     tauri::async_runtime::spawn_blocking(move || {
         let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
 
-        let tracked = active_serves().lock().unwrap().remove(&id);
+        let tracked = active_serves().lock_or_recover().remove(&id);
         // If we don't have a tracked port (e.g. app was started in a previous Porta
         // session), fall back to the app's local port — that's what we'd have assigned.
         let (tailnet_port, was_funnel) = match tracked {
             Some((p, f)) => (p, f),
             None => {
                 let state = app_handle.state::<AppState>();
-                let db = state.db.lock().unwrap();
+                let db = state.db.lock_or_recover();
                 let port = db
                     .list_apps()
                     .ok()
@@ -675,7 +676,7 @@ pub async fn stop_tailscale_serve(id: String, app_handle: tauri::AppHandle) -> R
 
         // Drop the Caddy alias if this was a static app. Best-effort sync — if
         // Caddy is stopped we don't want to fail the Disconnect.
-        let had_alias = static_aliases().lock().unwrap().remove(&id).is_some();
+        let had_alias = static_aliases().lock_or_recover().remove(&id).is_some();
         if had_alias {
             let state = app_handle.state::<AppState>();
             let _ = crate::commands::sync_caddy(&state);
@@ -696,7 +697,7 @@ pub async fn stop_tailscale_serve(id: String, app_handle: tauri::AppHandle) -> R
 /// How many Porta-managed Tailscale serves are currently tracked. Used by the
 /// tray menu to decide whether to surface a "Disconnect all" action.
 pub fn active_serve_count() -> usize {
-    active_serves().lock().unwrap().len()
+    active_serves().lock_or_recover().len()
 }
 
 /// Check if a tunnel URL is actually reachable. Returns true if we got ANY
@@ -771,7 +772,7 @@ pub fn stop_all_porta_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(
     let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
 
     let tracked: Vec<(String, u16, bool)> = {
-        let map = active_serves().lock().unwrap();
+        let map = active_serves().lock_or_recover();
         map.iter()
             .map(|(id, (port, funnel))| (id.clone(), *port, *funnel))
             .collect()
@@ -792,7 +793,7 @@ pub fn stop_all_porta_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(
         // Clear from map regardless of result — if the daemon no longer knows
         // about this entry, we still want to forget it so the UI doesn't
         // claim it's active.
-        active_serves().lock().unwrap().remove(id);
+        active_serves().lock_or_recover().remove(id);
         let _ = app_handle.emit(
             &format!("app:tunnel:{}", id),
             serde_json::json!({ "active": false, "url": null }),
@@ -801,7 +802,7 @@ pub fn stop_all_porta_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(
 
     // Drop all static-app Caddy aliases and re-sync once at the end.
     let had_aliases = {
-        let mut aliases = static_aliases().lock().unwrap();
+        let mut aliases = static_aliases().lock_or_recover();
         let any = !aliases.is_empty();
         aliases.clear();
         any
@@ -828,13 +829,13 @@ pub fn reset_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(), String
 
     // Collect app IDs we need to notify about, under lock, then release before emit.
     let ids: Vec<String> = {
-        let mut map = active_serves().lock().unwrap();
+        let mut map = active_serves().lock_or_recover();
         let ids = map.keys().cloned().collect();
         map.clear();
         ids
     };
     let static_ids: Vec<String> = {
-        let mut map = static_aliases().lock().unwrap();
+        let mut map = static_aliases().lock_or_recover();
         let ids = map.keys().cloned().collect();
         map.clear();
         ids
@@ -898,7 +899,7 @@ pub fn spawn_tailscale_poller(app: tauri::AppHandle) {
             };
 
             let state = app.state::<AppState>();
-            let apps = match state.db.lock().unwrap().list_apps() {
+            let apps = match state.db.lock_or_recover().list_apps() {
                 Ok(a) => a,
                 Err(_) => continue,
             };

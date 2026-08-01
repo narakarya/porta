@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::collections::{HashMap, VecDeque};
 use std::os::unix::io::RawFd;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -127,7 +128,7 @@ fn record_exit(exit_code_slot: &mut Option<i32>, code: i32) {
 fn attach_existing(h: &TerminalHandle) -> TerminalAttach {
     TerminalAttach {
         spawned: false,
-        backlog: h.backlog.lock().unwrap().iter().copied().collect(),
+        backlog: h.backlog.lock_or_recover().iter().copied().collect(),
     }
 }
 
@@ -158,7 +159,7 @@ fn foreground_probe(h: &TerminalHandle) -> (i32, i32) {
             None => (-1, h.child_pid as i32),
         };
     }
-    let fd = h.fd.lock().unwrap();
+    let fd = h.fd.lock_or_recover();
     let fg = if is_writable(*fd) {
         unsafe { libc::tcgetpgrp(*fd) }
     } else {
@@ -223,7 +224,7 @@ pub fn terminal_open(
     // own locks, never the map's, so another session's `terminal_open` never
     // waits on this one.
     let existing = {
-        let map = terminals().lock().unwrap();
+        let map = terminals().lock_or_recover();
         map.get(&app_id).cloned()
     };
     if let Some(h) = existing {
@@ -231,7 +232,7 @@ pub fn terminal_open(
         // that left; push the new size to the still-live PTY. A no-op for an
         // exited session, whose fd is invalidated. Held under `fd`'s own
         // lock — not the map's — for the duration of the ioctl.
-        let fd = h.fd.lock().unwrap();
+        let fd = h.fd.lock_or_recover();
         if is_writable(*fd) {
             let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
             unsafe { libc::ioctl(*fd, libc::TIOCSWINSZ, &ws); }
@@ -330,7 +331,7 @@ pub fn terminal_open(
         exit_code: Mutex::new(None),
         tmux_session,
     });
-    terminals().lock().unwrap().insert(app_id.clone(), Arc::clone(&handle));
+    terminals().lock_or_recover().insert(app_id.clone(), Arc::clone(&handle));
 
     // If a startup command was requested, write it to the PTY after a short
     // delay so the interactive shell has a chance to print its prompt first.
@@ -386,7 +387,7 @@ pub fn terminal_open(
             // session's reader thread, and never against `terminal_write`'s
             // blocking write on *any* session (that uses `fd`, a completely
             // separate lock — see the comment on `TerminalHandle`).
-            let mut backlog = handle_for_reader.backlog.lock().unwrap();
+            let mut backlog = handle_for_reader.backlog.lock_or_recover();
             push_backlog(&mut backlog, chunk);
             app_clone.emit(&format!("terminal:data:{}", id_clone), chunk.to_vec()).ok();
             drop(backlog);
@@ -401,7 +402,7 @@ pub fn terminal_open(
         // idempotent, so it doesn't matter whether this thread or
         // `terminal_close` gets here first — whichever does takes the real
         // fd, the other gets `-1` and has nothing left to close.
-        let taken_fd = take_fd(&mut handle_for_reader.fd.lock().unwrap());
+        let taken_fd = take_fd(&mut handle_for_reader.fd.lock_or_recover());
         if taken_fd >= 0 {
             unsafe { libc::close(taken_fd); }
         }
@@ -426,7 +427,7 @@ pub fn terminal_open(
         // session from the map is harmless — this Arc keeps the handle
         // alive regardless, and nothing reads it once it's unreachable from
         // the map.
-        record_exit(&mut handle_for_reader.exit_code.lock().unwrap(), code);
+        record_exit(&mut handle_for_reader.exit_code.lock_or_recover(), code);
         app_clone
             .emit(&format!("terminal:exit:{}", id_clone), serde_json::json!({ "code": code }))
             .ok();
@@ -450,11 +451,11 @@ pub fn terminal_open(
 #[tauri::command]
 pub fn terminal_write(app_id: String, data: Vec<u8>) -> Result<(), String> {
     let handle = {
-        let map = terminals().lock().unwrap();
+        let map = terminals().lock_or_recover();
         map.get(&app_id).cloned()
     };
     let Some(h) = handle else { return Ok(()) };
-    let fd = h.fd.lock().unwrap();
+    let fd = h.fd.lock_or_recover();
     if is_writable(*fd) {
         unsafe {
             libc::write(*fd, data.as_ptr() as *const libc::c_void, data.len());
@@ -467,11 +468,11 @@ pub fn terminal_write(app_id: String, data: Vec<u8>) -> Result<(), String> {
 #[tauri::command]
 pub fn terminal_resize(app_id: String, rows: u16, cols: u16) -> Result<(), String> {
     let handle = {
-        let map = terminals().lock().unwrap();
+        let map = terminals().lock_or_recover();
         map.get(&app_id).cloned()
     };
     let Some(h) = handle else { return Ok(()) };
-    let fd = h.fd.lock().unwrap();
+    let fd = h.fd.lock_or_recover();
     if is_writable(*fd) {
         let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
         unsafe { libc::ioctl(*fd, libc::TIOCSWINSZ, &ws); }
@@ -493,7 +494,7 @@ pub struct TerminalState {
 /// front of the prompt. `-1` means the fd is unreadable — treat as idle rather
 /// than inventing activity.
 fn session_state(h: &TerminalHandle, fg_pgid: i32, shell_pid: i32) -> TerminalState {
-    let exit_code = *h.exit_code.lock().unwrap();
+    let exit_code = *h.exit_code.lock_or_recover();
     let alive = exit_code.is_none();
     TerminalState {
         alive,
@@ -510,7 +511,7 @@ fn session_state(h: &TerminalHandle, fg_pgid: i32, shell_pid: i32) -> TerminalSt
 #[tauri::command]
 pub fn terminal_state(app_id: String) -> Result<TerminalState, String> {
     let handle = {
-        let map = terminals().lock().unwrap();
+        let map = terminals().lock_or_recover();
         map.get(&app_id).cloned()
     };
     let h = handle.ok_or("no such terminal session")?;
@@ -543,11 +544,11 @@ fn signal_from_name(name: &str) -> Result<libc::c_int, String> {
 pub fn terminal_signal(app_id: String, signal: String) -> Result<bool, String> {
     let sig = signal_from_name(&signal)?;
     let handle = {
-        let map = terminals().lock().unwrap();
+        let map = terminals().lock_or_recover();
         map.get(&app_id).cloned()
     };
     let h = handle.ok_or("no such terminal session")?;
-    if h.exit_code.lock().unwrap().is_some() {
+    if h.exit_code.lock_or_recover().is_some() {
         return Ok(false);
     }
 
@@ -580,7 +581,7 @@ pub fn terminal_signal(app_id: String, signal: String) -> Result<bool, String> {
 /// idempotent and whichever of the two gets here first owns the real fd).
 #[tauri::command]
 pub fn terminal_close(app_id: String) -> Result<(), String> {
-    let handle = terminals().lock().unwrap().remove(&app_id);
+    let handle = terminals().lock_or_recover().remove(&app_id);
     if let Some(h) = handle {
         // Signalling the client would only detach it. The session and the shell
         // inside it have to go too, or a closed pane leaks a session that the
@@ -588,7 +589,7 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
         if let Some(session) = &h.tmux_session {
             let _ = crate::tmux::kill_session(session);
         }
-        let alive = h.exit_code.lock().unwrap().is_none();
+        let alive = h.exit_code.lock_or_recover().is_none();
         if alive {
             unsafe {
                 libc::kill(h.child_pid as i32, libc::SIGHUP);
@@ -597,7 +598,7 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
         }
         // An exited session's fd was already taken (and closed) by its
         // reader thread, leaving -1 here; only close a fd we actually own.
-        let fd = take_fd(&mut h.fd.lock().unwrap());
+        let fd = take_fd(&mut h.fd.lock_or_recover());
         if fd >= 0 {
             unsafe { libc::close(fd); }
         }
@@ -607,6 +608,7 @@ pub fn terminal_close(app_id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::sync::LockExt;
     use super::{
         attach_existing, exit_code_from_status, is_writable, push_backlog, record_exit,
         session_state, signal_from_name, take_fd, utf8_locale_overrides, TerminalHandle,
@@ -728,19 +730,19 @@ mod tests {
         // Simulates a still-live handle at the moment the reader thread's
         // read loop exits: real fd, no exit code yet.
         let h = handle(b"final output", None);
-        *h.fd.lock().unwrap() = 42;
+        *h.fd.lock_or_recover() = 42;
 
-        let taken = take_fd(&mut h.fd.lock().unwrap());
+        let taken = take_fd(&mut h.fd.lock_or_recover());
 
         // The old fd comes back so a caller that still owns it can close it
         // — leaving the number in the slot would let a later write land
         // in whatever the kernel reused it for.
         assert_eq!(taken, 42);
-        assert!(*h.fd.lock().unwrap() < 0);
+        assert!(*h.fd.lock_or_recover() < 0);
         // Untouched: `take_fd` only ever mutates the fd slot it's handed.
-        assert_eq!(*h.exit_code.lock().unwrap(), None);
+        assert_eq!(*h.exit_code.lock_or_recover(), None);
         assert_eq!(
-            *h.backlog.lock().unwrap(),
+            *h.backlog.lock_or_recover(),
             b"final output".iter().copied().collect::<VecDeque<u8>>()
         );
     }
@@ -762,14 +764,14 @@ mod tests {
         // Production always calls this after `take_fd` has already retired
         // the descriptor; the fd should be left untouched here.
         let h = handle(b"final output", None);
-        *h.fd.lock().unwrap() = -1;
+        *h.fd.lock_or_recover() = -1;
 
-        record_exit(&mut h.exit_code.lock().unwrap(), 1);
+        record_exit(&mut h.exit_code.lock_or_recover(), 1);
 
-        assert_eq!(*h.exit_code.lock().unwrap(), Some(1));
-        assert_eq!(*h.fd.lock().unwrap(), -1);
+        assert_eq!(*h.exit_code.lock_or_recover(), Some(1));
+        assert_eq!(*h.fd.lock_or_recover(), -1);
         assert_eq!(
-            *h.backlog.lock().unwrap(),
+            *h.backlog.lock_or_recover(),
             b"final output".iter().copied().collect::<VecDeque<u8>>()
         );
     }
@@ -855,7 +857,7 @@ mod tests {
         let h_writer = Arc::clone(&h);
         let barrier_writer = Arc::clone(&barrier);
         let writer = thread::spawn(move || {
-            let _fd_guard = h_writer.fd.lock().unwrap();
+            let _fd_guard = h_writer.fd.lock_or_recover();
             barrier_writer.wait();
             thread::sleep(Duration::from_millis(250));
         });
@@ -865,7 +867,7 @@ mod tests {
         // must complete promptly regardless of the fd being held elsewhere.
         let started = Instant::now();
         {
-            let mut backlog = h.backlog.lock().unwrap();
+            let mut backlog = h.backlog.lock_or_recover();
             push_backlog(&mut backlog, b"chunk");
         }
         let elapsed = started.elapsed();
@@ -912,7 +914,7 @@ mod tests {
         let h_appender = Arc::clone(&h);
         let barrier_appender = Arc::clone(&barrier);
         let appender = thread::spawn(move || {
-            let mut backlog = h_appender.backlog.lock().unwrap();
+            let mut backlog = h_appender.backlog.lock_or_recover();
             barrier_appender.wait();
             thread::sleep(Duration::from_millis(200));
             push_backlog(&mut backlog, b"chunk");

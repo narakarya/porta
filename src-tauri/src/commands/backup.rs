@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -149,7 +150,7 @@ pub fn export_full_backup(state: State<AppState>, dest_path: String) -> Result<(
     // reflects every committed write — including ones still living in
     // the WAL. Without this, recent edits would silently be missing.
     {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let _ = db.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     }
     backup::auto_backup(&state.db_path).ok();

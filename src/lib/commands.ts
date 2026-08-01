@@ -634,6 +634,29 @@ export const getImageUpdateNotifyEnabled = (): Promise<boolean> =>
 export const setImageUpdateNotifyEnabled = (enabled: boolean): Promise<void> =>
   isTauri ? invoke("set_image_update_notify_enabled", { enabled }) : Promise.resolve();
 
+// ── App-down health alerts ───────────────────────────────────────────────────
+
+/** Emitted on `app:health-alert` when an app crosses the down threshold or
+ * starts answering again. `id` is an app id or a worktree instance id. */
+export interface HealthAlert {
+  id: string;
+  name: string;
+  kind: "down" | "recovered";
+  detail: string;
+}
+
+export const getHealthAlertEnabled = (): Promise<boolean> =>
+  isTauri ? invoke("get_health_alert_enabled") : Promise.resolve(true);
+
+export const setHealthAlertEnabled = (enabled: boolean): Promise<void> =>
+  isTauri ? invoke("set_health_alert_enabled", { enabled }) : Promise.resolve();
+
+export const getHealthAlertThreshold = (): Promise<number> =>
+  isTauri ? invoke("get_health_alert_threshold") : Promise.resolve(3);
+
+export const setHealthAlertThreshold = (rounds: number): Promise<void> =>
+  isTauri ? invoke("set_health_alert_threshold", { rounds }) : Promise.resolve();
+
 export const notifyImageUpdatesFound = (appNames: string[]): Promise<void> =>
   isTauri ? invoke("notify_image_updates_found", { appNames }) : Promise.resolve();
 
@@ -903,8 +926,17 @@ export const listTunnelDns = (apiToken: string): Promise<TunnelDnsRoute[]> =>
 export const getCfApiToken = (): Promise<string> =>
   isTauri ? invoke("get_cf_api_token") : Promise.resolve("");
 
-export const setCfApiToken = (token: string): Promise<void> =>
-  isTauri ? invoke("set_cf_api_token", { token }) : Promise.resolve();
+/** Where the Cloudflare token is stored. `config` means the keychain was
+ * unusable and the token fell back to plaintext in `config.json`. */
+export type CfTokenStorage = "keychain" | "config" | "none";
+
+/** Resolves with the backend the token landed in, so the caller can warn when
+ * it is not keychain-protected. */
+export const setCfApiToken = (token: string): Promise<CfTokenStorage> =>
+  isTauri ? invoke("set_cf_api_token", { token }) : Promise.resolve("none");
+
+export const getCfTokenStorage = (): Promise<CfTokenStorage> =>
+  isTauri ? invoke("get_cf_token_storage") : Promise.resolve("none");
 
 // ── Cloudflare Access (Zero Trust) ────────────────────────────────────────────
 

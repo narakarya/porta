@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use anyhow::{anyhow, Result};
 use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
@@ -236,7 +237,7 @@ impl ProcessManager {
             ) {
                 Ok((pane, log_offset)) => {
                     let pid = pane.pid;
-                    self.pids.lock().unwrap().insert(app_id.to_string(), pid);
+                    self.pids.lock_or_recover().insert(app_id.to_string(), pid);
                     self.register_tmux(app_id, pane.session, log_offset, on_log, on_exit);
                     return Ok(pid);
                 }
@@ -250,7 +251,7 @@ impl ProcessManager {
         let mut child = cmd.spawn()?;
 
         let pid = child.id();
-        self.pids.lock().unwrap().insert(app_id.to_string(), pid);
+        self.pids.lock_or_recover().insert(app_id.to_string(), pid);
 
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
@@ -281,9 +282,9 @@ impl ProcessManager {
             let code = child.wait()
                 .map(|s| s.code().unwrap_or(-1))
                 .unwrap_or(-1);
-            pids.lock().unwrap().remove(&app_id_str);
+            pids.lock_or_recover().remove(&app_id_str);
             // Remove from stopping set and report whether this was intentional
-            let intentional = stopping.lock().unwrap().remove(&app_id_str);
+            let intentional = stopping.lock_or_recover().remove(&app_id_str);
             on_exit(code, intentional);
         });
 
@@ -321,7 +322,7 @@ impl ProcessManager {
         let mut cmd = shell_command(command, root_dir, port, env_file, extra_env);
         let mut child = cmd.spawn()?;
         let pid = child.id();
-        self.pids.lock().unwrap().insert(app_id.to_string(), pid);
+        self.pids.lock_or_recover().insert(app_id.to_string(), pid);
 
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
@@ -351,11 +352,11 @@ impl ProcessManager {
 
         // The build is done — drop its PID so the server's start() owns the slot.
         // A Stop during the build already removed it, which `remove` tolerates.
-        self.pids.lock().unwrap().remove(app_id);
+        self.pids.lock_or_recover().remove(app_id);
 
         // Stop pressed mid-build: report it as a distinct code so the caller can
         // skip the server start without treating it as a build failure.
-        if self.stopping.lock().unwrap().contains(app_id) {
+        if self.stopping.lock_or_recover().contains(app_id) {
             return Ok(BUILD_CANCELLED);
         }
 
@@ -364,12 +365,12 @@ impl ProcessManager {
 
     pub fn stop(&self, app_id: &str) -> Result<()> {
         // Mark as intentionally stopping before sending signal
-        self.stopping.lock().unwrap().insert(app_id.to_string());
+        self.stopping.lock_or_recover().insert(app_id.to_string());
         // Reset retry count on manual stop
-        self.retry_counts.lock().unwrap().remove(app_id);
+        self.retry_counts.lock_or_recover().remove(app_id);
 
         let pid_opt = {
-            let pids = self.pids.lock().unwrap();
+            let pids = self.pids.lock_or_recover();
             pids.get(app_id).copied()
         };
         if let Some(pid) = pid_opt {
@@ -381,19 +382,19 @@ impl ProcessManager {
                 for _ in 0..50 {
                     thread::sleep(Duration::from_millis(100));
                     if kill(Pid::from_raw(pid as i32), None).is_err() {
-                        pids.lock().unwrap().remove(&app_id);
+                        pids.lock_or_recover().remove(&app_id);
                         return;
                     }
                 }
                 // Escalate: SIGKILL the entire tree
                 signal_tree(pid, Signal::SIGKILL);
-                pids.lock().unwrap().remove(&app_id);
+                pids.lock_or_recover().remove(&app_id);
             });
         } else {
             // Nothing was running, so no exit watcher will ever consume the
             // flag. Left in place, it marks the *next* run's first crash as
             // intentional and swallows its notification and auto-restart.
-            self.stopping.lock().unwrap().remove(app_id);
+            self.stopping.lock_or_recover().remove(app_id);
         }
         Ok(())
     }
@@ -402,17 +403,17 @@ impl ProcessManager {
     /// expires (falls back to SIGKILL). Used by restart_app so the port is
     /// guaranteed free before the new process starts.
     pub fn stop_and_wait(&self, app_id: &str, timeout_ms: u64) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
+        self.stopping.lock_or_recover().insert(app_id.to_string());
 
         let pid_opt = {
-            let pids = self.pids.lock().unwrap();
+            let pids = self.pids.lock_or_recover();
             pids.get(app_id).copied()
         };
 
         let Some(pid) = pid_opt else {
             // No process, no watcher — drop the flag so it can't mislabel the
             // next run's exit as intentional (see `stop`).
-            self.stopping.lock().unwrap().remove(app_id);
+            self.stopping.lock_or_recover().remove(app_id);
             return Ok(());
         };
 
@@ -426,7 +427,7 @@ impl ProcessManager {
             if kill(Pid::from_raw(pid as i32), None).is_err() {
                 // Confirmed dead — give the OS time to reclaim the socket/port
                 thread::sleep(Duration::from_millis(300));
-                self.pids.lock().unwrap().remove(app_id);
+                self.pids.lock_or_recover().remove(app_id);
                 return Ok(());
             }
             // Halfway through timeout — escalate to SIGKILL on the whole tree
@@ -438,14 +439,14 @@ impl ProcessManager {
         // Final SIGKILL to the whole tree and grace period for the OS to reclaim the port
         signal_tree(pid, Signal::SIGKILL);
         thread::sleep(Duration::from_millis(500));
-        self.pids.lock().unwrap().remove(app_id);
+        self.pids.lock_or_recover().remove(app_id);
         Ok(())
     }
 
     /// Force-kill a process with SIGKILL (no cleanup, immediate termination).
     pub fn kill(&self, app_id: &str) -> Result<()> {
-        self.stopping.lock().unwrap().insert(app_id.to_string());
-        let removed = self.pids.lock().unwrap().remove(app_id);
+        self.stopping.lock_or_recover().insert(app_id.to_string());
+        let removed = self.pids.lock_or_recover().remove(app_id);
         match removed {
             Some(pid) => {
                 // Kill the entire tree (group + setsid'd children like Chromium)
@@ -453,16 +454,16 @@ impl ProcessManager {
             }
             // No process, no watcher — see `stop`.
             None => {
-                self.stopping.lock().unwrap().remove(app_id);
+                self.stopping.lock_or_recover().remove(app_id);
             }
         }
         Ok(())
     }
 
     pub fn stop_all(&self) {
-        let mut pids = self.pids.lock().unwrap();
+        let mut pids = self.pids.lock_or_recover();
         // Mark all as intentionally stopping so on_exit doesn't trigger auto-restart
-        let mut stopping = self.stopping.lock().unwrap();
+        let mut stopping = self.stopping.lock_or_recover();
         for app_id in pids.keys() {
             stopping.insert(app_id.clone());
         }
@@ -475,14 +476,14 @@ impl ProcessManager {
     }
 
     pub fn is_running(&self, app_id: &str) -> bool {
-        self.pids.lock().unwrap().contains_key(app_id)
+        self.pids.lock_or_recover().contains_key(app_id)
     }
 
     /// Returns a snapshot of current app_id → pid mappings (for metrics polling).
     /// Returns `Vec` rather than `HashMap` so the lock is held only for a cheap
     /// iter+clone; callers that need map semantics can `.into_iter().collect()`.
     pub fn pids(&self) -> Vec<(String, u32)> {
-        self.pids.lock().unwrap()
+        self.pids.lock_or_recover()
             .iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect()
@@ -841,7 +842,7 @@ impl ProcessManager {
         let stopping = Arc::clone(&self.stopping);
         thread::spawn(move || loop {
             thread::sleep(Duration::from_millis(400));
-            if apps.lock().unwrap().is_empty() {
+            if apps.lock_or_recover().is_empty() {
                 continue;
             }
             // A failed listing says nothing about the sessions — skip the tick
@@ -852,7 +853,7 @@ impl ProcessManager {
             // manager (auto-restart calls `start` again), so it must never run
             // while this map's lock is held.
             let finished: Vec<(String, i32)> = {
-                let mut map = apps.lock().unwrap();
+                let mut map = apps.lock_or_recover();
                 map.iter_mut()
                     .filter_map(|(id, w)| {
                         match panes.iter().find(|p| p.session == w.session) {
@@ -876,11 +877,11 @@ impl ProcessManager {
                     .collect()
             };
             for (id, code) in finished {
-                let Some(w) = apps.lock().unwrap().remove(&id) else { continue };
+                let Some(w) = apps.lock_or_recover().remove(&id) else { continue };
                 w.stop_tail.store(true, Ordering::Relaxed);
                 let _ = crate::tmux::kill_session(&w.session);
-                pids.lock().unwrap().remove(&id);
-                let intentional = stopping.lock().unwrap().remove(&id);
+                pids.lock_or_recover().remove(&id);
+                let intentional = stopping.lock_or_recover().remove(&id);
                 (w.on_exit)(code, intentional);
             }
         });
@@ -969,7 +970,7 @@ impl ProcessManager {
             Arc::new(on_log),
             Arc::clone(&stop_tail),
         );
-        self.tmux_apps.lock().unwrap().insert(
+        self.tmux_apps.lock_or_recover().insert(
             app_id.to_string(),
             TmuxApp { session, stop_tail, on_exit: Box::new(on_exit), missing_ticks: 0 },
         );
@@ -1008,7 +1009,7 @@ impl ProcessManager {
             }
         }
 
-        self.pids.lock().unwrap().insert(app_id.to_string(), pane.pid);
+        self.pids.lock_or_recover().insert(app_id.to_string(), pane.pid);
         // Resume at the current end of the log. Everything written while Porta
         // was away is already on disk, and the viewer loads it via
         // `get_app_logs`; replaying it as live events would show it twice.
@@ -1021,12 +1022,12 @@ impl ProcessManager {
 
     /// Is this app hosted in a tmux session (rather than piped)?
     pub fn is_tmux_hosted(&self, app_id: &str) -> bool {
-        self.tmux_apps.lock().unwrap().contains_key(app_id)
+        self.tmux_apps.lock_or_recover().contains_key(app_id)
     }
 
     /// The command a user can run to attach to `app_id`'s session themselves.
     pub fn tmux_attach_command(&self, app_id: &str) -> Option<String> {
-        let map = self.tmux_apps.lock().unwrap();
+        let map = self.tmux_apps.lock_or_recover();
         map.get(app_id).map(|w| crate::tmux::attach_command(&w.session))
     }
 

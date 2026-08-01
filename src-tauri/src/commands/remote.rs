@@ -3,6 +3,7 @@
 //! rusqlite, expose/unexpose that manages a single `porta` server on the VPS
 //! Caddy, and status emitted on the shared `app:tunnel:{id}` channel.
 
+use crate::sync::LockExt;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -175,7 +176,7 @@ pub async fn wg_status(host_id: String, state: State<'_, AppState>) -> Result<Wg
 
 #[tauri::command]
 pub fn list_remote_hosts(state: State<AppState>) -> Result<Vec<RemoteHost>, String> {
-    state.db.lock().unwrap().list_remote_hosts().map_err(|e| e.to_string())
+    state.db.lock_or_recover().list_remote_hosts().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -190,18 +191,18 @@ pub fn add_remote_host(mut host: RemoteHost, state: State<AppState>) -> Result<R
     if host.wg_interface.as_deref().map(str::trim).unwrap_or("").is_empty() {
         host.wg_interface = detect_wg_interface();
     }
-    state.db.lock().unwrap().insert_remote_host(&host).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().insert_remote_host(&host).map_err(|e| e.to_string())?;
     Ok(host)
 }
 
 #[tauri::command]
 pub fn update_remote_host(host: RemoteHost, state: State<AppState>) -> Result<(), String> {
-    state.db.lock().unwrap().update_remote_host(&host).map_err(|e| e.to_string())
+    state.db.lock_or_recover().update_remote_host(&host).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn delete_remote_host(id: String, state: State<AppState>) -> Result<(), String> {
-    state.db.lock().unwrap().delete_remote_host(&id).map_err(|e| e.to_string())
+    state.db.lock_or_recover().delete_remote_host(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -245,7 +246,7 @@ pub async fn test_remote_host(id: String, state: State<'_, AppState>) -> Result<
 
 #[tauri::command]
 pub fn list_remote_routes(state: State<AppState>) -> Result<Vec<RemoteRoute>, String> {
-    state.db.lock().unwrap().list_remote_routes().map_err(|e| e.to_string())
+    state.db.lock_or_recover().list_remote_routes().map_err(|e| e.to_string())
 }
 
 /// Build the desired `porta` server spec list for a host from its active routes.
@@ -303,7 +304,7 @@ fn push_host(
 }
 
 fn set_provider(state: &AppState, app_id: &str, provider: Option<&str>) {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let _ = db
         .conn
         .execute("UPDATE apps SET tunnel_provider = ?1 WHERE id = ?2", params![provider, app_id]);
@@ -376,7 +377,7 @@ pub async fn expose_remote(
     crate::commands::tailscale::stop_tailscale_for_switch(&app_id, &app_handle);
 
     let (host, apps, workspaces, app_port) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let host = db
             .get_remote_host(&host_id)
             .map_err(|e| e.to_string())?
@@ -417,13 +418,13 @@ pub async fn expose_remote(
         domain: Some(chosen_domain.clone()),
     };
     {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.delete_remote_route_by_app(&app_id).map_err(|e| e.to_string())?;
         db.insert_remote_route(&route).map_err(|e| e.to_string())?;
     }
 
     // Rebuild the whole host server from all its (now-including-this) routes.
-    let all_routes = state.db.lock().unwrap().list_remote_routes_for_host(&host_id).map_err(|e| e.to_string())?;
+    let all_routes = state.db.lock_or_recover().list_remote_routes_for_host(&host_id).map_err(|e| e.to_string())?;
     // push_host does blocking HTTP to the VPS — offload so the UI stays responsive.
     let push_result = {
         let host = host.clone();
@@ -481,7 +482,7 @@ pub async fn unexpose_remote(
     };
 
     let (host, apps, workspaces, remaining) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let host = db
             .get_remote_host(&route.host_id)
             .map_err(|e| e.to_string())?
@@ -505,7 +506,7 @@ pub async fn unexpose_remote(
         .await
         .map_err(|e| e.to_string())??;
 
-    state.db.lock().unwrap().delete_remote_route_by_app(&app_id).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().delete_remote_route_by_app(&app_id).map_err(|e| e.to_string())?;
     set_provider(&state, &app_id, None);
     emit_tunnel(&app_handle, &app_id, serde_json::json!({ "active": false, "url": null }));
     Ok(())
@@ -555,7 +556,7 @@ fn extract_route_hosts(server: &serde_json::Value) -> Vec<String> {
 #[tauri::command]
 pub async fn remote_diff(host_id: String, state: State<'_, AppState>) -> Result<DiffReport, String> {
     let (host, routes) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let host = db
             .get_remote_host(&host_id)
             .map_err(|e| e.to_string())?
@@ -586,7 +587,7 @@ pub async fn remote_diff(host_id: String, state: State<'_, AppState>) -> Result<
 #[tauri::command]
 pub async fn remote_push_host(host_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let (host, routes, apps, workspaces) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let host = db
             .get_remote_host(&host_id)
             .map_err(|e| e.to_string())?
@@ -621,12 +622,12 @@ pub async fn remote_remove_foreign(
 /// owns the `app:tunnel:{id}` channel).
 pub fn stop_remote_for_switch(app_id: &str, app_handle: &AppHandle) {
     let state = app_handle.state::<AppState>();
-    let route = match state.db.lock().unwrap().get_remote_route_for_app(app_id) {
+    let route = match state.db.lock_or_recover().get_remote_route_for_app(app_id) {
         Ok(Some(r)) => r,
         _ => return,
     };
     let (host, apps, workspaces, remaining) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let host = match db.get_remote_host(&route.host_id) {
             Ok(Some(h)) => h,
             _ => return,
@@ -642,7 +643,7 @@ pub fn stop_remote_for_switch(app_id: &str, app_handle: &AppHandle) {
         (host, apps, workspaces, remaining)
     };
     let _ = push_host(&host, &remaining, &apps, &workspaces);
-    let _ = state.db.lock().unwrap().delete_remote_route_by_app(app_id);
+    let _ = state.db.lock_or_recover().delete_remote_route_by_app(app_id);
     set_provider(&state, app_id, None);
 }
 
