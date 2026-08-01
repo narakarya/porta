@@ -4,7 +4,7 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [0.15.0-beta.1]
+## [0.15.0-beta.2]
 
 ### Added
 
