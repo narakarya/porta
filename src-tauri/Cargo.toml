@@ -49,6 +49,7 @@ tiny_http = "0.12"
 keyring = "3"
 russh = "0.54"
 tauri-plugin-single-instance = "2.4.3"
+russh-sftp = "2.3"
 
 [dev-dependencies]
 
