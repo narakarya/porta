@@ -59,29 +59,29 @@ export function detectLevel(line: string): LogLevel {
 }
 
 export const LEVEL_CLS: Record<NonNullable<LogLevel>, string> = {
-  error:   "text-red-400",
-  warn:    "text-amber-400",
-  info:    "text-blue-400",
-  debug:   "text-zinc-500",
-  trace:   "text-zinc-600",
-  success: "text-emerald-400",
+  error:   "text-bad",
+  warn:    "text-warn",
+  info:    "text-accent",
+  debug:   "text-ink-3",
+  trace:   "text-ink-3",
+  success: "text-ok",
 };
 
 export const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
-  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
-  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
-  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
-  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
-  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
+  error:   { label: "ERR",  cls: "bg-bad-bg text-bad border-[var(--danger-border)]" },
+  warn:    { label: "WARN", cls: "bg-warn-bg text-warn border-[var(--warning-border)]" },
+  info:    { label: "INFO", cls: "bg-accent-bg text-accent border-[var(--accent-border)]" },
+  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-ink-3 border-zinc-700/50" },
+  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-ink-3 border-zinc-800/50" },
+  success: { label: "OK",   cls: "bg-ok-bg text-ok border-[var(--success-border)]" },
 };
 
 export const FILTER_PILLS: { key: NonNullable<LogLevel>; label: string; activeCls: string }[] = [
-  { key: "error",   label: "ERR",  activeCls: "bg-red-500/15 text-red-400 border-red-500/25" },
-  { key: "warn",    label: "WARN", activeCls: "bg-amber-500/15 text-amber-400 border-amber-500/25" },
-  { key: "success", label: "OK",   activeCls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
-  { key: "info",    label: "INFO", activeCls: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
-  { key: "debug",   label: "DBG",  activeCls: "bg-zinc-700/50 text-zinc-400 border-zinc-600/40" },
+  { key: "error",   label: "ERR",  activeCls: "bg-bad-bg text-bad border-red-500/25" },
+  { key: "warn",    label: "WARN", activeCls: "bg-warn-bg text-warn border-amber-500/25" },
+  { key: "success", label: "OK",   activeCls: "bg-ok-bg text-ok border-emerald-500/25" },
+  { key: "info",    label: "INFO", activeCls: "bg-accent-bg text-accent border-blue-500/25" },
+  { key: "debug",   label: "DBG",  activeCls: "bg-zinc-700/50 text-ink-2 border-zinc-600/40" },
 ];
 
 // ── Search highlight ───────────────────────────────────────────────────────────

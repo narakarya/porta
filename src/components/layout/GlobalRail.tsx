@@ -60,7 +60,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
     // z-index 2147483647, directly over the Settings gear — it swallows the
     // click. Lift the bottom cluster clear of it while developing. The built
     // app has no toolbar, so production keeps the tight `pb-3`.
-    <nav className={`drag-region w-[54px] shrink-0 bg-[#151517] border-r border-white/[0.06] flex flex-col items-center pt-3 z-20 ${import.meta.env.DEV ? "pb-14" : "pb-3"}`}>
+    <nav className={`drag-region w-[54px] shrink-0 bg-surface-1 border-r border-white/[0.06] flex flex-col items-center pt-3 z-20 ${import.meta.env.DEV ? "pb-14" : "pb-3"}`}>
       {/* Porta logo + domain nav as one tight top cluster. */}
       <div className="no-drag flex flex-col items-center gap-1">
         <img src="/porta-logo.svg" alt="Porta" width={22} height={22} className="rounded-[6px] mb-1" />
@@ -90,7 +90,7 @@ export default function GlobalRail({ onOpenSettings, onSelectDomain, settingsAct
           onClick={onOpenSettings}
           aria-label="Settings"
           className={`w-9 h-9 flex items-center justify-center rounded-[9px] transition-colors ${
-            settingsActive ? "bg-white/[0.10] text-zinc-100" : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
+            settingsActive ? "bg-white/[0.10] text-ink" : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
           }`}
         >
           {/* A proper cog (rounded teeth) so it reads as Settings, not a
@@ -146,12 +146,12 @@ function VersionDot() {
     : checking
       ? "bg-accent pulse-dot"
       : tone === "ok"
-        ? "bg-emerald-400"
+        ? "bg-ok"
         : tone === "warn"
-          ? "bg-amber-400 pulse-dot"
+          ? "bg-warn pulse-dot"
           : tone === "bad"
-            ? "bg-red-400 pulse-dot"
-            : "bg-zinc-600";
+            ? "bg-bad pulse-dot"
+            : "bg-ink-3";
 
   const tooltip = [
     `Porta v${__BUILD_TAG__}`,

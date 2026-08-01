@@ -240,17 +240,17 @@ function SummaryChip({
 }) {
   const colorMap = {
     amber: {
-      active: "bg-warn-bg border-[rgba(251,191,36,0.3)] text-warn",
+      active: "bg-warn-bg border-[var(--warning-border)] text-warn",
       inactive: "bg-white/[0.03] border-subtle text-ink-2 hover:bg-white/[0.06]",
       dot: "bg-warn",
     },
     orange: {
-      active: "bg-warn-bg border-[rgba(251,191,36,0.3)] text-warn",
+      active: "bg-warn-bg border-[var(--warning-border)] text-warn",
       inactive: "bg-white/[0.03] border-subtle text-ink-2 hover:bg-white/[0.06]",
       dot: "bg-warn",
     },
     sky: {
-      active: "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink",
+      active: "bg-accent-bg border-[var(--accent-border)] text-accent-ink",
       inactive: "bg-white/[0.03] border-subtle text-ink-2 hover:bg-white/[0.06]",
       dot: "bg-accent",
     },

@@ -235,7 +235,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
               placeholder={selectedZone ? `app.${selectedZone.name}` : "subdomain"}
-              className="bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] font-mono"
+              className="bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[var(--accent)] font-mono"
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -245,7 +245,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
               value={form.content}
               onChange={(e) => setForm((p) => ({ ...p, content: e.target.value }))}
               placeholder={form.recordType === "CNAME" ? "target.example.com" : form.recordType === "A" ? "192.0.2.1" : ""}
-              className="bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] font-mono"
+              className="bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[var(--accent)] font-mono"
             />
           </label>
         </div>
@@ -271,7 +271,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
                 type="checkbox"
                 checked={form.proxied}
                 onChange={(e) => setForm((p) => ({ ...p, proxied: e.target.checked }))}
-                className="rounded border-strong bg-white/[0.05] text-warn focus:ring-[rgba(251,191,36,0.3)] focus:ring-offset-0"
+                className="rounded border-strong bg-white/[0.05] text-warn focus:ring-[var(--warning-border)] focus:ring-offset-0"
               />
               Proxied (orange cloud)
             </label>
@@ -285,7 +285,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
                 max={65535}
                 value={form.priority}
                 onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
-                className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] w-[80px]"
+                className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11px] text-ink outline-none focus:border-[var(--accent)] w-[80px]"
                 placeholder="10"
               />
             </label>
@@ -299,9 +299,9 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[rgba(96,165,250,0.25)] text-accent-ink border border-[rgba(96,165,250,0.3)] disabled:opacity-40 inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] disabled:opacity-40 inline-flex items-center gap-1.5"
           >
-            {submitting && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.3)] border-t-accent animate-spin" />}
+            {submitting && <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--accent-border)] border-t-accent animate-spin" />}
             {editing ? "Save changes" : "Create record"}
           </button>
           <button
@@ -328,7 +328,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
         <p className="text-[11.5px] text-ink-3 mt-0.5">
           Manage DNS records in your Cloudflare zones — A, AAAA, CNAME, TXT, MX, NS.
         </p>
-        <div className="mt-4 px-3 py-3 rounded-control bg-warn-bg border border-[rgba(251,191,36,0.25)] text-[12px] text-warn">
+        <div className="mt-4 px-3 py-3 rounded-control bg-warn-bg border border-[var(--warning-border)] text-[12px] text-warn">
           Add a Cloudflare API token in the <span className="font-medium">Tunnels</span> tab first.
           Token needs <span className="font-mono">Zone:Read + DNS:Edit</span> scopes.
         </div>
@@ -394,20 +394,20 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by name…"
-            className="ml-auto bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors w-[200px]"
+            className="ml-auto bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[var(--accent)] transition-colors w-[200px]"
           />
           <button
             type="button"
             onClick={startAdd}
             disabled={!selectedZoneId}
-            className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[rgba(96,165,250,0.25)] text-accent-ink border border-[rgba(96,165,250,0.3)] transition-colors disabled:opacity-40"
+            className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] transition-colors disabled:opacity-40"
           >
             + Add record
           </button>
         </div>
 
         {zonesError && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.25)]">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-bad-bg border border-[var(--danger-border)]">
             <p className="text-[11px] text-bad font-mono whitespace-pre-wrap break-words flex-1">{zonesError}</p>
             <button
               type="button"
@@ -460,7 +460,7 @@ export default function DnsSection({ tokenVersion = 0 }: Props = {}) {
                       <div className="text-[11px] text-ink-3">{rec.ttl === 1 ? "Auto" : rec.ttl}</div>
                       <div>
                         {rec.proxied ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-warn-bg text-warn border border-[rgba(251,191,36,0.3)]">Proxied</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-warn-bg text-warn border border-[var(--warning-border)]">Proxied</span>
                         ) : (
                           <span className="text-[10px] text-ink-3">DNS only</span>
                         )}

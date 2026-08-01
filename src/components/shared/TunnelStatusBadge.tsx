@@ -19,15 +19,15 @@ export default function TunnelStatusBadge({ tunnelActive, tunnelUrl, provider, c
   const connecting = tunnelActive && !tunnelUrl;
 
   const wrapperClass = connected
-    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+    ? "bg-ok-bg text-ok border border-[var(--success-border)]"
     : connecting
-    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+    ? "bg-warn-bg text-warn border border-[var(--warning-border)]"
     : "bg-surface-2 text-ink-3 border border-subtle";
 
   const dotClass = connected
-    ? "bg-emerald-400 pulse-dot"
+    ? "bg-ok pulse-dot"
     : connecting
-    ? "bg-amber-400 pulse-dot"
+    ? "bg-warn pulse-dot"
     : "bg-ink-3";
 
   const providerLabel = provider === "tailscale" ? " · Tailnet" : provider === "cloudflare" ? " · Cloudflare" : "";

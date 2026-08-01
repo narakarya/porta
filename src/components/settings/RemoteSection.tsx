@@ -251,7 +251,7 @@ export default function RemoteSection() {
                     if (await confirmDialog(`Delete remote server “${h.name}”? Any routes exposed through it stay live on the VPS until you unexpose them.`, { title: "Delete remote server", okLabel: "Delete" }))
                       deleteRemoteHost(h.id);
                   }}
-                  className="text-xs rounded-control px-2.5 py-1.5 bg-bad-bg hover:bg-[rgba(248,113,113,0.25)] text-bad"
+                  className="text-xs rounded-control px-2.5 py-1.5 bg-bad-bg hover:bg-[var(--danger-border)] text-bad"
                 >
                   Delete
                 </button>
@@ -273,7 +273,7 @@ export default function RemoteSection() {
                       </span>
                       <button
                         onClick={() => runPush(h.id)}
-                        className="shrink-0 rounded px-2 py-1 bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn"
+                        className="shrink-0 rounded px-2 py-1 bg-warn-bg hover:bg-[var(--warning-border)] text-warn"
                       >
                         Push
                       </button>
@@ -289,7 +289,7 @@ export default function RemoteSection() {
                           if (await confirmDialog(`Remove unmanaged routes from ${h.name}? This re-asserts Porta's routes and drops any not managed by Porta (e.g. CI preview envs).`, { title: "Remove foreign routes", okLabel: "Remove" }))
                             runRemoveForeign(h.id, fh);
                         }}
-                        className="shrink-0 rounded px-2 py-1 bg-bad-bg hover:bg-[rgba(248,113,113,0.25)] text-bad"
+                        className="shrink-0 rounded px-2 py-1 bg-bad-bg hover:bg-[var(--danger-border)] text-bad"
                       >
                         Remove
                       </button>

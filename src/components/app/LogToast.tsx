@@ -36,12 +36,12 @@ export default function LogToast({ appName, logs, appPort, isRunning, isStarting
   const canKill = blocker?.kind === "pid" || targetPort !== null;
 
   const dotColor = crashed
-    ? "bg-red-400"
+    ? "bg-bad"
     : isStarting
-    ? "bg-amber-400 pulse-dot"
+    ? "bg-warn pulse-dot"
     : isRunning
-    ? "bg-emerald-400 pulse-dot"
-    : "bg-zinc-600";
+    ? "bg-ok pulse-dot"
+    : "bg-ink-3";
 
   async function handleKill() {
     if (!blocker || killing) return;
@@ -66,19 +66,19 @@ export default function LogToast({ appName, logs, appPort, isRunning, isStarting
 
   return (
     <div
-      className={`fixed right-4 z-50 w-[320px] bg-[#1c1c1e] border rounded-xl shadow-2xl overflow-hidden transition-all ${
-        crashed ? "border-red-500/20" : "border-white/[0.10]"
+      className={`fixed right-4 z-50 w-[320px] bg-surface-2 border rounded-xl shadow-2xl overflow-hidden transition-all ${
+        crashed ? "border-[var(--danger-border)]" : "border-white/[0.10]"
       }`}
       style={{ bottom: bottomOffset }}
     >
       {/* Header */}
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${crashed ? "border-red-500/10" : "border-white/[0.06]"}`}>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
-        <span className="text-[12px] font-medium text-zinc-200 flex-1 truncate">{appName}</span>
-        <button onClick={onExpand} className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors shrink-0">
+        <span className="text-[12px] font-medium text-ink flex-1 truncate">{appName}</span>
+        <button onClick={onExpand} className="text-[11px] text-accent hover:text-accent-ink transition-colors shrink-0">
           View full logs
         </button>
-        <button onClick={onClose} className="ml-1 text-zinc-600 hover:text-zinc-300 transition-colors shrink-0">
+        <button onClick={onClose} className="ml-1 text-ink-3 hover:text-ink-2 transition-colors shrink-0">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
@@ -88,10 +88,10 @@ export default function LogToast({ appName, logs, appPort, isRunning, isStarting
       {/* Log preview — selectable */}
       <div className="px-3 py-2 font-mono min-h-[48px] select-text">
         {preview.length === 0 ? (
-          <p className="text-[11px] text-zinc-600 select-none">Starting…</p>
+          <p className="text-[11px] text-ink-3 select-none">Starting…</p>
         ) : (
           preview.map((line, i) => (
-            <p key={i} className={`text-[11px] leading-[21px] truncate ${crashed ? "text-red-300/70" : "text-zinc-400"}`}>
+            <p key={i} className={`text-[11px] leading-[21px] truncate ${crashed ? "text-red-300/70" : "text-ink-2"}`}>
               {line || "\u00A0"}
             </p>
           ))
@@ -102,10 +102,10 @@ export default function LogToast({ appName, logs, appPort, isRunning, isStarting
       {blocker && canKill && (
         <div className="px-3 py-2 border-t border-white/[0.05] flex items-center gap-2">
           {killed ? (
-            <p className="text-[11px] text-emerald-400">{killed} — start it again</p>
+            <p className="text-[11px] text-ok">{killed} — start it again</p>
           ) : (
             <>
-              <p className="text-[11px] text-zinc-500 flex-1 truncate" title={killError ?? blocker.label}>
+              <p className="text-[11px] text-ink-3 flex-1 truncate" title={killError ?? blocker.label}>
                 {killError ?? (blocker.kind === "port" && blocker.port === null && targetPort !== null
                   ? `Port :${targetPort} is already in use`
                   : blocker.label)}

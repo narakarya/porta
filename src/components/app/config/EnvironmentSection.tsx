@@ -212,7 +212,7 @@ export default function EnvironmentSection() {
                 onClick={() => c.setRestartPolicy(policy)}
                 className={`flex-1 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
                   c.restartPolicy === policy
-                    ? "bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.30)]"
+                    ? "bg-accent-bg text-accent-ink border border-[var(--accent-border)]"
                     : "bg-surface-1 text-ink-2 border border-subtle hover:bg-white/[0.07]"
                 }`}
               >

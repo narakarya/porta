@@ -99,7 +99,7 @@ export default function DiskUsageSection() {
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.3)] flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-card bg-accent-bg border border-[var(--accent-border)] flex items-center justify-center shrink-0">
               <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
                 <ellipse cx="10" cy="5" rx="7" ry="2.5" stroke="currentColor" strokeWidth="1.5"/>
                 <path d="M3 5v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5V5" stroke="currentColor" strokeWidth="1.5"/>
@@ -161,7 +161,7 @@ export default function DiskUsageSection() {
       {/* Cleanup actions */}
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.3)] flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-card bg-warn-bg border border-[var(--warning-border)] flex items-center justify-center shrink-0">
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-warn">
               <path d="M5 6h10l-1 10a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
               <path d="M3 6h14M8 3h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -262,7 +262,7 @@ function UploadLimitCard() {
   return (
     <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
       <div className="flex items-start gap-4">
-        <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.3)] flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-card bg-accent-bg border border-[var(--accent-border)] flex items-center justify-center shrink-0">
           <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
             <path d="M10 13V4M10 4 6.5 7.5M10 4l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M4 13v2.5h12V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -291,7 +291,7 @@ function UploadLimitCard() {
                 onClick={() => choose(b)}
                 className={`px-2.5 py-1 text-[11px] rounded-control border transition-colors ${
                   active
-                    ? "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink"
+                    ? "bg-accent-bg border-[var(--accent-border)] text-accent-ink"
                     : "bg-white/[0.04] border-subtle text-ink-2 hover:bg-white/[0.07]"
                 }`}
               >
@@ -303,7 +303,7 @@ function UploadLimitCard() {
             onClick={() => choose(0)}
             className={`px-2.5 py-1 text-[11px] rounded-control border transition-colors ${
               isUnlimited
-                ? "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink"
+                ? "bg-accent-bg border-[var(--accent-border)] text-accent-ink"
                 : "bg-white/[0.04] border-subtle text-ink-2 hover:bg-white/[0.07]"
             }`}
           >
@@ -381,7 +381,7 @@ function LogsCard() {
     <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.3)] flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[var(--accent-border)] flex items-center justify-center shrink-0">
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
               <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M6 7h8M6 10h8M6 13h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -456,7 +456,7 @@ function LogsCard() {
                 onClick={() => handlePresetChange(mb)}
                 className={`px-2.5 py-1 text-[11px] rounded-control border transition-colors ${
                   active
-                    ? "bg-accent-bg border-[rgba(96,165,250,0.3)] text-accent-ink"
+                    ? "bg-accent-bg border-[var(--accent-border)] text-accent-ink"
                     : "bg-white/[0.04] border-subtle text-ink-2 hover:bg-white/[0.07]"
                 }`}
               >
@@ -520,8 +520,8 @@ function SmallActionButton({
 }) {
   const cls =
     variant === "primary"
-      ? "bg-ok-bg hover:bg-[rgba(52,211,153,0.24)] text-ok border border-[rgba(52,211,153,0.3)]"
-      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.3)]";
+      ? "bg-ok-bg hover:bg-[rgba(52,211,153,0.24)] text-ok border border-[var(--success-border)]"
+      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[var(--danger-border)]";
   return (
     <button
       onClick={onClick}
@@ -592,8 +592,8 @@ function ActionButton({
 }) {
   const baseClass =
     variant === "primary"
-      ? "bg-ok-bg hover:bg-[rgba(52,211,153,0.24)] text-ok border border-[rgba(52,211,153,0.3)]"
-      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.3)]";
+      ? "bg-ok-bg hover:bg-[rgba(52,211,153,0.24)] text-ok border border-[var(--success-border)]"
+      : "bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[var(--danger-border)]";
   return (
     <div className="flex items-center gap-2 shrink-0">
       {state.state === "success" && state.result && (

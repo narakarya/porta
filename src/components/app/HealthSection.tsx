@@ -165,7 +165,7 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
                   onClick={() => changeKind(k)}
                   className={`px-3 py-1.5 text-[12px] rounded-lg border transition-colors ${
                     active
-                      ? "bg-accent-bg border-[rgba(96,165,250,0.30)] text-accent-ink"
+                      ? "bg-accent-bg border-[var(--accent-border)] text-accent-ink"
                       : "bg-surface-1 border-subtle text-ink-2 hover:bg-white/[0.06] hover:text-ink"
                   }`}
                 >
@@ -293,8 +293,8 @@ export default function HealthSection({ appId, appPort, defaultPath }: Props) {
           <div
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] border ${
               lastResult.ok
-                ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-200"
-                : "bg-red-500/10 border-red-500/25 text-red-200"
+                ? "bg-ok-bg border-emerald-500/25 text-emerald-200"
+                : "bg-bad-bg border-red-500/25 text-bad"
             }`}
           >
             <span className="font-mono text-[11px]">

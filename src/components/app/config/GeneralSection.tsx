@@ -39,7 +39,7 @@ export default function GeneralSection() {
 
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         {isStatic && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[var(--accent-border)]">
             <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">STATIC</span>
             <p className="text-[11px] text-accent-ink">
               Caddy serves files directly from the root directory — no process,
@@ -48,7 +48,7 @@ export default function GeneralSection() {
           </div>
         )}
         {isDocker && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[var(--accent-border)]">
             <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">DOCKER</span>
             <p className="text-[11px] text-accent-ink">
               Porta runs container <code className="font-mono">porta-{app.id.slice(0, 8)}…</code>.
@@ -57,7 +57,7 @@ export default function GeneralSection() {
           </div>
         )}
         {isCompose && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[var(--accent-border)]">
             <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">COMPOSE</span>
             <p className="text-[11px] text-accent-ink">
               Porta runs <code className="font-mono">docker compose up/down</code> in project <code className="font-mono">porta-{app.id.slice(0, 8)}…</code>. Port should match what compose publishes.
@@ -65,7 +65,7 @@ export default function GeneralSection() {
           </div>
         )}
         {isProxy && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)]">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-bg border border-[var(--accent-border)]">
             <span className="text-[10px] font-semibold tracking-wider text-accent-ink mt-0.5">PROXY</span>
             <p className="text-[11px] text-accent-ink">
               Caddy reverse-proxies the domain to an existing local port. You run the upstream yourself — no folder, no command.
@@ -80,7 +80,7 @@ export default function GeneralSection() {
         {!isStatic && (
           <Field label={isDocker ? "Host Port" : isCompose ? "Proxy Port" : isProxy ? "Upstream Port" : "Port"} hint={!portValid && port ? "Must be 1-65535" : undefined}>
             <input spellCheck={false} value={port} onChange={(e) => setPort(e.target.value)}
-              className={`input-base ${!portValid && port ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+              className={`input-base ${!portValid && port ? "border-[var(--danger-border)]" : ""}`}
               placeholder="3000" type="number" min={1} max={65535} />
             {portCheckResult && portValid && (
               <p className={`text-[10px] mt-1 ${portCheckResult.available ? "text-ok" : "text-warn"}`}>
@@ -125,7 +125,7 @@ export default function GeneralSection() {
                   errorMessage={composeError ?? undefined}
                 />
                 {composeError && (
-                  <div className="mt-2 px-2.5 py-1.5 rounded-md bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+                  <div className="mt-2 px-2.5 py-1.5 rounded-md bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                     {composeError}
                   </div>
                 )}

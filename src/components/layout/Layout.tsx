@@ -13,7 +13,7 @@ export default function Layout({ children }: Props) {
   const showSidebar = activeDomain === "workspaces";
 
   return (
-    <div className="flex flex-1 min-w-0 bg-[#0d0d0f] text-zinc-100 font-sans overflow-hidden">
+    <div className="flex flex-1 min-w-0 bg-surface-0 text-ink font-sans overflow-hidden">
       {showSidebar && <Sidebar />}
       <main className={`flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 no-drag transition-[padding-right] duration-200 ${extSidebarOpen ? "pr-[272px]" : ""}`}>
         {children}

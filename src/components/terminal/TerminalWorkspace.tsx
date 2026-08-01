@@ -49,9 +49,9 @@ export function tabState(tab: TabSession): "idle" | "running" | "exited" {
 }
 
 const STATE_DOT: Record<"idle" | "running" | "exited", string> = {
-  idle: "bg-zinc-600",
-  running: "bg-emerald-400",
-  exited: "bg-amber-400",
+  idle: "bg-ink-3",
+  running: "bg-ok",
+  exited: "bg-warn",
 };
 
 /**
@@ -732,7 +732,7 @@ export default function TerminalWorkspace({
                       {split && (
                         <span
                           data-testid="pane-ordinal"
-                          className="absolute top-1.5 right-2 z-10 text-[9px] text-zinc-600 select-none pointer-events-none"
+                          className="absolute top-1.5 right-2 z-10 text-[9px] text-ink-3 select-none pointer-events-none"
                         >
                           {idx + 1}
                         </span>
@@ -740,7 +740,7 @@ export default function TerminalWorkspace({
                       {split && (
                         <button
                           onClick={() => closePane(tab.id, pane.id)}
-                          className="absolute top-1.5 right-6 z-10 p-1 rounded text-zinc-600 bg-[#0d0d0f]/80 hover:text-zinc-200 hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
+                          className="absolute top-1.5 right-6 z-10 p-1 rounded text-ink-3 bg-[#0d0d0f]/80 hover:text-ink hover:bg-white/[0.1] opacity-0 group-hover/pane:opacity-100 transition-opacity"
                           title="Close pane"
                         >
                           <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
@@ -791,7 +791,7 @@ export default function TerminalWorkspace({
               vertical space when nobody is searching. */}
           {searchOpen && (
             <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#1a1a1d] pl-2 pr-1.5 py-1 shadow-[0_10px_28px_rgba(0,0,0,0.55)]">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-600">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-ink-3">
                 <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
                 <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
               </svg>
@@ -808,14 +808,14 @@ export default function TerminalWorkspace({
                   runSearch(e.shiftKey ? "prev" : "next");
                 }}
                 placeholder="Find in output…"
-                className="w-[190px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none"
+                className="w-[190px] bg-transparent py-0.5 text-[12px] text-ink placeholder:text-ink-3 outline-none"
               />
-              <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">{matchLabel}</span>
+              <span className="shrink-0 text-[11px] tabular-nums text-ink-3 select-none">{matchLabel}</span>
               <span className="w-px h-4 bg-white/[0.1] shrink-0" />
               <button
                 onClick={() => runSearch("prev")}
                 disabled={!hasMatches}
-                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                className="shrink-0 p-1 rounded text-ink-3 enabled:hover:text-ink enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
                 title="Previous match (⇧⏎)"
               >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -825,7 +825,7 @@ export default function TerminalWorkspace({
               <button
                 onClick={() => runSearch("next")}
                 disabled={!hasMatches}
-                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                className="shrink-0 p-1 rounded text-ink-3 enabled:hover:text-ink enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
                 title="Next match (⏎)"
               >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -834,7 +834,7 @@ export default function TerminalWorkspace({
               </button>
               <button
                 onClick={closeSearch}
-                className="shrink-0 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08] transition-colors"
+                className="shrink-0 p-1 rounded text-ink-3 hover:text-ink hover:bg-white/[0.08] transition-colors"
                 title="Close (Esc)"
               >
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">

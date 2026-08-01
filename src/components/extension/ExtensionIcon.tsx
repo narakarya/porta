@@ -8,7 +8,7 @@ type Props = {
 export function extensionIconTheme(extension: Pick<ExtensionInfo, "id" | "name">) {
   if (extension.id === "phoenix-packages") {
     return {
-      box: "bg-amber-500/10 border-amber-400/25 group-hover:bg-amber-500/15",
+      box: "bg-warn-bg border-amber-400/25 group-hover:bg-warn-bg",
       icon: "text-amber-300/90",
     };
   }

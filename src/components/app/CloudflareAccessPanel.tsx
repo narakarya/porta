@@ -151,7 +151,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[12px] font-medium text-ink group-hover:text-ink">Cloudflare Access</span>
             {accessApp ? (
-              <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 leading-none">
+              <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-ok-bg text-ok border border-[var(--success-border)] leading-none">
                 Protected
               </span>
             ) : loadedFor.current === saved ? (
@@ -160,7 +160,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
               </span>
             ) : null}
             {loading && (
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.30)] border-t-accent animate-spin" />
+              <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--accent-border)] border-t-accent animate-spin" />
             )}
           </div>
           <p className="text-[10.5px] text-ink-3 mt-0.5 break-words">
@@ -173,7 +173,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
       {open && (
         <div className="mt-3 pl-5">
           {error && !showViewMode && !editMode && (
-            <p className="text-[11px] text-red-400 whitespace-pre-wrap break-words mb-2">{error}</p>
+            <p className="text-[11px] text-bad whitespace-pre-wrap break-words mb-2">{error}</p>
           )}
 
           {showViewMode && (
@@ -227,7 +227,7 @@ export default function CloudflareAccessPanel({ savedHostname, liveHostname, cfT
                   type="button"
                   onClick={handleRemove}
                   disabled={saving}
-                  className="px-3 py-1.5 text-[11.5px] rounded-md bg-red-500/[0.1] hover:bg-red-500/[0.18] text-red-300 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
+                  className="px-3 py-1.5 text-[11.5px] rounded-md bg-red-500/[0.1] hover:bg-red-500/[0.18] text-bad transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
                 >
                   {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-red-400/30 border-t-red-300 animate-spin" />}
                   Remove

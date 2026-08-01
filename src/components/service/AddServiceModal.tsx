@@ -10,8 +10,8 @@ import { Spinner } from "../ui";
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 const inputCls =
-  "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
-const labelCls = "text-[11px] font-medium text-zinc-500 uppercase tracking-wide";
+  "w-full bg-surface-input border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
+const labelCls = "text-[11px] font-medium text-ink-3 uppercase tracking-wide";
 
 // ── Presets ───────────────────────────────────────────────────────────────────
 
@@ -148,20 +148,20 @@ function EnvEditor({ rows, onChange }: { rows: EnvRow[]; onChange: (r: EnvRow[])
             onChange={(e) => update(row.id, "key", e.target.value)}
             placeholder="KEY"
             spellCheck={false}
-            className="w-[42%] bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="w-[42%] bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
-          <span className="text-zinc-700 text-[11px] shrink-0">=</span>
+          <span className="text-ink-3 text-[11px] shrink-0">=</span>
           <input
             value={row.value}
             onChange={(e) => update(row.id, "value", e.target.value)}
             placeholder="value"
             spellCheck={false}
-            className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="flex-1 bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
           <button
             type="button"
             onClick={() => remove(row.id)}
-            className="p-1 text-zinc-700 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors shrink-0"
+            className="p-1 text-ink-3 hover:text-bad hover:bg-bad-bg rounded transition-colors shrink-0"
             title="Remove"
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -173,7 +173,7 @@ function EnvEditor({ rows, onChange }: { rows: EnvRow[]; onChange: (r: EnvRow[])
       <button
         type="button"
         onClick={add}
-        className="flex items-center gap-1.5 text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors w-fit mt-0.5"
+        className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors w-fit mt-0.5"
       >
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -194,7 +194,7 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
   return (
     <div className="flex flex-col gap-1.5">
       {rows.length === 0 && (
-        <p className="text-[11px] text-zinc-700 italic">No volumes — data won't persist after stop.</p>
+        <p className="text-[11px] text-ink-3 italic">No volumes — data won't persist after stop.</p>
       )}
       {rows.map((row) => (
         <div key={row.id} className="flex gap-1.5 items-center">
@@ -203,20 +203,20 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
             onChange={(e) => update(row.id, "source", e.target.value)}
             placeholder="name or /host/path"
             spellCheck={false}
-            className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="flex-1 bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
-          <span className="text-zinc-700 text-[11px] shrink-0">:</span>
+          <span className="text-ink-3 text-[11px] shrink-0">:</span>
           <input
             value={row.target}
             onChange={(e) => update(row.id, "target", e.target.value)}
             placeholder="/container/path"
             spellCheck={false}
-            className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="flex-1 bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
           <button
             type="button"
             onClick={() => remove(row.id)}
-            className="p-1 text-zinc-700 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors shrink-0"
+            className="p-1 text-ink-3 hover:text-bad hover:bg-bad-bg rounded transition-colors shrink-0"
             title="Remove"
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -228,7 +228,7 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
       <button
         type="button"
         onClick={add}
-        className="flex items-center gap-1.5 text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors w-fit mt-0.5"
+        className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors w-fit mt-0.5"
       >
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -446,15 +446,15 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
   const showForm = selectedPreset !== null;
 
   return (
-    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+    <ModalWrapper onClose={onClose} className="bg-surface-2 border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
       <form
         onSubmit={submit}
         className="p-6 w-[500px] flex flex-col gap-5"
       >
         {/* Header */}
         <div>
-          <h2 className="text-[15px] font-semibold text-zinc-100">Add Service</h2>
-          <p className="text-[12px] text-zinc-500 mt-0.5">Start a Docker container managed by Porta</p>
+          <h2 className="text-[15px] font-semibold text-ink">Add Service</h2>
+          <p className="text-[12px] text-ink-3 mt-0.5">Start a Docker container managed by Porta</p>
         </div>
 
         {/* Preset grid */}
@@ -468,16 +468,16 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
                   onClick={() => selectPreset(i)}
                   className={`w-full flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-all duration-100 ${
                     selectedPreset === i
-                      ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                      ? "bg-accent-bg border-[var(--accent-border)] text-accent"
                       : p.userTemplateId
-                        ? "bg-emerald-500/[0.04] border-emerald-500/15 text-zinc-400 hover:bg-emerald-500/[0.08] hover:text-zinc-200"
-                        : "bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200"
+                        ? "bg-emerald-500/[0.04] border-emerald-500/15 text-ink-2 hover:bg-emerald-500/[0.08] hover:text-ink"
+                        : "bg-white/[0.03] border-white/[0.06] text-ink-2 hover:bg-white/[0.06] hover:text-ink"
                   }`}
                 >
                   <span className="text-[14px] mb-0.5">{p.icon}</span>
                   <p className="text-[11px] font-medium leading-tight truncate w-full">{p.label}</p>
                   {p.image && (
-                    <p className="text-[10px] text-zinc-600 mt-0.5 leading-tight truncate w-full">
+                    <p className="text-[10px] text-ink-3 mt-0.5 leading-tight truncate w-full">
                       {p.image}:{p.tag}
                     </p>
                   )}
@@ -487,7 +487,7 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
                     type="button"
                     onClick={(e) => handleDeleteTemplate(e, p.userTemplateId!)}
                     title="Delete template"
-                    className="absolute top-1 right-1 p-1 rounded bg-zinc-900/80 text-zinc-500 hover:text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-1 right-1 p-1 rounded bg-zinc-900/80 text-ink-3 hover:text-bad hover:bg-bad-bg opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <svg width="9" height="9" viewBox="0 0 11 11" fill="none">
                       <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -577,7 +577,7 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <span className={labelCls}>Volumes</span>
-                <span className="text-[10px] text-zinc-700">source : container path</span>
+                <span className="text-[10px] text-ink-3">source : container path</span>
               </div>
               <VolumeEditor rows={volRows} onChange={setVolRows} />
             </div>
@@ -601,7 +601,7 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
 
             {/* Save as template */}
             <div className="flex flex-col gap-1.5 pt-1 border-t border-white/[0.05]">
-              <label className="flex items-center gap-2 text-[12px] text-zinc-400 cursor-pointer select-none pt-3">
+              <label className="flex items-center gap-2 text-[12px] text-ink-2 cursor-pointer select-none pt-3">
                 <input
                   type="checkbox"
                   checked={saveAsTemplate}
@@ -629,14 +629,14 @@ export default function AddServiceModal({ onClose, defaultScope, initialPreset }
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors"
+            className="px-4 py-1.5 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting || !showForm || !name || !image}
-            className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:bg-accent text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             {submitting && (
               <Spinner size={14} />

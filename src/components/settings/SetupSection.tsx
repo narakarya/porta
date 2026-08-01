@@ -83,7 +83,7 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
       <div className="p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-center gap-3">
           <div className={`w-9 h-9 rounded-card flex items-center justify-center shrink-0 ${
-            allGood ? "bg-ok-bg border border-[rgba(52,211,153,0.2)]" : "bg-warn-bg border border-[rgba(251,191,36,0.2)]"
+            allGood ? "bg-ok-bg border border-[var(--success-border)]" : "bg-warn-bg border border-[var(--warning-border)]"
           }`}>
             {allGood ? (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ok">

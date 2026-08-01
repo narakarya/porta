@@ -12,7 +12,7 @@ export default function TunnelLiveStatus() {
   return (
     <>
       {c.selectedIsLive && !c.app.tunnel_url && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[var(--warning-border)]">
           <Spinner size={12} className="shrink-0 text-warn" />
           <span className="text-[11px] text-warn">Establishing tunnel…</span>
         </div>
@@ -20,7 +20,7 @@ export default function TunnelLiveStatus() {
 
       {c.selectedIsLive && c.app.tunnel_url && (
         <>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ok-bg border border-[rgba(52,211,153,0.25)]">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ok-bg border border-[var(--success-border)]">
             <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="text-ok shrink-0">
               <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.1"/>
               <ellipse cx="5" cy="5" rx="2" ry="4" stroke="currentColor" strokeWidth="1.1"/>
@@ -43,7 +43,7 @@ export default function TunnelLiveStatus() {
           </div>
           <TunnelPublicHostsPanel hosts={c.liveTunnelHosts} title="Accessible hosts" />
           {c.tunnelReachable === false && (
-            <div className="flex flex-col gap-2 px-3 py-1.5 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+            <div className="flex flex-col gap-2 px-3 py-1.5 rounded-lg bg-warn-bg border border-[var(--warning-border)]">
               <div className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 mt-1 rounded-full bg-warn shrink-0" />
                 <span className="text-[11px] text-warn">
@@ -89,7 +89,7 @@ export default function TunnelLiveStatus() {
           the draft diverges from what's running we say so, and offer the
           reconnect right where the change was made. */}
       {c.selectedIsLive && c.liveTunnelConfigDrifted && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[var(--warning-border)]">
           <span className="w-1.5 h-1.5 rounded-full bg-warn shrink-0" />
           <span className="text-[11px] text-warn flex-1">
             The tunnel is running with the previous settings. Reconnect to apply these.

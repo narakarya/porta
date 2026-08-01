@@ -177,7 +177,7 @@ export default function CloudflareTokenBar({ token, onChange }: Props) {
               placeholder="Paste Cloudflare API token"
               spellCheck={false}
               autoComplete="off"
-              className="flex-1 bg-surface-input border border-subtle rounded-control px-2.5 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+              className="flex-1 bg-surface-input border border-subtle rounded-control px-2.5 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[var(--accent)] transition-colors"
             />
             <button
               type="button"

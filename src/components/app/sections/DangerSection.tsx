@@ -35,9 +35,9 @@ export default function DangerSection({ appName, onConfirmDelete }: Props) {
         <p className="text-[12px] text-ink-3 mt-1">Irreversible actions — proceed carefully.</p>
       </div>
 
-      <div className="flex flex-col gap-3 p-5 rounded-card bg-red-500/[0.04] border border-red-500/20">
+      <div className="flex flex-col gap-3 p-5 rounded-card bg-red-500/[0.04] border border-[var(--danger-border)]">
         <div>
-          <p className="text-[13px] font-semibold text-red-400">Delete this app</p>
+          <p className="text-[13px] font-semibold text-bad">Delete this app</p>
           <p className="text-[12px] text-ink-3 mt-1 leading-relaxed">
             Removes the app from Porta. The files on disk won't be deleted.
           </p>
@@ -60,7 +60,7 @@ export default function DangerSection({ appName, onConfirmDelete }: Props) {
         <button
           onClick={() => { if (canDelete) void onConfirmDelete(); }}
           disabled={!canDelete}
-          className="self-start px-4 py-2 text-[13px] font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+          className="self-start px-4 py-2 text-[13px] font-medium bg-red-600 hover:bg-bad text-white rounded-lg disabled:opacity-40 transition-colors"
         >
           Delete App
         </button>

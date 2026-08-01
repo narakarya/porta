@@ -375,14 +375,14 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
       </div>
 
       {installed === false && (
-        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.2)]">
+        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-warn-bg border border-[var(--warning-border)]">
           <p className="text-[12px] text-warn">cloudflared CLI not found on PATH.</p>
           <code className="text-[11px] font-mono bg-black/30 px-2.5 py-1.5 rounded">
             brew install cloudflare/cloudflare/cloudflared
           </code>
           <button
             onClick={() => { void refresh(true); }}
-            className="self-start px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn"
+            className="self-start px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[var(--warning-border)] text-warn"
           >
             <RefreshIcon /> Check again
           </button>
@@ -393,11 +393,11 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
 
       {/* Global error */}
       {error && (
-        <div className="relative px-3 py-2 pr-14 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+        <div className="relative px-3 py-2 pr-14 rounded-control bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
           {error}
           <button
             onClick={() => setError(null)}
-            className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] rounded bg-bad-bg hover:bg-[rgba(248,113,113,0.3)] text-bad"
+            className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] rounded bg-bad-bg hover:bg-[var(--danger-border)] text-bad"
           >
             Dismiss
           </button>
@@ -764,7 +764,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                             type="checkbox"
                             checked={routeOverwrite}
                             onChange={(e) => setRouteOverwrite(e.target.checked)}
-                            className="rounded border-strong bg-white/[0.05] text-accent focus:ring-[rgba(96,165,250,0.3)] focus:ring-offset-0"
+                            className="rounded border-strong bg-white/[0.05] text-accent focus:ring-[var(--accent-border)] focus:ring-offset-0"
                           />
                           Overwrite existing DNS (replaces current CNAME)
                         </label>
@@ -787,7 +787,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
       </div>
 
       {dnsError && (
-        <div className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[10px] text-bad font-mono">
+        <div className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[var(--danger-border)] text-[10px] text-bad font-mono">
           DNS routes: {dnsError}
         </div>
       )}
@@ -858,7 +858,7 @@ export default function TunnelsSection({ tokenVersion = 0 }: Props = {}) {
                 type="checkbox"
                 checked={confirmDelete.force}
                 onChange={(e) => setConfirmDelete({ ...confirmDelete, force: e.target.checked })}
-                className="mt-0.5 rounded border-strong bg-white/[0.05] text-bad focus:ring-[rgba(248,113,113,0.3)] focus:ring-offset-0"
+                className="mt-0.5 rounded border-strong bg-white/[0.05] text-bad focus:ring-[var(--danger-border)] focus:ring-offset-0"
               />
               <span>
                 <span className="font-medium">Force delete</span>

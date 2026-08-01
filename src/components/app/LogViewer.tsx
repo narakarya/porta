@@ -114,35 +114,35 @@ function detectLevel(text: string): LogLevel {
 }
 
 const LEVEL_CLASS: Record<NonNullable<LogLevel>, string> = {
-  error:   "text-red-400",
-  warn:    "text-amber-400",
-  info:    "text-blue-400",
-  debug:   "text-zinc-400",
-  trace:   "text-zinc-500",
-  success: "text-emerald-400",
+  error:   "text-bad",
+  warn:    "text-warn",
+  info:    "text-accent",
+  debug:   "text-ink-2",
+  trace:   "text-ink-3",
+  success: "text-ok",
 };
 
 // Left rail tint for continuation lines — ties a nested block (SQL body,
 // `↳` caller, stacktrace) back to the severity of its leveled header without
 // coloring the body text itself.
 const LEVEL_RAIL: Record<NonNullable<LogLevel>, string> = {
-  error:   "border-red-500/30",
-  warn:    "border-amber-500/30",
-  info:    "border-blue-500/30",
+  error:   "border-[var(--danger-border)]",
+  warn:    "border-[var(--warning-border)]",
+  info:    "border-[var(--accent-border)]",
   debug:   "border-zinc-600/40",
   trace:   "border-zinc-700/40",
-  success: "border-emerald-500/30",
+  success: "border-[var(--success-border)]",
 };
 
 // Compact colored badge per level. Doubles as the copy-entry trigger — clicking
 // it copies the whole leveled entry (header + its continuation lines).
 const LEVEL_BADGE: Record<NonNullable<LogLevel>, { label: string; cls: string }> = {
-  error:   { label: "ERR",  cls: "bg-red-500/15 text-red-400 border-red-500/20" },
-  warn:    { label: "WARN", cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  info:    { label: "INFO", cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
-  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-zinc-500 border-zinc-700/50" },
-  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-zinc-600 border-zinc-800/50" },
-  success: { label: "OK",   cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
+  error:   { label: "ERR",  cls: "bg-bad-bg text-bad border-[var(--danger-border)]" },
+  warn:    { label: "WARN", cls: "bg-warn-bg text-warn border-[var(--warning-border)]" },
+  info:    { label: "INFO", cls: "bg-accent-bg text-accent border-[var(--accent-border)]" },
+  debug:   { label: "DBG",  cls: "bg-zinc-700/50 text-ink-3 border-zinc-700/50" },
+  trace:   { label: "TRC",  cls: "bg-zinc-800/50 text-ink-3 border-zinc-800/50" },
+  success: { label: "OK",   cls: "bg-ok-bg text-ok border-[var(--success-border)]" },
 };
 
 // ── Ingest pipeline ───────────────────────────────────────────────────────────
@@ -212,7 +212,7 @@ function highlightLine(line: string, re: RegExp | null): React.ReactNode {
   if (parts.length === 1) return line;
   return parts.map((part, i) =>
     i % 2 === 1
-      ? <mark key={i} style={{ background: "rgba(251,191,36,0.25)", color: "#fde68a", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
+      ? <mark key={i} style={{ background: "var(--warning-border)", color: "#fde68a", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
       : part
   );
 }
@@ -231,11 +231,11 @@ const FILTER_SEGMENTS: {
   dot: string;
   on: string;
 }[] = [
-  { key: "info",    label: "Info",    dot: "bg-accent",    on: "bg-[rgba(96,165,250,0.14)] text-accent-ink border-[rgba(96,165,250,0.35)]" },
+  { key: "info",    label: "Info",    dot: "bg-accent",    on: "bg-[rgba(96,165,250,0.14)] text-accent-ink border-[var(--accent-border)]" },
   { key: "warn",    label: "Warn",    dot: "bg-warn",      on: "bg-[rgba(251,191,36,0.14)] text-warn border-[rgba(251,191,36,0.38)]" },
   { key: "error",   label: "Error",   dot: "bg-bad",       on: "bg-[rgba(248,113,113,0.14)] text-bad border-[rgba(248,113,113,0.38)]" },
-  { key: "success", label: "Success", dot: "bg-ok",        on: "bg-[rgba(52,211,153,0.14)] text-ok border-[rgba(52,211,153,0.35)]" },
-  { key: "debug",   label: "Debug",   dot: "bg-zinc-500",  on: "bg-[rgba(161,161,170,0.14)] text-zinc-300 border-[rgba(161,161,170,0.35)]" },
+  { key: "success", label: "Success", dot: "bg-ok",        on: "bg-[rgba(52,211,153,0.14)] text-ok border-[var(--success-border)]" },
+  { key: "debug",   label: "Debug",   dot: "bg-ink-3",  on: "bg-[rgba(161,161,170,0.14)] text-ink-2 border-[rgba(161,161,170,0.35)]" },
 ];
 
 // ── Container name shortening ─────────────────────────────────────────────────
@@ -251,11 +251,11 @@ function shortContainerName(full: string, appName: string): string {
 
 // ── Service status dot ────────────────────────────────────────────────────────
 function serviceDotClass(state: string): string {
-  if (state === "running") return "bg-emerald-400";
-  if (state === "starting" || state === "restarting") return "bg-amber-400";
-  if (state === "crashed" || state === "exited" || state === "dead") return "bg-red-400";
-  if (state === "paused") return "bg-blue-400";
-  return "bg-zinc-600";
+  if (state === "running") return "bg-ok";
+  if (state === "starting" || state === "restarting") return "bg-warn";
+  if (state === "crashed" || state === "exited" || state === "dead") return "bg-bad";
+  if (state === "paused") return "bg-accent";
+  return "bg-ink-3";
 }
 
 // ── Leading timestamp / level extraction (display only) ───────────────────────
@@ -342,7 +342,7 @@ const LogLine = memo(function LogLine({
   // leveled entry above it — keep the whole block on the same alternating text
   // tone, then tint the left rail with the owner's level so the block reads as
   // one unit tied to its severity.
-  const blockTextCls = isAlternateBlock ? "text-cyan-200/70" : "text-zinc-400";
+  const blockTextCls = isAlternateBlock ? "text-cyan-200/70" : "text-ink-2";
   const continuationLevel = crashed ? "error" : ownerLevel;
   const continuationUsesSeverity = continuationLevel === "error" || continuationLevel === "warn" || continuationLevel === "info" || continuationLevel === "success";
   const headerUsesSeverity = effectiveLevel === "error" || effectiveLevel === "warn" || effectiveLevel === "info" || effectiveLevel === "success";
@@ -387,7 +387,7 @@ const LogLine = memo(function LogLine({
             title="Copy this entry (with its body/stacktrace)"
             className={`text-[9px] font-medium px-1 py-px rounded border transition-all cursor-pointer ${
               blockCopied
-                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                ? "bg-ok-bg text-ok border-[var(--success-border)]"
                 : `${badge.cls} hover:brightness-125`
             }`}
           >
@@ -408,7 +408,7 @@ const LogLine = memo(function LogLine({
           onClick={() => onCopy(text, originalIndex)}
           title="Copy line"
           className={`transition-opacity ${
-            copied ? "opacity-100 text-emerald-400" : "opacity-0 group-hover:opacity-60 text-zinc-600"
+            copied ? "opacity-100 text-ok" : "opacity-0 group-hover:opacity-60 text-ink-3"
           }`}
         >
           {copied ? (
@@ -1023,7 +1023,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
     <div className={embedded
       ? "h-full w-full flex flex-col overflow-hidden bg-surface-0"
       : "fixed inset-0 bg-[#0a0a0c]/95 backdrop-blur-sm z-50 flex flex-col overflow-hidden"}>
-      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-[11px] text-emerald-400 shadow-lg transition-all duration-200 pointer-events-none ${copiedToast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}>
+      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 border border-white/10 text-[11px] text-ok shadow-lg transition-all duration-200 pointer-events-none ${copiedToast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}>
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
@@ -1036,13 +1036,13 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             shows it). Keep a compact crash/exit badge, it's a real signal here. */}
         <div className="flex items-center gap-2 shrink-0">
           <span className={`w-2 h-2 rounded-full ${
-            crashed ? "bg-red-400" :
-            isStarting ? "bg-amber-400 pulse-dot" :
-            isRunning ? "bg-emerald-400 pulse-dot" :
-            "bg-zinc-600"
+            crashed ? "bg-bad" :
+            isStarting ? "bg-warn pulse-dot" :
+            isRunning ? "bg-ok pulse-dot" :
+            "bg-ink-3"
           }`} title={crashed ? "crashed" : isStarting ? "starting" : isRunning ? "running" : "stopped"} />
           {crashed && exitCode !== null && exitCode !== undefined && (
-            <span className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-1.5 py-0.5">
+            <span className="text-[11px] text-bad bg-bad-bg border border-[var(--danger-border)] rounded px-1.5 py-0.5">
               exit {exitCode}
             </span>
           )}
@@ -1235,7 +1235,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
 
         {!embedded && <button
           onClick={onClose}
-          className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
+          className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-white/[0.07] transition-colors"
           title="Close (Esc)"
         >
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -1247,12 +1247,12 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
       <div className="flex-1 flex min-h-0">
         {isContainerSource && (
           <aside className="w-48 shrink-0 border-r border-white/[0.07] flex flex-col overflow-hidden">
-            <div className="px-3 py-2 border-b border-white/[0.05] text-[10px] uppercase tracking-wider text-zinc-600 select-none">
+            <div className="px-3 py-2 border-b border-white/[0.05] text-[10px] uppercase tracking-wider text-ink-3 select-none">
               Services
             </div>
             <div className="flex-1 overflow-y-auto py-1">
               {services.length === 0 ? (
-                <p className="px-3 py-3 text-[11px] text-zinc-600 select-none">
+                <p className="px-3 py-3 text-[11px] text-ink-3 select-none">
                   No containers. Start the app to see logs.
                 </p>
               ) : (
@@ -1266,15 +1266,15 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                       onClick={() => setSelectedKey(s.key)}
                       className={`w-full flex items-center gap-2 px-3 py-1.5 text-[12px] font-mono text-left transition-colors ${
                         active
-                          ? "bg-white/[0.06] text-zinc-100"
-                          : "text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-200"
+                          ? "bg-white/[0.06] text-ink"
+                          : "text-ink-2 hover:bg-white/[0.03] hover:text-ink"
                       }`}
                       title={s.state}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls} ${pulse}`} />
                       <span className="truncate flex-1">{s.label}</span>
                       {active && (
-                        <span className="text-zinc-500 text-[10px] shrink-0">◀</span>
+                        <span className="text-ink-3 text-[10px] shrink-0">◀</span>
                       )}
                     </button>
                   );
@@ -1306,8 +1306,8 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
                   : "Find (⌘F) — highlight and step through matches"}
                 className={`px-1.5 py-0.5 rounded transition-colors ${
                   filterMode === asFilter
-                    ? "bg-white/[0.1] text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-300"
+                    ? "bg-white/[0.1] text-ink"
+                    : "text-ink-3 hover:text-ink-2"
                 }`}
               >
                 {asFilter ? "Filter" : "Find"}
@@ -1323,9 +1323,9 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
             title={filterMode
               ? "Terms are ANDed · \"quoted phrase\" · -exclude"
               : undefined}
-            className="w-[170px] bg-transparent py-0.5 text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none select-text"
+            className="w-[170px] bg-transparent py-0.5 text-[12px] text-ink placeholder:text-ink-3 outline-none select-text"
           />
-          <span className="shrink-0 text-[11px] tabular-nums text-zinc-600 select-none">
+          <span className="shrink-0 text-[11px] tabular-nums text-ink-3 select-none">
             {filterMode
               // Nothing to step through when every visible line matches — the
               // useful number is how much of the buffer survived.
@@ -1338,7 +1338,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               <button
                 onClick={goToPrevMatch}
                 disabled={!hasMatches}
-                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                className="shrink-0 p-1 rounded text-ink-3 enabled:hover:text-ink enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
                 title="Previous match (⇧⏎)"
               >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -1348,7 +1348,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
               <button
                 onClick={goToNextMatch}
                 disabled={!hasMatches}
-                className="shrink-0 p-1 rounded text-zinc-600 enabled:hover:text-zinc-200 enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
+                className="shrink-0 p-1 rounded text-ink-3 enabled:hover:text-ink enabled:hover:bg-white/[0.08] disabled:opacity-40 transition-colors"
                 title="Next match (⏎)"
               >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -1359,7 +1359,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           )}
           <button
             onClick={closeSearch}
-            className="shrink-0 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.08] transition-colors"
+            className="shrink-0 p-1 rounded text-ink-3 hover:text-ink hover:bg-white/[0.08] transition-colors"
             title="Close (Esc)"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -1378,7 +1378,7 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
           {!isContainerSource && (
             <button
               onClick={() => { void loadFullHistory(); }}
-              className="px-2 py-0.5 rounded text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 transition-colors"
+              className="px-2 py-0.5 rounded text-warn hover:text-amber-200 hover:bg-warn-bg transition-colors"
             >
               Load full history
             </button>
@@ -1399,11 +1399,11 @@ export default function LogViewer({ appId, appName, appKind, logs, isRunning, is
         className="flex-1 overflow-auto px-4 py-3 terminal-log-font select-text bg-surface-0"
       >
         {localLogs === null && (
-          <p className="text-[12px] text-zinc-600 mb-3 text-center select-none">Loading logs…</p>
+          <p className="text-[12px] text-ink-3 mb-3 text-center select-none">Loading logs…</p>
         )}
 
         {filteredLines.length === 0 ? (
-          <p className="text-[12px] text-zinc-600 mt-8 text-center select-none">
+          <p className="text-[12px] text-ink-3 mt-8 text-center select-none">
             {textFilter
               ? `No lines match “${debouncedQuery.trim()}”.`
               : filterActive ? "No lines match your filter." : "No output yet."}

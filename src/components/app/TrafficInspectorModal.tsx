@@ -49,30 +49,30 @@ function fmtSize(bytes: number): string {
 }
 
 function statusColor(status: number): string {
-  if (status >= 500) return "text-red-400";
-  if (status >= 400) return "text-amber-400";
+  if (status >= 500) return "text-bad";
+  if (status >= 400) return "text-warn";
   if (status >= 300) return "text-sky-400";
-  if (status >= 200) return "text-emerald-400";
-  return "text-zinc-400";
+  if (status >= 200) return "text-ok";
+  return "text-ink-2";
 }
 
 // Active-pill tint per status bucket — mirrors the row status colors so the
 // filter reads as the same vocabulary as the table.
 const STATUS_FILTER_ACTIVE: Record<StatusFilter, string> = {
-  all: "bg-white/[0.12] text-zinc-100",
-  "2xx": "bg-emerald-500/15 text-emerald-400",
+  all: "bg-white/[0.12] text-ink",
+  "2xx": "bg-ok-bg text-ok",
   "3xx": "bg-sky-500/15 text-sky-400",
-  "4xx": "bg-amber-500/15 text-amber-400",
-  "5xx": "bg-red-500/15 text-red-400",
+  "4xx": "bg-warn-bg text-warn",
+  "5xx": "bg-bad-bg text-bad",
 };
 
 function methodColor(method: string): string {
   switch (method) {
-    case "GET": return "text-emerald-400";
-    case "POST": return "text-amber-400";
-    case "PUT": case "PATCH": return "text-amber-400";
-    case "DELETE": return "text-red-400";
-    default: return "text-zinc-400";
+    case "GET": return "text-ok";
+    case "POST": return "text-warn";
+    case "PUT": case "PATCH": return "text-warn";
+    case "DELETE": return "text-bad";
+    default: return "text-ink-2";
   }
 }
 
@@ -82,11 +82,11 @@ type JToken = { type: "key" | "string" | "number" | "bool" | "null" | "other"; t
 
 const TOKEN_CLASS: Record<JToken["type"], string> = {
   key: "text-sky-400",
-  string: "text-emerald-400",
-  number: "text-yellow-400",
+  string: "text-ok",
+  number: "text-warn",
   bool: "text-violet-400",
-  null: "text-zinc-500",
-  other: "text-zinc-400",
+  null: "text-ink-3",
+  other: "text-ink-2",
 };
 
 function tokenizeJson(json: string): JToken[] {
@@ -162,10 +162,10 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
       onClick={handleCopy}
       className={`shrink-0 px-2 py-0.5 text-[10px] font-mono rounded transition-colors ${
         state === "copied"
-          ? "text-emerald-400 bg-emerald-500/10"
+          ? "text-ok bg-ok-bg"
           : state === "err"
-          ? "text-red-400 bg-red-500/10"
-          : "text-zinc-500 hover:text-zinc-200 bg-white/[0.04] hover:bg-white/[0.08]"
+          ? "text-bad bg-bad-bg"
+          : "text-ink-3 hover:text-ink bg-white/[0.04] hover:bg-white/[0.08]"
       }`}
     >
       {state === "copied" ? "Copied!" : state === "err" ? "Failed" : label}
@@ -305,24 +305,24 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-zinc-400 shrink-0"
+          className="text-ink-2 shrink-0"
           aria-hidden="true"
         >
           <path d="M4 8h16M17 5l3 3-3 3" />
           <path d="M20 16H4M7 13l-3 3 3 3" />
         </svg>
-        <span className="text-[12px] font-medium text-zinc-100">
+        <span className="text-[12px] font-medium text-ink">
           Traffic · {appName}
         </span>
         <span
-          className="text-[10px] text-zinc-500 font-mono px-1.5 py-0.5 bg-white/[0.04] rounded"
+          className="text-[10px] text-ink-3 font-mono px-1.5 py-0.5 bg-white/[0.04] rounded"
           title="Webhook bodies are captured for debugging — rotated automatically"
         >
           Body capture: max 64 KB
         </span>
         {!paused && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-ok">
+            <span className="w-1.5 h-1.5 rounded-full bg-ok" aria-hidden="true" />
             recording
           </span>
         )}
@@ -331,7 +331,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
 
         {/* Path search */}
         <div className="relative">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none">
             <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
             <path d="M8 8l2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
@@ -340,12 +340,12 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
             placeholder="Search path…"
             value={pathFilter}
             onChange={(e) => setPathFilter(e.target.value)}
-            className="w-48 bg-[#1c1c1e] border border-white/[0.1] rounded-lg pl-7 pr-7 py-1.5 text-[11px] text-zinc-200 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/50 transition-colors"
+            className="w-48 bg-surface-2 border border-white/[0.1] rounded-lg pl-7 pr-7 py-1.5 text-[11px] text-ink font-mono placeholder:text-ink-3 focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
           {pathFilter && (
             <button
               onClick={() => setPathFilter("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-2"
               title="Clear search"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -364,7 +364,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
               className={`px-2 py-1 text-[11px] font-mono rounded-md transition-colors ${
                 statusFilter === s
                   ? STATUS_FILTER_ACTIVE[s]
-                  : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06]"
+                  : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.06]"
               }`}
             >
               {s}
@@ -376,13 +376,13 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
           <select
             value={methodFilter}
             onChange={(e) => setMethodFilter(e.target.value)}
-            className="appearance-none bg-[#1c1c1e] border border-white/[0.1] rounded-lg pl-2.5 pr-7 py-1.5 text-[11px] text-zinc-200 font-mono cursor-pointer focus:outline-none focus:border-blue-500/50 transition-colors"
+            className="appearance-none bg-surface-2 border border-white/[0.1] rounded-lg pl-2.5 pr-7 py-1.5 text-[11px] text-ink font-mono cursor-pointer focus:outline-none focus:border-[var(--accent)] transition-colors"
           >
             {METHOD_OPTIONS.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none">
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none">
             <path d="M2.5 4L5 6.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
@@ -391,8 +391,8 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
           onClick={() => setPaused((p) => !p)}
           className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${
             paused
-              ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
-              : "text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1]"
+              ? "text-warn bg-warn-bg hover:bg-warn-bg"
+              : "text-ink-2 bg-white/[0.06] hover:bg-white/[0.1]"
           }`}
         >
           {paused
@@ -403,13 +403,13 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
         </button>
         <button
           onClick={handleClear}
-          className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1] rounded-lg transition-colors"
+          className="px-2.5 py-1.5 text-[11px] font-medium text-ink-2 bg-white/[0.06] hover:bg-white/[0.1] rounded-lg transition-colors"
         >
           Clear
         </button>
         <button
           onClick={onClose}
-          className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
+          className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-white/[0.07] transition-colors"
           title="Close"
         >
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -423,12 +423,12 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
         {/* List */}
         <div className="w-[55%] min-w-0 border-r border-white/[0.06] overflow-y-auto font-mono text-[11px]">
           {filtered.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-zinc-600 text-[12px]">
+            <div className="flex items-center justify-center h-full text-ink-3 text-[12px]">
               {entries.length === 0 ? "Waiting for traffic…" : "No requests match the current filter."}
             </div>
           ) : (
             <table className="w-full text-left">
-              <thead className="sticky top-0 bg-[#161618] text-[10px] uppercase tracking-wide text-zinc-500">
+              <thead className="sticky top-0 bg-[#161618] text-[10px] uppercase tracking-wide text-ink-3">
                 <tr>
                   <th className="px-3 py-1.5 font-medium">Time</th>
                   <th className="px-2 py-1.5 font-medium">Method</th>
@@ -446,15 +446,15 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                       selectedIdx === idx ? "bg-accent-bg" : ""
                     }`}
                   >
-                    <td className="px-3 py-1.5 text-zinc-500 whitespace-nowrap">{fmtTime(e.ts)}</td>
+                    <td className="px-3 py-1.5 text-ink-3 whitespace-nowrap">{fmtTime(e.ts)}</td>
                     <td className={`px-2 py-1.5 ${methodColor(e.method)} whitespace-nowrap`}>{e.method}</td>
-                    <td className="px-2 py-1.5 text-zinc-300 truncate max-w-0" title={`${e.host}${e.uri}`}>
+                    <td className="px-2 py-1.5 text-ink-2 truncate max-w-0" title={`${e.host}${e.uri}`}>
                       {e.uri || "/"}
                     </td>
                     <td className={`px-2 py-1.5 text-right ${statusColor(e.status)} whitespace-nowrap`}>
                       {e.status || "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-right text-zinc-500 whitespace-nowrap">{fmtDuration(e.duration_ms)}</td>
+                    <td className="px-2 py-1.5 text-right text-ink-3 whitespace-nowrap">{fmtDuration(e.duration_ms)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -465,7 +465,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
         {/* Detail panel */}
         <div className="flex-1 min-w-0 flex flex-col">
           {!selected ? (
-            <div className="flex items-center justify-center h-full text-zinc-600 text-[12px]">
+            <div className="flex items-center justify-center h-full text-ink-3 text-[12px]">
               Select a request to inspect
             </div>
           ) : (
@@ -478,8 +478,8 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                     onClick={() => setActiveTab(t)}
                     className={`px-2.5 py-1 text-[11px] font-mono rounded transition-colors ${
                       activeTab === t
-                        ? "bg-white/[0.10] text-zinc-100"
-                        : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05]"
+                        ? "bg-white/[0.10] text-ink"
+                        : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.05]"
                     }`}
                   >
                     {t === "headers" ? "Headers" : t === "body" ? "Body" : t === "response" ? "Response" : "Replay"}
@@ -494,7 +494,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
                       setReplayNonce((n) => n + 1);
                     }}
                     title="Send this request again"
-                    className="shrink-0 px-2 py-0.5 text-[10px] font-mono rounded text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+                    className="shrink-0 px-2 py-0.5 text-[10px] font-mono rounded text-accent bg-accent-bg hover:bg-accent-bg transition-colors"
                   >
                     Replay
                   </button>
@@ -502,7 +502,7 @@ export default function TrafficInspectorModal({ appId, appName, isOpen, onClose 
               </div>
 
               <div className="px-4 pt-2 shrink-0">
-                <span className="text-[10px] font-mono text-zinc-500 truncate block" title={`${selected.method} ${selected.host}${selected.uri} ${selected.status || ""}`}>
+                <span className="text-[10px] font-mono text-ink-3 truncate block" title={`${selected.method} ${selected.host}${selected.uri} ${selected.status || ""}`}>
                   <span className={methodColor(selected.method)}>{selected.method}</span>{" "}
                   {selected.host}{selected.uri}
                   {selected.status ? (
@@ -539,16 +539,16 @@ function HeaderTable({ title, headers }: { title: string; headers: Record<string
   const keys = Object.keys(headers).sort();
   return (
     <div className="mb-4">
-      <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1 font-mono">{title}</div>
+      <div className="text-[10px] uppercase tracking-wide text-ink-3 mb-1 font-mono">{title}</div>
       {keys.length === 0 ? (
-        <div className="text-zinc-600 italic text-[11px] font-mono">(none)</div>
+        <div className="text-ink-3 italic text-[11px] font-mono">(none)</div>
       ) : (
         <table className="w-full font-mono text-[11px]">
           <tbody>
             {keys.map((k) => (
               <tr key={k} className="align-top border-b border-white/[0.03]">
-                <td className="text-zinc-500 pr-3 py-1 whitespace-nowrap">{k}</td>
-                <td className="text-zinc-300 py-1 break-all">{headers[k].join(", ")}</td>
+                <td className="text-ink-3 pr-3 py-1 whitespace-nowrap">{k}</td>
+                <td className="text-ink-2 py-1 break-all">{headers[k].join(", ")}</td>
               </tr>
             ))}
           </tbody>
@@ -580,9 +580,9 @@ function DetailBody({ entry }: { entry: AccessLogEntry }) {
 
   if (!entry.req_body || entry.req_body.length === 0) {
     return (
-      <div className="text-zinc-500 text-[11px] font-mono">
+      <div className="text-ink-3 text-[11px] font-mono">
         No request body captured.
-        <div className="mt-1 text-zinc-600 text-[10px]">
+        <div className="mt-1 text-ink-3 text-[10px]">
           Bodies are captured for the first 64 KB of each request. Binary or
           empty bodies are hidden.
         </div>
@@ -594,7 +594,7 @@ function DetailBody({ entry }: { entry: AccessLogEntry }) {
     <div className="relative">
       <div className="absolute top-0 right-0 flex items-center gap-1.5 z-10">
         {parsed && (
-          <span className="text-[9px] font-mono text-zinc-600 px-1.5 py-0.5 bg-white/[0.04] rounded">
+          <span className="text-[9px] font-mono text-ink-3 px-1.5 py-0.5 bg-white/[0.04] rounded">
             JSON
           </span>
         )}
@@ -604,7 +604,7 @@ function DetailBody({ entry }: { entry: AccessLogEntry }) {
         {parsed ? (
           <JsonSyntax text={pretty} />
         ) : (
-          <pre className="whitespace-pre-wrap break-all text-zinc-300 leading-relaxed text-[11px] font-mono">
+          <pre className="whitespace-pre-wrap break-all text-ink-2 leading-relaxed text-[11px] font-mono">
             {pretty}
           </pre>
         )}
@@ -729,7 +729,7 @@ function DetailReplay({ entry, autoSend }: { entry: AccessLogEntry; autoSend: nu
         <select
           value={method}
           onChange={(e) => setMethod(e.target.value)}
-          className="bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-1 text-[11px] text-zinc-200 outline-none"
+          className="bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-1 text-[11px] text-ink outline-none"
         >
           {METHOD_OPTIONS.filter((m) => m !== "ALL").map((m) => (
             <option key={m} value={m}>
@@ -741,49 +741,49 @@ function DetailReplay({ entry, autoSend }: { entry: AccessLogEntry; autoSend: nu
           value={uri}
           onChange={(e) => setUri(e.target.value)}
           spellCheck={false}
-          className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[11px] text-zinc-200 outline-none focus:border-blue-500/60"
+          className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[11px] text-ink outline-none focus:border-[var(--accent)]"
         />
         <button
           onClick={() => void send()}
           disabled={sending}
-          className="shrink-0 px-2.5 py-1 text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-50 transition-colors"
+          className="shrink-0 px-2.5 py-1 text-[11px] font-medium bg-accent hover:bg-accent text-white rounded disabled:opacity-50 transition-colors"
         >
           {sending ? "Sending…" : "Send"}
         </button>
       </div>
-      <div className="text-[10px] text-zinc-600">
-        Goes to <span className="text-zinc-400">{entry.host}</span> through the local
+      <div className="text-[10px] text-ink-3">
+        Goes to <span className="text-ink-2">{entry.host}</span> through the local
         proxy, so auth and TLS behave as they did originally.
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-zinc-500">Headers</span>
+        <span className="text-[10px] uppercase tracking-wide text-ink-3">Headers</span>
         <textarea
           value={headersText}
           onChange={(e) => setHeadersText(e.target.value)}
           spellCheck={false}
           rows={6}
-          className="bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-zinc-300 outline-none focus:border-blue-500/60 resize-y"
+          className="bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-ink-2 outline-none focus:border-[var(--accent)] resize-y"
         />
-        <span className="text-[10px] text-zinc-600">
+        <span className="text-[10px] text-ink-3">
           Host and Content-Length are recomputed and ignored here.
         </span>
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-zinc-500">Body</span>
+        <span className="text-[10px] uppercase tracking-wide text-ink-3">Body</span>
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           spellCheck={false}
           rows={8}
           placeholder="(empty)"
-          className="bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-zinc-300 outline-none focus:border-blue-500/60 resize-y placeholder:text-zinc-600"
+          className="bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[11px] text-ink-2 outline-none focus:border-[var(--accent)] resize-y placeholder:text-ink-3"
         />
       </label>
 
       {error && (
-        <div className="px-2.5 py-2 bg-red-500/10 border border-red-500/20 rounded text-[11px] text-red-400">
+        <div className="px-2.5 py-2 bg-bad-bg border border-[var(--danger-border)] rounded text-[11px] text-bad">
           {error}
         </div>
       )}
@@ -808,23 +808,23 @@ function ReplayResult({ result }: { result: ReplayResponse }) {
         <span className={`text-[12px] font-medium ${statusColor(result.status)}`}>
           {result.status}
         </span>
-        <span className="text-[10px] text-zinc-500">{fmtDuration(result.duration_ms)}</span>
-        <span className="text-[10px] text-zinc-500">{fmtSize(result.body.length)}</span>
+        <span className="text-[10px] text-ink-3">{fmtDuration(result.duration_ms)}</span>
+        <span className="text-[10px] text-ink-3">{fmtSize(result.body.length)}</span>
         <div className="flex-1" />
         {result.body.length > 0 && <CopyButton text={pretty} />}
       </div>
       <HeaderTable title="Response headers" headers={result.headers} />
       {result.body.length === 0 ? (
-        <div className="text-zinc-600 italic text-[11px]">(empty response body)</div>
+        <div className="text-ink-3 italic text-[11px]">(empty response body)</div>
       ) : parsed ? (
         <JsonSyntax text={pretty} />
       ) : (
-        <pre className="whitespace-pre-wrap break-all text-zinc-300 leading-relaxed text-[11px]">
+        <pre className="whitespace-pre-wrap break-all text-ink-2 leading-relaxed text-[11px]">
           {pretty}
         </pre>
       )}
       {result.body_truncated && (
-        <div className="text-[10px] text-zinc-600">
+        <div className="text-[10px] text-ink-3">
           Response truncated to the first 256 KB.
         </div>
       )}
@@ -835,8 +835,8 @@ function ReplayResult({ result }: { result: ReplayResponse }) {
 function Row({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (
     <div className="flex">
-      <div className="w-[120px] text-zinc-500 text-[10px] uppercase tracking-wide">{label}</div>
-      <div className={`flex-1 ${valueClass ?? "text-zinc-200"} break-all`}>{value}</div>
+      <div className="w-[120px] text-ink-3 text-[10px] uppercase tracking-wide">{label}</div>
+      <div className={`flex-1 ${valueClass ?? "text-ink"} break-all`}>{value}</div>
     </div>
   );
 }

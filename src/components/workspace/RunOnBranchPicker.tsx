@@ -202,7 +202,7 @@ export default function RunOnBranchPicker({
       </div>
 
       {error && (
-        <div className="mb-2 rounded-lg border border-[rgba(248,113,113,0.3)] bg-[rgba(248,113,113,0.12)] px-2.5 py-1.5 text-[11px] text-bad">
+        <div className="mb-2 rounded-lg border border-[var(--danger-border)] bg-[rgba(248,113,113,0.12)] px-2.5 py-1.5 text-[11px] text-bad">
           {error}
         </div>
       )}

@@ -91,9 +91,9 @@ export default function AccessPolicyEditor({
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.30)] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
+          className="px-4 py-2 text-[12.5px] font-medium rounded-lg bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
         >
-          {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.30)] border-t-accent-ink animate-spin" />}
+          {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--accent-border)] border-t-accent-ink animate-spin" />}
           {saving ? "Saving…" : saveLabel}
         </button>
         {onCancel && (

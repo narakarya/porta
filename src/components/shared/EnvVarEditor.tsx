@@ -92,7 +92,7 @@ export default function EnvVarEditor({ vars, onChange }: EnvVarEditorProps) {
                 <button
                   onClick={() => removeRow(i)}
                   aria-label="Remove variable"
-                  className="text-ink-3 hover:text-red-400 transition-colors p-1 shrink-0"
+                  className="text-ink-3 hover:text-bad transition-colors p-1 shrink-0"
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                     <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>

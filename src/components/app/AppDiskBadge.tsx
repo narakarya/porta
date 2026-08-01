@@ -142,8 +142,8 @@ export default function AppDiskBadge({ app }: Props) {
           }}
           className={`text-[9px] font-semibold tracking-wider px-1.5 py-0.5 rounded leading-none uppercase border transition-colors ${
             hasStale
-              ? "text-amber-300 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/15"
-              : "text-zinc-400 bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08]"
+              ? "text-warn bg-warn-bg border-[var(--warning-border)] hover:bg-warn-bg"
+              : "text-ink-2 bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08]"
           }`}
         >
           {label}
@@ -153,15 +153,15 @@ export default function AppDiskBadge({ app }: Props) {
       {panelOpen && createPortal(
         <div
           ref={panelRef}
-          className="fixed z-[60] w-[260px] p-3 rounded-lg bg-[#1a1a1c] border border-white/[0.08] shadow-xl"
+          className="fixed z-[60] w-[260px] p-3 rounded-lg bg-surface-2 border border-white/[0.08] shadow-xl"
           style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] uppercase tracking-wider text-zinc-500">Disk</span>
+            <span className="text-[11px] uppercase tracking-wider text-ink-3">Disk</span>
             <button
               onClick={() => setOpen(false)}
-              className="text-zinc-600 hover:text-zinc-300 text-[14px] leading-none"
+              className="text-ink-3 hover:text-ink-2 text-[14px] leading-none"
               aria-label="Close"
             >
               ×
@@ -174,7 +174,7 @@ export default function AppDiskBadge({ app }: Props) {
           </div>
           {hasStale && (
             <div className="mt-3 pt-3 border-t border-white/[0.06]">
-              <p className="text-[11px] text-amber-300 mb-2">
+              <p className="text-[11px] text-warn mb-2">
                 {state.usage.stale_image_count} stale image{state.usage.stale_image_count === 1 ? "" : "s"} from past updates
               </p>
               <button
@@ -188,17 +188,17 @@ export default function AppDiskBadge({ app }: Props) {
                 {cleanState === "running" ? "Cleaning…" : "Clean up old images"}
               </button>
               {cleanState === "success" && (
-                <p className="mt-1.5 text-[11px] text-emerald-400">
+                <p className="mt-1.5 text-[11px] text-ok">
                   Freed {formatBytes(freed)}
                 </p>
               )}
               {cleanState === "error" && (
-                <p className="mt-1.5 text-[11px] text-red-400">Cleanup failed</p>
+                <p className="mt-1.5 text-[11px] text-bad">Cleanup failed</p>
               )}
             </div>
           )}
           {!hasStale && state.kind === "ready" && (
-            <p className="mt-2 text-[11px] text-zinc-600">No stale images.</p>
+            <p className="mt-2 text-[11px] text-ink-3">No stale images.</p>
           )}
         </div>,
         document.body,
@@ -210,8 +210,8 @@ export default function AppDiskBadge({ app }: Props) {
 function Row({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-zinc-500">{label}</span>
-      <span className="text-zinc-200 font-mono">{formatBytes(value)}</span>
+      <span className="text-ink-3">{label}</span>
+      <span className="text-ink font-mono">{formatBytes(value)}</span>
     </div>
   );
 }

@@ -66,17 +66,17 @@ export default function HelpModal({ onClose }: Props) {
       className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center p-6"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#1a1a1c] border border-white/[0.10] rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col">
+      <div className="bg-surface-2 border border-white/[0.10] rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col">
         <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.06]">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-blue-400">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-accent">
             <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
             <path d="M5.5 5.5a1.5 1.5 0 113 0c0 1-1.5 1-1.5 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             <circle cx="7" cy="10" r="0.6" fill="currentColor"/>
           </svg>
-          <h1 className="text-[13px] font-semibold text-zinc-100 flex-1">Keyboard shortcuts</h1>
+          <h1 className="text-[13px] font-semibold text-ink flex-1">Keyboard shortcuts</h1>
           <button
             onClick={onClose}
-            className="p-1 text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
+            className="p-1 text-ink-3 hover:text-ink hover:bg-white/[0.06] rounded-md transition-colors"
             title="Close (Esc)"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -88,7 +88,7 @@ export default function HelpModal({ onClose }: Props) {
         <div className="overflow-y-auto p-5 space-y-5">
           {GROUPS.map((g) => (
             <section key={g.title}>
-              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">{g.title}</h2>
+              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-ink-3 mb-2">{g.title}</h2>
               <ul className="space-y-1.5">
                 {g.items.map((s, i) => (
                   <li key={i} className="flex items-center gap-3 text-[12px]">
@@ -96,13 +96,13 @@ export default function HelpModal({ onClose }: Props) {
                       {s.keys.map((k, j) => (
                         <kbd
                           key={j}
-                          className="inline-block px-1.5 py-0.5 text-[10px] font-mono bg-white/[0.06] border border-white/[0.10] rounded text-zinc-300 min-w-[20px] text-center"
+                          className="inline-block px-1.5 py-0.5 text-[10px] font-mono bg-white/[0.06] border border-white/[0.10] rounded text-ink-2 min-w-[20px] text-center"
                         >
                           {k}
                         </kbd>
                       ))}
                     </span>
-                    <span className="text-zinc-400 flex-1">{s.desc}</span>
+                    <span className="text-ink-2 flex-1">{s.desc}</span>
                   </li>
                 ))}
               </ul>
@@ -110,8 +110,8 @@ export default function HelpModal({ onClose }: Props) {
           ))}
         </div>
 
-        <div className="px-5 py-2.5 border-t border-white/[0.06] text-[10px] text-zinc-600">
-          Missing a shortcut you want? File an issue at <span className="text-zinc-500 font-mono">narakarya/porta</span>.
+        <div className="px-5 py-2.5 border-t border-white/[0.06] text-[10px] text-ink-3">
+          Missing a shortcut you want? File an issue at <span className="text-ink-3 font-mono">narakarya/porta</span>.
         </div>
       </div>
     </div>

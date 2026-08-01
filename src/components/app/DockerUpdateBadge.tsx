@@ -271,8 +271,8 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
           }}
           className={
             prominent
-              ? "shrink-0 inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1.5 rounded-control uppercase transition-colors"
-              : "text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.5 rounded leading-none uppercase transition-colors"
+              ? "shrink-0 inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-warn bg-warn-bg hover:bg-warn-bg border border-[var(--warning-border)] px-2.5 py-1.5 rounded-control uppercase transition-colors"
+              : "text-[9px] font-semibold tracking-wider text-warn bg-warn-bg hover:bg-warn-bg border border-[var(--warning-border)] px-1.5 py-0.5 rounded leading-none uppercase transition-colors"
           }
           title={`${updates.length} image${updates.length > 1 ? "s" : ""} can be updated`}
         >
@@ -287,7 +287,7 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
           disabled={state.kind === "checking"}
           className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] rounded-control border transition-colors disabled:opacity-50 ${
             state.kind === "error"
-              ? "text-red-400 border-red-500/30 hover:bg-red-500/10"
+              ? "text-bad border-[var(--danger-border)] hover:bg-bad-bg"
               : "text-ink-2 border-subtle hover:text-ink hover:border-strong hover:bg-white/[0.03]"
           }`}
         >
@@ -314,10 +314,10 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
             disabled={state.kind === "checking"}
             className={`p-1 rounded-md transition-colors disabled:opacity-50 ${
               state.kind === "error"
-                ? "text-red-400 hover:bg-red-500/10"
+                ? "text-bad hover:bg-bad-bg"
                 : state.kind === "ready"
-                ? "text-emerald-400/70 hover:text-emerald-300 hover:bg-emerald-500/10"
-                : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06]"
+                ? "text-emerald-400/70 hover:text-ok hover:bg-ok-bg"
+                : "text-ink-3 hover:text-ink-2 hover:bg-white/[0.06]"
             }`}
           >
             {checkIcon}
@@ -394,7 +394,7 @@ function PhaseStatus({ phase, size }: { phase: UpdatePhase; size: "sm" | "lg" })
     <div className="flex items-center gap-2 min-w-0">
       {inFlight ? (
         <svg
-          className={`animate-spin shrink-0 ${isRecovering ? "text-orange-400" : "text-amber-400"}`}
+          className={`animate-spin shrink-0 ${isRecovering ? "text-orange-400" : "text-warn"}`}
           width={dim}
           height={dim}
           viewBox="0 0 12 12"
@@ -403,20 +403,20 @@ function PhaseStatus({ phase, size }: { phase: UpdatePhase; size: "sm" | "lg" })
           <path d="M6 2A4 4 0 1 1 2 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       ) : isDone ? (
-        <svg width={dim} height={dim} viewBox="0 0 12 12" fill="none" className="text-emerald-400 shrink-0">
+        <svg width={dim} height={dim} viewBox="0 0 12 12" fill="none" className="text-ok shrink-0">
           <path d="M2.5 6.5l2.5 2.5L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ) : (
-        <svg width={dim} height={dim} viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0">
+        <svg width={dim} height={dim} viewBox="0 0 12 12" fill="none" className="text-bad shrink-0">
           <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       )}
       <p
         className={`${textCls} font-medium truncate ${
           isError
-            ? "text-red-300"
+            ? "text-bad"
             : isDone
-            ? "text-emerald-300"
+            ? "text-ok"
             : isRecovering
             ? "text-orange-300"
             : "text-amber-200"
@@ -432,14 +432,14 @@ function PhaseStatus({ phase, size }: { phase: UpdatePhase; size: "sm" | "lg" })
  * ordinary docker output (which otherwise shares the same neutral gray). */
 function LogLines({ lines }: { lines: string[] }) {
   if (lines.length === 0) {
-    return <p className="text-zinc-600 italic">waiting for output…</p>;
+    return <p className="text-ink-3 italic">waiting for output…</p>;
   }
   return (
     <>
       {lines.map((raw, idx) => {
         const line = stripAnsi(raw);
         const level = detectLevel(line);
-        const cls = level ? LEVEL_CLS[level] : "text-zinc-400";
+        const cls = level ? LEVEL_CLS[level] : "text-ink-2";
         const weight = level === "error" ? "font-medium" : "";
         return (
           <div key={idx} className={`whitespace-pre-wrap break-all ${cls} ${weight}`}>
@@ -474,12 +474,12 @@ function CopyLogButton({ lines }: { lines: string[] }) {
     <button
       onClick={copy}
       disabled={lines.length === 0}
-      className="text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white/[0.06] transition-colors flex items-center gap-1"
+      className="text-[10px] text-ink-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white/[0.06] transition-colors flex items-center gap-1"
       title="Copy log to clipboard"
     >
       {copied ? (
         <>
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="text-emerald-400">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="text-ok">
             <path d="M2.5 6.5l2.5 2.5L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           Copied
@@ -528,7 +528,7 @@ function ProgressView({ phase, logLines }: { phase: UpdatePhase; logLines: strin
           <CopyLogButton lines={logLines} />
           <button
             onClick={() => setFullscreen(true)}
-            className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-white/[0.06] transition-colors"
+            className="text-ink-2 hover:text-ink p-1 rounded hover:bg-white/[0.06] transition-colors"
             title="Fullscreen"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -556,7 +556,7 @@ function ProgressView({ phase, logLines }: { phase: UpdatePhase; logLines: strin
                 <CopyLogButton lines={logLines} />
                 <button
                   onClick={() => setFullscreen(false)}
-                  className="text-zinc-400 hover:text-zinc-200 p-1.5 rounded hover:bg-white/[0.06] transition-colors"
+                  className="text-ink-2 hover:text-ink p-1.5 rounded hover:bg-white/[0.06] transition-colors"
                   title="Exit fullscreen (Esc)"
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -651,16 +651,16 @@ function PreflightView({
 
   const ringClass =
     summary.level === "danger"
-      ? "border-red-500/30 bg-red-500/[0.04]"
+      ? "border-[var(--danger-border)] bg-red-500/[0.04]"
       : summary.level === "caution"
-      ? "border-amber-500/30 bg-amber-500/[0.04]"
-      : "border-emerald-500/30 bg-emerald-500/[0.04]";
+      ? "border-[var(--warning-border)] bg-amber-500/[0.04]"
+      : "border-[var(--success-border)] bg-emerald-500/[0.04]";
   const labelClass =
     summary.level === "danger"
-      ? "text-red-300"
+      ? "text-bad"
       : summary.level === "caution"
-      ? "text-amber-300"
-      : "text-emerald-300";
+      ? "text-warn"
+      : "text-ok";
   const verb =
     summary.level === "danger" ? "Risky update" : summary.level === "caution" ? "Heads-up" : "Looks safe";
 
@@ -671,7 +671,7 @@ function PreflightView({
           {verb}
         </p>
         {summary.statefulLabels.length > 0 && (
-          <p className="mt-1 text-[11px] text-zinc-300">
+          <p className="mt-1 text-[11px] text-ink-2">
             Affects: <span className="font-mono">{summary.statefulLabels.join(", ")}</span>
           </p>
         )}
@@ -679,8 +679,8 @@ function PreflightView({
 
       <ul className="space-y-1.5">
         {summary.reasons.map((r, i) => (
-          <li key={i} className="text-[11px] text-zinc-300 leading-[1.45] flex gap-1.5">
-            <span className="text-zinc-600 mt-[2px]">•</span>
+          <li key={i} className="text-[11px] text-ink-2 leading-[1.45] flex gap-1.5">
+            <span className="text-ink-3 mt-[2px]">•</span>
             <span>{r}</span>
           </li>
         ))}
@@ -689,12 +689,12 @@ function PreflightView({
       {summary.intermediateTagHint && (
         <button
           onClick={onApplyIntermediate}
-          className="w-full text-left px-2.5 py-1.5 rounded bg-blue-500/[0.08] hover:bg-blue-500/[0.15] border border-blue-500/30 transition-colors"
+          className="w-full text-left px-2.5 py-1.5 rounded bg-blue-500/[0.08] hover:bg-blue-500/[0.15] border border-[var(--accent-border)] transition-colors"
         >
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-300">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-accent-ink">
             Safer path
           </p>
-          <p className="mt-0.5 text-[11px] text-zinc-200">
+          <p className="mt-0.5 text-[11px] text-ink">
             Jump to{" "}
             <span className="font-mono text-blue-200">
               {summary.intermediateTagHint.tag}
@@ -713,9 +713,9 @@ function PreflightView({
               onChange={(e) => setSnapshot(e.target.checked)}
               className="mt-[2px] accent-amber-500"
             />
-            <span className="text-[11px] text-zinc-300 leading-[1.4]">
+            <span className="text-[11px] text-ink-2 leading-[1.4]">
               <span className="font-medium">Snapshot volume{summary.statefulVolumes.length > 1 ? "s" : ""} first</span>
-              <span className="block text-[10px] text-zinc-500 font-mono mt-0.5">
+              <span className="block text-[10px] text-ink-3 font-mono mt-0.5">
                 {summary.statefulVolumes.join(", ")}
               </span>
             </span>
@@ -728,9 +728,9 @@ function PreflightView({
             onChange={(e) => setRollback(e.target.checked)}
             className="mt-[2px] accent-amber-500"
           />
-          <span className="text-[11px] text-zinc-300 leading-[1.4]">
+          <span className="text-[11px] text-ink-2 leading-[1.4]">
             <span className="font-medium">Auto-rollback on failure</span>
-            <span className="block text-[10px] text-zinc-500 mt-0.5">
+            <span className="block text-[10px] text-ink-3 mt-0.5">
               Verify health for ~45s and revert if any container can't reach a healthy state.
             </span>
           </span>
@@ -743,9 +743,9 @@ function PreflightView({
               onChange={(e) => setRestore(e.target.checked)}
               className="mt-[2px] accent-orange-500"
             />
-            <span className="text-[11px] text-zinc-300 leading-[1.4]">
+            <span className="text-[11px] text-ink-2 leading-[1.4]">
               <span className="font-medium">Also restore volume on rollback</span>
-              <span className="block text-[10px] text-zinc-500 mt-0.5">
+              <span className="block text-[10px] text-ink-3 mt-0.5">
                 Wipe and restore from the snapshot. Use when the new image may have written to the data dir before crashing.
               </span>
             </span>
@@ -756,7 +756,7 @@ function PreflightView({
       <div className="flex items-center justify-end gap-2 pt-1">
         <button
           onClick={onCancel}
-          className="text-[11px] text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded transition-colors"
+          className="text-[11px] text-ink-2 hover:text-ink px-2 py-1 rounded transition-colors"
         >
           Cancel
         </button>
@@ -764,8 +764,8 @@ function PreflightView({
           onClick={() => onConfirm({ snapshot, rollback, restore })}
           className={`text-[11px] font-medium px-2.5 py-1 rounded border transition-colors ${
             summary.level === "danger"
-              ? "text-red-200 bg-red-500/15 hover:bg-red-500/25 border-red-500/40"
-              : "text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30"
+              ? "text-bad bg-bad-bg hover:bg-red-500/25 border-[var(--danger-border)]"
+              : "text-warn bg-warn-bg hover:bg-amber-500/25 border-[var(--warning-border)]"
           }`}
         >
           {summary.level === "danger" ? "Update anyway" : "Update"}
@@ -888,9 +888,9 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
   const showPreflight = !!preflightSummary && !showProgress;
 
   return (
-    <div className="bg-[#1c1c1e] border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
+    <div className="bg-surface-2 border border-white/[0.10] rounded-lg shadow-xl overflow-hidden">
       <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between">
-        <p className="text-[11px] font-medium text-zinc-300">
+        <p className="text-[11px] font-medium text-ink-2">
           {showProgress
             ? "Updating image"
             : showPreflight
@@ -902,7 +902,7 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
             <button
               onClick={onRefresh}
               disabled={updating || refreshing}
-              className="text-zinc-500 hover:text-zinc-300 leading-none disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="text-ink-3 hover:text-ink-2 leading-none disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Re-check for updates"
             >
               <svg
@@ -925,7 +925,7 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
           <button
             onClick={onClose}
             disabled={updating}
-            className="text-zinc-500 hover:text-zinc-300 text-xs leading-none disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-ink-3 hover:text-ink-2 text-xs leading-none disabled:opacity-30 disabled:cursor-not-allowed"
             title={updating ? "Update in progress" : "Close"}
           >
             ×
@@ -940,7 +940,7 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
             <div className="px-3 py-2 border-t border-white/[0.06] flex items-center justify-end">
               <button
                 onClick={onClose}
-                className="text-[11px] text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded transition-colors"
+                className="text-[11px] text-ink-2 hover:text-ink px-2 py-1 rounded transition-colors"
               >
                 Close
               </button>
@@ -964,7 +964,7 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
         <>
           <div className="max-h-[260px] overflow-y-auto">
             {updates.length === 0 ? (
-              <p className="px-3 py-3 text-[11px] text-zinc-500">All images up to date.</p>
+              <p className="px-3 py-3 text-[11px] text-ink-3">All images up to date.</p>
             ) : (
               updates.map((i) => (
                 <div key={i.image + (i.service_name ?? "")} className="px-3 py-2 border-b border-white/[0.04] last:border-b-0">
@@ -974,24 +974,24 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
                         {i.service_name}
                       </span>
                     )}
-                    <p className="text-[11px] font-mono text-zinc-200 truncate" title={i.image}>
+                    <p className="text-[11px] font-mono text-ink truncate" title={i.image}>
                       {i.image}
                     </p>
                   </div>
                   {i.suggested_tag ? (
                     <div className="mt-1 flex items-center gap-1.5 text-[10px]">
-                      <span className="text-zinc-500">tag:</span>
+                      <span className="text-ink-3">tag:</span>
                       <select
                         value={chosenTag[i.image] ?? i.tag}
                         onChange={(e) => setChosenTag((m) => ({ ...m, [i.image]: e.target.value }))}
-                        className="bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-0.5 text-zinc-300 font-mono text-[10px] focus:outline-none focus:border-amber-500/40"
+                        className="bg-white/[0.04] border border-white/[0.08] rounded px-1.5 py-0.5 text-ink-2 font-mono text-[10px] focus:outline-none focus:border-amber-500/40"
                       >
                         <option value={i.tag}>{i.tag} (current)</option>
                         <option value={i.suggested_tag}>{i.suggested_tag} (newer)</option>
                       </select>
                     </div>
                   ) : (
-                    <p className="mt-1 text-[10px] text-zinc-500">
+                    <p className="mt-1 text-[10px] text-ink-3">
                       Same tag, new image pushed — pulling will fetch the latest.
                     </p>
                   )}
@@ -1005,7 +1005,7 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
               {info
                 .filter((i) => i.status !== "ok")
                 .map((i, idx) => (
-                  <p key={idx} className="text-[10px] text-zinc-500 truncate" title={i.message ?? ""}>
+                  <p key={idx} className="text-[10px] text-ink-3 truncate" title={i.message ?? ""}>
                     <span className="font-mono">{i.image}</span> — {i.status}
                     {i.message ? `: ${i.message}` : ""}
                   </p>
@@ -1014,8 +1014,8 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
           )}
 
           {preflightError && (
-            <div className="px-3 py-2 bg-red-500/[0.06] border-t border-red-500/30">
-              <p className="text-[11px] text-red-300">
+            <div className="px-3 py-2 bg-red-500/[0.06] border-t border-[var(--danger-border)]">
+              <p className="text-[11px] text-bad">
                 Pre-flight failed: {preflightError}
               </p>
             </div>
@@ -1025,14 +1025,14 @@ function UpdatePopover({ app, info, updating, refreshing, onRefresh, phase, logL
             <div className="px-3 py-2 border-t border-white/[0.06] flex items-center justify-end gap-2">
               <button
                 onClick={onClose}
-                className="text-[11px] text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded transition-colors"
+                className="text-[11px] text-ink-2 hover:text-ink px-2 py-1 rounded transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => startUpdate()}
                 disabled={preflightLoading}
-                className="text-[11px] font-medium text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                className="text-[11px] font-medium text-warn bg-warn-bg hover:bg-amber-500/25 border border-[var(--warning-border)] px-2.5 py-1 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
               >
                 {preflightLoading ? "Checking…" : "Update now"}
               </button>

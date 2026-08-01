@@ -182,7 +182,7 @@ export default function HostVault() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search hosts…"
-          className="flex-1 min-w-0 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+          className="flex-1 min-w-0 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
         />
         {usedWorkspaces.length > 0 && (
           <div className="relative shrink-0" ref={filterRef}>
@@ -191,7 +191,7 @@ export default function HostVault() {
               title={activeFilterName ? `Filtered: ${activeFilterName}` : "Filter by workspace"}
               className={`relative flex items-center justify-center w-7 h-7 rounded-control border transition-colors ${
                 wsFilter
-                  ? "text-accent-ink bg-accent-bg border-[rgba(96,165,250,0.4)]"
+                  ? "text-accent-ink bg-accent-bg border-[var(--accent-border)]"
                   : "text-ink-3 border-subtle hover:text-ink-2 hover:border-strong"
               }`}
             >
@@ -212,7 +212,7 @@ export default function HostVault() {
                       placeholder="Search workspace…"
                       autoFocus
                       spellCheck={false}
-                      className="w-full mb-1 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+                      className="w-full mb-1 px-2 py-1 text-[12px] bg-surface-input border border-subtle rounded-control text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
                     />
                   )}
                   <button
@@ -381,7 +381,7 @@ function MenuItem({
       role="menuitem"
       onClick={onClick}
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors hover:bg-white/[0.05] ${
-        danger ? "text-red-400" : "text-ink-2 hover:text-ink"
+        danger ? "text-bad" : "text-ink-2 hover:text-ink"
       }`}
     >
       <span className="shrink-0 flex items-center justify-center w-3.5">{icon}</span>

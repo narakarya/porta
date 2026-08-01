@@ -156,7 +156,7 @@ export function SidebarGroupHeader({
             e.stopPropagation();
             onToggle();
           }}
-          className="shrink-0 p-0.5 text-ink-3 hover:text-zinc-300"
+          className="shrink-0 p-0.5 text-ink-3 hover:text-ink-2"
           title={collapsed ? "Expand" : "Collapse"}
         >
           <svg

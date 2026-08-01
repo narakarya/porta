@@ -135,10 +135,10 @@ export function ExtensionHostProvider({ children }: { children: React.ReactNode 
               key={t.id}
               className={`px-3 py-1.5 rounded-lg text-[12px] shadow-lg border ${
                 t.kind === "error"
-                  ? "bg-red-500/15 text-red-300 border-red-500/25"
+                  ? "bg-bad-bg text-bad border-red-500/25"
                   : t.kind === "success"
-                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
-                    : "bg-zinc-800/90 text-zinc-200 border-white/10"
+                    ? "bg-ok-bg text-ok border-emerald-500/25"
+                    : "bg-zinc-800/90 text-ink border-white/10"
               }`}
             >
               {t.msg}

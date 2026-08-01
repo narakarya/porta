@@ -57,32 +57,32 @@ export default function PortConflictModal({
     <ModalWrapper onClose={onClose}>
       <div className="w-[420px] p-5">
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-amber-400">
+          <span className="text-warn">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 2l5 9H2l5-9z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
               <path d="M7 6v2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
               <circle cx="7" cy="10.2" r="0.6" fill="currentColor"/>
             </svg>
           </span>
-          <h2 className="text-[14px] font-semibold text-zinc-100">Port conflict</h2>
+          <h2 className="text-[14px] font-semibold text-ink">Port conflict</h2>
         </div>
 
-        <p className="text-[12px] text-zinc-400 leading-relaxed mb-4">
+        <p className="text-[12px] text-ink-2 leading-relaxed mb-4">
           Suggest an alternative port for{" "}
-          <span className="text-zinc-200">{appName}</span> to resolve the
-          conflict on <span className="font-mono text-zinc-100">:{port}</span>.
+          <span className="text-ink">{appName}</span> to resolve the
+          conflict on <span className="font-mono text-ink">:{port}</span>.
         </p>
 
         {suggested !== null ? (
-          <div className="mb-4 px-3 py-2.5 rounded-md bg-emerald-500/[0.06] border border-emerald-500/20">
-            <p className="text-[12px] text-zinc-300">
+          <div className="mb-4 px-3 py-2.5 rounded-md bg-emerald-500/[0.06] border border-[var(--success-border)]">
+            <p className="text-[12px] text-ink-2">
               Suggested free port:{" "}
-              <span className="font-mono font-semibold text-emerald-300">:{suggested}</span>
+              <span className="font-mono font-semibold text-ok">:{suggested}</span>
             </p>
           </div>
         ) : (
-          <div className="mb-4 px-3 py-2.5 rounded-md bg-red-500/[0.06] border border-red-500/20">
-            <p className="text-[12px] text-zinc-300">
+          <div className="mb-4 px-3 py-2.5 rounded-md bg-red-500/[0.06] border border-[var(--danger-border)]">
+            <p className="text-[12px] text-ink-2">
               No free port found in :{port + 1}–:{port + 50}.
             </p>
           </div>
@@ -90,20 +90,20 @@ export default function PortConflictModal({
 
         {hasComposeFile && suggested !== null && (
           <div className="mb-4">
-            <p className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">
+            <p className="text-[10px] uppercase tracking-wider text-ink-3 mb-1.5">
               Compose change preview
             </p>
             <div className="rounded-md bg-black/30 border border-white/[0.06] p-2.5 font-mono text-[11px] leading-relaxed">
               <div className="flex">
                 <span className="text-red-400/80 w-3 shrink-0">-</span>
-                <span className="text-zinc-400">
-                  - <span className="text-red-300">"{port}</span>:&lt;container&gt;"
+                <span className="text-ink-2">
+                  - <span className="text-bad">"{port}</span>:&lt;container&gt;"
                 </span>
               </div>
               <div className="flex">
                 <span className="text-emerald-400/80 w-3 shrink-0">+</span>
-                <span className="text-zinc-400">
-                  - <span className="text-emerald-300">"{suggested}</span>:&lt;container&gt;"
+                <span className="text-ink-2">
+                  - <span className="text-ok">"{suggested}</span>:&lt;container&gt;"
                 </span>
               </div>
             </div>
@@ -111,15 +111,15 @@ export default function PortConflictModal({
         )}
 
         {!hasComposeFile && (
-          <p className="mb-4 text-[11px] text-zinc-500 italic">
+          <p className="mb-4 text-[11px] text-ink-3 italic">
             This app has no compose file — auto-fix only applies to compose-based apps.
             Free the port manually or change it in app settings.
           </p>
         )}
 
         {error && (
-          <div className="mb-3 px-3 py-2 rounded-md bg-red-500/10 border border-red-500/20">
-            <p className="text-[11px] text-red-300 break-words">{error}</p>
+          <div className="mb-3 px-3 py-2 rounded-md bg-bad-bg border border-[var(--danger-border)]">
+            <p className="text-[11px] text-bad break-words">{error}</p>
           </div>
         )}
 
@@ -127,14 +127,14 @@ export default function PortConflictModal({
           <button
             onClick={onClose}
             disabled={applying}
-            className="px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05] rounded-md transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-[12px] font-medium text-ink-2 hover:text-ink hover:bg-white/[0.05] rounded-md transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleApply}
             disabled={!canApply || applying}
-            className="px-3 py-1.5 text-[12px] font-medium text-white bg-emerald-600/90 hover:bg-emerald-500 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 text-[12px] font-medium text-white bg-emerald-600/90 hover:bg-ok rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {applying ? "Applying…" : "Apply suggestion"}
           </button>

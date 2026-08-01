@@ -210,7 +210,7 @@ export default function BackupSection() {
       {/* Full DB backup */}
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-card bg-ok-bg border border-[rgba(52,211,153,0.2)] flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-card bg-ok-bg border border-[var(--success-border)] flex items-center justify-center shrink-0">
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-ok">
               <ellipse cx="10" cy="5" rx="7" ry="2.5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 5v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5V5" stroke="currentColor" strokeWidth="1.5"/>
@@ -281,7 +281,7 @@ export default function BackupSection() {
       {/* Schedule */}
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.2)] flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[var(--accent-border)] flex items-center justify-center shrink-0">
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
               <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
               <path d="M10 6v4l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -325,7 +325,7 @@ export default function BackupSection() {
                     key={freq}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-control cursor-pointer text-[12px] border transition-colors ${
                       schedule.frequency === freq
-                        ? "bg-accent-bg border-[rgba(96,165,250,0.4)] text-accent-ink"
+                        ? "bg-accent-bg border-[var(--accent-border)] text-accent-ink"
                         : "bg-white/[0.02] border-subtle text-ink-2 hover:text-ink"
                     }`}
                   >
@@ -353,7 +353,7 @@ export default function BackupSection() {
                     max={23}
                     value={schedule.hour}
                     onChange={(e) => patchSchedule({ hour: Math.max(0, Math.min(23, parseInt(e.target.value || "0", 10))) })}
-                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
+                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[var(--accent)]"
                   />
                   <span className="text-ink-3">:</span>
                   <input
@@ -362,7 +362,7 @@ export default function BackupSection() {
                     max={59}
                     value={schedule.minute}
                     onChange={(e) => patchSchedule({ minute: Math.max(0, Math.min(59, parseInt(e.target.value || "0", 10))) })}
-                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
+                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[var(--accent)]"
                   />
                   <span className="text-[11px] text-ink-3 ml-1">24-hour, local time</span>
                 </div>
@@ -380,7 +380,7 @@ export default function BackupSection() {
                     max={59}
                     value={schedule.minute}
                     onChange={(e) => patchSchedule({ minute: Math.max(0, Math.min(59, parseInt(e.target.value || "0", 10))) })}
-                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
+                    className="w-16 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[var(--accent)]"
                   />
                   <span className="text-[11px] text-ink-3 ml-1">:MM each hour</span>
                 </div>
@@ -398,7 +398,7 @@ export default function BackupSection() {
                       onClick={() => patchSchedule({ day_of_week: idx })}
                       className={`px-3 py-1.5 text-[12px] rounded-control border transition-colors ${
                         schedule.day_of_week === idx
-                          ? "bg-accent-bg border-[rgba(96,165,250,0.4)] text-accent-ink"
+                          ? "bg-accent-bg border-[var(--accent-border)] text-accent-ink"
                           : "bg-white/[0.02] border-subtle text-ink-2 hover:text-ink"
                       }`}
                     >
@@ -420,7 +420,7 @@ export default function BackupSection() {
                   max={500}
                   value={schedule.retain_count}
                   onChange={(e) => patchSchedule({ retain_count: Math.max(1, Math.min(500, parseInt(e.target.value || "1", 10))) })}
-                  className="w-20 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
+                  className="w-20 px-2 py-1.5 text-[12px] bg-surface-input border border-subtle rounded-control text-ink focus:outline-none focus:border-[var(--accent)]"
                 />
                 <span className="text-[12px] text-ink-2">backups</span>
               </div>
@@ -477,7 +477,7 @@ export default function BackupSection() {
       {/* Auto-backups */}
       <div className="flex flex-col gap-4 p-5 rounded-card bg-surface-1 border border-subtle">
         <div className="flex items-start gap-4">
-          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[rgba(96,165,250,0.2)] flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-card bg-accent-bg border border-[var(--accent-border)] flex items-center justify-center shrink-0">
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="text-accent">
               <ellipse cx="10" cy="5" rx="7" ry="2.5" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M3 5v5c0 1.38 3.13 2.5 7 2.5s7-1.12 7-2.5V5" stroke="currentColor" strokeWidth="1.5"/>
@@ -504,7 +504,7 @@ export default function BackupSection() {
         </div>
 
         {restoreError && (
-          <p className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+          <p className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
             {restoreError}
           </p>
         )}
@@ -535,7 +535,7 @@ export default function BackupSection() {
                 <div
                   key={entry.filename}
                   className={`flex items-center justify-between px-3 py-2 rounded-control border ${
-                    isLatest ? "bg-accent-bg border-[rgba(96,165,250,0.25)]" : "bg-white/[0.02] border-subtle"
+                    isLatest ? "bg-accent-bg border-[var(--accent-border)]" : "bg-white/[0.02] border-subtle"
                   }`}
                 >
                   <div className="flex flex-col gap-0.5 min-w-0">
@@ -547,7 +547,7 @@ export default function BackupSection() {
                         {formatRelative(entry.created_at)}
                       </span>
                       {isLatest && (
-                        <span className="shrink-0 text-[9px] uppercase tracking-wider px-1.5 py-px rounded bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.3)]">
+                        <span className="shrink-0 text-[9px] uppercase tracking-wider px-1.5 py-px rounded bg-accent-bg text-accent-ink border border-[var(--accent-border)]">
                           latest
                         </span>
                       )}

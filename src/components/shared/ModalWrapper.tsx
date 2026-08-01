@@ -35,10 +35,10 @@ export default function ModalWrapper({ onClose, children, className }: Props) {
         downOnOverlayRef.current = false;
       }}
     >
-      <div className={`relative ${className ?? "bg-[#1a1a1c] border border-white/[0.08] rounded-2xl shadow-2xl"}`} onMouseDown={(e) => e.stopPropagation()}>
+      <div className={`relative ${className ?? "bg-surface-2 border border-white/[0.08] rounded-2xl shadow-2xl"}`} onMouseDown={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-10 p-1 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+          className="absolute top-3 right-3 z-10 p-1 rounded-lg text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] transition-colors"
           title="Close (Esc)"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

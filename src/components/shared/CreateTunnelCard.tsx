@@ -35,9 +35,9 @@ export default function CreateTunnelCard({ step, onCreated, loading = false }: P
   }
 
   return (
-    <div className="p-3 rounded-lg bg-accent-bg border border-[rgba(96,165,250,0.30)] flex flex-col gap-2">
+    <div className="p-3 rounded-lg bg-accent-bg border border-[var(--accent-border)] flex flex-col gap-2">
       <div className="flex items-start gap-2.5">
-        <span className="shrink-0 w-5 h-5 rounded-full bg-[rgba(96,165,250,0.22)] text-accent-ink text-[11px] font-semibold flex items-center justify-center">
+        <span className="shrink-0 w-5 h-5 rounded-full bg-[var(--accent-border)] text-accent-ink text-[11px] font-semibold flex items-center justify-center">
           {step}
         </span>
         <div className="flex-1 min-w-0">
@@ -70,7 +70,7 @@ export default function CreateTunnelCard({ step, onCreated, loading = false }: P
         type="button"
         onClick={onCreated}
         disabled={loading || busy}
-        className="self-start px-3 py-1 text-[11px] font-medium rounded-md bg-[rgba(96,165,250,0.12)] hover:bg-[rgba(96,165,250,0.22)] text-accent-ink transition-colors disabled:opacity-60"
+        className="self-start px-3 py-1 text-[11px] font-medium rounded-md bg-[rgba(96,165,250,0.12)] hover:bg-[var(--accent-border)] text-accent-ink transition-colors disabled:opacity-60"
       >
         {loading ? "Checking…" : <><RefreshIcon /> I already have one</>}
       </button>

@@ -69,7 +69,7 @@ export default function TailscaleTunnelForm() {
     : `https://${previewHost}:${previewPort}`;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-ok-bg border border-[rgba(52,211,153,0.25)]">
+      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-ok-bg border border-[var(--success-border)]">
         <div className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-ok" />
           <span className="text-[11px] text-ok">
@@ -98,7 +98,7 @@ export default function TailscaleTunnelForm() {
           type="checkbox"
           checked={c.tsFunnel}
           onChange={(e) => c.setTsFunnel(e.target.checked)}
-          className="mt-0.5 rounded border-strong bg-surface-2 text-warn focus:ring-[rgba(251,191,36,0.3)] focus:ring-offset-0"
+          className="mt-0.5 rounded border-strong bg-surface-2 text-warn focus:ring-[var(--warning-border)] focus:ring-offset-0"
         />
         <div className="flex-1">
           <p className="text-[12px] text-ink">Expose publicly via Funnel</p>

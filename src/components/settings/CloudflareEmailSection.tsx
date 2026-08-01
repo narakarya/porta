@@ -192,7 +192,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
   if (token === null) return <p className="text-[12px] text-ink-3">Loading…</p>;
   if (!token) {
     return (
-      <div className="px-3 py-3 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.25)] text-[12px] text-warn">
+      <div className="px-3 py-3 rounded-card bg-warn-bg border border-[var(--warning-border)] text-[12px] text-warn">
         Add a Cloudflare API token in the bar above. Email Routing needs <span className="font-mono">Account.Email Routing Addresses:Edit + Zone.Email Routing Rules:Edit</span>.
       </div>
     );
@@ -252,7 +252,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
       {loading && !status ? (
         <div className="px-3 py-6 text-center text-[12px] text-ink-3">Loading…</div>
       ) : !status?.enabled ? (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-card bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-card bg-warn-bg border border-[var(--warning-border)]">
           <p className="text-[12px] text-warn">
             Email Routing is not enabled for this zone. Enabling will provision the required MX/SPF/TXT DNS records automatically.
           </p>
@@ -260,9 +260,9 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
             type="button"
             onClick={handleEnable}
             disabled={enabling}
-            className="px-3 py-1.5 text-[11.5px] rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.24)] text-warn border border-[rgba(251,191,36,0.30)] disabled:opacity-40 shrink-0 inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 text-[11.5px] rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.24)] text-warn border border-[var(--warning-border)] disabled:opacity-40 shrink-0 inline-flex items-center gap-1.5"
           >
-            {enabling && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(251,191,36,0.30)] border-t-warn animate-spin" />}
+            {enabling && <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--warning-border)] border-t-warn animate-spin" />}
             {enabling ? "Enabling…" : "Enable for this zone"}
           </button>
         </div>
@@ -305,15 +305,15 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 value={newDestEmail}
                 onChange={(e) => setNewDestEmail(e.target.value)}
                 placeholder="real@gmail.com"
-                className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
+                className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[var(--accent)]"
               />
               <button
                 type="button"
                 onClick={handleAddDestination}
                 disabled={creatingDest || !newDestEmail.trim()}
-                className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.30)] disabled:opacity-40 inline-flex items-center gap-1.5"
+                className="px-3 py-1.5 text-[11.5px] rounded-control bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] disabled:opacity-40 inline-flex items-center gap-1.5"
               >
-                {creatingDest && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.30)] border-t-accent-ink animate-spin" />}
+                {creatingDest && <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--accent-border)] border-t-accent-ink animate-spin" />}
                 {creatingDest ? "Sending…" : "Add destination"}
               </button>
             </div>
@@ -360,7 +360,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                   value={ruleMatcher}
                   onChange={(e) => setRuleMatcher(e.target.value)}
                   placeholder="hello@example.com"
-                  className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
+                  className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[var(--accent)]"
                 />
                 <input
                   list={`fwd-suggestions-${zoneId}`}
@@ -368,7 +368,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                   value={ruleForwardTo}
                   onChange={(e) => setRuleForwardTo(e.target.value)}
                   placeholder="real@gmail.com"
-                  className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
+                  className="bg-surface-input border border-subtle rounded px-2 py-1 text-[11.5px] font-mono text-ink outline-none focus:border-[var(--accent)]"
                 />
                 <datalist id={`fwd-suggestions-${zoneId}`}>
                   {verifiedDestinations.map((d) => <option key={d.tag} value={d.email} />)}
@@ -378,7 +378,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                     type="button"
                     onClick={handleAddRule}
                     disabled={creatingRule || !ruleMatcher.trim() || !ruleForwardTo.trim()}
-                    className="px-2 py-0.5 text-[11px] rounded bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.30)] disabled:opacity-40"
+                    className="px-2 py-0.5 text-[11px] rounded bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] disabled:opacity-40"
                   >
                     {creatingRule ? "…" : "Add"}
                   </button>
@@ -402,7 +402,7 @@ export default function CloudflareEmailSection({ tokenVersion = 0 }: Props = {})
                 value={catchAllForward}
                 onChange={(e) => setCatchAllForward(e.target.value)}
                 placeholder="real@gmail.com (or leave empty to drop)"
-                className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)]"
+                className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[var(--accent)]"
               />
               <datalist id={`catchall-suggestions-${zoneId}`}>
                 {verifiedDestinations.map((d) => <option key={d.tag} value={d.email} />)}

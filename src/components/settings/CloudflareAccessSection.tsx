@@ -108,7 +108,7 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
 
   if (!token) {
     return (
-      <div className="px-3 py-3 rounded-control bg-warn-bg border border-[rgba(251,191,36,0.25)] text-[12px] text-warn">
+      <div className="px-3 py-3 rounded-control bg-warn-bg border border-[var(--warning-border)] text-[12px] text-warn">
         Add a Cloudflare API token in the <span className="font-medium">Tunnels</span> tab first.
         Token needs <span className="font-mono">Account.Access: Apps and Policies:Edit</span> + <span className="font-mono">Account Settings:Read</span> scopes.
       </div>
@@ -144,13 +144,13 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter by hostname…"
-          className="bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors w-full max-w-[300px]"
+          className="bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] text-ink outline-none focus:border-[var(--accent)] transition-colors w-full max-w-[300px]"
         />
         {!adding && (
           <button
             type="button"
             onClick={() => { setAdding(true); setAddError(null); }}
-            className="shrink-0 px-3 py-1.5 text-[12px] font-medium rounded-control bg-accent-bg hover:bg-[rgba(96,165,250,0.26)] text-accent-ink border border-[rgba(96,165,250,0.4)] transition-colors"
+            className="shrink-0 px-3 py-1.5 text-[12px] font-medium rounded-control bg-accent-bg hover:bg-[rgba(96,165,250,0.26)] text-accent-ink border border-[var(--accent-border)] transition-colors"
           >
             + Protect hostname
           </button>
@@ -158,7 +158,7 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
       </div>
 
       {adding && (
-        <div className="rounded-card border border-[rgba(96,165,250,0.2)] bg-[rgba(96,165,250,0.04)] p-3 space-y-2">
+        <div className="rounded-card border border-[var(--accent-border)] bg-[rgba(96,165,250,0.04)] p-3 space-y-2">
           <label className="block">
             <span className="text-[10px] text-ink-3 block mb-1">Hostname to protect</span>
             <input
@@ -167,7 +167,7 @@ export default function CloudflareAccessSection({ tokenVersion = 0 }: Props = {}
               value={newHost}
               onChange={(e) => setNewHost(e.target.value)}
               placeholder="app.example.com"
-              className="w-full bg-surface-input border border-subtle rounded-control px-3 py-2 text-[12px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors font-mono"
+              className="w-full bg-surface-input border border-subtle rounded-control px-3 py-2 text-[12px] text-ink outline-none focus:border-[var(--accent)] transition-colors font-mono"
             />
           </label>
           <AccessPolicyEditor

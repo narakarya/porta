@@ -106,7 +106,7 @@ export default function AdoptProjectModal({ configPath, onClose, onImported }: P
         </div>
 
         {error && (
-          <div className="px-3 py-2 bg-bad-bg border border-red-500/20 rounded-control text-[12px] text-bad">
+          <div className="px-3 py-2 bg-bad-bg border border-[var(--danger-border)] rounded-control text-[12px] text-bad">
             {error}
           </div>
         )}
@@ -228,7 +228,7 @@ function TargetOption({
   return (
     <label
       className={`flex items-start gap-2.5 px-3 py-2 rounded-control border cursor-pointer transition-colors duration-fast ${
-        checked ? "bg-accent-bg border-[rgba(96,165,250,0.35)]" : "bg-surface-1 border-subtle"
+        checked ? "bg-accent-bg border-[var(--accent-border)]" : "bg-surface-1 border-subtle"
       }`}
     >
       <input

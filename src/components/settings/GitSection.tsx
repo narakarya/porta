@@ -94,7 +94,7 @@ export default function GitSection() {
               disabled={!enabled}
               className={`px-2.5 py-1 rounded text-[11px] transition-colors disabled:cursor-not-allowed ${
                 intervalSecs === i.secs
-                  ? "bg-accent-bg border border-[rgba(96,165,250,0.3)] text-accent-ink"
+                  ? "bg-accent-bg border border-[var(--accent-border)] text-accent-ink"
                   : "bg-white/[0.04] border border-subtle text-ink-2 hover:bg-white/[0.07]"
               }`}
             >

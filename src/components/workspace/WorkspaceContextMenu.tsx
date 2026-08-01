@@ -51,8 +51,8 @@ export default function WorkspaceContextMenu({ x, y, items, onClose }: Props) {
           onClick={() => { item.onClick(); onClose(); }}
           className={`w-full text-left px-3 py-1.5 text-[13px] transition-colors ${
             item.danger
-              ? "text-red-400 hover:bg-red-500/10"
-              : "text-zinc-200 hover:bg-white/[0.07]"
+              ? "text-bad hover:bg-bad-bg"
+              : "text-ink hover:bg-white/[0.07]"
           }`}
         >
           {item.label}

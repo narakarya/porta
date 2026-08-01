@@ -4,7 +4,7 @@ import type { Notice } from "../../store/slices/notify";
 
 const TONE: Record<Notice["kind"], { box: string; icon: string; title: string }> = {
   success: { box: "border-ok/25 bg-ok/[0.08]", icon: "text-ok", title: "text-ok" },
-  error: { box: "border-red-500/25 bg-red-500/[0.08]", icon: "text-red-400", title: "text-red-300" },
+  error: { box: "border-red-500/25 bg-red-500/[0.08]", icon: "text-bad", title: "text-bad" },
   info: { box: "border-subtle bg-surface-2", icon: "text-ink-3", title: "text-ink" },
 };
 

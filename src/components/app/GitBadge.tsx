@@ -297,17 +297,17 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
             ref={mainPanelRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="fixed z-[60] w-[280px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
+            className="fixed z-[60] w-[280px] rounded-md bg-surface-2 border border-white/10 shadow-xl p-2 text-[11px]"
             style={mainCoords ? { top: mainCoords.top, left: mainCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
           >
-            <div className="text-zinc-400 mb-1.5">Porta couldn't read this repo</div>
-            <pre className="text-[10px] font-mono text-amber-300 whitespace-pre-wrap break-words max-h-28 overflow-y-auto">
+            <div className="text-ink-2 mb-1.5">Porta couldn't read this repo</div>
+            <pre className="text-[10px] font-mono text-warn whitespace-pre-wrap break-words max-h-28 overflow-y-auto">
               {pollError}
             </pre>
             <div className="flex items-center gap-2 mt-1">
               <button
                 onClick={() => navigator.clipboard.writeText(pollError)}
-                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="text-[10px] text-ink-3 hover:text-ink-2 transition-colors"
               >
                 Copy error
               </button>
@@ -316,7 +316,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
               {onOpenTerminal && (
                 <button
                   onClick={() => { setMainOpen(false); onOpenTerminal(app); }}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-[10px] text-ink-3 hover:text-ink-2 transition-colors"
                 >
                   Open terminal
                 </button>
@@ -396,9 +396,9 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
       <button
         ref={mainTriggerRef}
         onClick={(e) => { e.stopPropagation(); setMainOpen((v) => !v); }}
-        className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-zinc-500 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
+        className="inline-flex items-center gap-1 text-[10px] font-mono leading-none text-ink-3 hover:bg-white/[0.05] rounded px-1 py-0.5 transition-colors"
       >
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 text-zinc-500">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 text-ink-3">
           <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
           <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
           <circle cx="11.5" cy="4.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
@@ -406,11 +406,11 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           <path d="M11.5 6.25c0 2.6-1.9 3.5-4.2 3.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
         <span className="truncate max-w-[14ch]">{branch}</span>
-        {ahead > 0 && <span className="text-blue-300">↑{ahead}</span>}
-        {behind > 0 && <span className="text-amber-300">↓{behind}</span>}
-        {busy === "fetch" && <SyncIcon spinning className="text-zinc-400" />}
-        {busy === "pull" && <ArrowDownIcon animate className="text-zinc-400" />}
-        {busy === "push" && <ArrowUpIcon animate className="text-zinc-400" />}
+        {ahead > 0 && <span className="text-accent-ink">↑{ahead}</span>}
+        {behind > 0 && <span className="text-warn">↓{behind}</span>}
+        {busy === "fetch" && <SyncIcon spinning className="text-ink-2" />}
+        {busy === "pull" && <ArrowDownIcon animate className="text-ink-2" />}
+        {busy === "push" && <ArrowUpIcon animate className="text-ink-2" />}
       </button>
       </Tooltip>
 
@@ -426,24 +426,24 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           // uses real-DOM contains(), so it's unaffected.
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
-          className="fixed z-[60] w-[260px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
+          className="fixed z-[60] w-[260px] rounded-md bg-surface-2 border border-white/10 shadow-xl p-2 text-[11px]"
           style={mainCoords ? { top: mainCoords.top, left: mainCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
         >
           <div className="mb-1.5">
-            <MarqueeOnHover text={branch} className="font-mono text-zinc-400 w-full" />
+            <MarqueeOnHover text={branch} className="font-mono text-ink-2 w-full" />
           </div>
 
           <div className="grid grid-cols-3 gap-1 mb-2 font-mono text-[10px]">
-            <div className="text-zinc-600">↑ {ahead} to push</div>
-            <div className="text-zinc-600">↓ {behind} to pull</div>
-            <div className="text-zinc-600">● {dirty} dirty</div>
+            <div className="text-ink-3">↑ {ahead} to push</div>
+            <div className="text-ink-3">↓ {behind} to pull</div>
+            <div className="text-ink-3">● {dirty} dirty</div>
           </div>
 
           <div className="flex gap-1">
             <button
               onClick={() => run("fetch")}
               disabled={busy !== null}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-ink-2 transition-colors"
             >
               <SyncIcon spinning={busy === "fetch"} />
               Fetch
@@ -451,7 +451,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
             <button
               onClick={() => run("pull")}
               disabled={busy !== null || behind === 0}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-ink-2 transition-colors"
             >
               <ArrowDownIcon animate={busy === "pull"} />
               Pull
@@ -459,7 +459,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
             <button
               onClick={() => run("push")}
               disabled={busy !== null || ahead === 0}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-zinc-300 transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.09] disabled:opacity-40 text-ink-2 transition-colors"
             >
               <ArrowUpIcon animate={busy === "push"} />
               Push
@@ -476,10 +476,10 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
               onClick={() => { cancelSwitchClose(); setError(null); setSwitchOpen((v) => !v); }}
               onMouseEnter={openSwitch}
               onMouseLeave={scheduleSwitchClose}
-              className={`mt-2 w-full flex items-center justify-between gap-1 px-2 py-1 rounded text-[11px] transition-colors ${switchOpen ? "bg-white/[0.09] text-zinc-100" : "bg-white/[0.05] hover:bg-white/[0.09] text-zinc-300"}`}
+              className={`mt-2 w-full flex items-center justify-between gap-1 px-2 py-1 rounded text-[11px] transition-colors ${switchOpen ? "bg-white/[0.09] text-ink" : "bg-white/[0.05] hover:bg-white/[0.09] text-ink-2"}`}
             >
               <span>Switch branch</span>
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0 text-zinc-500">
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0 text-ink-3">
                 <path d="M3 1.5l2.5 2.5L3 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
@@ -511,7 +511,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
             const hiddenCount = others.length - visible.length;
             return (
               <div className="mt-2 border-t border-white/10 pt-2">
-                <div className="text-[10px] text-zinc-500 mb-1">Run from worktree</div>
+                <div className="text-[10px] text-ink-3 mb-1">Run from worktree</div>
                 {branchWts.length > LAUNCHER_CAP && (
                   <input
                     value={wtQuery}
@@ -521,18 +521,18 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                     autoCorrect="off"
                     autoCapitalize="off"
                     spellCheck={false}
-                    className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
+                    className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-ink placeholder-ink-3 outline-none"
                   />
                 )}
                 {others.length === 0 && (
-                  <div className="text-[10px] text-zinc-600">No other worktrees.</div>
+                  <div className="text-[10px] text-ink-3">No other worktrees.</div>
                 )}
                 {visible.map((w) => {
                   const inst = runningByPath.get(w.path);
                   return (
                     <div key={w.path} className="flex items-center gap-1 py-0.5 text-[11px]">
                       <Tooltip label={w.path} side="top" className="flex-1 min-w-0">
-                        <span className="font-mono text-zinc-300 truncate block">
+                        <span className="font-mono text-ink-2 truncate block">
                           {w.branch}
                         </span>
                       </Tooltip>
@@ -554,7 +554,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                                     notifyError(`Failed to stop ${inst.branch}`, e)
                                   );
                                 }}
-                                className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                                className="text-[10px] text-ink-3 hover:text-bad px-1"
                               >
                                 Stop
                               </button>
@@ -564,7 +564,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                             <Tooltip label="Removes the row, frees the port" side="top">
                               <button
                                 onClick={() => { removeInstanceAction(inst.id, app.id); setConfirmRemoveId(null); }}
-                                className="text-[10px] font-medium text-red-400 hover:text-red-200 px-1"
+                                className="text-[10px] font-medium text-bad hover:text-bad px-1"
                               >
                                 Confirm?
                               </button>
@@ -585,7 +585,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                                     }
                                   }}
                                   disabled={wtBusy !== null}
-                                  className="text-[10px] text-zinc-300 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
+                                  className="text-[10px] text-ink-2 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
                                 >
                                   {wtBusy === w.path ? "…" : "Run"}
                                 </button>
@@ -593,7 +593,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                               <Tooltip label="Remove instance" side="top">
                                 <button
                                   onClick={() => setConfirmRemoveId(inst.id)}
-                                  className="text-[10px] text-zinc-500 hover:text-red-300 px-1"
+                                  className="text-[10px] text-ink-3 hover:text-bad px-1"
                                 >
                                   Remove
                                 </button>
@@ -615,7 +615,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                               setWtBusy(null);
                             }
                           }}
-                          className="text-[10px] text-zinc-300 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
+                          className="text-[10px] text-ink-2 hover:bg-white/[0.09] rounded px-1.5 py-0.5 disabled:opacity-40"
                         >
                           {wtBusy === w.path ? "…" : "Run"}
                         </button>
@@ -626,7 +626,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                 {!isSearching && (hiddenCount > 0 || showAllWorktrees) && others.length > LAUNCHER_CAP && (
                   <button
                     onClick={() => setShowAllWorktrees((v) => !v)}
-                    className="mt-1 text-[10px] text-zinc-400 hover:text-zinc-200"
+                    className="mt-1 text-[10px] text-ink-2 hover:text-ink"
                   >
                     {hiddenCount > 0 ? `Show ${hiddenCount} more…` : "Show less"}
                   </button>
@@ -636,13 +636,13 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           })()}
 
           {error && (
-            <div className="mt-2 p-1.5 rounded bg-red-500/10 border border-red-500/20">
-              <pre className="text-[10px] font-mono text-red-300 whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+            <div className="mt-2 p-1.5 rounded bg-bad-bg border border-[var(--danger-border)]">
+              <pre className="text-[10px] font-mono text-bad whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
                 {error}
               </pre>
               <button
                 onClick={() => navigator.clipboard.writeText(error)}
-                className="mt-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="mt-1 text-[10px] text-ink-3 hover:text-ink-2 transition-colors"
               >
                 Copy error
               </button>
@@ -661,7 +661,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
           onMouseDown={(e) => e.stopPropagation()}
           onMouseEnter={cancelSwitchClose}
           onMouseLeave={scheduleSwitchClose}
-          className="fixed z-[61] w-[240px] rounded-md bg-[#1c1c1e] border border-white/10 shadow-xl p-2 text-[11px]"
+          className="fixed z-[61] w-[240px] rounded-md bg-surface-2 border border-white/10 shadow-xl p-2 text-[11px]"
           style={switchCoords ? { top: switchCoords.top, left: switchCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
         >
           {branches && (() => {
@@ -704,7 +704,7 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
             const showCreate = q !== "" && !exactMatch;
             return (
               <div>
-                <div className="text-[10px] text-zinc-500 mb-1">Switch branch</div>
+                <div className="text-[10px] text-ink-3 mb-1">Switch branch</div>
                 <input
                   value={branchQuery}
                   onChange={(e) => setBranchQuery(e.target.value)}
@@ -714,10 +714,10 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                   autoCapitalize="off"
                   spellCheck={false}
                   autoFocus
-                  className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
+                  className="w-full mb-1 px-1.5 py-1 rounded bg-white/[0.04] text-[11px] text-ink placeholder-ink-3 outline-none"
                 />
                 {capped.length === 0 && !showCreate && (
-                  <div className="text-[10px] text-zinc-600">No matching branch.</div>
+                  <div className="text-[10px] text-ink-3">No matching branch.</div>
                 )}
                 {capped.map((r) => {
                   const isCurrent = branches.current === r.name;
@@ -736,24 +736,24 @@ export default function GitBadge({ app, onOpenTerminal, hideWorktreeLauncher = f
                       onClick={() => switchTo(r.name, false)}
                       className="w-full flex items-center gap-1 py-0.5 px-1 rounded text-[11px] text-left hover:bg-white/[0.07] disabled:cursor-default disabled:hover:bg-transparent"
                     >
-                      <span className="font-mono text-zinc-300 truncate flex-1">
+                      <span className="font-mono text-ink-2 truncate flex-1">
                         {isCurrent && <span className="text-emerald-400/80">● </span>}
                         {r.name}
-                        {r.kind === "remote" && <span className="text-zinc-600"> ↗</span>}
+                        {r.kind === "remote" && <span className="text-ink-3"> ↗</span>}
                       </span>
                       {isCurrent ? (
-                        <span className="text-[10px] text-zinc-600">current</span>
+                        <span className="text-[10px] text-ink-3">current</span>
                       ) : held ? (
-                        <span className="text-[10px] text-zinc-600">in worktree</span>
+                        <span className="text-[10px] text-ink-3">in worktree</span>
                       ) : switching === r.name ? (
-                        <span className="text-[10px] text-zinc-500">…</span>
+                        <span className="text-[10px] text-ink-3">…</span>
                       ) : null}
                     </button>
                     </Tooltip>
                   );
                 })}
                 {!isSearching && hiddenCount > 0 && (
-                  <div className="mt-1 text-[10px] text-zinc-600">
+                  <div className="mt-1 text-[10px] text-ink-3">
                     {hiddenCount} more — type to search
                   </div>
                 )}

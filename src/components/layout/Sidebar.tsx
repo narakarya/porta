@@ -476,13 +476,13 @@ export default function Sidebar() {
           const hasInstances = appInstances.length > 0;
           const instancesExpanded = hasInstances && !collapsedInstances.has(a.id);
           const dot =
-            a.status === "running" ? "bg-emerald-400 pulse-dot"
-            : a.status === "starting" ? "bg-amber-400"
-            : "bg-zinc-600";
+            a.status === "running" ? "bg-ok pulse-dot"
+            : a.status === "starting" ? "bg-warn"
+            : "bg-ink-3";
           return (
             <div key={a.id} className="relative">
               {overHere === i && (
-                <div className="absolute -top-px left-4 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                <div className="absolute -top-px left-4 right-1 h-0.5 rounded-full bg-accent z-20 pointer-events-none" />
               )}
               <div
                 role="button"
@@ -526,7 +526,7 @@ export default function Sidebar() {
                     <span
                       role="status"
                       aria-label={imageUpdateLabel}
-                      className="text-[10px] text-amber-400 font-medium tabular-nums"
+                      className="text-[10px] text-warn font-medium tabular-nums"
                     >
                       {pendingImageUpdates.length}↑
                     </span>
@@ -540,7 +540,7 @@ export default function Sidebar() {
                       {appInstances.length}
                     </span>
                   )}
-                  <span className="text-[10px] text-zinc-600 font-mono tabular-nums">:{a.port}</span>
+                  <span className="text-[10px] text-ink-3 font-mono tabular-nums">:{a.port}</span>
                 </span>
                 <span className={`items-center gap-1 shrink-0 ${menuOpen ? "flex" : "hidden group-hover:flex"}`}>
                   <button
@@ -548,7 +548,7 @@ export default function Sidebar() {
                     onClick={(e) => { e.stopPropagation(); void toggleApp(a); }}
                     disabled={busy}
                     title={starting ? "Starting…" : busy ? (running ? "Stopping…" : "Starting…") : running ? "Stop" : "Start"}
-                    className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${running ? "text-zinc-400 hover:text-zinc-100" : "text-emerald-400 hover:text-emerald-300"}`}
+                    className={`p-0.5 rounded transition-colors disabled:pointer-events-none ${running ? "text-ink-2 hover:text-ink" : "text-ok hover:text-ok"}`}
                   >
                     {busy ? (
                       <Spinner size={13} />
@@ -568,7 +568,7 @@ export default function Sidebar() {
                       disabled={busy}
                       title="Restart"
                       aria-label={`Restart ${a.name}`}
-                      className="p-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:pointer-events-none"
+                      className="p-0.5 rounded text-ink-2 hover:text-ink transition-colors disabled:pointer-events-none"
                     >
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                         <path d="M12.5 5A5.2 5.2 0 1 0 13.2 9.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -580,7 +580,7 @@ export default function Sidebar() {
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setAppMenu({ app: a, x: r.right, y: r.bottom + 4 }); }}
                     title="More"
-                    className="p-0.5 rounded text-zinc-500 hover:text-zinc-200 transition-colors"
+                    className="p-0.5 rounded text-ink-3 hover:text-ink transition-colors"
                   >
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
                   </button>
@@ -653,7 +653,7 @@ export default function Sidebar() {
         {/* Insertion line after the last row (drop at end / into empty group). */}
         {overHere === list.length && (
           <div className="relative h-0.5">
-            <div className="absolute -top-px left-4 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+            <div className="absolute -top-px left-4 right-1 h-0.5 rounded-full bg-accent z-20 pointer-events-none" />
           </div>
         )}
       </div>
@@ -664,15 +664,15 @@ export default function Sidebar() {
     <SidebarFrame>
       <SidebarHeader>
         <div className="flex-1 min-w-0">
-          <div className="no-drag text-[15px] font-semibold text-zinc-100 leading-tight">Workspaces</div>
-          <div className="no-drag text-[11px] text-zinc-500 mt-0.5">
+          <div className="no-drag text-[15px] font-semibold text-ink leading-tight">Workspaces</div>
+          <div className="no-drag text-[11px] text-ink-3 mt-0.5">
             {runningTotal} running{updatesTotal > 0 ? ` · ${updatesTotal} update${updatesTotal > 1 ? "s" : ""}` : ""}
           </div>
         </div>
         <Tooltip label="New Workspace" side="left">
           <button
             onClick={() => setShowAddWs(true)}
-            className="no-drag text-zinc-600 hover:text-zinc-300 transition-colors p-1 -mr-1 mt-0.5 rounded"
+            className="no-drag text-ink-3 hover:text-ink-2 transition-colors p-1 -mr-1 mt-0.5 rounded"
           >
             <svg width="12" height="12" viewBox="0 0 10 10" fill="none">
               <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -683,18 +683,18 @@ export default function Sidebar() {
       {/* Filter apps (mockup) — filters the app rows by name */}
       <div className="px-2.5 pb-2 shrink-0">
         <div className="flex items-center gap-1.5 border border-white/[0.08] rounded-[7px] px-2 py-1 focus-within:border-white/20 transition-colors">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-zinc-600 shrink-0"><circle cx="5" cy="5" r="3.3" stroke="currentColor" strokeWidth="1.2"/><path d="M7.6 7.6l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-ink-3 shrink-0"><circle cx="5" cy="5" r="3.3" stroke="currentColor" strokeWidth="1.2"/><path d="M7.6 7.6l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
           <input
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             placeholder="Filter apps…"
             spellCheck={false}
-            className="flex-1 min-w-0 bg-transparent text-[12px] text-zinc-300 placeholder-zinc-600 outline-none"
+            className="flex-1 min-w-0 bg-transparent text-[12px] text-ink-2 placeholder-ink-3 outline-none"
           />
           {filterQuery ? (
-            <button onClick={() => setFilterQuery("")} className="text-zinc-600 hover:text-zinc-300 text-[13px] leading-none shrink-0">×</button>
+            <button onClick={() => setFilterQuery("")} className="text-ink-3 hover:text-ink-2 text-[13px] leading-none shrink-0">×</button>
           ) : (
-            <span className="text-[10px] text-zinc-700 border border-white/[0.08] rounded px-1 shrink-0">⌘K</span>
+            <span className="text-[10px] text-ink-3 border border-white/[0.08] rounded px-1 shrink-0">⌘K</span>
           )}
         </div>
       </div>
@@ -721,7 +721,7 @@ export default function Sidebar() {
               return (
                 <div key={w.id} className="relative">
                   {showLineBefore && (
-                    <div className="absolute -top-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                    <div className="absolute -top-px left-1 right-1 h-0.5 rounded-full bg-accent z-20 pointer-events-none" />
                   )}
                   <SidebarGroupHeader
                     label={w.name}
@@ -731,7 +731,7 @@ export default function Sidebar() {
                     onAdd={() => { selectWorkspace(w.id); setShowAddApp(true); }}
                     addTitle={`New app in ${w.name}`}
                     className={`w-full text-left select-none cursor-pointer ${
-                      isSelected ? "text-zinc-300" : "text-zinc-500 hover:text-zinc-300"
+                      isSelected ? "text-ink-2" : "text-ink-3 hover:text-ink-2"
                     }`}
                     containerProps={{
                       role: "button",
@@ -746,7 +746,7 @@ export default function Sidebar() {
                     // Expanded: pending-update badge sits before the app count.
                     beforeCount={updCount > 0 ? (
                       <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
-                        <span className="text-[11px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
+                        <span className="text-[11px] text-warn font-medium tabular-nums">{updCount}↑</span>
                       </Tooltip>
                     ) : undefined}
                     // Collapsed: swap the whole right cluster for a running/idle
@@ -755,7 +755,7 @@ export default function Sidebar() {
                       <span className="flex items-center gap-2 normal-case tracking-normal">
                         {count > 0 ? (
                           <span className="flex items-center gap-1 text-[10px] text-ink-2 tabular-nums">
-                            <span className="w-[5px] h-[5px] rounded-full bg-emerald-400 shrink-0" />
+                            <span className="w-[5px] h-[5px] rounded-full bg-ok shrink-0" />
                             {count}
                           </span>
                         ) : (
@@ -763,14 +763,14 @@ export default function Sidebar() {
                         )}
                         {updCount > 0 && (
                           <Tooltip label={`${updCount} image update${updCount > 1 ? "s" : ""} available`} side="right">
-                            <span className="text-[10px] text-amber-400 font-medium tabular-nums">{updCount}↑</span>
+                            <span className="text-[10px] text-warn font-medium tabular-nums">{updCount}↑</span>
                           </Tooltip>
                         )}
                       </span>
                     ) : undefined}
                   />
                   {showLineAfter && (
-                    <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-blue-400 z-20 pointer-events-none" />
+                    <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-accent z-20 pointer-events-none" />
                   )}
                   {!collapsedWorkspaces.has(w.id) && renderApps(w.id)}
                 </div>
@@ -787,7 +787,7 @@ export default function Sidebar() {
         <button
           onClick={() => setShowImportCompose(true)}
           title="Import from docker-compose.yml"
-          className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] transition-colors"
+          className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-ink-3 hover:text-ink-2 hover:bg-white/[0.05] transition-colors"
         >
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1.5v6M3.5 5L6 7.5 8.5 5M2 9.5h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           Import compose

@@ -386,7 +386,7 @@ export default function SetupWizard({ forceShow, onClose }: Props = {}) {
 
         {/* Error */}
         {error && (
-          <div className="mx-5 mb-3 px-3 py-2.5 bg-bad-bg border border-[rgba(248,113,113,0.20)] rounded-control">
+          <div className="mx-5 mb-3 px-3 py-2.5 bg-bad-bg border border-[var(--danger-border)] rounded-control">
             <div className="flex items-start justify-between gap-2">
               <p className="text-[12px] text-bad leading-relaxed font-mono select-text whitespace-pre-wrap break-words">{error}</p>
               <CopyButton

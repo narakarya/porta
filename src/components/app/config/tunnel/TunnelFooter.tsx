@@ -10,7 +10,7 @@ export default function TunnelFooter() {
   return (
     <>
       {c.tunnelError && !c.selectedIsLive && (
-        <div className="relative px-3 py-2 pr-14 rounded-lg bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+        <div className="relative px-3 py-2 pr-14 rounded-lg bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
           {c.tunnelError}
           <button
             type="button"
@@ -21,7 +21,7 @@ export default function TunnelFooter() {
               });
             }}
             className={`absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded transition-colors ${
-              c.tunnelErrorCopied ? "bg-ok-bg text-ok" : "bg-[rgba(248,113,113,0.22)] hover:bg-[rgba(248,113,113,0.32)] text-bad"
+              c.tunnelErrorCopied ? "bg-ok-bg text-ok" : "bg-[var(--danger-border)] hover:bg-[rgba(248,113,113,0.32)] text-bad"
             }`}
           >
             {c.tunnelErrorCopied ? "Copied!" : "Copy"}
@@ -65,7 +65,7 @@ export default function TunnelFooter() {
       </label>
 
       {c.otherProviderLive && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.25)]">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[var(--warning-border)]">
           <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-warn shrink-0" />
           <span className="text-[11px] text-warn">
             {c.otherProviderLive === "tailscale" ? "Tailscale" : "Cloudflare"} is still connected.
@@ -105,7 +105,7 @@ export default function TunnelFooter() {
               title="Restart the tunnel with the settings above"
               className={`px-4 py-2 text-[13px] font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2 ${
                 c.liveTunnelConfigDrifted
-                  ? "text-white bg-accent hover:brightness-110 border border-[rgba(96,165,250,0.30)]"
+                  ? "text-white bg-accent hover:brightness-110 border border-[var(--accent-border)]"
                   : "text-ink-2 bg-surface-2 hover:bg-white/[0.12]"
               }`}
             >
@@ -120,7 +120,7 @@ export default function TunnelFooter() {
               (c.tunnelProvider === "cloudflare" && c.tunnelMode === "named" && (!c.tunnelName.trim() || !c.tunnelHostname.trim())) ||
               (c.tunnelProvider === "tailscale" && (!c.tsStatus || !c.tsStatus.installed || !c.tsStatus.running || !c.tsStatus.logged_in))
             }
-            className="px-4 py-2 text-[13px] font-medium text-white bg-accent hover:brightness-110 border border-[rgba(96,165,250,0.30)] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            className="px-4 py-2 text-[13px] font-medium text-white bg-accent hover:brightness-110 border border-[var(--accent-border)] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
           >
             {c.tunnelBusy === "connecting" && (
               <span className="inline-block h-3 w-3 rounded-full border-2 border-white/40 border-t-white animate-spin" />

@@ -737,7 +737,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             {!isInstance && activeProfileName && (
               <span
                 title={`Run profile: ${activeProfileName}`}
-                className="shrink-0 text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded leading-none uppercase"
+                className="shrink-0 text-[9px] font-semibold tracking-wider text-warn bg-warn-bg border border-[var(--warning-border)] px-1.5 py-0.5 rounded leading-none uppercase"
               >
                 {activeProfileName}
               </span>
@@ -901,13 +901,13 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
            signal the app died, and without it the workbench read as a plain
            "stopped". */}
       {crashed && !bannerDismissed && (
-        <div className="mx-4 mt-2 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+        <div className="mx-4 mt-2 px-2.5 py-1.5 bg-bad-bg border border-[var(--danger-border)] rounded-md flex items-center gap-2">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-bad shrink-0">
             <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
             <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
           </svg>
-          <p className="text-[11px] text-red-400 flex-1">
+          <p className="text-[11px] text-bad flex-1">
             Exited with code {exitCode}
             {remedy && <span className="text-red-300/80"> — {remedy.title}</span>}
           </p>
@@ -926,13 +926,13 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
             </Button>
           )}
           {!inLogger && (
-            <button onClick={() => select("logs")} className="text-[10px] text-red-300 hover:text-red-200 transition-colors">
+            <button onClick={() => select("logs")} className="text-[10px] text-bad hover:text-bad transition-colors">
               view logs
             </button>
           )}
           <button
             onClick={() => setBannerDismissed(true)}
-            className="text-[10px] text-red-400/50 hover:text-red-300 transition-colors"
+            className="text-[10px] text-red-400/50 hover:text-bad transition-colors"
           >
             dismiss
           </button>
@@ -971,7 +971,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                         <>
                           <span
                             title={`${app.name} is listening on :${portMismatch}, not :${app.port} — Caddy is routing to the wrong port.`}
-                            className="inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-300"
+                            className="inline-flex items-center gap-1 rounded border border-amber-500/25 bg-warn-bg px-1.5 py-0.5 text-[11px] text-warn"
                           >
                             <svg width="10" height="10" viewBox="0 0 11 11" fill="none" aria-hidden>
                               <path d="M5.5 1.5l4 7h-8l4-7z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -1157,7 +1157,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
                         aria-pressed={isPinned}
                         className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-control border text-[11px] transition-colors ${
                           isPinned
-                            ? "border-[rgba(96,165,250,0.4)] bg-accent-bg text-accent-ink"
+                            ? "border-[var(--accent-border)] bg-accent-bg text-accent-ink"
                             : capped
                               ? "border-subtle text-ink-3 opacity-40 cursor-not-allowed"
                               : "border-subtle text-ink-2 hover:text-ink hover:border-strong"

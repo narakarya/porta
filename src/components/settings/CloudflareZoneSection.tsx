@@ -160,7 +160,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
   }
   if (!token) {
     return (
-      <div className="px-3 py-3 rounded-control bg-warn-bg border border-[rgba(251,191,36,0.25)] text-[12px] text-warn">
+      <div className="px-3 py-3 rounded-control bg-warn-bg border border-[var(--warning-border)] text-[12px] text-warn">
         Add a Cloudflare API token in the bar above first. Needs <span className="font-mono">Zone:Settings:Edit + Zone:Cache Purge</span>.
       </div>
     );
@@ -227,9 +227,9 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
             type="button"
             onClick={handlePurge}
             disabled={purging}
-            className="px-3 py-1.5 text-[11.5px] rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn border border-[rgba(251,191,36,0.3)] disabled:opacity-40 inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 text-[11.5px] rounded-control bg-warn-bg hover:bg-[var(--warning-border)] text-warn border border-[var(--warning-border)] disabled:opacity-40 inline-flex items-center gap-1.5"
           >
-            {purging && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(251,191,36,0.3)] border-t-warn animate-spin" />}
+            {purging && <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--warning-border)] border-t-warn animate-spin" />}
             {purging ? "Purging…" : purgeMode === "all" ? "Purge everything" : "Purge"}
           </button>
           {purgeMsg && <span className="text-[11px] text-ok">{purgeMsg}</span>}
@@ -288,7 +288,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-[12px] text-ink">Only in Cloudflare</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-warn-bg text-warn border border-[rgba(251,191,36,0.3)]">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-warn-bg text-warn border border-[var(--warning-border)]">
                         {diff.only_in_cf.length}
                       </span>
                     </div>
@@ -316,7 +316,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-[12px] text-ink">Only local</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent-bg text-accent-ink border border-[rgba(96,165,250,0.3)]">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent-bg text-accent-ink border border-[var(--accent-border)]">
                         {diff.only_local.length}
                       </span>
                     </div>
@@ -345,7 +345,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-[12px] text-ink">Mismatched</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-bad-bg text-bad border border-[rgba(248,113,113,0.3)]">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-bad-bg text-bad border border-[var(--danger-border)]">
                         {diff.mismatched.length}
                       </span>
                     </div>
@@ -411,7 +411,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                     {meta.hint && <p className="text-[10.5px] text-ink-3 mt-0.5 leading-snug">{meta.hint}</p>}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-[rgba(96,165,250,0.3)] border-t-accent animate-spin" />}
+                    {saving && <span className="inline-block h-3 w-3 rounded-full border-2 border-[var(--accent-border)] border-t-accent animate-spin" />}
                     {s.kind === "toggle" ? (
                       <button
                         type="button"
@@ -443,7 +443,7 @@ export default function CloudflareZoneSection({ tokenVersion = 0 }: Props = {}) 
                         disabled={!s.editable || saving}
                         onBlur={(e) => handleSetSetting(s, e.target.value)}
                         onChange={(e) => setSettings((prev) => prev.map((x) => x.id === s.id ? { ...x, value: e.target.value } : x))}
-                        className="number-no-spin bg-surface-input border border-subtle rounded px-2 py-1 text-[11px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] w-[100px] disabled:opacity-40"
+                        className="number-no-spin bg-surface-input border border-subtle rounded px-2 py-1 text-[11px] text-ink outline-none focus:border-[var(--accent)] w-[100px] disabled:opacity-40"
                       />
                     )}
                   </div>

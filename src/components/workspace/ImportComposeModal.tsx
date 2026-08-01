@@ -7,8 +7,8 @@ import { yieldToFrame } from "../../lib/ui";
 import { Spinner } from "../ui";
 
 const inputCls =
-  "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
-const labelCls = "text-[11px] font-medium text-zinc-500 uppercase tracking-wide";
+  "w-full bg-surface-input border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
+const labelCls = "text-[11px] font-medium text-ink-3 uppercase tracking-wide";
 
 type ImportMode = "app" | "service";
 
@@ -153,12 +153,12 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
   }
 
   return (
-    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+    <ModalWrapper onClose={onClose} className="bg-surface-2 border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
       <div className="p-6 w-[560px] flex flex-col gap-5">
         {/* Header */}
         <div>
-          <h2 className="text-[15px] font-semibold text-zinc-100">Import from Docker Compose</h2>
-          <p className="text-[12px] text-zinc-500 mt-0.5">
+          <h2 className="text-[15px] font-semibold text-ink">Import from Docker Compose</h2>
+          <p className="text-[12px] text-ink-3 mt-0.5">
             Parse a docker-compose.yml and create Porta apps and services
           </p>
         </div>
@@ -177,7 +177,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
               type="button"
               onClick={handlePickFile}
               disabled={parsing}
-              className="px-3 py-2 bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.08] rounded-lg text-[13px] text-zinc-300 transition-colors shrink-0 disabled:opacity-50"
+              className="px-3 py-2 bg-white/[0.07] hover:bg-white/[0.11] border border-white/[0.08] rounded-lg text-[13px] text-ink-2 transition-colors shrink-0 disabled:opacity-50"
             >
               {parsing ? "Parsing..." : "Browse"}
             </button>
@@ -185,7 +185,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
         </label>
 
         {parseError && (
-          <div className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-[12px] text-red-400">
+          <div className="px-3 py-2 bg-bad-bg border border-[var(--danger-border)] rounded-lg text-[12px] text-bad">
             {parseError}
           </div>
         )}
@@ -200,7 +200,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
                 <span className={labelCls}>
                   Services ({project.services.length} found)
                 </span>
-                <span className="text-[10px] text-zinc-600">
+                <span className="text-[10px] text-ink-3">
                   {selectedCount} selected
                 </span>
               </div>
@@ -239,7 +239,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
         )}
 
         {project && project.services.length === 0 && (
-          <div className="px-3 py-4 text-center text-[12px] text-zinc-600">
+          <div className="px-3 py-4 text-center text-[12px] text-ink-3">
             No services found in this compose file.
           </div>
         )}
@@ -248,8 +248,8 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
           <div
             className={`px-3 py-2 rounded-lg text-[12px] ${
               importResult.includes("Error")
-                ? "bg-amber-500/10 border border-amber-500/20 text-amber-400"
-                : "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+                ? "bg-warn-bg border border-[var(--warning-border)] text-warn"
+                : "bg-ok-bg border border-[var(--success-border)] text-ok"
             }`}
           >
             {importResult}
@@ -261,7 +261,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors"
+            className="px-4 py-1.5 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
           >
             Cancel
           </button>
@@ -269,7 +269,7 @@ export default function ImportComposeModal({ workspaceId, onClose }: Props) {
             type="button"
             onClick={handleImport}
             disabled={importing || selectedCount === 0 || !project}
-            className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:bg-accent text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             {importing && (
               <Spinner size={14} />
@@ -315,8 +315,8 @@ function ServiceRow({
         onClick={onToggle}
         className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
           selection.checked
-            ? "bg-blue-600 border-blue-500"
-            : "bg-transparent border-zinc-600 hover:border-zinc-400"
+            ? "bg-accent border-[var(--accent)]"
+            : "bg-transparent border-strong hover:border-strong"
         }`}
       >
         {selection.checked && (
@@ -329,20 +329,20 @@ function ServiceRow({
       {/* Name + details */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-zinc-200 truncate">{service.name}</span>
-          <span className="text-[10px] text-zinc-600 font-mono truncate">
+          <span className="text-[13px] font-medium text-ink truncate">{service.name}</span>
+          <span className="text-[10px] text-ink-3 font-mono truncate">
             {service.image || service.build_context || "no image/build"}
           </span>
         </div>
         <div className="flex items-center gap-3 mt-0.5">
-          <span className="text-[10px] text-zinc-600">{portStr}</span>
+          <span className="text-[10px] text-ink-3">{portStr}</span>
           {Object.keys(service.environment).length > 0 && (
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-[10px] text-ink-3">
               {Object.keys(service.environment).length} env vars
             </span>
           )}
           {service.volumes.length > 0 && (
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-[10px] text-ink-3">
               {service.volumes.length} volume{service.volumes.length !== 1 ? "s" : ""}
             </span>
           )}
@@ -358,8 +358,8 @@ function ServiceRow({
             disabled={!hasBuild && !service.command}
             className={`px-2 py-1 text-[10px] font-medium transition-colors ${
               selection.mode === "app"
-                ? "bg-white/[0.10] text-zinc-200"
-                : "bg-white/[0.02] text-zinc-500 hover:text-zinc-300"
+                ? "bg-white/[0.10] text-ink"
+                : "bg-white/[0.02] text-ink-3 hover:text-ink-2"
             } disabled:opacity-30 disabled:cursor-not-allowed`}
             title={!hasBuild && !service.command ? "No build context or command found" : "Import as Porta App"}
           >
@@ -371,8 +371,8 @@ function ServiceRow({
             disabled={!hasImage}
             className={`px-2 py-1 text-[10px] font-medium transition-colors ${
               selection.mode === "service"
-                ? "bg-white/[0.10] text-zinc-200"
-                : "bg-white/[0.02] text-zinc-500 hover:text-zinc-300"
+                ? "bg-white/[0.10] text-ink"
+                : "bg-white/[0.02] text-ink-3 hover:text-ink-2"
             } disabled:opacity-30 disabled:cursor-not-allowed`}
             title={!hasImage ? "No image specified" : "Import as Docker Service"}
           >
@@ -389,13 +389,13 @@ function PreviewRow({ service, mode }: { service: ComposeService; mode: ImportMo
     const port = service.ports.length > 0 ? service.ports[0][0] : 3000;
     return (
       <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/[0.03] rounded-lg border border-white/[0.05]">
-        <span className="text-[10px] font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0">
+        <span className="text-[10px] font-medium text-accent bg-accent-bg px-1.5 py-0.5 rounded shrink-0">
           APP
         </span>
-        <span className="text-[11px] text-zinc-300 font-medium truncate">{service.name}</span>
-        <span className="text-[10px] text-zinc-600 font-mono">:{port}</span>
+        <span className="text-[11px] text-ink-2 font-medium truncate">{service.name}</span>
+        <span className="text-[10px] text-ink-3 font-mono">:{port}</span>
         {service.build_context && (
-          <span className="text-[10px] text-zinc-600 truncate ml-auto">{service.build_context}</span>
+          <span className="text-[10px] text-ink-3 truncate ml-auto">{service.build_context}</span>
         )}
       </div>
     );
@@ -410,11 +410,11 @@ function PreviewRow({ service, mode }: { service: ComposeService; mode: ImportMo
       <span className="text-[10px] font-medium text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded shrink-0">
         SVC
       </span>
-      <span className="text-[11px] text-zinc-300 font-medium truncate">{service.name}</span>
-      <span className="text-[10px] text-zinc-600 font-mono truncate">
+      <span className="text-[11px] text-ink-2 font-medium truncate">{service.name}</span>
+      <span className="text-[10px] text-ink-3 font-mono truncate">
         {image}:{tag}
       </span>
-      {port > 0 && <span className="text-[10px] text-zinc-600 font-mono">:{port}</span>}
+      {port > 0 && <span className="text-[10px] text-ink-3 font-mono">:{port}</span>}
     </div>
   );
 }

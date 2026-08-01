@@ -94,7 +94,7 @@ export default function ExtensionActionButtons({
               }}
               disabled={!!busy}
               aria-label={`${p.action.label} (${p.extension.name})`}
-              className="flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] text-zinc-500 hover:text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] text-ink-3 hover:text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 transition-colors"
             >
               {isBusy ? <Spinner /> : <ActionIcon name={p.action.icon} />}
               <span className="max-w-[88px] truncate">{p.action.label}</span>

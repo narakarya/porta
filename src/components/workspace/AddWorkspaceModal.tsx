@@ -5,7 +5,7 @@ import ModalWrapper from "../shared/ModalWrapper";
 import { yieldToFrame } from "../../lib/ui";
 import { Spinner } from "../ui";
 
-const inputCls = "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
+const inputCls = "w-full bg-surface-input border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
 
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
@@ -64,19 +64,19 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
   }
 
   return (
-    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl">
+    <ModalWrapper onClose={onClose} className="bg-surface-2 border border-white/[0.08] rounded-2xl shadow-2xl">
       <form
         onSubmit={submit}
         className="p-6 w-[340px] flex flex-col gap-4"
       >
         <div>
-          <h2 className="text-[15px] font-semibold text-zinc-100">New Workspace</h2>
-          <p className="text-[12px] text-zinc-500 mt-0.5">Group related apps under a shared domain</p>
+          <h2 className="text-[15px] font-semibold text-ink">New Workspace</h2>
+          <p className="text-[12px] text-ink-3 mt-0.5">Group related apps under a shared domain</p>
         </div>
 
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">Name</span>
+            <span className="text-[11px] font-medium text-ink-3 uppercase tracking-wide">Name</span>
             <input
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
@@ -90,7 +90,7 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">Domain</span>
+            <span className="text-[11px] font-medium text-ink-3 uppercase tracking-wide">Domain</span>
             <input
               value={domain}
               onChange={(e) => handleDomainChange(e.target.value)}
@@ -101,18 +101,18 @@ export default function AddWorkspaceModal({ onClose }: { onClose: () => void }) 
               spellCheck={false}
             />
             {domainError && (
-              <span className="text-[11px] text-red-400">{domainError}</span>
+              <span className="text-[11px] text-bad">{domainError}</span>
             )}
           </label>
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors">
+            className="px-4 py-1.5 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors">
             Cancel
           </button>
           <button type="submit" disabled={submitting || !!domainError}
-            className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:bg-accent text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2">
             {submitting && (
               <Spinner size={14} />
             )}

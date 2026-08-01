@@ -82,7 +82,7 @@ export default function CloudflareCertificatesSection() {
       </div>
 
       {error && (
-        <div className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap">
+        <div className="px-2.5 py-1.5 rounded-control bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap">
           {error}
         </div>
       )}
@@ -113,7 +113,7 @@ export default function CloudflareCertificatesSection() {
           onChange={(e) => setZoneInput(e.target.value)}
           placeholder="example.com"
           spellCheck={false}
-          className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+          className="flex-1 bg-surface-input border border-subtle rounded-control px-3 py-1.5 text-[12px] font-mono text-ink outline-none focus:border-[var(--accent)] transition-colors"
         />
         <button
           type="button"

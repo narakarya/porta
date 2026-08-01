@@ -189,13 +189,13 @@ export default function ExtensionSidebar() {
 
   return (
     <>
-      <div className="fixed top-0 right-0 bottom-0 w-[260px] flex flex-col bg-[#111113] border-l border-white/[0.06] z-40 shadow-[-8px_0_24px_rgba(0,0,0,0.35)]">
+      <div className="fixed top-0 right-0 bottom-0 w-[260px] flex flex-col bg-surface-input border-l border-white/[0.06] z-40 shadow-[-8px_0_24px_rgba(0,0,0,0.35)]">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.06] shrink-0">
           <ExtensionIcon extension={{ id: "extensions", name: "Extensions" }} size="sm" />
           <div className="flex flex-col flex-1 min-w-0">
-            <span className="text-[12px] font-semibold text-zinc-200 leading-tight">Extensions</span>
-            <span className="text-[10px] text-zinc-600 truncate leading-tight">{app.name}</span>
+            <span className="text-[12px] font-semibold text-ink leading-tight">Extensions</span>
+            <span className="text-[10px] text-ink-3 truncate leading-tight">{app.name}</span>
           </div>
           {sidebar.extensions.some((e) => e.source) && (
             updatingAll ? (
@@ -209,7 +209,7 @@ export default function ExtensionSidebar() {
             ) : (
               <button
                 onClick={updateAll}
-                className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0"
+                className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded transition-colors shrink-0"
                 title="Update all extensions"
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -233,7 +233,7 @@ export default function ExtensionSidebar() {
           <button
             onClick={reloadExtensions}
             disabled={reloading}
-            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0 disabled:opacity-40"
+            className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded transition-colors shrink-0 disabled:opacity-40"
             title="Reload extensions"
           >
             <svg className={reloading ? "animate-spin" : ""} width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -243,7 +243,7 @@ export default function ExtensionSidebar() {
           </button>
           <button
             onClick={() => openSettingsSection("extensions")}
-            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0"
+            className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded transition-colors shrink-0"
             title="Manage extensions"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -253,7 +253,7 @@ export default function ExtensionSidebar() {
           </button>
           <button
             onClick={close}
-            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded transition-colors shrink-0"
+            className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded transition-colors shrink-0"
             title="Close (Esc)"
           >
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
@@ -269,7 +269,7 @@ export default function ExtensionSidebar() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search extensions"
-              className="w-full px-2.5 py-1.5 text-[11px] bg-white/[0.04] border border-white/[0.06] rounded-md text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500/30"
+              className="w-full px-2.5 py-1.5 text-[11px] bg-white/[0.04] border border-white/[0.06] rounded-md text-ink placeholder:text-ink-3 focus:outline-none focus:border-violet-500/30"
             />
           </div>
         )}
@@ -278,20 +278,20 @@ export default function ExtensionSidebar() {
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
           {sidebar.extensions.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full px-3 text-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-zinc-600">
+              <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-ink-3">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path d="M5.5 1.5h3v1.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V1.5H12a1 1 0 011 1V4h-1.5C10.7 4 10 4.7 10 5.5s.7 1.5 1.5 1.5H13v1.5a1 1 0 01-1 1h-1.5v-1.5C10.5 7.2 9.8 6.5 9 6.5s-1.5.7-1.5 1.5v1.5H6a1 1 0 01-1-1V7H3.5C2.7 7 2 6.3 2 5.5S2.7 4 3.5 4H5V2.5a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
                 </svg>
               </div>
-              <p className="text-[11px] text-zinc-400 leading-snug">No extensions match this app</p>
-              <p className="text-[10px] text-zinc-600 leading-snug">
-                Install one from Settings → Extensions. Built-in: <code className="text-zinc-500 font-mono">git-manager</code>.
+              <p className="text-[11px] text-ink-2 leading-snug">No extensions match this app</p>
+              <p className="text-[10px] text-ink-3 leading-snug">
+                Install one from Settings → Extensions. Built-in: <code className="text-ink-3 font-mono">git-manager</code>.
               </p>
             </div>
           )}
           {sidebar.extensions.length > 0 && visible.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full px-3 text-center">
-              <p className="text-[11px] text-zinc-500 leading-snug">
+              <p className="text-[11px] text-ink-3 leading-snug">
                 No extensions match "{query}"
               </p>
             </div>
@@ -319,10 +319,10 @@ export default function ExtensionSidebar() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-1">
-                      <span className="text-[12px] font-medium text-zinc-200 truncate">{ext.name}</span>
+                      <span className="text-[12px] font-medium text-ink truncate">{ext.name}</span>
                       <div className="flex items-center gap-1 shrink-0">
                         {!isUpdating && (
-                          <span className="text-[10px] text-zinc-600 tabular-nums">
+                          <span className="text-[10px] text-ink-3 tabular-nums">
                             v{ext.version}
                           </span>
                         )}
@@ -332,7 +332,7 @@ export default function ExtensionSidebar() {
                               e.stopPropagation();
                               updateOne(ext);
                             }}
-                            className="p-0.5 text-zinc-600 hover:text-violet-300 hover:bg-white/[0.06] rounded transition-colors"
+                            className="p-0.5 text-ink-3 hover:text-violet-300 hover:bg-white/[0.06] rounded transition-colors"
                             title="Update extension"
                           >
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -364,7 +364,7 @@ export default function ExtensionSidebar() {
                         <div className="loading-sweep rounded-full" />
                       </div>
                     ) : ext.description && (
-                      <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
+                      <p className="text-[11px] text-ink-3 mt-0.5 line-clamp-2 leading-snug">{ext.description}</p>
                     )}
                   </div>
                 </div>
@@ -377,8 +377,8 @@ export default function ExtensionSidebar() {
           <div
             className={`mx-2 mb-2 px-3 py-2 rounded-lg text-[11px] font-medium shrink-0 ${
               toast.kind === "success"
-                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
-                : "bg-red-500/15 text-red-300 border border-red-500/20"
+                ? "bg-ok-bg text-ok border border-[var(--success-border)]"
+                : "bg-bad-bg text-bad border border-[var(--danger-border)]"
             }`}
           >
             {toast.message}

@@ -248,7 +248,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ExtensionHostProvider>
-      <div className="flex h-screen bg-[#0d0d0f] text-zinc-100 font-sans overflow-hidden">
+      <div className="flex h-screen bg-surface-0 text-ink font-sans overflow-hidden">
         {/* Persistent domain rail — visible across main and settings */}
         <GlobalRail
           onOpenSettings={() => setPage("settings")}
@@ -271,18 +271,18 @@ export default function App() {
                 <div hidden={!!selectedApp}>
                 {/* Caddy not running banner — shown after reboot or if Caddy was stopped */}
                 {showCaddyBanner && (
-              <div className="flex items-center gap-2.5 px-3 py-2 mb-4 bg-amber-500/10 border border-amber-500/25 rounded-lg">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-amber-400 shrink-0">
+              <div className="flex items-center gap-2.5 px-3 py-2 mb-4 bg-warn-bg border border-amber-500/25 rounded-lg">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-warn shrink-0">
                   <path d="M6 1.5l4.5 8H1.5L6 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
                   <path d="M6 5v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                   <circle cx="6" cy="8.5" r="0.4" fill="currentColor"/>
                 </svg>
-                <p className="text-[11px] text-amber-300 flex-1">
+                <p className="text-[11px] text-warn flex-1">
                   Caddy couldn't start automatically. Go to Settings → Setup to start it manually.
                 </p>
                 <button
                   onClick={() => setCaddyBannerDismissed(true)}
-                  className="p-0.5 text-amber-600 hover:text-amber-300 transition-colors shrink-0"
+                  className="p-0.5 text-amber-600 hover:text-warn transition-colors shrink-0"
                   title="Dismiss"
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">

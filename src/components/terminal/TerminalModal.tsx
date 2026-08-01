@@ -55,8 +55,8 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
   }
 
   const containerClass = placement === "panel"
-    ? "fixed left-0 right-0 bottom-0 z-50 bg-[#111113] flex flex-col border-t-2 border-white/[0.12] shadow-[0_-12px_28px_rgba(0,0,0,0.45)]"
-    : "fixed inset-0 z-50 bg-[#111113] flex flex-col";
+    ? "fixed left-0 right-0 bottom-0 z-50 bg-surface-input flex flex-col border-t-2 border-white/[0.12] shadow-[0_-12px_28px_rgba(0,0,0,0.45)]"
+    : "fixed inset-0 z-50 bg-surface-input flex flex-col";
 
   const containerStyle: React.CSSProperties = {
     display: isOpen ? undefined : "none",
@@ -83,11 +83,11 @@ export default function TerminalModal({ initialApp, isOpen, onClose, pendingSess
         pendingSession={pendingSession}
         onEmpty={onClose}
         onEscape={onClose}
-        title={<span className="text-[12px] font-semibold text-zinc-200 font-mono">Terminal</span>}
+        title={<span className="text-[12px] font-semibold text-ink font-mono">Terminal</span>}
         headerTrail={
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.07] transition-colors"
+            className="p-1.5 rounded-lg text-ink-3 hover:text-ink hover:bg-white/[0.07] transition-colors"
             title="Close"
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">

@@ -271,7 +271,7 @@ export default function WorkspaceView() {
 
   if (!workspace && selectedWorkspaceId !== null) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-600 text-[13px]">
+      <div className="flex items-center justify-center h-full text-ink-3 text-[13px]">
         Select a workspace
       </div>
     );
@@ -288,12 +288,12 @@ export default function WorkspaceView() {
       {/* Drag overlay */}
       {isDragging && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-400/50 bg-blue-500/[0.08] backdrop-blur-[2px] pointer-events-none">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" className="text-blue-400 mb-3">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" className="text-accent mb-3">
             <path d="M4 12V8a2 2 0 012-2h6l2 3h12a2 2 0 012 2v15a2 2 0 01-2 2H6a2 2 0 01-2-2V12z" stroke="currentColor" strokeWidth="1.8" fill="none"/>
             <path d="M12 20l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M16 16v8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
           </svg>
-          <span className="text-[14px] font-medium text-blue-300">Drop folder to add app</span>
+          <span className="text-[14px] font-medium text-accent-ink">Drop folder to add app</span>
           <span className="text-[12px] text-blue-400/60 mt-1">We'll auto-detect the framework</span>
         </div>
       )}
@@ -301,18 +301,18 @@ export default function WorkspaceView() {
       {/* Header */}
       <div className="flex items-end justify-between mb-5">
         <div>
-          <h1 className="text-[17px] font-semibold text-zinc-100 leading-tight">
+          <h1 className="text-[17px] font-semibold text-ink leading-tight">
             {workspace?.name ?? "Standalone"}
           </h1>
           {workspace && (
-            <p className="text-[12px] text-zinc-500 mt-0.5">{workspace.domain}</p>
+            <p className="text-[12px] text-ink-3 mt-0.5">{workspace.domain}</p>
           )}
         </div>
         {visibleApps.length > 0 && (
           <div className="flex items-center gap-3 mb-0.5">
             <span className="flex items-center gap-1.5 text-[11px]">
-              <span className={`w-1.5 h-1.5 rounded-full ${runningCount > 0 ? "bg-emerald-400 pulse-dot" : "bg-zinc-600"}`} />
-              <span className={runningCount > 0 ? "text-emerald-400" : "text-zinc-500"}>
+              <span className={`w-1.5 h-1.5 rounded-full ${runningCount > 0 ? "bg-ok pulse-dot" : "bg-ink-3"}`} />
+              <span className={runningCount > 0 ? "text-ok" : "text-ink-3"}>
                 {runningCount}/{visibleApps.length} running
               </span>
             </span>
@@ -321,7 +321,7 @@ export default function WorkspaceView() {
                 {hasStoppedApps && (
                   <button
                     onClick={handleStartAll}
-                    className="px-2 py-0.5 text-[10px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
+                    className="px-2 py-0.5 text-[10px] font-medium text-accent bg-accent-bg hover:bg-accent-bg rounded-md transition-colors"
                   >
                     Start All
                   </button>
@@ -329,7 +329,7 @@ export default function WorkspaceView() {
                 {hasActiveApps && (
                   <button
                     onClick={handleStopAll}
-                    className="px-2 py-0.5 text-[10px] font-medium text-zinc-400 bg-white/[0.06] hover:bg-white/[0.10] rounded-md transition-colors"
+                    className="px-2 py-0.5 text-[10px] font-medium text-ink-2 bg-white/[0.06] hover:bg-white/[0.10] rounded-md transition-colors"
                   >
                     Stop All
                   </button>
@@ -343,7 +343,7 @@ export default function WorkspaceView() {
       {/* Filter bar */}
       {allVisibleApps.length > 1 && (
         <div className="relative mb-3 max-w-xs">
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
             <path d="M8 8l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           </svg>
@@ -352,13 +352,13 @@ export default function WorkspaceView() {
             spellCheck={false}
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-8 pr-7 py-1.5 text-[12px] text-zinc-200 bg-white/[0.03] border border-white/[0.07] rounded-lg placeholder:text-zinc-600 focus:outline-none focus:border-white/[0.15]"
+            className="w-full pl-8 pr-7 py-1.5 text-[12px] text-ink bg-white/[0.03] border border-white/[0.07] rounded-lg placeholder:text-ink-3 focus:outline-none focus:border-white/[0.15]"
             placeholder="Filter apps... (/ or ⌘F)"
           />
           {filterText && (
             <button
               onClick={() => setFilterText("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-2"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                 <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -369,7 +369,7 @@ export default function WorkspaceView() {
       )}
 
       {filterText && visibleApps.length === 0 && allVisibleApps.length > 0 && (
-        <div className="flex items-center justify-center py-8 text-[13px] text-zinc-600">
+        <div className="flex items-center justify-center py-8 text-[13px] text-ink-3">
           No apps match "{filterText}"
         </div>
       )}
@@ -380,18 +380,18 @@ export default function WorkspaceView() {
             {visibleApps.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center mb-3">
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-zinc-600">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-ink-3">
                     <rect x="2" y="2" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
                     <rect x="10" y="2" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
                     <rect x="2" y="10" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
                     <rect x="10" y="10" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
                   </svg>
                 </div>
-                <p className="text-[13px] text-zinc-500">No apps yet</p>
-                <p className="text-[12px] text-zinc-600 mt-1 mb-4">Add your first app to get started</p>
+                <p className="text-[13px] text-ink-3">No apps yet</p>
+                <p className="text-[12px] text-ink-3 mt-1 mb-4">Add your first app to get started</p>
                 <button
                   onClick={() => setShowAdd(true)}
-                  className="px-4 py-1.5 text-[12px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
+                  className="px-4 py-1.5 text-[12px] font-medium text-accent bg-accent-bg hover:bg-accent-bg rounded-lg transition-colors"
                 >
                   + Add App
                 </button>
@@ -433,14 +433,14 @@ export default function WorkspaceView() {
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => setShowAdd(true)}
-              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-zinc-600 hover:text-zinc-400 transition-all duration-150"
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-ink-3 hover:text-ink-2 transition-all duration-150"
             >
               <span>+</span>
               <span>Add App</span>
             </button>
             <button
               onClick={() => setShowImportCompose(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-zinc-600 hover:text-zinc-400 transition-all duration-150"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-ink-3 hover:text-ink-2 transition-all duration-150"
               title="Import from docker-compose.yml"
             >
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0">
@@ -458,16 +458,16 @@ export default function WorkspaceView() {
             <div className="mt-8">
               <div className="flex items-end justify-between mb-3">
                 <div className="flex items-baseline gap-2.5">
-                  <h2 className="text-[14px] font-semibold text-zinc-300">Services</h2>
+                  <h2 className="text-[14px] font-semibold text-ink-2">Services</h2>
                   {visibleServices.length > 0 && (
-                    <span className="text-[11px] text-zinc-500">
+                    <span className="text-[11px] text-ink-3">
                       {visibleServices.filter((s) => s.status === "running").length}/{visibleServices.length} running
                     </span>
                   )}
                 </div>
                 <button
                   onClick={() => setShowAddService(true)}
-                  className="px-2 py-0.5 text-[10px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
+                  className="px-2 py-0.5 text-[10px] font-medium text-accent bg-accent-bg hover:bg-accent-bg rounded-md transition-colors"
                 >
                   + Service
                 </button>
@@ -475,7 +475,7 @@ export default function WorkspaceView() {
               {visibleServices.length === 0 ? (
                 <button
                   onClick={() => setShowAddService(true)}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-zinc-600 hover:text-zinc-400 transition-all"
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] text-[12px] text-ink-3 hover:text-ink-2 transition-all"
                 >
                   Add a database, cache, or message broker
                 </button>
@@ -513,8 +513,8 @@ export default function WorkspaceView() {
               return (
                 <div className="mt-8">
                   <div className="flex items-baseline gap-2.5 mb-3">
-                    <h2 className="text-[14px] font-semibold text-zinc-300">Hosts</h2>
-                    <span className="text-[11px] text-zinc-500">{wsHosts.length} attached</span>
+                    <h2 className="text-[14px] font-semibold text-ink-2">Hosts</h2>
+                    <span className="text-[11px] text-ink-3">{wsHosts.length} attached</span>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     {wsHosts.map((h) => (
@@ -527,17 +527,17 @@ export default function WorkspaceView() {
                         title={`Connect ${h.username}@${h.hostname}:${h.port}`}
                         className="group flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.12] hover:bg-white/[0.04] text-left transition-colors"
                       >
-                        <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-500 group-hover:text-blue-400 transition-colors">
+                        <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className="shrink-0 text-ink-3 group-hover:text-accent transition-colors">
                           <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.1" />
                           <path d="M3 4.5l1.5 1L3 6.5M6 6.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                         <div className="min-w-0 flex-1">
-                          <div className="text-[13px] text-zinc-200 truncate">{h.label}</div>
-                          <div className="text-[11px] text-zinc-500 truncate">
+                          <div className="text-[13px] text-ink truncate">{h.label}</div>
+                          <div className="text-[11px] text-ink-3 truncate">
                             {h.username}@{h.hostname}
                           </div>
                         </div>
-                        <span className="opacity-0 group-hover:opacity-100 text-[11px] text-blue-400 transition-opacity">
+                        <span className="opacity-0 group-hover:opacity-100 text-[11px] text-accent transition-opacity">
                           Connect →
                         </span>
                       </button>

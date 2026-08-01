@@ -56,7 +56,7 @@ export default function DomainSection() {
                   if (e.key === "Enter") { e.preventDefault(); c.addDomain(); }
                   if (e.key === "Escape") { c.setShowAddDomain(false); c.setExtraSubdomainInput(""); }
                 }}
-                className={`input-base flex-1 font-mono text-[12px] ${c.extraSubdomainInput && !c.addDomainInputValid ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                className={`input-base flex-1 font-mono text-[12px] ${c.extraSubdomainInput && !c.addDomainInputValid ? "border-[var(--danger-border)]" : ""}`}
                 placeholder="admin  ·  or  app.dev"
               />
               <button
@@ -335,7 +335,7 @@ export default function DomainSection() {
                 spellCheck={false}
                 value={binding.label}
                 onChange={(e) => updateBinding({ label: e.target.value })}
-                className={`input-base flex-[2] min-w-0 ${!binding.label.trim() && binding.port ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                className={`input-base flex-[2] min-w-0 ${!binding.label.trim() && binding.port ? "border-[var(--danger-border)]" : ""}`}
                 placeholder="Label"
                 title="Label"
               />
@@ -346,7 +346,7 @@ export default function DomainSection() {
                 max={65535}
                 value={binding.port || ""}
                 onChange={(e) => updateBinding({ port: parseInt(e.target.value, 10) || 0 })}
-                className={`input-base w-20 ${binding.port && !bPortOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                className={`input-base w-20 ${binding.port && !bPortOk ? "border-[var(--danger-border)]" : ""}`}
                 placeholder="Port"
                 title="Port"
               />
@@ -354,7 +354,7 @@ export default function DomainSection() {
                 spellCheck={false}
                 value={binding.subdomain ?? ""}
                 onChange={(e) => updateBinding({ subdomain: e.target.value.toLowerCase() || null })}
-                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.subdomain && !bSubOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.subdomain && !bSubOk ? "border-[var(--danger-border)]" : ""}`}
                 placeholder={binding.label.trim().toLowerCase().replace(/\s+/g, "-") || "subdomain"}
                 title="Subdomain"
               />
@@ -362,7 +362,7 @@ export default function DomainSection() {
                 spellCheck={false}
                 value={binding.custom_domain ?? ""}
                 onChange={(e) => updateBinding({ custom_domain: e.target.value.toLowerCase() || null })}
-                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.custom_domain && !bDomOk ? "border-[rgba(248,113,113,0.5)]" : ""}`}
+                className={`input-base flex-[2] min-w-0 font-mono text-[12px] ${binding.custom_domain && !bDomOk ? "border-[var(--danger-border)]" : ""}`}
                 placeholder={c.workspace?.domain ?? "domain"}
                 title="Custom Domain"
               />

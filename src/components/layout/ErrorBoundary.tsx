@@ -51,39 +51,39 @@ export default class ErrorBoundary extends Component<Props, State> {
     const scope = this.props.scope ? `${this.props.scope}: ` : "";
 
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#0a0a0c] text-zinc-200 p-6">
-        <div className="max-w-2xl w-full bg-[#1a1a1c] border border-red-500/20 rounded-2xl p-6 shadow-2xl">
+      <div className="flex h-screen w-screen items-center justify-center bg-[#0a0a0c] text-ink p-6">
+        <div className="max-w-2xl w-full bg-surface-2 border border-[var(--danger-border)] rounded-2xl p-6 shadow-2xl">
           <div className="flex items-start gap-3">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-red-400 mt-1 shrink-0">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-bad mt-1 shrink-0">
               <path d="M10 2.5l8 14H2L10 2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
               <path d="M10 8v3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
               <circle cx="10" cy="14" r="0.7" fill="currentColor"/>
             </svg>
             <div className="flex-1 min-w-0">
-              <h1 className="text-[14px] font-semibold text-zinc-100">
+              <h1 className="text-[14px] font-semibold text-ink">
                 {scope}Something broke
               </h1>
-              <p className="mt-1 text-[12px] text-zinc-500 leading-relaxed">
+              <p className="mt-1 text-[12px] text-ink-3 leading-relaxed">
                 The UI hit an error it couldn't recover from. Your background apps and Caddy are still running — this is a frontend-only crash.
               </p>
 
               <div className="mt-4 rounded-lg bg-black/30 border border-white/[0.05] p-3 max-h-72 overflow-auto">
-                <p className="text-[11px] font-mono text-red-400 break-all">{err.name}: {err.message}</p>
+                <p className="text-[11px] font-mono text-bad break-all">{err.name}: {err.message}</p>
                 {stack && (
-                  <pre className="mt-2 text-[10px] font-mono text-zinc-500 whitespace-pre-wrap break-all">{stack.trim()}</pre>
+                  <pre className="mt-2 text-[10px] font-mono text-ink-3 whitespace-pre-wrap break-all">{stack.trim()}</pre>
                 )}
               </div>
 
               <div className="mt-4 flex items-center gap-2">
                 <button
                   onClick={this.reset}
-                  className="px-3 py-1.5 text-[11px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-md transition-colors"
+                  className="px-3 py-1.5 text-[11px] font-medium text-accent bg-accent-bg hover:bg-accent-bg rounded-md transition-colors"
                 >
                   Try again
                 </button>
                 <button
                   onClick={() => window.location.reload()}
-                  className="px-3 py-1.5 text-[11px] font-medium text-zinc-200 bg-white/[0.06] hover:bg-white/[0.10] rounded-md transition-colors"
+                  className="px-3 py-1.5 text-[11px] font-medium text-ink bg-white/[0.06] hover:bg-white/[0.10] rounded-md transition-colors"
                 >
                   Reload window
                 </button>
@@ -91,7 +91,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                   href={`https://github.com/narakarya/porta/issues/new?title=${encodeURIComponent("[crash] " + err.message)}&body=${encodeURIComponent("```\n" + (stack || err.stack || "") + "\n```")}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="ml-auto text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="ml-auto text-[11px] text-ink-3 hover:text-ink-2 transition-colors"
                 >
                   Report on GitHub →
                 </a>

@@ -7,8 +7,8 @@ import { yieldToFrame } from "../../lib/ui";
 import { Spinner } from "../ui";
 
 const inputCls =
-  "w-full bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
-const labelCls = "text-[11px] font-medium text-zinc-500 uppercase tracking-wide";
+  "w-full bg-surface-input border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
+const labelCls = "text-[11px] font-medium text-ink-3 uppercase tracking-wide";
 
 // ── Row types (same as AddServiceModal) ───────────────────────────────────────
 
@@ -48,20 +48,20 @@ function EnvEditor({ rows, onChange }: { rows: EnvRow[]; onChange: (r: EnvRow[])
             onChange={(e) => update(row.id, "key", e.target.value)}
             placeholder="KEY"
             spellCheck={false}
-            className="w-[42%] bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="w-[42%] bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
-          <span className="text-zinc-700 text-[11px] shrink-0">=</span>
+          <span className="text-ink-3 text-[11px] shrink-0">=</span>
           <input
             value={row.value}
             onChange={(e) => update(row.id, "value", e.target.value)}
             placeholder="value"
             spellCheck={false}
-            className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="flex-1 bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
           <button
             type="button"
             onClick={() => remove(row.id)}
-            className="p-1 text-zinc-700 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors shrink-0"
+            className="p-1 text-ink-3 hover:text-bad hover:bg-bad-bg rounded transition-colors shrink-0"
             title="Remove"
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -73,7 +73,7 @@ function EnvEditor({ rows, onChange }: { rows: EnvRow[]; onChange: (r: EnvRow[])
       <button
         type="button"
         onClick={add}
-        className="flex items-center gap-1.5 text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors w-fit mt-0.5"
+        className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors w-fit mt-0.5"
       >
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -94,7 +94,7 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
   return (
     <div className="flex flex-col gap-1.5">
       {rows.length === 0 && (
-        <p className="text-[11px] text-zinc-700 italic">No volumes — data won't persist after stop.</p>
+        <p className="text-[11px] text-ink-3 italic">No volumes — data won't persist after stop.</p>
       )}
       {rows.map((row) => (
         <div key={row.id} className="flex gap-1.5 items-center">
@@ -103,20 +103,20 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
             onChange={(e) => update(row.id, "source", e.target.value)}
             placeholder="name or /host/path"
             spellCheck={false}
-            className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="flex-1 bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
-          <span className="text-zinc-700 text-[11px] shrink-0">:</span>
+          <span className="text-ink-3 text-[11px] shrink-0">:</span>
           <input
             value={row.target}
             onChange={(e) => update(row.id, "target", e.target.value)}
             placeholder="/container/path"
             spellCheck={false}
-            className="flex-1 bg-[#111113] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors"
+            className="flex-1 bg-surface-input border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors"
           />
           <button
             type="button"
             onClick={() => remove(row.id)}
-            className="p-1 text-zinc-700 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors shrink-0"
+            className="p-1 text-ink-3 hover:text-bad hover:bg-bad-bg rounded transition-colors shrink-0"
             title="Remove"
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -128,7 +128,7 @@ function VolumeEditor({ rows, onChange }: { rows: VolRow[]; onChange: (r: VolRow
       <button
         type="button"
         onClick={add}
-        className="flex items-center gap-1.5 text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors w-fit mt-0.5"
+        className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors w-fit mt-0.5"
       >
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
           <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -192,7 +192,7 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
   const isRunning = service.status !== "stopped";
 
   return (
-    <ModalWrapper onClose={onClose} className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+    <ModalWrapper onClose={onClose} className="bg-surface-2 border border-white/[0.08] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
       <form
         onSubmit={submit}
         className="p-6 w-[500px] flex flex-col gap-5"
@@ -200,16 +200,16 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-zinc-100">{service.name}</h2>
-            <p className="text-[12px] text-zinc-500 mt-0.5 font-mono">
+            <h2 className="text-[15px] font-semibold text-ink">{service.name}</h2>
+            <p className="text-[12px] text-ink-3 mt-0.5 font-mono">
               {service.image}:{service.tag}
               {service.container_id && (
-                <span className="ml-2 text-zinc-600">· {service.container_id.slice(0, 12)}</span>
+                <span className="ml-2 text-ink-3">· {service.container_id.slice(0, 12)}</span>
               )}
             </p>
           </div>
           {isRunning && (
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 shrink-0 mt-0.5">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-ok-bg text-ok border border-[var(--success-border)] shrink-0 mt-0.5">
               running
             </span>
           )}
@@ -275,7 +275,7 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <span className={labelCls}>Volumes</span>
-            <span className="text-[10px] text-zinc-700">source : container path</span>
+            <span className="text-[10px] text-ink-3">source : container path</span>
           </div>
           <VolumeEditor rows={volRows} onChange={setVolRows} />
         </div>
@@ -300,29 +300,29 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
         {/* Danger zone — only when stopped */}
         {!isRunning && (
           <div className="border border-white/[0.05] rounded-lg p-3">
-            <p className="text-[11px] text-zinc-600 mb-2">Danger zone</p>
+            <p className="text-[11px] text-ink-3 mb-2">Danger zone</p>
             {!confirmDelete ? (
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}
-                className="text-[12px] font-medium text-red-400/70 hover:text-red-300 transition-colors"
+                className="text-[12px] font-medium text-red-400/70 hover:text-bad transition-colors"
               >
                 Delete this service
               </button>
             ) : (
               <div className="flex items-center gap-3">
-                <p className="text-[12px] text-red-400 flex-1">Delete permanently?</p>
+                <p className="text-[12px] text-bad flex-1">Delete permanently?</p>
                 <button
                   type="button"
                   onClick={() => { deleteService(service.id); onClose(); }}
-                  className="text-[12px] font-medium text-red-400 hover:text-red-200 transition-colors"
+                  className="text-[12px] font-medium text-bad hover:text-bad transition-colors"
                 >
                   Delete
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmDelete(false)}
-                  className="text-[12px] text-zinc-600 hover:text-zinc-300 transition-colors"
+                  className="text-[12px] text-ink-3 hover:text-ink-2 transition-colors"
                 >
                   Cancel
                 </button>
@@ -336,14 +336,14 @@ export default function ServiceSettingsModal({ service, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-[13px] text-zinc-500 hover:text-zinc-200 rounded-lg transition-colors"
+            className="px-4 py-1.5 text-[13px] text-ink-3 hover:text-ink rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting || !name || !image}
-            className="px-4 py-1.5 text-[13px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent hover:bg-accent text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             {submitting && (
               <Spinner size={14} />

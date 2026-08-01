@@ -49,7 +49,7 @@ function slugify(s: string): string {
     .slice(0, 63);
 }
 
-const inputCls = "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[rgba(96,165,250,0.6)] transition-colors";
+const inputCls = "w-full bg-surface-input border border-subtle rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
 const labelCls = "text-[11px] font-medium text-ink-3";
 
 // Valid subdomain: letters/digits/hyphens, or "*" for wildcard
@@ -398,7 +398,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
 
         {/* This repo ships a .porta.yml — the whole project is one click away */}
         {portaConfigPath && (
-          <div className="flex items-center gap-2.5 bg-accent-bg border border-[rgba(96,165,250,0.35)] rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2.5 bg-accent-bg border border-[var(--accent-border)] rounded-lg px-3 py-2">
             <span className="text-[12px] text-accent-ink flex-1">
               This project ships a Porta config
               <span className="block text-[11px] text-ink-3 mt-0.5">
@@ -449,22 +449,22 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
             ))}
           </div>
           {kind === "static" && (
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[11px] text-ink-3">
               Caddy serves files directly from the folder — no command, no port.
             </span>
           )}
           {kind === "docker" && (
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[11px] text-ink-3">
               Porta runs a container as <code className="font-mono">porta-&lt;id&gt;</code>. Requires Docker Desktop / OrbStack.
             </span>
           )}
           {kind === "compose" && (
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[11px] text-ink-3">
               Porta runs <code className="font-mono">docker compose up</code>. Port is which published port Caddy proxies — auto-detected from yml.
             </span>
           )}
           {kind === "proxy" && (
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[11px] text-ink-3">
               Caddy reverse-proxies the domain to an existing local port. You run the upstream yourself.
             </span>
           )}
@@ -497,7 +497,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                 <button
                   type="button"
                   onClick={() => { setPort(detectedServices[0].port); setPortTouched(false); }}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 self-start transition-colors"
+                  className="text-[10px] text-ink-3 hover:text-ink-2 self-start transition-colors"
                   title="Reset to first detected port"
                 >
                   <RefreshIcon /> use {detectedServices[0].port}
@@ -542,13 +542,13 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                     type="button"
                     onClick={pickAndParseComposeFile}
                     disabled={composeFileParsing}
-                    className="px-3 py-2 text-[12px] rounded-lg bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-zinc-300 transition-colors disabled:opacity-50 shrink-0"
+                    className="px-3 py-2 text-[12px] rounded-lg bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-ink-2 transition-colors disabled:opacity-50 shrink-0"
                   >
                     {composeFileParsing ? "Parsing…" : "Browse…"}
                   </button>
                 </div>
                 {composeError && (
-                  <div className="px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                  <div className="px-2.5 py-1.5 rounded-md bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                     {composeError}
                   </div>
                 )}
@@ -558,7 +558,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                     {detectedServices.map((s) => `${s.name}:${s.port}`).join(", ")}
                   </div>
                 )}
-                <span className="text-[11px] text-zinc-500">
+                <span className="text-[11px] text-ink-3">
                   Relative to Compose Project Folder. Absolute paths also OK. <code className="font-mono">.yaml</code> and <code className="font-mono">.yml</code> both work.
                 </span>
               </>
@@ -573,7 +573,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                   errorMessage={composeError ?? undefined}
                 />
                 {composeError && (
-                  <div className="px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 font-mono whitespace-pre-wrap break-words">
+                  <div className="px-2.5 py-1.5 rounded-md bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
                     {composeError}
                   </div>
                 )}
@@ -583,7 +583,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                     {detectedServices.map((s) => `${s.name}:${s.port}`).join(", ")}
                   </div>
                 )}
-                <span className="text-[11px] text-zinc-500">
+                <span className="text-[11px] text-ink-3">
                   Saved to <code className="font-mono">~/.porta/compose/&lt;id&gt;/docker-compose.yml</code>. Relative paths in yml resolve to Compose Project Folder.
                 </span>
               </>
@@ -614,7 +614,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                 placeholder="80"
                 className={inputCls}
               />
-              <span className="text-[11px] text-zinc-500">
+              <span className="text-[11px] text-ink-3">
                 Internal port the container listens on. Porta maps host <code className="font-mono">port</code> → this.
               </span>
             </label>
@@ -634,7 +634,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                     <button
                       type="button"
                       onClick={() => setDockerVolumes((prev) => prev.map((x, j) => (j === i ? volumeTemplate(name) : x)))}
-                      className="px-2.5 text-zinc-500 hover:text-zinc-200 border border-white/[0.08] rounded-lg text-[11px] shrink-0"
+                      className="px-2.5 text-ink-3 hover:text-ink border border-white/[0.08] rounded-lg text-[11px] shrink-0"
                       title={`Fill with ${volumeTemplate(name)}`}
                     >
                       base
@@ -642,7 +642,7 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                     <button
                       type="button"
                       onClick={() => setDockerVolumes((prev) => prev.filter((_, j) => j !== i))}
-                      className="px-2.5 text-zinc-500 hover:text-red-400 border border-white/[0.08] rounded-lg text-[14px] shrink-0"
+                      className="px-2.5 text-ink-3 hover:text-bad border border-white/[0.08] rounded-lg text-[14px] shrink-0"
                       title="Remove"
                     >
                       ×
@@ -652,12 +652,12 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                 <button
                   type="button"
                   onClick={() => setDockerVolumes((prev) => [...prev, ""])}
-                  className="self-start px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 border border-dashed border-white/[0.12] rounded-md"
+                  className="self-start px-2.5 py-1 text-[11px] text-ink-2 hover:text-ink border border-dashed border-white/[0.12] rounded-md"
                 >
                   + Add volume
                 </button>
               </div>
-              <span className="text-[11px] text-zinc-500">
+              <span className="text-[11px] text-ink-3">
                 <code className="font-mono">source:target</code> — relative sources resolve against Working Folder.
               </span>
             </div>
@@ -682,11 +682,11 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
               type="checkbox"
               checked={networkShare}
               onChange={(e) => setNetworkShare(e.target.checked)}
-              className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-blue-500 focus:ring-blue-500/30 focus:ring-offset-0"
+              className="mt-0.5 rounded border-white/[0.15] bg-white/[0.05] text-accent focus:ring-blue-500/30 focus:ring-offset-0"
             />
             <div className="flex flex-col gap-0.5">
-              <span className="text-[12px] text-zinc-200">Join workspace network</span>
-              <span className="text-[11px] text-zinc-500">
+              <span className="text-[12px] text-ink">Join workspace network</span>
+              <span className="text-[11px] text-ink-3">
                 Other apps in the same workspace can reach this via <code className="font-mono">porta-&lt;id&gt;</code>.
               </span>
             </div>
@@ -722,8 +722,8 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
                       }}
                       className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/[0.07] text-left transition-colors"
                     >
-                      <code className="text-[12px] text-zinc-200 font-mono truncate flex-1">{s.label}</code>
-                      <span className="text-[10px] text-zinc-600 shrink-0">{s.source}</span>
+                      <code className="text-[12px] text-ink font-mono truncate flex-1">{s.label}</code>
+                      <span className="text-[10px] text-ink-3 shrink-0">{s.source}</span>
                     </button>
                   ))}
                 </div>
@@ -736,14 +736,14 @@ export default function AddAppModal({ workspaceId, onClose, defaultValues }: Pro
         <label className="flex flex-col gap-1.5">
           <span className={`${labelCls} flex items-center gap-1.5`}>
             Subdomain
-            <span className="text-[10px] normal-case text-zinc-600 tracking-normal">* for wildcard</span>
+            <span className="text-[10px] normal-case text-ink-3 tracking-normal">* for wildcard</span>
           </span>
           <input value={subdomain} onChange={(e) => handleSubdomainChange(e.target.value)}
             placeholder="optional"
             className={`${inputCls} ${subdomainError ? "border-red-500/60" : ""}`}
             autoComplete="off" spellCheck={false} />
           {subdomainError && (
-            <span className="text-[11px] text-red-400">{subdomainError}</span>
+            <span className="text-[11px] text-bad">{subdomainError}</span>
           )}
         </label>
 

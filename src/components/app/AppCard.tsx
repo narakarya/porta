@@ -69,7 +69,7 @@ function StopButton({ stopping, onClick }: { stopping: boolean; onClick: () => v
       onClick={onClick}
       disabled={stopping}
       title={stopping ? "Stopping…" : "Stop"}
-      className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors disabled:pointer-events-none disabled:text-zinc-400"
+      className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-ink-2 bg-white/[0.07] hover:bg-white/[0.12] rounded-md transition-colors disabled:pointer-events-none disabled:text-ink-2"
     >
       {stopping && (
         <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -405,22 +405,22 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
     <div
       className={`flex flex-col rounded-lg border transition-all duration-150 ${
         crashed
-          ? "bg-red-500/[0.04] border-red-500/20"
-          : "bg-[#1c1c1e] border-white/[0.06] hover:border-white/[0.10]"
+          ? "bg-red-500/[0.04] border-[var(--danger-border)]"
+          : "bg-surface-2 border-white/[0.06] hover:border-white/[0.10]"
       }`}
       onContextMenu={handleContextMenu}
     >
       {/* ── Main row ── */}
       <div className="group flex items-center gap-3 px-3 py-2.5">
         <span className={`w-2 h-2 rounded-full shrink-0 transition-colors ${
-          isRunning                                            ? "bg-emerald-400 pulse-dot" :
-          isStarting                                           ? "bg-amber-400 pulse-dot"   :
-          crashed                                              ? "bg-red-400"                :
+          isRunning                                            ? "bg-ok pulse-dot" :
+          isStarting                                           ? "bg-warn pulse-dot"   :
+          crashed                                              ? "bg-bad"                :
           // Static & proxy apps have no managed process — they're "live"
           // whenever Caddy is up and serving them.
-          (isStatic || isProxy) && setupStatus?.caddy_running   ? "bg-emerald-400"            :
-          justStopped                                          ? "bg-zinc-300"               :
-                                                                 "bg-zinc-600"
+          (isStatic || isProxy) && setupStatus?.caddy_running   ? "bg-ok"            :
+          justStopped                                          ? "bg-ink-2"               :
+                                                                 "bg-ink-3"
         }`} />
 
         <div
@@ -435,9 +435,9 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           title={isInstance && instance ? "Open instance details" : onOpenSettings ? "Open app details" : undefined}
         >
           <div className="flex items-center gap-1.5">
-            <p className="text-[13px] font-medium text-zinc-100 leading-tight">{app.name}</p>
+            <p className="text-[13px] font-medium text-ink leading-tight">{app.name}</p>
             {isStatic && (
-              <span className="text-[9px] font-semibold tracking-wider text-blue-300 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded leading-none uppercase opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+              <span className="text-[9px] font-semibold tracking-wider text-accent-ink bg-accent-bg border border-[var(--accent-border)] px-1.5 py-0.5 rounded leading-none uppercase opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                 static
               </span>
             )}
@@ -463,7 +463,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 is prod" must be readable at a glance. */}
             {!isInstance && activeProfileName && (
               <Tooltip label={`Run profile: ${activeProfileName}`} side="top">
-                <span className="text-[9px] font-semibold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded leading-none uppercase">
+                <span className="text-[9px] font-semibold tracking-wider text-warn bg-warn-bg border border-[var(--warning-border)] px-1.5 py-0.5 rounded leading-none uppercase">
                   {activeProfileName}
                 </span>
               </Tooltip>
@@ -478,11 +478,11 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             {isManaged && isRunning && health && health !== "healthy" && (
               <Tooltip label={health === "unhealthy" ? "Unhealthy" : "Checking..."} side="top">
                 {health === "unhealthy" ? (
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-red-400">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-bad">
                     <path d="M5 3v2.5M5 7h.01" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                   </svg>
                 ) : (
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-500">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-ink-3">
                     <path d="M3.5 3.5a2 2 0 013 1.5c0 1-1.5 1-1.5 2M5 8.5h.01" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                   </svg>
                 )}
@@ -490,7 +490,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             )}
             {isManaged && isRunning && health === "healthy" && (
               <Tooltip label="Healthy" side="top">
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-ok opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                   <path d="M2.5 5.5l2 2 3.5-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </Tooltip>
@@ -498,13 +498,13 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
             {!isInstance && onOpenSettings && (
               <svg
                 width="10" height="10" viewBox="0 0 10 10" fill="none"
-                className="text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                className="text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
               >
                 <path d="M3.5 2l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             )}
             {retryCount > 0 && (
-              <span className="text-[10px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full leading-none">
+              <span className="text-[10px] font-medium text-warn bg-warn-bg px-1.5 py-0.5 rounded-full leading-none">
                 ↻{retryCount}
               </span>
             )}
@@ -512,7 +512,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               <Tooltip label={`Port ${app.port} is in use — click to dismiss`} className="inline-flex">
                 <button
                   onClick={() => dismissPortConflict(app.id)}
-                  className="text-[10px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-1.5 py-0.5 rounded-full leading-none transition-colors"
+                  className="text-[10px] font-medium text-warn bg-warn-bg hover:bg-warn-bg px-1.5 py-0.5 rounded-full leading-none transition-colors"
                 >
                   ⚠ :{app.port}
                 </button>
@@ -522,14 +522,14 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           <div className="flex items-center gap-1.5 mt-0.5">
             {isStatic ? (
               <Tooltip label={app.root_dir} side="top" className="min-w-0">
-                <p className="text-[11px] text-zinc-600 font-mono truncate">
+                <p className="text-[11px] text-ink-3 font-mono truncate">
                   {app.root_dir.split("/").slice(-2).join("/")}
                 </p>
               </Tooltip>
             ) : isProxy ? (
-              <p className="text-[11px] text-zinc-600 font-mono">→ :{app.port}</p>
+              <p className="text-[11px] text-ink-3 font-mono">→ :{app.port}</p>
             ) : (
-              <p className="text-[11px] text-zinc-600">port {app.port}</p>
+              <p className="text-[11px] text-ink-3">port {app.port}</p>
             )}
             {/* Git badge — process apps only. Docker/compose/static/proxy don't
                 run the branch workflow, and showing just branch stats there
@@ -547,7 +547,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   <Tooltip label={`Port ${app.port} occupied — click for details`} className="inline-flex">
                     <button
                       onClick={(e) => { e.stopPropagation(); setPortCheckOpen((v) => !v); }}
-                      className="text-amber-400 hover:text-amber-300 transition-colors p-0.5 -m-0.5 rounded"
+                      className="text-warn hover:text-warn transition-colors p-0.5 -m-0.5 rounded"
                       aria-label="Port conflict details"
                     >
                       <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="inline-block">
@@ -560,32 +560,32 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   {portCheckOpen && createPortal(
                     <div
                       ref={portCheckPanelRef}
-                      className="fixed z-[60] w-[280px] bg-[#1c1c1e] border border-amber-500/30 rounded-lg shadow-xl p-3 text-[11px]"
+                      className="fixed z-[60] w-[280px] bg-surface-2 border border-[var(--warning-border)] rounded-lg shadow-xl p-3 text-[11px]"
                       style={portCheckCoords ? { top: portCheckCoords.top, left: portCheckCoords.left } : { top: -9999, left: -9999, visibility: "hidden" }}
                     >
                       <div className="flex items-center gap-1.5 mb-2">
-                        <span className="text-amber-400">
+                        <span className="text-warn">
                           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                             <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
                             <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
                             <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
                           </svg>
                         </span>
-                        <p className="text-amber-300 font-medium">Port {app.port} in use</p>
+                        <p className="text-warn font-medium">Port {app.port} in use</p>
                       </div>
                       <div className="flex flex-col gap-1.5 mb-2.5">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-zinc-500 text-[10px] w-12 shrink-0">Process</span>
-                          <span className="font-mono text-zinc-200 truncate">{basename}</span>
+                          <span className="text-ink-3 text-[10px] w-12 shrink-0">Process</span>
+                          <span className="font-mono text-ink truncate">{basename}</span>
                         </div>
                         <div className="flex items-baseline gap-2">
-                          <span className="text-zinc-500 text-[10px] w-12 shrink-0">PID</span>
-                          <span className="font-mono text-zinc-200">{portCheck.pid ?? "—"}</span>
+                          <span className="text-ink-3 text-[10px] w-12 shrink-0">PID</span>
+                          <span className="font-mono text-ink">{portCheck.pid ?? "—"}</span>
                         </div>
                         {fullPath && fullPath !== basename && (
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-zinc-500 text-[10px]">Path</span>
-                            <span className="font-mono text-[10px] text-zinc-400 break-all leading-snug">
+                            <span className="text-ink-3 text-[10px]">Path</span>
+                            <span className="font-mono text-[10px] text-ink-2 break-all leading-snug">
                               {fullPath}
                             </span>
                           </div>
@@ -595,7 +595,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                         {hasComposeFile && (
                           <button
                             onClick={() => { setPortCheckOpen(false); setConflictModalOpen(true); }}
-                            className="px-2.5 py-1 text-[11px] font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-md transition-colors"
+                            className="px-2.5 py-1 text-[11px] font-medium bg-emerald-600/90 hover:bg-ok text-white rounded-md transition-colors"
                           >
                             Auto-fix (suggest free port)
                           </button>
@@ -604,13 +604,13 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                           <button
                             onClick={handleKillPortHolder}
                             disabled={killingPort}
-                            className="flex-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/90 hover:bg-red-500 text-white rounded-md disabled:opacity-50 transition-colors"
+                            className="flex-1 px-2.5 py-1 text-[11px] font-medium bg-red-600/90 hover:bg-bad text-white rounded-md disabled:opacity-50 transition-colors"
                           >
                             {killingPort ? "Killing…" : `Kill PID ${portCheck.pid ?? ""}`}
                           </button>
                           <button
                             onClick={() => setPortCheckOpen(false)}
-                            className="px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
+                            className="px-2.5 py-1 text-[11px] text-ink-2 hover:text-ink transition-colors"
                           >
                             Cancel
                           </button>
@@ -662,7 +662,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
         <Tooltip label="Open terminal">
           <button
             onClick={(e) => { e.stopPropagation(); onOpenTerminal?.(app); }}
-            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
+            className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded-md transition-colors"
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
               <rect x="1" y="2" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -678,7 +678,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
         <Tooltip label="Edit config files">
           <button
             onClick={(e) => { e.stopPropagation(); setFileEditorInitialPath(undefined); setFileEditorOpen(true); }}
-            className="p-1 text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
+            className="p-1 text-ink-3 hover:text-ink-2 hover:bg-white/[0.06] rounded-md transition-colors"
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
               <path d="M2 3h6.5L11 5.5V11a.5.5 0 01-.5.5h-8.5A.5.5 0 012 11V3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -706,7 +706,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           <Tooltip label="HTTP traffic">
             <button
               onClick={() => setTrafficOpen(true)}
-              className="p-1 text-zinc-600 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-md transition-colors"
+              className="p-1 text-ink-3 hover:text-ok hover:bg-ok-bg rounded-md transition-colors"
             >
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M1.5 6.5h2l1.5-3 2 6 1.5-3h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -725,8 +725,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               onClick={() => setLogViewerOpen(true)}
               className={`p-1 rounded-md transition-colors ${
                 crashed
-                  ? "text-red-400 hover:bg-red-500/10"
-                  : "text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06]"
+                  ? "text-bad hover:bg-bad-bg"
+                  : "text-ink-3 hover:text-ink hover:bg-white/[0.06]"
               }`}
             >
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -747,7 +747,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                   href={`${scheme}://${host}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors flex items-center"
+                  className="p-1 text-ink-3 hover:text-ink hover:bg-white/[0.06] rounded-md transition-colors flex items-center"
                 >
                   <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                     <path d="M5.5 2.5H3a.5.5 0 00-.5.5v7a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V8M7.5 2.5H10.5M10.5 2.5V5.5M10.5 2.5L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -785,7 +785,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 else openExtensionSidebar(app.id, appExtensions);
               }}
               aria-label={`${appExtensions.length} extension${appExtensions.length > 1 ? "s" : ""} for ${app.name}`}
-              className={`flex items-center gap-0.5 p-1 rounded-md transition-colors ${extSidebarActive ? "text-violet-400 bg-violet-500/10" : "text-zinc-500 hover:text-violet-300 hover:bg-violet-500/10"}`}
+              className={`flex items-center gap-0.5 p-1 rounded-md transition-colors ${extSidebarActive ? "text-violet-400 bg-violet-500/10" : "text-ink-3 hover:text-violet-300 hover:bg-violet-500/10"}`}
             >
               <ExtPuzzleIcon />
               {appExtensions.length > 1 && <span className="text-[9px] font-medium leading-none pr-0.5">{appExtensions.length}</span>}
@@ -803,8 +803,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               <button
                 disabled
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:pointer-events-none
-                  text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10
-                  disabled:text-amber-400/70 disabled:bg-amber-500/10"
+                  text-ink-2 hover:text-warn bg-white/[0.05] hover:bg-warn-bg
+                  disabled:text-amber-400/70 disabled:bg-warn-bg"
                 title={busyLabel}
               >
                 <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -830,7 +830,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 }}
                 disabled={stopping}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors disabled:opacity-40 disabled:pointer-events-none
-                  text-zinc-400 hover:text-amber-400 bg-white/[0.05] hover:bg-amber-500/10"
+                  text-ink-2 hover:text-warn bg-white/[0.05] hover:bg-warn-bg"
                 title="Restart"
               >
                 Restart
@@ -844,8 +844,8 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 disabled={!app.start_command && !(isDocker && app.docker_image) && !(isCompose && app.compose_file)}
                 className={`px-2.5 py-1 text-[11px] font-medium rounded-md disabled:opacity-30 transition-colors ${
                   crashed
-                    ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
-                    : "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+                    ? "text-warn bg-warn-bg hover:bg-warn-bg"
+                    : "text-accent bg-accent-bg hover:bg-accent-bg"
                 }`}
               >
                 {crashed ? "Restart" : "Start"}
@@ -865,7 +865,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
               {isInstance && instance && (
                 <button
                   onClick={() => setRemoveConfirm(true)}
-                  className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 bg-white/[0.05] hover:text-red-300 hover:bg-red-500/10 rounded-md transition-colors"
+                  className="px-2.5 py-1 text-[11px] font-medium text-ink-2 bg-white/[0.05] hover:text-bad hover:bg-bad-bg rounded-md transition-colors"
                   title="Remove this instance"
                 >
                   Remove
@@ -881,19 +881,19 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
       {portKillFeedback && (
         <div className={`mx-3 mb-2 px-2.5 py-1.5 rounded-md flex items-center gap-2 ${
           portKillFeedback.ok
-            ? "bg-emerald-500/10 border border-emerald-500/20"
-            : "bg-red-500/10 border border-red-500/20"
+            ? "bg-ok-bg border border-[var(--success-border)]"
+            : "bg-bad-bg border border-[var(--danger-border)]"
         }`}>
           {portKillFeedback.ok ? (
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-emerald-400 shrink-0">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-ok shrink-0">
               <path d="M2 5.5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : (
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-bad shrink-0">
               <path d="M2 2l7 7M9 2L2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
           )}
-          <p className={`text-[11px] flex-1 ${portKillFeedback.ok ? "text-emerald-400" : "text-red-400"}`}>
+          <p className={`text-[11px] flex-1 ${portKillFeedback.ok ? "text-ok" : "text-bad"}`}>
             {portKillFeedback.msg}
           </p>
         </div>
@@ -925,20 +925,20 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
 
       {/* ── Remove-instance confirm bar ── */}
       {removeConfirm && isInstance && instance && (
-        <div className="mx-3 mb-2 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+        <div className="mx-3 mb-2 px-2.5 py-1.5 bg-bad-bg border border-[var(--danger-border)] rounded-md flex items-center gap-2">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-bad shrink-0">
             <path d="M2 3h7M4 3V2h3v1M3 3l.5 6h4L8 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <p className="text-[11px] text-red-300 flex-1">Remove this instance? Frees the port and drops the route.</p>
+          <p className="text-[11px] text-bad flex-1">Remove this instance? Frees the port and drops the route.</p>
           <button
             onClick={() => { removeInstanceAction(instance.id, instance.app_id); setRemoveConfirm(false); }}
-            className="text-[11px] font-medium text-red-400 hover:text-red-200 transition-colors"
+            className="text-[11px] font-medium text-bad hover:text-bad transition-colors"
           >
             Remove
           </button>
           <button
             onClick={() => setRemoveConfirm(false)}
-            className="text-[11px] text-red-400/50 hover:text-red-300 transition-colors"
+            className="text-[11px] text-red-400/50 hover:text-bad transition-colors"
           >
             Cancel
           </button>
@@ -947,16 +947,16 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
 
       {/* ── Crash banner ── */}
       {crashed && !bannerDismissed && (
-        <div className="mx-3 mb-2 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+        <div className="mx-3 mb-2 px-2.5 py-1.5 bg-bad-bg border border-[var(--danger-border)] rounded-md flex items-center gap-2">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-bad shrink-0">
             <path d="M5.5 1.5l4 7H1.5l4-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
             <path d="M5.5 5v1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             <circle cx="5.5" cy="8" r="0.5" fill="currentColor"/>
           </svg>
-          <p className="text-[11px] text-red-400 flex-1">Exited with code {exitCode} — see logs</p>
+          <p className="text-[11px] text-bad flex-1">Exited with code {exitCode} — see logs</p>
           <button
             onClick={() => setBannerDismissed(true)}
-            className="text-[10px] text-red-400/50 hover:text-red-300 transition-colors"
+            className="text-[10px] text-red-400/50 hover:text-bad transition-colors"
           >
             dismiss
           </button>
@@ -985,7 +985,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
           <div className="px-3 py-2">
             <button
               onClick={() => setInstancesExpanded((v) => !v)}
-              className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="flex items-center gap-1.5 text-[10px] font-medium text-ink-3 hover:text-ink-2 transition-colors"
               aria-expanded={instancesExpanded}
             >
               <svg
@@ -1015,7 +1015,7 @@ function AppCard({ app, workspace, onOpenSettings, onOpenTerminal, variant = "pr
                 {appInstances.length > 3 && (
                   <button
                     onClick={() => selectApp(app.id)}
-                    className="self-start text-[10px] text-zinc-400 hover:text-zinc-200"
+                    className="self-start text-[10px] text-ink-2 hover:text-ink"
                   >
                     View all ({appInstances.length})
                   </button>

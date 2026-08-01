@@ -58,7 +58,7 @@ export default function CodeEditor({ value, onChange, language, placeholder, row
   );
 
   return (
-    <div className="bg-[#0d0d0f] border border-white/[0.08] rounded-lg overflow-hidden focus-within:border-blue-500/60 transition-colors">
+    <div className="bg-surface-0 border border-white/[0.08] rounded-lg overflow-hidden focus-within:border-[var(--accent)] transition-colors">
       <CodeMirror
         value={value}
         onChange={onChange}

@@ -53,11 +53,11 @@ export default function AppContextMenu({ x, y, items, onClose }: Props) {
             disabled={item.disabled}
             className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-[13px] text-left transition-colors disabled:opacity-30 ${
               item.danger
-                ? "text-red-400 hover:bg-red-500/10"
-                : "text-zinc-200 hover:bg-white/[0.07]"
+                ? "text-bad hover:bg-bad-bg"
+                : "text-ink hover:bg-white/[0.07]"
             }`}
           >
-            {item.icon && <span className="shrink-0 text-zinc-500">{item.icon}</span>}
+            {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
             {item.label}
           </button>
         )

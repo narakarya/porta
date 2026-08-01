@@ -85,7 +85,7 @@ export default function SessionsSection() {
           <button
             onClick={install}
             disabled={installing}
-            className="px-2.5 py-1 rounded text-[11px] bg-accent-bg border border-[rgba(96,165,250,0.3)] text-accent-ink hover:brightness-110 disabled:opacity-50 transition-colors"
+            className="px-2.5 py-1 rounded text-[11px] bg-accent-bg border border-[var(--accent-border)] text-accent-ink hover:brightness-110 disabled:opacity-50 transition-colors"
           >
             {installing ? "Installing…" : "Install with Homebrew"}
           </button>

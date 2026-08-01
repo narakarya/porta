@@ -206,7 +206,7 @@ export default function NotificationsSection() {
                   value={healthAlertThreshold}
                   onChange={(e) => setHealthAlertThreshold(Number(e.target.value))}
                   disabled={!notificationsEnabled}
-                  className="bg-surface-input border border-subtle rounded-control px-2 py-0.5 text-[11px] text-ink outline-none focus:border-[rgba(96,165,250,0.5)] transition-colors"
+                  className="bg-surface-input border border-subtle rounded-control px-2 py-0.5 text-[11px] text-ink outline-none focus:border-[var(--accent)] transition-colors"
                 >
                   {[1, 2, 3, 5, 10].map((n) => (
                     <option key={n} value={n}>

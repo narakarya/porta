@@ -92,10 +92,10 @@ function ServiceCard({ service }: Props) {
   const logs = serviceLog ?? [];
 
   const dotColor =
-    isRunning  ? "bg-emerald-400" :
-    isPulling  ? "bg-blue-400 animate-pulse" :
-    isStarting ? "bg-amber-400 animate-pulse" :
-    "bg-zinc-600";
+    isRunning  ? "bg-ok" :
+    isPulling  ? "bg-accent animate-pulse" :
+    isStarting ? "bg-warn animate-pulse" :
+    "bg-ink-3";
 
   const connString = `localhost:${service.port}`;
 
@@ -109,7 +109,7 @@ function ServiceCard({ service }: Props) {
   return (
     <>
       <div
-        className="group flex flex-col rounded-xl border bg-[#1a1a1c] border-white/[0.07] hover:border-white/[0.12] transition-all duration-150 cursor-pointer"
+        className="group flex flex-col rounded-xl border bg-surface-2 border-white/[0.07] hover:border-white/[0.12] transition-all duration-150 cursor-pointer"
         onClick={() => setSettingsOpen(true)}
       >
         {/* Main row */}
@@ -120,12 +120,12 @@ function ServiceCard({ service }: Props) {
           {/* Name + image */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-[13px] font-medium text-zinc-100 leading-tight truncate">{service.name}</p>
+              <p className="text-[13px] font-medium text-ink leading-tight truncate">{service.name}</p>
               {service.scope !== "global" && (
-                <span className="text-[9px] font-medium text-zinc-600 bg-white/[0.04] border border-white/[0.06] px-1.5 py-0.5 rounded shrink-0">ws</span>
+                <span className="text-[9px] font-medium text-ink-3 bg-white/[0.04] border border-white/[0.06] px-1.5 py-0.5 rounded shrink-0">ws</span>
               )}
             </div>
-            <p className="text-[11px] text-zinc-600 mt-0.5 font-mono truncate">
+            <p className="text-[11px] text-ink-3 mt-0.5 font-mono truncate">
               {service.image}:{service.tag}
             </p>
           </div>
@@ -135,7 +135,7 @@ function ServiceCard({ service }: Props) {
             <button
               onClick={(e) => { e.stopPropagation(); copyConn(); }}
               title="Copy connection string"
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/8 border border-emerald-500/15 text-emerald-400 hover:bg-emerald-500/15 transition-colors"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/8 border border-emerald-500/15 text-ok hover:bg-ok-bg transition-colors"
             >
               <span className="text-[11px] font-mono">{connString}</span>
               {copied ? (
@@ -150,7 +150,7 @@ function ServiceCard({ service }: Props) {
               )}
             </button>
           ) : (
-            <span className="text-[11px] text-zinc-700 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-[11px] text-ink-3 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
               :{service.port}
             </span>
           )}
@@ -161,7 +161,7 @@ function ServiceCard({ service }: Props) {
             {logs.length > 0 && (
               <button
                 onClick={(e) => { e.stopPropagation(); setLogsOpen(true); }}
-                className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.07] rounded-lg transition-colors"
+                className="p-1.5 text-ink-3 hover:text-ink hover:bg-white/[0.07] rounded-lg transition-colors"
                 title="View logs"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -177,7 +177,7 @@ function ServiceCard({ service }: Props) {
               <button
                 onClick={(e) => { e.stopPropagation(); copyConnectCommand(); }}
                 title={connectCopied ? "Copied!" : `Copy: ${cmd}`}
-                className="p-1.5 text-zinc-500 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                className="p-1.5 text-ink-3 hover:text-ok hover:bg-ok-bg rounded-lg transition-colors"
               >
                 {connectCopied ? (
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -199,7 +199,7 @@ function ServiceCard({ service }: Props) {
                 <button
                   onClick={(e) => { e.stopPropagation(); restartService(service.id); }}
                   disabled={isPulling || isStarting}
-                  className="px-2.5 py-1 text-[11px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors disabled:opacity-40"
+                  className="px-2.5 py-1 text-[11px] font-medium text-warn bg-warn-bg hover:bg-warn-bg rounded-lg transition-colors disabled:opacity-40"
                   title="Restart this service"
                 >
                   Restart
@@ -207,7 +207,7 @@ function ServiceCard({ service }: Props) {
                 <button
                   onClick={(e) => { e.stopPropagation(); stopService(service.id); }}
                   disabled={isPulling || isStarting}
-                  className="px-2.5 py-1 text-[11px] font-medium text-zinc-300 bg-white/[0.07] hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-40"
+                  className="px-2.5 py-1 text-[11px] font-medium text-ink-2 bg-white/[0.07] hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-40"
                 >
                   Stop
                 </button>
@@ -215,7 +215,7 @@ function ServiceCard({ service }: Props) {
             ) : (
               <button
                 onClick={(e) => { e.stopPropagation(); startService(service.id); }}
-                className="px-2.5 py-1 text-[11px] font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
+                className="px-2.5 py-1 text-[11px] font-medium text-accent bg-accent-bg hover:bg-accent-bg rounded-lg transition-colors"
               >
                 Start
               </button>
@@ -226,8 +226,8 @@ function ServiceCard({ service }: Props) {
         {/* Progress bar during pull/start */}
         {(isPulling || isStarting) && (
           <div className="mx-3.5 mb-3 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
-            <span className="w-3 h-3 border border-zinc-600 border-t-transparent rounded-full animate-spin shrink-0" />
-            <span className="text-[11px] text-zinc-500">
+            <span className="w-3 h-3 border border-strong border-t-transparent rounded-full animate-spin shrink-0" />
+            <span className="text-[11px] text-ink-3">
               {isPulling ? `Pulling ${service.image}:${service.tag}…` : "Starting container…"}
             </span>
           </div>
@@ -240,7 +240,7 @@ function ServiceCard({ service }: Props) {
             onClick={(e) => { e.stopPropagation(); setLogsOpen(true); }}
           >
             {logs.slice(-2).map((line, i) => (
-              <p key={i} className="text-[10px] font-mono text-zinc-600 leading-4 truncate">
+              <p key={i} className="text-[10px] font-mono text-ink-3 leading-4 truncate">
                 {stripAnsi(line)}
               </p>
             ))}
@@ -251,7 +251,7 @@ function ServiceCard({ service }: Props) {
         {!isActive && (service.volumes ?? []).length > 0 && (
           <div className="mx-3.5 mb-3 flex flex-wrap gap-1">
             {(service.volumes ?? []).map((v, i) => (
-              <span key={i} className="text-[9px] font-mono text-zinc-700 bg-white/[0.03] border border-white/[0.05] px-1.5 py-0.5 rounded truncate max-w-[180px]">
+              <span key={i} className="text-[9px] font-mono text-ink-3 bg-white/[0.03] border border-white/[0.05] px-1.5 py-0.5 rounded truncate max-w-[180px]">
                 {v}
               </span>
             ))}
@@ -262,18 +262,18 @@ function ServiceCard({ service }: Props) {
       {/* Log viewer */}
       {logsOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50">
-          <div className="bg-[#1c1c1e] border border-white/[0.08] rounded-2xl w-[640px] max-h-[80vh] flex flex-col shadow-2xl">
+          <div className="bg-surface-2 border border-white/[0.08] rounded-2xl w-[640px] max-h-[80vh] flex flex-col shadow-2xl">
             <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.06]">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
-              <p className="text-[13px] font-medium text-zinc-100 flex-1">{service.name}</p>
-              <span className="text-[11px] text-zinc-600 font-mono">{service.image}:{service.tag}</span>
+              <p className="text-[13px] font-medium text-ink flex-1">{service.name}</p>
+              <span className="text-[11px] text-ink-3 font-mono">{service.image}:{service.tag}</span>
               <button
                 onClick={() => clearServiceLogs(service.id)}
-                className="text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors ml-2"
+                className="text-[11px] text-ink-3 hover:text-ink-2 transition-colors ml-2"
               >Clear</button>
               <button
                 onClick={() => setLogsOpen(false)}
-                className="ml-2 p-1 text-zinc-600 hover:text-zinc-200 hover:bg-white/[0.06] rounded-md transition-colors"
+                className="ml-2 p-1 text-ink-3 hover:text-ink hover:bg-white/[0.06] rounded-md transition-colors"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -282,11 +282,11 @@ function ServiceCard({ service }: Props) {
             </div>
             <div className="flex-1 overflow-auto p-4 terminal-log-font">
               {logs.length === 0 ? (
-                <p className="text-[12px] text-zinc-600">No logs yet</p>
+                <p className="text-[12px] text-ink-3">No logs yet</p>
               ) : (
                 logs.map((line, i) => (
                   <p key={i} className={`terminal-log-line text-[11px] ${
-                    line.startsWith("[err]") ? "text-red-400/80" : "text-zinc-400"
+                    line.startsWith("[err]") ? "text-red-400/80" : "text-ink-2"
                   }`}>
                     {stripAnsi(line)}
                   </p>

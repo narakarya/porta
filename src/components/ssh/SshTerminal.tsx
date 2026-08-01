@@ -148,7 +148,7 @@ export default function SshTerminal({ sessionId, visible }: Props) {
   return (
     <div
       ref={containerRef}
-      className="h-full w-full bg-[#0d0d0f]"
+      className="h-full w-full bg-surface-0"
       style={{ display: visible ? "block" : "none" }}
       onKeyDown={(e) => e.stopPropagation()}
     />

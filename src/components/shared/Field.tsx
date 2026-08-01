@@ -11,7 +11,7 @@ export default function Field({ label, hint, children }: FieldProps) {
     <div className="flex flex-col gap-1">
       <label className="text-[12px] font-medium text-ink-2">{label}</label>
       {children}
-      {hint && <p className="text-[10px] text-red-400">{hint}</p>}
+      {hint && <p className="text-[10px] text-bad">{hint}</p>}
     </div>
   );
 }

@@ -623,7 +623,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
       >
         {/* Search input */}
         <div className="flex items-center gap-2.5 px-[15px] py-3 border-b-[0.5px] border-white/[0.08]">
-          <span className="text-zinc-500 flex-shrink-0 flex items-center">{ICON.search}</span>
+          <span className="text-ink-3 flex-shrink-0 flex items-center">{ICON.search}</span>
           <input
             spellCheck={false}
             ref={inputRef}
@@ -631,17 +631,17 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search commands..."
-            className="flex-1 bg-transparent text-[14px] text-[#e7e7ea] placeholder-zinc-600 outline-none"
+            className="flex-1 bg-transparent text-[14px] text-[#e7e7ea] placeholder-ink-3 outline-none"
           />
           {query ? (
             <button
               onClick={() => setQuery("")}
-              className="text-[11px] text-zinc-600 hover:text-zinc-400 border-[0.5px] border-white/[0.08] rounded px-1.5 py-px flex-shrink-0"
+              className="text-[11px] text-ink-3 hover:text-ink-2 border-[0.5px] border-white/[0.08] rounded px-1.5 py-px flex-shrink-0"
             >
               clear
             </button>
           ) : (
-            <span className="text-[10px] text-zinc-500 border-[0.5px] border-white/[0.08] rounded px-1.5 py-px flex-shrink-0 select-none">
+            <span className="text-[10px] text-ink-3 border-[0.5px] border-white/[0.08] rounded px-1.5 py-px flex-shrink-0 select-none">
               esc
             </span>
           )}
@@ -650,7 +650,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
         {/* Results */}
         <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1.5">
           {flatItems.length === 0 ? (
-            <div className="px-2 py-6 text-center text-[12px] text-zinc-600">
+            <div className="px-2 py-6 text-center text-[12px] text-ink-3">
               No commands found
             </div>
           ) : (
@@ -658,7 +658,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
               const groupStartIndex = flatItems.indexOf(group.items[0]);
               return (
                 <div key={group.title}>
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-[0.04em] px-[9px] pt-2 pb-[3px] select-none">
+                  <div className="text-[10px] text-ink-3 uppercase tracking-[0.04em] px-[9px] pt-2 pb-[3px] select-none">
                     {group.title}
                   </div>
                   {group.items.map((cmd, i) => {
@@ -678,7 +678,7 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                       >
                         <span
                           className={`flex items-center justify-center w-4 flex-shrink-0 ${
-                            isActive ? "text-blue-300" : "text-ink-2"
+                            isActive ? "text-accent-ink" : "text-ink-2"
                           }`}
                         >
                           {cmd.icon}
@@ -693,12 +693,12 @@ export default function CommandPalette({ onOpenSettings, onShowShortcuts }: Comm
                           />
                         </span>
                         {cmd.hint && !isActive && (
-                          <span className="text-zinc-500 text-[11px] truncate max-w-[120px]">
+                          <span className="text-ink-3 text-[11px] truncate max-w-[120px]">
                             {cmd.hint}
                           </span>
                         )}
                         {isActive && (
-                          <span className="text-[11px] text-zinc-400 flex-shrink-0 leading-none">
+                          <span className="text-[11px] text-ink-2 flex-shrink-0 leading-none">
                             ↵
                           </span>
                         )}

@@ -106,16 +106,16 @@ export default function HostFormModal({ host, onClose }: Props) {
   ].filter(Boolean) as string[];
 
   const field =
-    "bg-[#111113] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500/60 transition-colors";
-  const legend = "text-[10px] uppercase tracking-wide text-zinc-600 mb-1.5";
+    "bg-surface-input border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 outline-none focus:border-[var(--accent)] transition-colors";
+  const legend = "text-[10px] uppercase tracking-wide text-ink-3 mb-1.5";
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="w-96 max-h-[85vh] overflow-y-auto p-4 bg-[#1a1a1c] border border-white/[0.08] rounded-xl space-y-4"
+        className="w-96 max-h-[85vh] overflow-y-auto p-4 bg-surface-2 border border-white/[0.08] rounded-xl space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-[14px] text-zinc-100 font-semibold">{host ? "Edit host" : "Add host"}</div>
+        <div className="text-[14px] text-ink font-semibold">{host ? "Edit host" : "Add host"}</div>
 
         {/* Connection */}
         <div>
@@ -145,14 +145,14 @@ export default function HostFormModal({ host, onClose }: Props) {
                 <button
                   type="button"
                   onClick={browseKey}
-                  className="shrink-0 px-3 text-[12px] text-zinc-300 bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.08] rounded-lg transition-colors"
+                  className="shrink-0 px-3 text-[12px] text-ink-2 bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.08] rounded-lg transition-colors"
                 >
                   Browse…
                 </button>
               </div>
             )}
             {authKind === "password" && (
-              <p className="text-[11px] text-zinc-600">Password is asked at connect and never stored (unless you tick “remember”).</p>
+              <p className="text-[11px] text-ink-3">Password is asked at connect and never stored (unless you tick “remember”).</p>
             )}
           </div>
         </div>
@@ -167,28 +167,28 @@ export default function HostFormModal({ host, onClose }: Props) {
                 onClick={() => setWsOpen((v) => !v)}
                 className={`${field} w-full flex items-center justify-between text-left`}
               >
-                <span className={workspaceIds.length ? "text-zinc-200" : "text-zinc-600"}>
+                <span className={workspaceIds.length ? "text-ink" : "text-ink-3"}>
                   {workspaceIds.length === 0
                     ? "None (global)"
                     : workspaceIds.length <= 2
                       ? workspaceIds.map((id) => wsName.get(id) ?? "?").join(", ")
                       : `${workspaceIds.length} selected`}
                 </span>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-500 shrink-0">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-ink-3 shrink-0">
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
               {wsOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setWsOpen(false)} />
-                  <div className="absolute left-0 right-0 mt-1 z-50 bg-[#151517] border border-white/[0.1] rounded-lg shadow-xl overflow-hidden">
+                  <div className="absolute left-0 right-0 mt-1 z-50 bg-surface-1 border border-white/[0.1] rounded-lg shadow-xl overflow-hidden">
                     {workspaces.length > 6 && (
                       <input
                         autoFocus
                         value={wsQuery}
                         onChange={(e) => setWsQuery(e.target.value)}
                         placeholder="Filter…"
-                        className="w-full px-3 py-1.5 text-[12px] bg-transparent border-b border-white/[0.06] text-zinc-200 placeholder:text-zinc-600 outline-none"
+                        className="w-full px-3 py-1.5 text-[12px] bg-transparent border-b border-white/[0.06] text-ink placeholder:text-ink-3 outline-none"
                       />
                     )}
                     <div className="max-h-52 overflow-y-auto p-1">
@@ -199,11 +199,11 @@ export default function HostFormModal({ host, onClose }: Props) {
                             key={w.id}
                             type="button"
                             onClick={() => toggleWorkspace(w.id)}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] rounded-md text-zinc-200 hover:bg-white/[0.05] transition-colors"
+                            className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] rounded-md text-ink hover:bg-white/[0.05] transition-colors"
                           >
                             <span
                               className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${
-                                on ? "bg-blue-500 border-blue-500" : "border-white/[0.2]"
+                                on ? "bg-accent border-[var(--accent)]" : "border-white/[0.2]"
                               }`}
                             >
                               {on && (
@@ -216,7 +216,7 @@ export default function HostFormModal({ host, onClose }: Props) {
                           </button>
                         );
                       })}
-                      {wsFiltered.length === 0 && <div className="px-2 py-2 text-[12px] text-zinc-600">No match</div>}
+                      {wsFiltered.length === 0 && <div className="px-2 py-2 text-[12px] text-ink-3">No match</div>}
                     </div>
                   </div>
                 </>
@@ -226,8 +226,8 @@ export default function HostFormModal({ host, onClose }: Props) {
         )}
 
         {saveError && (
-          <div className="px-2.5 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-            <p className="text-[11px] text-red-400 break-words">{saveError}</p>
+          <div className="px-2.5 py-2 bg-bad-bg border border-[var(--danger-border)] rounded-lg">
+            <p className="text-[11px] text-bad break-words">{saveError}</p>
           </div>
         )}
 
@@ -235,16 +235,16 @@ export default function HostFormModal({ host, onClose }: Props) {
           {/* Say *why* Save is inert — a silently disabled button reads as a
               broken feature. */}
           {missing.length > 0 && (
-            <p className="text-[11px] text-zinc-600 flex-1 min-w-0">Fill in {missing.join(", ")}</p>
+            <p className="text-[11px] text-ink-3 flex-1 min-w-0">Fill in {missing.join(", ")}</p>
           )}
           <button
-            className="ml-auto px-3 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="ml-auto px-3 py-1.5 text-[12px] text-ink-2 hover:text-ink transition-colors"
             onClick={onClose}
           >
             Cancel
           </button>
           <button
-            className="px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-40 transition-colors"
+            className="px-3 py-1.5 text-[12px] font-medium bg-accent hover:bg-accent text-white rounded-lg disabled:opacity-40 transition-colors"
             disabled={missing.length > 0 || saving}
             onClick={save}
           >

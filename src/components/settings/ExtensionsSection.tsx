@@ -192,7 +192,7 @@ export default function ExtensionsSection() {
           <button
             onClick={handleUpdateAll}
             disabled={!!updatingAll || !!updatingId}
-            className="shrink-0 px-3 py-1.5 rounded-control text-[12px] font-medium bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.2)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="shrink-0 px-3 py-1.5 rounded-control text-[12px] font-medium bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={`Re-fetch every extension installed from a remote source (${updatableCount})`}
           >
             {updatingAll
@@ -263,7 +263,7 @@ export default function ExtensionsSection() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-bad-bg border border-[rgba(248,113,113,0.2)]">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-bad-bg border border-[var(--danger-border)]">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-bad mt-0.5 shrink-0">
             <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M6 3.5v3M6 8.5v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -273,7 +273,7 @@ export default function ExtensionsSection() {
       )}
 
       {notice && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-ok-bg border border-[rgba(52,211,153,0.2)]">
+        <div className="flex items-start gap-2 px-3 py-2 rounded-control bg-ok-bg border border-[var(--success-border)]">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-ok mt-0.5 shrink-0">
             <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M4 6l1.5 1.5L8.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -349,7 +349,7 @@ export default function ExtensionsSection() {
                 if (e.key === "Escape") setEditingSource(null);
               }}
               placeholder="owner/repo or https://github.com/owner/repo"
-              className="w-full px-3 py-2 rounded-control bg-white/[0.05] border border-subtle text-[12px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-[rgba(96,165,250,0.5)]"
+              className="w-full px-3 py-2 rounded-control bg-white/[0.05] border border-subtle text-[12px] text-ink placeholder:text-ink-3 focus:outline-none focus:border-[var(--accent)]"
             />
             <div className="flex gap-2 justify-between">
               <button
@@ -367,7 +367,7 @@ export default function ExtensionsSection() {
                 </button>
                 <button
                   onClick={handleSaveSource}
-                  className="px-3 py-1.5 rounded-control text-[12px] bg-accent-bg hover:bg-[rgba(96,165,250,0.24)] text-accent-ink border border-[rgba(96,165,250,0.2)] transition-colors"
+                  className="px-3 py-1.5 rounded-control text-[12px] bg-accent-bg hover:bg-[var(--accent-border)] text-accent-ink border border-[var(--accent-border)] transition-colors"
                 >
                   Save source
                 </button>
@@ -396,7 +396,7 @@ export default function ExtensionsSection() {
               </button>
               <button
                 onClick={() => handleUninstall(confirmUninstall)}
-                className="px-3 py-1.5 rounded-control text-[12px] bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[rgba(248,113,113,0.2)] transition-colors"
+                className="px-3 py-1.5 rounded-control text-[12px] bg-bad-bg hover:bg-[rgba(248,113,113,0.24)] text-bad border border-[var(--danger-border)] transition-colors"
               >
                 Uninstall
               </button>
@@ -430,7 +430,7 @@ function ExtensionCard({
         : "bg-transparent border-subtle opacity-60"
     }`}>
       {/* Puzzle piece icon */}
-      <div className="w-8 h-8 rounded-control bg-accent-bg border border-[rgba(96,165,250,0.2)] flex items-center justify-center shrink-0">
+      <div className="w-8 h-8 rounded-control bg-accent-bg border border-[var(--accent-border)] flex items-center justify-center shrink-0">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-accent-ink">
           <path d="M5.5 2h3v1.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5V2H12a1 1 0 0 1 1 1v1.5h-1.5C10.7 4.5 10 5.2 10 6s.7 1.5 1.5 1.5H13V9a1 1 0 0 1-1 1h-1.5v-1.5C10.5 7.7 9.8 7 9 7s-1.5.7-1.5 1.5V10H6a1 1 0 0 1-1-1V7.5H3.5C2.7 7.5 2 6.8 2 6s.7-1.5 1.5-1.5H5V3a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
         </svg>
@@ -488,7 +488,7 @@ function ExtensionCard({
           onClick={() => onToggle(ext.id, !ext.enabled)}
           className={`relative w-8 h-4.5 rounded-full border transition-colors ${
             ext.enabled
-              ? "bg-accent-bg border-[rgba(96,165,250,0.4)]"
+              ? "bg-accent-bg border-[var(--accent-border)]"
               : "bg-white/[0.06] border-strong"
           }`}
           title={ext.enabled ? "Disable" : "Enable"}

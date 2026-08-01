@@ -1,9 +1,9 @@
 import type { PaneSession } from "../../store/slices/terminal";
 
 const DOT: Record<PaneSession["state"], string> = {
-  idle: "bg-zinc-600",
-  running: "bg-emerald-400",
-  exited: "bg-amber-400",
+  idle: "bg-ink-3",
+  running: "bg-ok",
+  exited: "bg-warn",
 };
 
 interface Props {
@@ -41,7 +41,7 @@ export default function TerminalStatusBar({
         : "idle";
 
   return (
-    <div className="flex items-center gap-3 px-3 py-1 border-t border-subtle shrink-0 font-mono text-[10px] text-zinc-500">
+    <div className="flex items-center gap-3 px-3 py-1 border-t border-subtle shrink-0 font-mono text-[10px] text-ink-3">
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${DOT[pane.state]}`} aria-hidden />
       <span>{label}</span>
       {/* Only the command name — never a "zsh" fallback. The tab label
@@ -53,7 +53,7 @@ export default function TerminalStatusBar({
       {pane.state === "exited" && (
         <button
           onClick={onRestart}
-          className="px-1.5 rounded text-zinc-400 hover:text-ink hover:bg-white/[0.06] transition-colors"
+          className="px-1.5 rounded text-ink-2 hover:text-ink hover:bg-white/[0.06] transition-colors"
         >
           Restart
         </button>
@@ -68,7 +68,7 @@ export default function TerminalStatusBar({
           className={`px-1.5 rounded transition-colors ${
             killEscalated
               ? "text-bad hover:bg-bad-bg"
-              : "text-zinc-400 hover:text-ink hover:bg-white/[0.06]"
+              : "text-ink-2 hover:text-ink hover:bg-white/[0.06]"
           }`}
         >
           {killEscalated ? "Force kill" : "Kill"}

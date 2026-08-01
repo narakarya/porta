@@ -114,7 +114,7 @@ function ModePill({ children, tone = "neutral" }: { children: string; tone?: "ne
     <span
       className={`rounded-[5px] border px-1.5 py-px text-[9px] leading-4 ${
         tone === "accent"
-          ? "border-[rgba(96,165,250,0.20)] bg-accent-bg text-accent-ink"
+          ? "border-[var(--accent-border)] bg-accent-bg text-accent-ink"
           : "border-subtle bg-white/[0.03] text-ink-3"
       }`}
     >
@@ -309,7 +309,7 @@ export default function AppAccessPopover({
            in Config, copy on the Overview details card. Disabled rather than
            hidden so the header doesn't reflow the moment an app starts. */
         <span
-          className={`inline-flex self-center overflow-hidden rounded-control border border-[rgba(96,165,250,0.30)] ${
+          className={`inline-flex self-center overflow-hidden rounded-control border border-[var(--accent-border)] ${
             offline ? "opacity-45" : ""
           }`}
           title={offline ? "App is not running" : undefined}
@@ -319,7 +319,7 @@ export default function AppAccessPopover({
             onClick={() => void openExternalUrl(primaryUrl)}
             disabled={offline}
             title={offline ? undefined : `Open ${primaryUrl}`}
-            className="inline-flex items-center gap-1.5 bg-accent-bg px-2.5 py-[5px] text-[12px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
+            className="inline-flex items-center gap-1.5 bg-accent-bg px-2.5 py-[5px] text-[12px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[var(--accent-border)] disabled:pointer-events-none"
           >
             <ArrowSquareOut size={14} weight="regular" />
             Open
@@ -332,7 +332,7 @@ export default function AppAccessPopover({
             aria-label="Open app access"
             aria-haspopup="menu"
             aria-expanded={open}
-            className="inline-flex items-center gap-1.5 border-l border-[rgba(96,165,250,0.30)] bg-accent-bg px-2 py-[5px] text-[11px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
+            className="inline-flex items-center gap-1.5 border-l border-[var(--accent-border)] bg-accent-bg px-2 py-[5px] text-[11px] font-medium text-accent-ink transition-colors duration-fast hover:bg-[var(--accent-border)] disabled:pointer-events-none"
           >
             <Globe size={14} weight="regular" />
             <span
@@ -351,7 +351,7 @@ export default function AppAccessPopover({
             aria-label="App access options"
             aria-haspopup="menu"
             aria-expanded={open}
-            className="inline-flex items-center border-l border-[rgba(96,165,250,0.30)] bg-accent-bg px-[7px] text-accent-ink transition-colors duration-fast hover:bg-[rgba(96,165,250,0.24)] disabled:pointer-events-none"
+            className="inline-flex items-center border-l border-[var(--accent-border)] bg-accent-bg px-[7px] text-accent-ink transition-colors duration-fast hover:bg-[var(--accent-border)] disabled:pointer-events-none"
           >
             <CaretDown size={13} weight="bold" />
           </button>
@@ -534,7 +534,7 @@ export default function AppAccessPopover({
           )}
 
           {!providerIsCloudflare && tunnelHasUrl && (
-            <p className="mt-4 rounded-[7px] border border-[rgba(251,191,36,0.20)] bg-warn-bg px-2.5 py-2 text-[10px] leading-4 text-warn">
+            <p className="mt-4 rounded-[7px] border border-[var(--warning-border)] bg-warn-bg px-2.5 py-2 text-[10px] leading-4 text-warn">
               {PROVIDER_LABEL[provider] ?? provider} is currently live. Disconnect it before switching to Quick or Named.
             </p>
           )}

@@ -136,11 +136,11 @@ export default function TailscaleSection() {
       </div>
 
       {error && (
-        <div className="relative px-3 py-2 pr-14 rounded-card bg-bad-bg border border-[rgba(248,113,113,0.3)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
+        <div className="relative px-3 py-2 pr-14 rounded-card bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
           {error}
           <button
             onClick={() => setError(null)}
-            className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] rounded-control bg-[rgba(248,113,113,0.2)] hover:bg-[rgba(248,113,113,0.3)] text-bad"
+            className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] rounded-control bg-[var(--danger-border)] hover:bg-[var(--danger-border)] text-bad"
           >
             Dismiss
           </button>
@@ -149,7 +149,7 @@ export default function TailscaleSection() {
 
       {/* Install state */}
       {status && !status.installed && (
-        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-[rgba(251,191,36,0.06)] border border-[rgba(251,191,36,0.2)]">
+        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-[rgba(251,191,36,0.06)] border border-[var(--warning-border)]">
           <p className="text-[12px] text-warn">Tailscale not found.</p>
           <p className="text-[11px] text-warn leading-relaxed">
             Download from <span className="font-mono">tailscale.com/download</span> or install via Homebrew:
@@ -160,7 +160,7 @@ export default function TailscaleSection() {
             </code>
             <button
               onClick={() => copyCmd("brew install tailscale")}
-              className="px-2.5 py-1.5 text-[10px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn transition-colors"
+              className="px-2.5 py-1.5 text-[10px] font-medium rounded-control bg-warn-bg hover:bg-[var(--warning-border)] text-warn transition-colors"
               style={{ color: copiedCmd === "brew install tailscale" ? "#a3e635" : undefined }}
             >
               {copiedCmd === "brew install tailscale" ? "Copied!" : "Copy"}
@@ -169,7 +169,7 @@ export default function TailscaleSection() {
           <button
             onClick={() => refresh(true)}
             disabled={loading}
-            className="self-start flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn disabled:opacity-60 disabled:cursor-not-allowed"
+            className="self-start flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[var(--warning-border)] text-warn disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
               <Spinner size={10} />
@@ -186,7 +186,7 @@ export default function TailscaleSection() {
 
       {/* Login state */}
       {status && status.installed && (!status.running || !status.logged_in) && (
-        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-[rgba(251,191,36,0.06)] border border-[rgba(251,191,36,0.2)]">
+        <div className="flex flex-col gap-3 px-3 py-3 rounded-card bg-[rgba(251,191,36,0.06)] border border-[var(--warning-border)]">
           <p className="text-[12px] text-warn">
             {!status.running ? "Tailscale daemon not running." : "Not logged in."}
           </p>
@@ -196,7 +196,7 @@ export default function TailscaleSection() {
             </code>
             <button
               onClick={() => copyCmd("tailscale up")}
-              className="px-2.5 py-1.5 text-[10px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn transition-colors"
+              className="px-2.5 py-1.5 text-[10px] font-medium rounded-control bg-warn-bg hover:bg-[var(--warning-border)] text-warn transition-colors"
               style={{ color: copiedCmd === "tailscale up" ? "#a3e635" : undefined }}
             >
               {copiedCmd === "tailscale up" ? "Copied!" : "Copy"}
@@ -205,7 +205,7 @@ export default function TailscaleSection() {
           <button
             onClick={() => refresh(true)}
             disabled={loading}
-            className="self-start flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[rgba(251,191,36,0.25)] text-warn disabled:opacity-60 disabled:cursor-not-allowed"
+            className="self-start flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-control bg-warn-bg hover:bg-[var(--warning-border)] text-warn disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
               <Spinner size={10} />
@@ -226,7 +226,7 @@ export default function TailscaleSection() {
 
       {/* Connected state */}
       {status && status.installed && status.running && status.logged_in && (
-        <div className="flex items-center justify-between px-3 py-2 rounded-card bg-ok-bg border border-[rgba(52,211,153,0.2)]">
+        <div className="flex items-center justify-between px-3 py-2 rounded-card bg-ok-bg border border-[var(--success-border)]">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-ok" />
             <span className="text-[11px] text-ok">
@@ -284,7 +284,7 @@ export default function TailscaleSection() {
           <button
             onClick={handleStopAllPorta}
             disabled={stoppingAll}
-            className="shrink-0 px-3 py-1.5 text-[11px] font-medium bg-warn-bg hover:bg-[rgba(251,191,36,0.2)] text-warn rounded-control disabled:opacity-50 transition-colors"
+            className="shrink-0 px-3 py-1.5 text-[11px] font-medium bg-warn-bg hover:bg-[var(--warning-border)] text-warn rounded-control disabled:opacity-50 transition-colors"
           >
             {stoppingAll ? "Stopping…" : "Stop all"}
           </button>
@@ -293,7 +293,7 @@ export default function TailscaleSection() {
 
       {/* Reset all — destructive escape hatch */}
       {status?.installed && serves.length > 0 && (
-        <div className="flex flex-col gap-2 p-3 rounded-card bg-[rgba(248,113,113,0.04)] border border-[rgba(248,113,113,0.2)] mt-2">
+        <div className="flex flex-col gap-2 p-3 rounded-card bg-[rgba(248,113,113,0.04)] border border-[var(--danger-border)] mt-2">
           <p className="text-[11px] font-medium text-bad">Reset all serves</p>
           <p className="text-[10px] text-ink-3 leading-relaxed">
             Removes every Tailscale Serve and Funnel entry on this machine — including any you set up outside of Porta.
@@ -301,7 +301,7 @@ export default function TailscaleSection() {
           {!confirmReset ? (
             <button
               onClick={() => setConfirmReset(true)}
-              className="self-start px-3 py-1.5 text-[11px] font-medium bg-bad-bg hover:bg-[rgba(248,113,113,0.2)] text-bad rounded-control transition-colors"
+              className="self-start px-3 py-1.5 text-[11px] font-medium bg-bad-bg hover:bg-[var(--danger-border)] text-bad rounded-control transition-colors"
             >
               Reset all…
             </button>

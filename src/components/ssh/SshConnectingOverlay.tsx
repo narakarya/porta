@@ -87,7 +87,7 @@ export default function SshConnectingOverlay({ session }: { session: SshSession 
         : step.label;
 
   return (
-    <div className="h-full w-full flex items-center justify-center bg-[#0d0d0f] select-none">
+    <div className="h-full w-full flex items-center justify-center bg-surface-0 select-none">
       <div className="w-[264px] flex flex-col items-center text-center">
         {/* Identity — OS badge with a breathing ring, then label + address. */}
         <div className="relative w-12 h-12 flex items-center justify-center">
