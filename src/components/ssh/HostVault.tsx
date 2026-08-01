@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePortaStore } from "../../store";
 import type { SshHost } from "../../lib/commands";
 import HostFormModal from "./HostFormModal";
+import ImportConfigModal from "./ImportConfigModal";
 import { OsIcon } from "./OsIcon";
 import { Spinner } from "../ui";
 import { SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
@@ -26,6 +27,7 @@ export default function HostVault() {
   const [wsQuery, setWsQuery] = useState("");
   const [editing, setEditing] = useState<SshHost | null>(null);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null); // right-click context menu
   const filterRef = useRef<HTMLDivElement | null>(null);
 
@@ -318,6 +320,14 @@ export default function HostVault() {
           Workspaces "Add App" button. */}
       <SidebarFooter>
         <SidebarAddButton label="Add host" onClick={() => setAdding(true)} />
+        {/* Import sits under Add rather than replacing it: on an empty vault it
+            is the faster path, but it must never look like the only one. */}
+        <button
+          onClick={() => setImporting(true)}
+          className="w-full mt-1 px-2 py-1 text-[11px] text-ink-3 hover:text-ink-2 transition-colors"
+        >
+          Import from ~/.ssh/config
+        </button>
       </SidebarFooter>
 
       {/* Right-click / ⋯ context menu — single instance, cursor-anchored. */}
@@ -361,6 +371,7 @@ export default function HostVault() {
 
       {adding && <HostFormModal onClose={() => setAdding(false)} />}
       {editing && <HostFormModal host={editing} onClose={() => setEditing(null)} />}
+      {importing && <ImportConfigModal onClose={() => setImporting(false)} />}
     </>
   );
 }

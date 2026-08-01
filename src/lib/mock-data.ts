@@ -3,7 +3,7 @@
  * Only used when `window.__TAURI_INTERNALS__` is absent.
  */
 import type { App, Workspace, Service, SetupStatus, DetectResult } from "../types";
-import type { AppInstance, SshHost } from "./commands";
+import type { AppInstance, SshConfigCandidate, SshHost } from "./commands";
 
 export const mockWorkspaces: Workspace[] = [
   { id: "ws-1", name: "Narakarya", domain: "narakarya.test", deployment: null },
@@ -509,6 +509,39 @@ export const mockSshHosts: SshHost[] = [
     last_used_at: 1_751_000_000,
     workspace_ids: [],
     detected_os: null,
+  },
+];
+
+/** Browser-dev stand-in for a `~/.ssh/config` scan. `prod-web` is deliberately
+ *  a duplicate of `mockSshHosts[0]` so the import modal's already-in-vault
+ *  state is reachable without a real config file. */
+export const mockSshConfigCandidates: SshConfigCandidate[] = [
+  {
+    alias: "prod-web",
+    hostname: "web.narakarya.id",
+    port: 22,
+    username: "deploy",
+    identity_file: null,
+    proxy_jump: null,
+    already_in_vault: true,
+  },
+  {
+    alias: "bastion",
+    hostname: "bastion.narakarya.id",
+    port: 22,
+    username: "jump",
+    identity_file: "~/.ssh/id_ed25519",
+    proxy_jump: null,
+    already_in_vault: false,
+  },
+  {
+    alias: "analytics",
+    hostname: "10.20.0.14",
+    port: 22,
+    username: "ubuntu",
+    identity_file: "~/.ssh/id_analytics",
+    proxy_jump: "bastion",
+    already_in_vault: false,
   },
 ];
 

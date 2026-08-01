@@ -10,6 +10,7 @@ export default function HostFormModal({ host, onClose }: Props) {
   const addSshHost = usePortaStore((s) => s.addSshHost);
   const updateSshHost = usePortaStore((s) => s.updateSshHost);
   const workspaces = usePortaStore((s) => s.workspaces);
+  const hosts = usePortaStore((s) => s.sshHosts);
 
   const [label, setLabel] = useState(host?.label ?? "");
   const [hostname, setHostname] = useState(host?.hostname ?? "");
@@ -17,6 +18,7 @@ export default function HostFormModal({ host, onClose }: Props) {
   const [username, setUsername] = useState(host?.username ?? "");
   const [authKind, setAuthKind] = useState<SshAuth["kind"]>(host?.auth.kind ?? "agent");
   const [keyPath, setKeyPath] = useState(host?.auth.kind === "key_file" ? host.auth.path : "");
+  const [jumpHostId, setJumpHostId] = useState<string>(host?.jump_host_id ?? "");
   const [workspaceIds, setWorkspaceIds] = useState<string[]>(host?.workspace_ids ?? []);
   const [wsOpen, setWsOpen] = useState(false);
   const [wsQuery, setWsQuery] = useState("");
@@ -31,6 +33,26 @@ export default function HostFormModal({ host, onClose }: Props) {
     () => workspaces.filter((w) => w.name.toLowerCase().includes(wsQuery.toLowerCase())),
     [workspaces, wsQuery]
   );
+
+  // A host can't jump through itself, nor through anything whose own chain
+  // already routes back here. The backend rejects those loops at connect time;
+  // leaving them in the picker just lets the user save a host that can never
+  // connect.
+  const jumpCandidates = useMemo(() => {
+    if (!host) return hosts;
+    const byId = new Map(hosts.map((h) => [h.id, h]));
+    const reachesSelf = (start: string) => {
+      const seen = new Set<string>();
+      let cur: string | null = start;
+      while (cur && !seen.has(cur)) {
+        if (cur === host.id) return true;
+        seen.add(cur);
+        cur = byId.get(cur)?.jump_host_id ?? null;
+      }
+      return false;
+    };
+    return hosts.filter((h) => !reachesSelf(h.id));
+  }, [hosts, host]);
 
   function toggleWorkspace(id: string) {
     setWorkspaceIds((prev) => (prev.includes(id) ? prev.filter((w) => w !== id) : [...prev, id]));
@@ -80,7 +102,7 @@ export default function HostFormModal({ host, onClose }: Props) {
       port: Number(port) || 22,
       username,
       auth,
-      jump_host_id: host?.jump_host_id ?? null,
+      jump_host_id: jumpHostId || null,
       created_at: host?.created_at ?? 0,
       last_used_at: host?.last_used_at ?? null,
       workspace_ids: workspaceIds,
@@ -129,6 +151,31 @@ export default function HostFormModal({ host, onClose }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Jump host — only meaningful once there's another host to hop through. */}
+        {jumpCandidates.length > 0 && (
+          <div>
+            <div className={legend}>Jump host</div>
+            <select
+              className={`${field} w-full`}
+              value={jumpHostId}
+              onChange={(e) => setJumpHostId(e.target.value)}
+            >
+              <option value="">Connect directly</option>
+              {jumpCandidates.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.label} ({h.username}@{h.hostname})
+                </option>
+              ))}
+            </select>
+            {jumpHostId && (
+              <p className="text-[11px] text-ink-3 mt-1.5">
+                Porta tunnels through this host first, the same way OpenSSH's ProxyJump does. Chains
+                are followed, so the jump host may have a jump host of its own.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Authentication */}
         <div>

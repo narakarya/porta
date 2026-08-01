@@ -83,6 +83,72 @@ pub fn auth_plan(auth: &SshAuth, agent_available: bool) -> Vec<AuthAttempt> {
     plan
 }
 
+/// How many `ProxyJump` hops we will follow before giving up. OpenSSH has no
+/// hard limit, but a chain this deep is far more likely to be a misconfigured
+/// loop than a real topology — and each hop costs a full handshake.
+const MAX_JUMPS: usize = 8;
+
+/// Shared client config for every hop.
+///
+/// `keepalive_interval` is the reason this exists: with russh's default
+/// (`None`) a laptop that sleeps or roams between networks leaves a session
+/// that looks alive — the pump never sees `Eof`, keystrokes vanish into a dead
+/// socket, and the row keeps its green dot. Pinging every 30s with a 3-strike
+/// budget turns that into a real `exit` event within ~90s, which the retry path
+/// in the store can then act on.
+fn client_config() -> Arc<russh::client::Config> {
+    Arc::new(russh::client::Config {
+        keepalive_interval: Some(std::time::Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..Default::default()
+    })
+}
+
+/// Resolve `host`'s ProxyJump chain into connect order: outermost bastion
+/// first, `host` itself last. A chain that loops or runs past [`MAX_JUMPS`] is
+/// an error rather than a hang — `jump_host_id` is user-editable and nothing
+/// stops A→B→A.
+fn resolve_chain(
+    host: &SshHost,
+    db: &Arc<std::sync::Mutex<Database>>,
+) -> Result<Vec<SshHost>, String> {
+    let mut chain = vec![host.clone()];
+    let mut seen = std::collections::HashSet::from([host.id.clone()]);
+    let mut next = host.jump_host_id.clone();
+
+    while let Some(id) = next {
+        if !seen.insert(id.clone()) {
+            return Err(format!(
+                "Jump host chain for \"{}\" loops back on itself. Fix the Jump host field on one \
+                 of the hosts in the loop.",
+                host.label
+            ));
+        }
+        if chain.len() > MAX_JUMPS {
+            return Err(format!(
+                "Jump host chain for \"{}\" is more than {MAX_JUMPS} hops deep.",
+                host.label
+            ));
+        }
+        let jump = db
+            .lock_or_recover()
+            .get_ssh_host(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                format!(
+                    "Jump host for \"{}\" no longer exists — it was deleted from the vault. Edit \
+                     the host and pick another, or clear the Jump host field.",
+                    chain.last().map(|h| h.label.as_str()).unwrap_or(&host.label)
+                )
+            })?;
+        next = jump.jump_host_id.clone();
+        chain.push(jump);
+    }
+
+    chain.reverse();
+    Ok(chain)
+}
+
 /// Commands sent from the manager to a live session's read/write pump.
 enum ChannelCmd {
     Data(Vec<u8>),
@@ -309,43 +375,26 @@ impl SshManager {
         Ok(false)
     }
 
-    /// Connect, run the host-key + auth gates, open a shell, and spawn the pump.
-    pub async fn connect(
+    /// Run the host-key gate and the auth ladder against one hop's transport.
+    /// Returns the hop's server key type (the target's feeds the `connected`
+    /// payload). `hop` names the host being gated when the session is going
+    /// through a jump chain, so the overlay can say *which* box is prompting.
+    #[allow(clippy::too_many_arguments)]
+    async fn gate_and_auth(
         &self,
-        app: AppHandle,
-        session_id: String,
-        host: SshHost,
-        db: Arc<std::sync::Mutex<Database>>,
-    ) -> Result<(), String> {
-        Self::emit(&app, &session_id, "status", serde_json::json!({ "phase": "connecting" }));
-
-        // 1. TCP + SSH handshake with a handler that records the server key.
-        let config = Arc::new(russh::client::Config::default());
-        let captured = Arc::new(std::sync::Mutex::new(None::<(String, String)>));
-        let handler = CaptureHandler {
-            captured: captured.clone(),
-        };
-        let mut handle = russh::client::connect(
-            config,
-            (host.hostname.as_str(), host.port),
-            handler,
-        )
-        .await
-        .map_err(|e| {
-            Self::emit(&app, &session_id, "status", serde_json::json!({ "phase": "error" }));
-            format!("connect: {e}")
-        })?;
-
-        // 2. Host-key gate. Extract owned values so no DB guard crosses an await.
+        app: &AppHandle,
+        session_id: &str,
+        handle: &mut russh::client::Handle<CaptureHandler>,
+        host: &SshHost,
+        db: &Arc<std::sync::Mutex<Database>>,
+        captured: &Arc<std::sync::Mutex<Option<(String, String)>>>,
+        hop: Option<&str>,
+    ) -> Result<String, String> {
+        // Host-key gate. Extract owned values so no DB guard crosses an await.
         // The frontend renders one step per phase, so every gate that can block
         // (host key, auth, shell) announces itself before it starts — otherwise a
         // host parked on the trust prompt looks identical to a stalled handshake.
-        Self::emit(
-            &app,
-            &session_id,
-            "status",
-            serde_json::json!({ "phase": "verifying" }),
-        );
+        Self::emit(app, session_id, "status", phase("verifying", hop));
         let (fingerprint, key_type) = captured
             .lock()
             .unwrap()
@@ -362,29 +411,30 @@ impl SshManager {
             HostKeyVerdict::Trusted => {}
             HostKeyVerdict::Mismatch => {
                 Self::emit(
-                    &app,
-                    &session_id,
+                    app,
+                    session_id,
                     "host-key-changed",
-                    serde_json::json!({ "fingerprint": fingerprint }),
+                    serde_json::json!({ "fingerprint": fingerprint, "hostname": host.hostname }),
                 );
-                return Err("host key changed".into());
+                return Err(format!("host key changed for {}", host.hostname));
             }
             HostKeyVerdict::Unknown => {
                 let (tx, rx) = oneshot::channel();
                 {
                     let mut map = self.sessions.lock().await;
-                    map.entry(session_id.clone())
+                    map.entry(session_id.to_string())
                         .or_insert_with(placeholder_session)
                         .trust_tx = Some(tx);
                 }
                 Self::emit(
-                    &app,
-                    &session_id,
+                    app,
+                    session_id,
                     "trust-request",
                     serde_json::json!({
                         "fingerprint": fingerprint,
                         "hostname": host.hostname,
                         "key_type": key_type,
+                        "hop": hop,
                     }),
                 );
                 let ok = rx.await.map_err(|_| "trust request cancelled".to_string())?;
@@ -406,13 +456,8 @@ impl SshManager {
             }
         }
 
-        // 3. Authenticate per auth_plan() ordering.
-        Self::emit(
-            &app,
-            &session_id,
-            "status",
-            serde_json::json!({ "phase": "authenticating" }),
-        );
+        // Authenticate per auth_plan() ordering.
+        Self::emit(app, session_id, "status", phase("authenticating", hop));
         let agent_available = std::env::var_os("SSH_AUTH_SOCK").is_some();
         let plan = auth_plan(&host.auth, agent_available);
         // `auth_plan(Agent, false)` is empty by design — but running zero
@@ -423,10 +468,10 @@ impl SshManager {
                        unset). Load a key with `ssh-add`, or switch this host to a key file or \
                        password.";
             Self::emit(
-                &app,
-                &session_id,
+                app,
+                session_id,
                 "auth-failed",
-                serde_json::json!({ "message": msg }),
+                serde_json::json!({ "message": msg, "hop": hop }),
             );
             return Err(msg.into());
         }
@@ -442,14 +487,12 @@ impl SshManager {
         let mut authed = false;
         for attempt in plan {
             let ok = match attempt {
-                AuthAttempt::Agent => try_agent_auth(&mut handle, &host.username).await,
+                AuthAttempt::Agent => try_agent_auth(handle, &host.username).await,
                 AuthAttempt::KeyFile(path) => {
-                    self.try_key_auth(&app, &session_id, &mut handle, &host, &path)
-                        .await?
+                    self.try_key_auth(app, session_id, handle, host, &path).await?
                 }
                 AuthAttempt::Password => {
-                    self.try_password_auth(&app, &session_id, &mut handle, &host)
-                        .await?
+                    self.try_password_auth(app, session_id, handle, host).await?
                 }
             };
             if ok {
@@ -462,18 +505,126 @@ impl SshManager {
             // username as readily as the credential, and a bare "auth failed"
             // gives no way to tell those apart.
             let msg = format!(
-                "Authentication failed for user \"{}\" (tried: {tried}). Check the username and \
+                "Authentication failed for user \"{}\"{} (tried: {tried}). Check the username and \
                  that the server accepts this credential.",
-                host.username
+                host.username,
+                hop.map(|h| format!(" on {h}")).unwrap_or_default()
             );
             Self::emit(
-                &app,
-                &session_id,
+                app,
+                session_id,
                 "auth-failed",
-                serde_json::json!({ "message": msg }),
+                serde_json::json!({ "message": msg, "hop": hop }),
             );
             return Err(msg);
         }
+
+        Ok(key_type)
+    }
+
+    /// Build the transport for `host`, hopping through its `ProxyJump` chain.
+    ///
+    /// Returns the authenticated handle for `host`, the handles of every
+    /// intermediate hop, and the target's server key type. The intermediate
+    /// handles are not optional bookkeeping: each one owns the transport the
+    /// *next* hop's tunnel rides on, so dropping one collapses the chain. The
+    /// caller parks them in the pump task for the session's lifetime.
+    async fn open_transport(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        host: &SshHost,
+        db: &Arc<std::sync::Mutex<Database>>,
+    ) -> Result<
+        (
+            russh::client::Handle<CaptureHandler>,
+            Vec<russh::client::Handle<CaptureHandler>>,
+            String,
+        ),
+        String,
+    > {
+        let chain = resolve_chain(host, db)?;
+        let direct = chain.len() == 1;
+        let mut hops: Vec<russh::client::Handle<CaptureHandler>> = Vec::new();
+        let mut key_type = String::new();
+
+        for node in &chain {
+            // Only name the hop when there is more than one — a plain host
+            // shouldn't gain "on prod-web" noise in every status line.
+            let hop = (!direct).then_some(node.label.as_str());
+            Self::emit(app, session_id, "status", phase("connecting", hop));
+
+            let captured = Arc::new(std::sync::Mutex::new(None::<(String, String)>));
+            let handler = CaptureHandler {
+                captured: captured.clone(),
+            };
+            let mut handle = match hops.last() {
+                // Tunnel this hop's TCP connection through the previous hop's
+                // transport — `direct-tcpip` is what OpenSSH's ProxyJump uses.
+                // The originator fields are advisory; sshd logs them and
+                // otherwise ignores them.
+                Some(prev) => {
+                    let channel = prev
+                        .channel_open_direct_tcpip(
+                            node.hostname.clone(),
+                            node.port as u32,
+                            "127.0.0.1",
+                            0,
+                        )
+                        .await
+                        .map_err(|e| {
+                            Self::emit(app, session_id, "status", phase("error", hop));
+                            format!(
+                                "open tunnel to {}:{} through the jump host: {e}",
+                                node.hostname, node.port
+                            )
+                        })?;
+                    russh::client::connect_stream(
+                        client_config(),
+                        channel.into_stream(),
+                        handler,
+                    )
+                    .await
+                    .map_err(|e| {
+                        Self::emit(app, session_id, "status", phase("error", hop));
+                        format!("connect {} through the jump host: {e}", node.label)
+                    })?
+                }
+                None => russh::client::connect(
+                    client_config(),
+                    (node.hostname.as_str(), node.port),
+                    handler,
+                )
+                .await
+                .map_err(|e| {
+                    Self::emit(app, session_id, "status", phase("error", hop));
+                    format!("connect: {e}")
+                })?,
+            };
+
+            key_type = self
+                .gate_and_auth(app, session_id, &mut handle, node, db, &captured, hop)
+                .await?;
+            hops.push(handle);
+        }
+
+        // `resolve_chain` always ends with the target itself, so this is total.
+        let target = hops.pop().ok_or("empty jump chain")?;
+        Ok((target, hops, key_type))
+    }
+
+    /// Connect, run the host-key + auth gates, open a shell, and spawn the pump.
+    pub async fn connect(
+        &self,
+        app: AppHandle,
+        session_id: String,
+        host: SshHost,
+        db: Arc<std::sync::Mutex<Database>>,
+    ) -> Result<(), String> {
+        // 1-3. Transport + host-key gate + auth, once per hop in the chain.
+        let (handle, jumps, key_type) = self
+            .open_transport(&app, &session_id, &host, &db)
+            .await?;
 
         // 4. Open channel, request a PTY + shell.
         Self::emit(
@@ -538,6 +689,9 @@ impl SshManager {
         let sessions2 = self.sessions.clone();
         tokio::spawn(async move {
             let _handle = handle;
+            // Every jump-host transport has to outlive the shell riding on it;
+            // dropping one here would close the tunnel under the session.
+            let _jumps = jumps;
             loop {
                 tokio::select! {
                     msg = channel.wait() => match msg {
@@ -603,6 +757,14 @@ async fn try_agent_auth(
     false
 }
 
+/// Build a `ssh:status` payload. `hop` is the label of the host the phase
+/// applies to, present only while walking a jump chain — the overlay uses it to
+/// distinguish "authenticating on the bastion" from "authenticating on the box
+/// you actually asked for".
+fn phase(name: &str, hop: Option<&str>) -> serde_json::Value {
+    serde_json::json!({ "phase": name, "hop": hop })
+}
+
 /// A placeholder session entry used only to park a `trust_tx`/`secret_tx`
 /// before the live channel exists. Its input receiver is dropped immediately,
 /// so any stray write is a no-op; `connect()` overwrites it on success.
@@ -666,6 +828,97 @@ fn now_epoch() -> i64 {
 mod tests {
     use super::*;
     use crate::db::models::SshAuth;
+
+    fn host(id: &str, jump: Option<&str>) -> SshHost {
+        SshHost {
+            id: id.into(),
+            label: id.into(),
+            group: None,
+            hostname: format!("{id}.test"),
+            port: 22,
+            username: "u".into(),
+            auth: SshAuth::Agent,
+            jump_host_id: jump.map(str::to_string),
+            created_at: 0,
+            last_used_at: None,
+            workspace_ids: vec![],
+            detected_os: None,
+        }
+    }
+
+    /// An in-memory DB seeded with `hosts`, wrapped the way `connect()` gets it.
+    fn db_with(hosts: &[SshHost]) -> Arc<std::sync::Mutex<Database>> {
+        let db = Database::open(":memory:".into()).unwrap();
+        for h in hosts {
+            db.insert_ssh_host(h).unwrap();
+        }
+        Arc::new(std::sync::Mutex::new(db))
+    }
+
+    #[test]
+    fn chain_is_outermost_first() {
+        // target -> mid -> edge, so dialling order must be edge, mid, target.
+        let target = host("target", Some("mid"));
+        let db = db_with(&[host("edge", None), host("mid", Some("edge")), target.clone()]);
+        let chain = resolve_chain(&target, &db).unwrap();
+        let ids: Vec<&str> = chain.iter().map(|h| h.id.as_str()).collect();
+        assert_eq!(ids, vec!["edge", "mid", "target"]);
+    }
+
+    #[test]
+    fn direct_host_is_a_one_element_chain() {
+        let h = host("solo", None);
+        let db = db_with(&[h.clone()]);
+        assert_eq!(resolve_chain(&h, &db).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn chain_loop_is_rejected_not_hung() {
+        // a -> b -> a. Both rows are user-editable, so this is reachable via the
+        // form; without the cycle guard resolve_chain would never terminate.
+        let a = host("a", Some("b"));
+        let db = db_with(&[a.clone(), host("b", Some("a"))]);
+        let err = resolve_chain(&a, &db).unwrap_err();
+        assert!(err.contains("loops"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn self_jump_is_rejected() {
+        let a = host("a", Some("a"));
+        let db = db_with(&[a.clone()]);
+        assert!(resolve_chain(&a, &db).is_err());
+    }
+
+    #[test]
+    fn deleted_jump_host_names_the_problem() {
+        let a = host("a", Some("ghost"));
+        let db = db_with(&[a.clone()]);
+        let err = resolve_chain(&a, &db).unwrap_err();
+        assert!(err.contains("no longer exists"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn chain_deeper_than_the_cap_is_rejected() {
+        // A straight line longer than MAX_JUMPS — no cycle, so only the depth
+        // guard can stop it.
+        let mut hosts = vec![host("h0", None)];
+        for i in 1..=MAX_JUMPS + 2 {
+            hosts.push(host(&format!("h{i}"), Some(&format!("h{}", i - 1))));
+        }
+        let target = hosts.last().unwrap().clone();
+        let db = db_with(&hosts);
+        let err = resolve_chain(&target, &db).unwrap_err();
+        assert!(err.contains("hops deep"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn keepalive_is_configured() {
+        // The whole point of client_config(): russh defaults this to None, which
+        // leaves a slept-laptop session looking alive forever.
+        let c = client_config();
+        assert_eq!(c.keepalive_interval, Some(std::time::Duration::from_secs(30)));
+        assert!(c.keepalive_max > 0);
+    }
 
     #[test]
     fn plan_prefers_agent_then_configured() {

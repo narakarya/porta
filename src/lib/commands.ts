@@ -25,6 +25,7 @@ import {
   mockNextPort,
   mockServices,
   mockInstances,
+  mockSshConfigCandidates,
   mockSshHosts,
   startMockService,
   stopMockService,
@@ -2029,6 +2030,28 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+/** A `~/.ssh/config` entry offered for import. */
+export interface SshConfigCandidate {
+  alias: string;
+  hostname: string;
+  port: number;
+  username: string;
+  identity_file: string | null;
+  /** The alias named by `ProxyJump` — resolved to a host id on import. */
+  proxy_jump: string | null;
+  /** The vault already has a host with this user@hostname:port. */
+  already_in_vault: boolean;
+}
+
+export const sshScanConfig = (): Promise<SshConfigCandidate[]> =>
+  isTauri ? invoke("ssh_scan_config") : Promise.resolve([...mockSshConfigCandidates]);
+
+export const sshImportConfigHosts = (
+  aliases: string[],
+  workspaceIds: string[]
+): Promise<SshHost[]> =>
+  isTauri ? invoke("ssh_import_config_hosts", { aliases, workspaceIds }) : Promise.resolve([]);
 
 export const sshConnect = (hostId: string, sessionId: string): Promise<string> =>
   isTauri ? invoke("ssh_connect", { hostId, sessionId }) : Promise.resolve(sessionId);

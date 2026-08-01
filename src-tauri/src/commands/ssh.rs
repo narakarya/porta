@@ -1,9 +1,11 @@
 use crate::sync::LockExt;
+use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::db::models::SshHost;
+use crate::db::models::{SshAuth, SshHost};
+use crate::ssh::config_import::{self, SshConfigEntry};
 
 // Re-exported so `commands::SshManager` resolves for `.manage(...)` and
 // `State<'_, SshManager>` call sites in `lib.rs` (and brings the name into
@@ -52,6 +54,143 @@ pub fn ssh_delete_host(id: String, state: State<AppState>) -> Result<(), String>
         .unwrap()
         .delete_ssh_host(&id)
         .map_err(|e| e.to_string())
+}
+
+/// A `~/.ssh/config` entry offered for import, plus whether the vault already
+/// has it. The frontend pre-unchecks the duplicates rather than hiding them —
+/// seeing "already imported" is what tells the user the scan actually worked.
+#[derive(Debug, Serialize)]
+pub struct SshConfigCandidate {
+    #[serde(flatten)]
+    pub entry: SshConfigEntry,
+    pub already_in_vault: bool,
+}
+
+/// Identity of a host for duplicate detection: `user@hostname:port`. Labels are
+/// free-text and get renamed, so they can't carry this.
+fn identity(username: &str, hostname: &str, port: u16) -> String {
+    format!("{}@{}:{}", username.to_lowercase(), hostname.to_lowercase(), port)
+}
+
+fn local_username() -> String {
+    std::env::var("USER").unwrap_or_else(|_| "root".to_string())
+}
+
+#[tauri::command]
+pub fn ssh_scan_config(state: State<AppState>) -> Result<Vec<SshConfigCandidate>, String> {
+    let Some(path) = config_import::default_config_path() else {
+        return Ok(Vec::new());
+    };
+    let existing: std::collections::HashSet<String> = state
+        .db
+        .lock_or_recover()
+        .list_ssh_hosts()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|h| identity(&h.username, &h.hostname, h.port))
+        .collect();
+
+    Ok(config_import::scan(&path, &local_username())
+        .into_iter()
+        .map(|entry| SshConfigCandidate {
+            already_in_vault: existing.contains(&identity(
+                &entry.username,
+                &entry.hostname,
+                entry.port,
+            )),
+            entry,
+        })
+        .collect())
+}
+
+/// Import the selected `~/.ssh/config` aliases into the vault.
+///
+/// Re-scans rather than trusting entries round-tripped through the frontend:
+/// the file is the source of truth, and a stale selection should import what is
+/// on disk now. `ProxyJump` is wired in a second pass, since the alias it names
+/// may itself be one of the rows created by this call.
+#[tauri::command]
+pub fn ssh_import_config_hosts(
+    aliases: Vec<String>,
+    workspace_ids: Vec<String>,
+    state: State<AppState>,
+) -> Result<Vec<SshHost>, String> {
+    let Some(path) = config_import::default_config_path() else {
+        return Err("No home directory — can't locate ~/.ssh/config.".into());
+    };
+    let wanted: std::collections::HashSet<&str> = aliases.iter().map(String::as_str).collect();
+    let entries: Vec<SshConfigEntry> = config_import::scan(&path, &local_username())
+        .into_iter()
+        .filter(|e| wanted.contains(e.alias.as_str()))
+        .collect();
+
+    let db = state.db.lock_or_recover();
+    let existing = db.list_ssh_hosts().map_err(|e| e.to_string())?;
+    let seen: std::collections::HashSet<String> = existing
+        .iter()
+        .map(|h| identity(&h.username, &h.hostname, h.port))
+        .collect();
+
+    // Pass 1: insert. Skipping duplicates here means re-running the import
+    // after adding one host to ~/.ssh/config doesn't clone the other twenty.
+    let mut imported = Vec::new();
+    for entry in &entries {
+        if seen.contains(&identity(&entry.username, &entry.hostname, entry.port)) {
+            continue;
+        }
+        let host = SshHost {
+            id: Uuid::new_v4().to_string(),
+            label: entry.alias.clone(),
+            group: None,
+            hostname: entry.hostname.clone(),
+            port: entry.port,
+            username: entry.username.clone(),
+            auth: match &entry.identity_file {
+                Some(path) => SshAuth::KeyFile { path: path.clone() },
+                None => SshAuth::Agent,
+            },
+            jump_host_id: None,
+            created_at: now_epoch(),
+            last_used_at: None,
+            workspace_ids: workspace_ids.clone(),
+            detected_os: None,
+        };
+        db.insert_ssh_host(&host).map_err(|e| e.to_string())?;
+        imported.push(host);
+    }
+
+    // Pass 2: resolve ProxyJump aliases to ids, against both the rows just
+    // created and whatever was already in the vault.
+    // Owned keys/values: pass 2 takes `&mut imported`, so this map can't hold
+    // borrows into it.
+    let by_label: std::collections::HashMap<String, String> = imported
+        .iter()
+        .chain(existing.iter())
+        .map(|h| (h.label.clone(), h.id.clone()))
+        .collect();
+    let jump_of: std::collections::HashMap<&str, &str> = entries
+        .iter()
+        .filter_map(|e| e.proxy_jump.as_deref().map(|j| (e.alias.as_str(), j)))
+        .collect();
+
+    for host in &mut imported {
+        let Some(jump_alias) = jump_of.get(host.label.as_str()) else {
+            continue;
+        };
+        // An unresolvable jump alias (it points outside the imported set) is
+        // left unset — a dangling id would fail the connect with a confusing
+        // "jump host no longer exists" instead of just connecting directly.
+        let Some(id) = by_label.get(*jump_alias) else {
+            continue;
+        };
+        if *id == host.id {
+            continue;
+        }
+        host.jump_host_id = Some(id.clone());
+        db.update_ssh_host(host).map_err(|e| e.to_string())?;
+    }
+
+    Ok(imported)
 }
 
 #[tauri::command]

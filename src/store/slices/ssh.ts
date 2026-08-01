@@ -28,6 +28,10 @@ export interface SshSession {
   /** Epoch ms the connect attempt started — feeds the overlay's elapsed timer. */
   startedAt: number;
   keyType?: string;
+  /** Which host in the ProxyJump chain the current phase is about. Null for a
+   *  direct connection — the backend only labels hops when there is a chain, so
+   *  "Authenticating" and "Authenticating on bastion" stay distinguishable. */
+  hop?: string | null;
   /** Why the session failed. Every backend failure path returns a real string
    *  (`connect: …`, `authentication failed`, `host key changed`, …); without
    *  keeping it the tab could only show a red dot over a blank terminal. */
@@ -35,7 +39,15 @@ export interface SshSession {
 }
 
 export type SshPrompt =
-  | { sessionId: string; type: "trust"; fingerprint: string; hostname: string; keyType: string }
+  | {
+      sessionId: string;
+      type: "trust";
+      fingerprint: string;
+      hostname: string;
+      keyType: string;
+      /** Set when the key being trusted belongs to a jump host, not the target. */
+      hop?: string | null;
+    }
   | { sessionId: string; type: "secret"; kind: "password" | "passphrase" }
   | { sessionId: string; type: "host-key-changed"; fingerprint: string };
 
@@ -46,6 +58,8 @@ export interface SshSlice {
   sshPrompt: SshPrompt | null;
 
   loadSshHosts: () => Promise<void>;
+  /** Import the picked `~/.ssh/config` aliases; resolves to the rows created. */
+  importSshConfigHosts: (aliases: string[], workspaceIds: string[]) => Promise<SshHost[]>;
   addSshHost: (host: SshHost) => Promise<void>;
   updateSshHost: (host: SshHost) => Promise<void>;
   deleteSshHost: (id: string) => Promise<void>;
@@ -58,7 +72,7 @@ export interface SshSlice {
   setActiveSession: (id: string | null) => void;
   upsertSession: (s: SshSession) => void;
   setSessionStatus: (id: string, status: SshSession["status"], keyType?: string, error?: string | null) => void;
-  setSessionPhase: (id: string, phase: SshPhase) => void;
+  setSessionPhase: (id: string, phase: SshPhase, hop?: string | null) => void;
   answerTrust: () => Promise<void>;
   answerSecret: (value: string, remember: boolean) => Promise<void>;
   dismissPrompt: () => void;
@@ -72,6 +86,14 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
   sshPrompt: null,
 
   loadSshHosts: async () => set({ sshHosts: await cmd.sshListHosts() }),
+  importSshConfigHosts: async (aliases, workspaceIds) => {
+    const created = await cmd.sshImportConfigHosts(aliases, workspaceIds);
+    // Reload rather than appending `created` — an import can skip duplicates
+    // and rewrite jump links, and re-reading is the only way the list matches
+    // what a fresh app start would show.
+    await get().loadSshHosts();
+    return created;
+  },
   addSshHost: async (host) => {
     const saved = await cmd.sshAddHost(host);
     set({ sshHosts: [...get().sshHosts, saved] });
@@ -104,8 +126,8 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
           : s
       ),
     }),
-  setSessionPhase: (id, phase) =>
-    set({ sshSessions: get().sshSessions.map((s) => (s.id === id ? { ...s, phase } : s)) }),
+  setSessionPhase: (id, phase, hop) =>
+    set({ sshSessions: get().sshSessions.map((s) => (s.id === id ? { ...s, phase, hop } : s)) }),
   setActiveSession: (id) => set({ activeSessionId: id }),
 
   connectOrFocusSsh: async (hostId) => {
@@ -139,7 +161,7 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     // before we'd otherwise be listening, which would deadlock the UI.
     const unlisteners = await Promise.all([
       listen(`ssh:status:${sessionId}`, (e) => {
-        const p = e.payload as { phase: string; keyType?: string };
+        const p = e.payload as { phase: string; keyType?: string; hop?: string | null };
         const map: Record<string, SshSession["status"]> = {
           connecting: "connecting",
           verifying: "connecting",
@@ -149,11 +171,25 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
           error: "error",
         };
         get().setSessionStatus(sessionId, map[p.phase] ?? "connecting", p.keyType);
-        get().setSessionPhase(sessionId, (p.phase as SshPhase) ?? "connecting");
+        get().setSessionPhase(sessionId, (p.phase as SshPhase) ?? "connecting", p.hop ?? null);
       }),
       listen(`ssh:trust-request:${sessionId}`, (e) => {
-        const p = e.payload as { fingerprint: string; hostname: string; key_type: string };
-        set({ sshPrompt: { sessionId, type: "trust", fingerprint: p.fingerprint, hostname: p.hostname, keyType: p.key_type } });
+        const p = e.payload as {
+          fingerprint: string;
+          hostname: string;
+          key_type: string;
+          hop?: string | null;
+        };
+        set({
+          sshPrompt: {
+            sessionId,
+            type: "trust",
+            fingerprint: p.fingerprint,
+            hostname: p.hostname,
+            keyType: p.key_type,
+            hop: p.hop ?? null,
+          },
+        });
       }),
       listen(`ssh:need-secret:${sessionId}`, (e) => {
         const p = e.payload as { kind: "password" | "passphrase" };

@@ -378,6 +378,8 @@ pub fn run() {
             commands::ssh_add_host,
             commands::ssh_update_host,
             commands::ssh_delete_host,
+            commands::ssh_scan_config,
+            commands::ssh_import_config_hosts,
             commands::ssh_connect,
             commands::ssh_write,
             commands::ssh_resize,
