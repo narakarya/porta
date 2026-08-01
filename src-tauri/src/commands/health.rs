@@ -1,12 +1,16 @@
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::app_state::AppState;
 use crate::health::HealthStatus;
-use crate::commands::settings::{read_porta_config, write_porta_config};
+use crate::health_alert::{AlertEvent, HealthAlerts};
+use crate::commands::settings::{
+    health_alert_enabled, health_alert_threshold, notify, read_porta_config, write_porta_config,
+};
 
 /// Probe `port`, and if that fails, whatever port the process tree is actually
 /// listening on.
@@ -36,7 +40,7 @@ fn check_health_with_fallback(port: u16, path: Option<&str>, pid: Option<u32>) -
 #[tauri::command]
 pub async fn check_app_health(state: State<'_, AppState>, id: String) -> Result<HealthStatus, String> {
     let probe = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let apps = db.list_apps().map_err(|e| e.to_string())?;
         let app = apps.into_iter().find(|a| a.id == id).ok_or("App not found")?;
         if app.status != "running" {
@@ -69,7 +73,7 @@ pub async fn detect_app_listen_ports(
     id: String,
 ) -> Result<ListenPortReport, String> {
     let configured = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let apps = db.list_apps().map_err(|e| e.to_string())?;
         apps.into_iter()
             .find(|a| a.id == id)
@@ -112,17 +116,101 @@ fn collect_probes(
     probes
 }
 
+/// Human-readable name per probed id, for the alert text. Instances are named
+/// after their branch and qualified with the parent app so "api (fix/login) is
+/// not responding" is unambiguous when several worktrees run side by side.
+/// Pure, like `collect_probes`, so it can be tested without a DB.
+fn alert_labels(
+    apps: &[crate::db::models::App],
+    instances: &[crate::db::models::AppInstance],
+) -> HashMap<String, String> {
+    let mut labels: HashMap<String, String> =
+        apps.iter().map(|a| (a.id.clone(), a.name.clone())).collect();
+    for inst in instances {
+        let parent = apps.iter().find(|a| a.id == inst.app_id);
+        let label = match parent {
+            Some(a) => format!("{} ({})", a.name, inst.branch),
+            None => inst.branch.clone(),
+        };
+        labels.insert(inst.id.clone(), label);
+    }
+    labels
+}
+
+/// Down/recovery state shared across probe rounds. A `OnceLock` static rather
+/// than an `AppState` field because nothing outside this module needs it, and
+/// it must survive every call to `check_all_health` regardless of caller.
+fn alerts() -> &'static std::sync::Mutex<HealthAlerts> {
+    static ALERTS: std::sync::OnceLock<std::sync::Mutex<HealthAlerts>> = std::sync::OnceLock::new();
+    ALERTS.get_or_init(|| std::sync::Mutex::new(HealthAlerts::new()))
+}
+
+/// Feed a probe round through the debouncer and notify on the transitions.
+///
+/// The state machine runs even when alerts are disabled, so toggling the
+/// setting on doesn't immediately fire for apps that have been down all along
+/// — only the notification is suppressed.
+fn dispatch_health_alerts(
+    app: &tauri::AppHandle,
+    result: &HashMap<String, HealthStatus>,
+    labels: &HashMap<String, String>,
+) {
+    let round: Vec<(String, HealthStatus)> =
+        result.iter().map(|(id, s)| (id.clone(), s.clone())).collect();
+    let events = alerts()
+        .lock_or_recover()
+        .observe(&round, health_alert_threshold());
+
+    if events.is_empty() {
+        return;
+    }
+
+    let enabled = health_alert_enabled();
+    for event in events {
+        let (id, name, title, body, kind) = match &event {
+            AlertEvent::Down { id, failures } => (
+                id,
+                labels.get(id).cloned().unwrap_or_else(|| id.clone()),
+                "is not responding",
+                format!("{} consecutive failed health checks.", failures),
+                "down",
+            ),
+            AlertEvent::Recovered { id } => (
+                id,
+                labels.get(id).cloned().unwrap_or_else(|| id.clone()),
+                "is responding again",
+                "Health checks are passing.".to_string(),
+                "recovered",
+            ),
+        };
+
+        if enabled {
+            notify(app, &format!("{} {}", name, title), &body);
+        }
+        // Emitted regardless of the notification setting: the in-app activity
+        // feed should still record the outage even when macOS alerts are off.
+        app.emit(
+            "app:health-alert",
+            serde_json::json!({ "id": id, "name": name, "kind": kind, "detail": body }),
+        )
+        .ok();
+    }
+}
+
 /// Bulk health probe. We collect the (port, path) pairs first, drop the DB
 /// lock, then run all probes concurrently on the blocking pool. Sequential
 /// blocking probes inside one sync command was the worst case — with 10
 /// running apps it could take 20s end-to-end while holding the Tauri worker.
 #[tauri::command]
-pub async fn check_all_health(state: State<'_, AppState>) -> Result<HashMap<String, HealthStatus>, String> {
-    let probes: Vec<(String, u16, Option<String>)> = {
-        let db = state.db.lock().unwrap();
+pub async fn check_all_health(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, HealthStatus>, String> {
+    let (probes, labels) = {
+        let db = state.db.lock_or_recover();
         let apps = db.list_apps().map_err(|e| e.to_string())?;
         let instances = db.list_instances().map_err(|e| e.to_string())?;
-        collect_probes(&apps, &instances)
+        (collect_probes(&apps, &instances), alert_labels(&apps, &instances))
     };
 
     let pids: HashMap<String, u32> = state.processes.pids().into_iter().collect();
@@ -141,6 +229,9 @@ pub async fn check_all_health(state: State<'_, AppState>) -> Result<HashMap<Stri
             result.insert(id, status);
         }
     }
+
+    dispatch_health_alerts(&app, &result, &labels);
+
     Ok(result)
 }
 
@@ -224,7 +315,7 @@ pub async fn run_app_health_probe(state: State<'_, AppState>, app_id: String) ->
     let probe = match probe {
         Some(p) => p,
         None => {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock_or_recover();
             let apps = db.list_apps().map_err(|e| e.to_string())?;
             let app = apps.into_iter().find(|a| a.id == app_id).ok_or("App not found")?;
             match app.health_check_path {

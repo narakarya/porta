@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::path::Path;
 
 use serde::Serialize;
@@ -16,7 +17,7 @@ pub fn export_porta_config(
     workspace_id: String,
     dest_path: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let workspace = workspaces
         .iter()
@@ -107,7 +108,7 @@ pub fn preview_porta_config(
 ) -> Result<AdoptPreview, String> {
     let config = read_config(&src_path)?;
 
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let existing_apps = db.list_apps().map_err(|e| e.to_string())?;
     let used_ports = db.used_ports().map_err(|e| e.to_string())?;
@@ -140,7 +141,7 @@ pub fn import_porta_config(
     let config = read_config(&src_path)?;
     let reassign = reassign_ports.unwrap_or(false);
 
-    let mut db = state.db.lock().unwrap();
+    let mut db = state.db.lock_or_recover();
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let existing_apps = db.list_apps().map_err(|e| e.to_string())?;
     let used_ports = db.used_ports().map_err(|e| e.to_string())?;

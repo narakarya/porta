@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::State;
 use uuid::Uuid;
 
@@ -23,7 +24,7 @@ pub struct HostAuthOverrideInput {
 
 #[tauri::command]
 pub fn list_apps(state: State<AppState>) -> Result<Vec<App>, String> {
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     Ok(apps)
 }
 
@@ -44,7 +45,7 @@ pub fn detect_app_tags(root_dir: String) -> Vec<String> {
 
 #[tauri::command]
 pub fn next_available_port(state: State<AppState>) -> Result<u16, String> {
-    let used = state.db.lock().unwrap().used_ports().map_err(|e| e.to_string())?;
+    let used = state.db.lock_or_recover().used_ports().map_err(|e| e.to_string())?;
     find_available_port(&used, 3000, 9999).ok_or_else(|| "No available port".into())
 }
 
@@ -213,7 +214,7 @@ pub fn update_app(
     // the field is omitted entirely, preserve whatever is on disk.
     let merged_overrides: Vec<HostAuthOverride> = match host_auth_overrides {
         Some(inputs) => {
-            let prev = state.db.lock().unwrap().list_apps().ok()
+            let prev = state.db.lock_or_recover().list_apps().ok()
                 .and_then(|apps| apps.into_iter().find(|a| a.id == id))
                 .map(|a| a.host_auth_overrides)
                 .unwrap_or_default();
@@ -255,7 +256,7 @@ pub fn update_app(
             }
             out
         }
-        None => state.db.lock().unwrap().list_apps().ok()
+        None => state.db.lock_or_recover().list_apps().ok()
             .and_then(|apps| apps.into_iter().find(|a| a.id == id))
             .map(|a| a.host_auth_overrides)
             .unwrap_or_default(),
@@ -301,7 +302,7 @@ pub fn update_app(
     sync_caddy(&state)?;
     crate::backup::auto_backup_state(&state).ok();
 
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
@@ -327,7 +328,7 @@ pub fn move_app_to_workspace(
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
     crate::backup::auto_backup_state(&state).ok();
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == app_id).ok_or_else(|| "app not found".into())
 }
 
@@ -342,7 +343,7 @@ pub fn set_app_active_profile(
 ) -> Result<App, String> {
     // Reject unknown ids — a dangling active_profile_id silently resolves back
     // to Default at spawn time, which would look like the switch did nothing.
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     let app = apps
         .iter()
         .find(|a| a.id == id)
@@ -358,7 +359,7 @@ pub fn set_app_active_profile(
         .unwrap()
         .set_app_active_profile(&id, profile_id.as_deref())
         .map_err(|e| e.to_string())?;
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
@@ -381,7 +382,7 @@ pub fn set_app_auto_sleep(
         .unwrap()
         .set_app_auto_sleep(&id, enabled, secs)
         .map_err(|e| e.to_string())?;
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
@@ -402,7 +403,7 @@ pub fn set_app_max_upload_bytes(
         .set_app_max_upload_bytes(&id, max_bytes)
         .map_err(|e| e.to_string())?;
     sync_caddy(&state)?;
-    let apps = state.db.lock().unwrap().list_apps().map_err(|e| e.to_string())?;
+    let apps = state.db.lock_or_recover().list_apps().map_err(|e| e.to_string())?;
     apps.into_iter().find(|a| a.id == id).ok_or_else(|| "app not found".into())
 }
 
@@ -413,7 +414,7 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
     // "I deleted the wrong app, give it back".
     crate::backup::auto_backup_state(&state).ok();
 
-    let app_data = state.db.lock().unwrap().list_apps().ok()
+    let app_data = state.db.lock_or_recover().list_apps().ok()
         .and_then(|apps| apps.into_iter().find(|a| a.id == id));
     let is_static = app_data.as_ref().map(|a| a.is_static()).unwrap_or(false);
     let is_proxy = app_data.as_ref().map(|a| a.is_proxy()).unwrap_or(false);
@@ -445,9 +446,9 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
         .collect();
     for iid in &instance_ids {
         state.processes.stop(iid).ok();
-        state.db.lock().unwrap().delete_instance(iid).ok();
+        state.db.lock_or_recover().delete_instance(iid).ok();
     }
-    state.db.lock().unwrap().delete_app(&id).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().delete_app(&id).map_err(|e| e.to_string())?;
     // Remove any pasted compose YAML Porta was managing for this app.
     super::compose::cleanup_managed_compose(&id);
     sync_caddy(&state)?;
@@ -456,5 +457,5 @@ pub fn delete_app(state: State<AppState>, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn reorder_apps(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
-    state.db.lock().unwrap().reorder_apps(&ids).map_err(|e| e.to_string())
+    state.db.lock_or_recover().reorder_apps(&ids).map_err(|e| e.to_string())
 }

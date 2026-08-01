@@ -15,18 +15,22 @@ pub mod process_manager;
 pub mod docker_manager;
 pub mod compose_parser;
 pub mod health;
+pub mod health_alert;
 pub mod listen_ports;
 pub mod idle_sleep;
 pub mod log_rotation;
 pub mod porta_config;
 pub mod menu;
 pub mod metrics;
+pub mod secrets;
 pub mod setup;
 pub mod ssh;
+pub mod sync;
 pub mod tmux;
 pub mod tray;
 pub mod wake_server;
 
+use crate::sync::LockExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -274,7 +278,7 @@ pub fn run() {
             // Load installed extensions into AppState
             {
                 let s = app.state::<AppState>();
-                let db = s.db.lock().unwrap();
+                let db = s.db.lock_or_recover();
                 extensions::loader::startup_load_extensions(&s.extensions, &db);
             }
             Ok(())
@@ -355,6 +359,11 @@ pub fn run() {
             commands::notify_image_updates_found,
             commands::get_cf_api_token,
             commands::set_cf_api_token,
+            commands::get_cf_token_storage,
+            commands::get_health_alert_enabled,
+            commands::set_health_alert_enabled,
+            commands::get_health_alert_threshold,
+            commands::set_health_alert_threshold,
             commands::caddy_status,
             commands::list_available_commands,
             commands::detect_app_tags,

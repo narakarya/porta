@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::State;
 
 use crate::app_state::AppState;
@@ -7,7 +8,7 @@ use crate::extensions::manifest::{ExtensionInfo, ExtensionManifest};
 /// List all installed extensions (enabled and disabled).
 #[tauri::command]
 pub fn list_extensions(state: State<'_, AppState>) -> Vec<ExtensionInfo> {
-    let guard = state.extensions.lock().unwrap();
+    let guard = state.extensions.lock_or_recover();
     guard.iter().map(|e| e.to_info()).collect()
 }
 
@@ -20,7 +21,7 @@ pub fn get_extensions_for_app(
     app_tags: Vec<String>,
     state: State<'_, AppState>,
 ) -> Vec<ExtensionInfo> {
-    let guard = state.extensions.lock().unwrap();
+    let guard = state.extensions.lock_or_recover();
     guard
         .iter()
         .filter(|e| {
@@ -47,14 +48,14 @@ pub async fn install_extension_from_github(
     // Install from extracted dir (sync, brief lock). Record `url` as the source
     // so the extension can be updated later.
     let loaded = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         install_from_folder(&db, &src_path, Some(&url)).map_err(|e| e.to_string())?
     };
     // _tmp_dir cleaned up here
 
     let id = loaded.manifest.id.clone();
     let info = loaded.to_info();
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     guard.retain(|e| e.manifest.id != id);
     guard.push(loaded);
     guard.sort_by(|a, b| a.manifest.name.cmp(&b.manifest.name));
@@ -70,7 +71,7 @@ pub async fn update_extension(
 ) -> Result<ExtensionInfo, String> {
     // Read the stored source (brief lock, no await held).
     let source = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         get_extension_source(&db, &id)
     };
     let source = source.ok_or_else(|| {
@@ -90,13 +91,13 @@ pub async fn update_extension(
 
     // Reinstall from extracted dir, preserving the source.
     let loaded = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         install_from_folder(&db, &src_path, Some(&source)).map_err(|e| e.to_string())?
     };
 
     let new_id = loaded.manifest.id.clone();
     let info = loaded.to_info();
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     guard.retain(|e| e.manifest.id != new_id);
     guard.push(loaded);
     guard.sort_by(|a, b| a.manifest.name.cmp(&b.manifest.name));
@@ -110,11 +111,11 @@ pub fn set_extension_enabled_cmd(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     set_extension_enabled(&db, &id, enabled).map_err(|e| e.to_string())?;
     drop(db);
 
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     if let Some(ext) = guard.iter_mut().find(|e| e.manifest.id == id) {
         ext.enabled = enabled;
     }
@@ -133,11 +134,11 @@ pub fn set_extension_source_cmd(
         if trimmed.is_empty() { None } else { Some(trimmed) }
     });
 
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     set_extension_source(&db, &id, source.as_deref()).map_err(|e| e.to_string())?;
     drop(db);
 
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     let ext = guard
         .iter_mut()
         .find(|e| e.manifest.id == id)
@@ -153,13 +154,13 @@ pub fn install_extension_from_folder(
     state: State<'_, AppState>,
 ) -> Result<ExtensionInfo, String> {
     let src = std::path::Path::new(&path);
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let loaded = install_from_folder(&db, src, None).map_err(|e| e.to_string())?;
     drop(db);
 
     let id = loaded.manifest.id.clone();
     let info = loaded.to_info();
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     guard.retain(|e| e.manifest.id != id);
     guard.push(loaded);
     guard.sort_by(|a, b| a.manifest.name.cmp(&b.manifest.name));
@@ -169,11 +170,11 @@ pub fn install_extension_from_folder(
 /// Re-scan the extensions directory and reload all manifests.
 #[tauri::command]
 pub fn rescan_extensions(state: State<'_, AppState>) -> Vec<ExtensionInfo> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let loaded = crate::extensions::loader::scan_extensions(&db);
     drop(db);
     let infos: Vec<ExtensionInfo> = loaded.iter().map(|e| e.to_info()).collect();
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     *guard = loaded;
     infos
 }
@@ -184,11 +185,11 @@ pub fn uninstall_extension_cmd(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     uninstall_extension(&db, &id).map_err(|e| e.to_string())?;
     drop(db);
 
-    let mut guard = state.extensions.lock().unwrap();
+    let mut guard = state.extensions.lock_or_recover();
     guard.retain(|e| e.manifest.id != id);
     Ok(())
 }

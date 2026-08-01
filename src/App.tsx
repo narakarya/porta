@@ -4,6 +4,7 @@ import { usePortaStore } from "./store";
 import { startCaddy, listCloudflareTunnels, getCfApiToken, listTunnelDns } from "./lib/commands";
 import { setCachedTunnels, setCachedDnsRoutes } from "./lib/tunnelCache";
 import { autoCheckForUpdate, checkForUpdate } from "./lib/updater";
+import { registerPoll } from "./lib/poll-scheduler";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "./lib/commands";
 import Layout from "./components/layout/Layout";
@@ -137,7 +138,9 @@ export default function App() {
     });
     loadSettings();
 
-    const healthInterval = setInterval(() => refreshHealth(), 30_000);
+    // Background: health probes drive the app-down alerts, so they have to
+    // keep running exactly when nobody is looking at the window.
+    const stopHealthPoll = registerPoll(() => refreshHealth(), 30_000, { background: true });
 
     // Check for app updates shortly after startup (silent if none / offline).
     const updateCheck = setTimeout(() => autoCheckForUpdate(), 5000);
@@ -146,7 +149,11 @@ export default function App() {
     // about new releases without a restart. Silent — the toast only appears if
     // there's an update. (autoCheckForUpdate throttles to ≥30m, so this and the
     // focus trigger below can't double-fire.)
-    const updateInterval = setInterval(() => autoCheckForUpdate(), 30 * 60 * 1000);
+    // Background too: a window left minimised for days should still learn
+    // about a new release.
+    const stopUpdatePoll = registerPoll(() => autoCheckForUpdate(), 30 * 60 * 1000, {
+      background: true,
+    });
 
     // Re-check when the user returns to Porta after working elsewhere — the
     // common "left it open since yesterday" case. Throttled inside the helper.
@@ -191,8 +198,8 @@ export default function App() {
     });
 
     return () => {
-      clearInterval(healthInterval);
-      clearInterval(updateInterval);
+      stopHealthPoll();
+      stopUpdatePoll();
       clearTimeout(prewarmDelay);
       clearTimeout(updateCheck);
       window.removeEventListener("focus", onFocus);

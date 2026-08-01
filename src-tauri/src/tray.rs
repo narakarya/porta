@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::path::Path;
 
 use tauri::{
@@ -144,7 +145,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let handle = app.clone();
                 std::thread::spawn(move || {
                     let state = handle.state::<AppState>();
-                    let db = state.db.lock().unwrap();
+                    let db = state.db.lock_or_recover();
                     let apps = db.list_apps().unwrap_or_default();
                     drop(db);
                     for app_data in apps.iter().filter(|a| a.status == "stopped" && (!a.start_command.is_empty() || a.is_docker() || a.is_compose())) {
@@ -155,7 +156,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 });
             } else if id == "stop-all" {
                 let state = app.state::<AppState>();
-                let db = state.db.lock().unwrap();
+                let db = state.db.lock_or_recover();
                 let apps = db.list_apps().unwrap_or_default();
                 drop(db);
                 for app_data in apps.iter().filter(|a| a.status == "running" && !a.is_static() && !a.is_proxy()) {
@@ -168,7 +169,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         state.processes.stop(&app_data.id).ok();
                     }
-                    state.db.lock().unwrap().update_app_status(&app_data.id, "stopped", None).ok();
+                    state.db.lock_or_recover().update_app_status(&app_data.id, "stopped", None).ok();
                     app.emit(&format!("app:exit:{}", app_data.id), 0i32).ok();
                 }
                 rebuild_tray_menu(app, &state.db_path);
@@ -206,7 +207,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             state.processes.stop(&app_id).ok();
                         }
-                        state.db.lock().unwrap().update_app_status(&app_id, "stopped", None).ok();
+                        state.db.lock_or_recover().update_app_status(&app_id, "stopped", None).ok();
                         handle.emit(&format!("app:exit:{}", app_id), 0i32).ok();
                     } else if !app_data.start_command.is_empty() || app_data.is_docker() || app_data.is_compose() {
                         crate::commands::app_lifecycle::start_single(&handle, &app_data, true, true).ok();

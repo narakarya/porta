@@ -9,6 +9,7 @@
 //! (`com.docker.compose.project=porta-<app_id>`) for compose apps, and to
 //! the `porta-<app_id>` container for single docker apps.
 
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tokio::process::Command;
@@ -253,7 +254,7 @@ pub async fn app_disk_usage(
     app_id: String,
 ) -> Result<AppDiskUsage, String> {
     let app = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -594,7 +595,7 @@ pub async fn prune_app_old_images(
     app_id: String,
 ) -> Result<PruneResult, String> {
     let app = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .map_err(|e| e.to_string())?
             .into_iter()

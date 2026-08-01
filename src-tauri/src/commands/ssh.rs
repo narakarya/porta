@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::State;
 use uuid::Uuid;
 
@@ -15,7 +16,7 @@ fn now_epoch() -> i64 {
 
 #[tauri::command]
 pub fn ssh_list_hosts(state: State<AppState>) -> Result<Vec<SshHost>, String> {
-    state.db.lock().unwrap().list_ssh_hosts().map_err(|e| e.to_string())
+    state.db.lock_or_recover().list_ssh_hosts().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

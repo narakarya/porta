@@ -12,6 +12,7 @@
 //! The classifier surfaces all three signals (stateful image, major bump,
 //! dependents) so the user sees the consequences before the pull happens.
 
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -292,7 +293,7 @@ pub fn classify_image_update(
     target_tag: Option<String>,
 ) -> Result<UpdateRisk, String> {
     let app = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         db.list_apps()
             .map_err(|e| e.to_string())?
             .into_iter()

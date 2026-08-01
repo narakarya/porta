@@ -2,7 +2,8 @@ import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePortaStore } from "../../store";
 import { StatusDot, Button, EmptyState, type Status } from "../ui";
-import { systemMetrics, isTauri, type SystemMetrics } from "../../lib/commands";
+import { systemMetrics, isTauri, type SystemMetrics, type HealthAlert } from "../../lib/commands";
+import { registerPoll } from "../../lib/poll-scheduler";
 import type { App, Service, Workspace } from "../../types";
 
 function appStatus(s: App["status"]): Status {
@@ -157,11 +158,13 @@ export default function ActivityView() {
         /* transient poll failure — keep last snapshot */
       }
     };
-    poll();
-    const id = setInterval(poll, 2000);
+    // Foreground-only: this is a live chart of the last 60 samples. Nobody is
+    // reading it while the window is hidden, and a 2s poll is the most
+    // expensive one in the app.
+    const stop = registerPoll(poll, 2000, { immediate: true });
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -217,6 +220,21 @@ export default function ActivityView() {
           })
         );
       }
+
+      // One global listener rather than one per app: the payload carries its
+      // own display name, which also covers worktree instances that never
+      // appear in `apps`. Emitted even when macOS notifications are off, so
+      // the outage still shows up here.
+      track(
+        listen<HealthAlert>("app:health-alert", (e) =>
+          push(
+            e.payload.kind === "down" ? "bad" : "ok",
+            e.payload.kind === "down"
+              ? `${e.payload.name} not responding`
+              : `${e.payload.name} responding again`
+          )
+        )
+      );
     })();
 
     return () => {

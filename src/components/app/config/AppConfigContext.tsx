@@ -25,6 +25,7 @@ import type { App, EnvProfile, HostAuthOverrideInput, PortBinding, Workspace } f
 import { yieldToFrame } from "../../../lib/ui";
 import psl from "psl";
 import { IconCopy, IconCheck, IconExternal } from "./icons";
+import { registerPoll } from "../../../lib/poll-scheduler";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -498,11 +499,11 @@ export function useAppConfigDraft(
       }).catch(() => { if (!cancelled) setTunnelReachable(false); });
     };
     const initial = window.setTimeout(run, 3_000);
-    const interval = window.setInterval(run, 45_000);
+    const stop = registerPoll(run, 45_000);
     return () => {
       cancelled = true;
       window.clearTimeout(initial);
-      window.clearInterval(interval);
+      stop();
     };
   }, [section, app.tunnel_active, app.tunnel_url]);
 

@@ -3,6 +3,7 @@ import { setMockEventCallback } from "../lib/mock-data";
 import * as cmd from "../lib/commands";
 import type { GitStatus, AppInstance } from "../lib/commands";
 import { isDockerRuntimeUnavailable } from "../lib/docker-errors";
+import { registerPoll } from "../lib/poll-scheduler";
 import { MAX_LOG_LINES, METRIC_HISTORY } from "./slices/app";
 import type { AllSlices } from "./index";
 
@@ -470,7 +471,7 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
 
   // ── Periodic Docker image update polling ───────────────────────────────────
   const IMAGE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
-  let imageCheckIntervalId: ReturnType<typeof setInterval> | null = null;
+  let stopImageCheckPoll: (() => void) | null = null;
   let hasRunInitialImageCheck = false;
 
   function checkDockerUpdates() {
@@ -535,7 +536,11 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       if (!hasRunInitialImageCheck && state.apps.length > 0) {
         hasRunInitialImageCheck = true;
         checkDockerUpdates();
-        imageCheckIntervalId = setInterval(checkDockerUpdates, IMAGE_CHECK_INTERVAL);
+        // Background: a 4-hourly check is worth keeping on the clock whether
+        // or not the window happens to be visible when it comes due.
+        stopImageCheckPoll = registerPoll(checkDockerUpdates, IMAGE_CHECK_INTERVAL, {
+          background: true,
+        });
       }
     });
   });
@@ -546,6 +551,6 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
     cancelInstancePending();
     instanceUnlisteners.forEach((fn) => fn());
     unsub();
-    if (imageCheckIntervalId) clearInterval(imageCheckIntervalId);
+    stopImageCheckPoll?.();
   };
 }

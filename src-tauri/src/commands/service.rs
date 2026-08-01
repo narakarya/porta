@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -26,7 +27,7 @@ fn docker_container_running(container_name: &str) -> bool {
 
 #[tauri::command]
 pub fn list_services(state: State<AppState>) -> Result<Vec<crate::db::models::Service>, String> {
-    let mut services = state.db.lock().unwrap().list_services().map_err(|e| e.to_string())?;
+    let mut services = state.db.lock_or_recover().list_services().map_err(|e| e.to_string())?;
 
     // Reconcile: mark containers stale if they're no longer running in Docker
     let stale_ids: Vec<String> = services.iter()
@@ -36,7 +37,7 @@ pub fn list_services(state: State<AppState>) -> Result<Vec<crate::db::models::Se
         .collect();
 
     if !stale_ids.is_empty() {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         for id in &stale_ids {
             db.update_service_status(id, "stopped", None).ok();
         }
@@ -65,7 +66,7 @@ pub fn add_service(
         status: "stopped".to_string(),
         container_id: None,
     };
-    state.db.lock().unwrap().insert_service(&svc).map_err(|e| e.to_string())?;
+    state.db.lock_or_recover().insert_service(&svc).map_err(|e| e.to_string())?;
     Ok(svc)
 }
 
@@ -76,10 +77,10 @@ pub fn update_service(
     env_vars: HashMap<String, String>, volumes: Vec<String>, scope: String,
     state: State<AppState>,
 ) -> Result<crate::db::models::Service, String> {
-    state.db.lock().unwrap()
+    state.db.lock_or_recover()
         .update_service(&id, &name, &image, &tag, port, &env_vars, &volumes, &scope)
         .map_err(|e| e.to_string())?;
-    state.db.lock().unwrap().list_services()
+    state.db.lock_or_recover().list_services()
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|s| s.id == id)
@@ -93,12 +94,12 @@ pub fn delete_service(id: String, state: State<AppState>) -> Result<(), String> 
         .args(["stop", &container_name])
         .output();
 
-    state.db.lock().unwrap().delete_service(&id).map_err(|e| e.to_string())
+    state.db.lock_or_recover().delete_service(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn reorder_services(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
-    state.db.lock().unwrap().reorder_services(&ids).map_err(|e| e.to_string())
+    state.db.lock_or_recover().reorder_services(&ids).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -107,13 +108,13 @@ pub fn start_service(
     state: State<AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let svc = state.db.lock().unwrap().list_services()
+    let svc = state.db.lock_or_recover().list_services()
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|s| s.id == id)
         .ok_or_else(|| "Service not found".to_string())?;
 
-    state.db.lock().unwrap()
+    state.db.lock_or_recover()
         .update_service_status(&id, "pulling", None)
         .map_err(|e| e.to_string())?;
 
@@ -293,7 +294,7 @@ pub fn stop_service(id: String, state: State<AppState>) -> Result<(), String> {
         .args(["stop", &container_name])
         .output();
 
-    state.db.lock().unwrap()
+    state.db.lock_or_recover()
         .update_service_status(&id, "stopped", None)
         .map_err(|e| e.to_string())
 }

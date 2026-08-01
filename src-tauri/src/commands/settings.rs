@@ -81,21 +81,63 @@ pub fn send_test_notification(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Reads through `crate::secrets`, which keeps the token in the macOS Keychain
+/// and migrates the old plaintext `config.json` value on first read.
 #[tauri::command]
 pub fn get_cf_api_token() -> String {
-    read_porta_config()["cf_api_token"].as_str().unwrap_or("").to_string()
+    crate::secrets::cf_token_get()
+}
+
+/// Returns where the token landed — `"keychain"` normally, `"config"` if the
+/// keychain was unusable and we fell back to plaintext, `"none"` when cleared.
+#[tauri::command]
+pub fn set_cf_api_token(token: String) -> String {
+    crate::secrets::cf_token_set(&token).as_str().to_string()
+}
+
+/// Where the saved token lives, so the UI can warn when it is not protected.
+#[tauri::command]
+pub fn get_cf_token_storage() -> String {
+    crate::secrets::cf_token_storage().as_str().to_string()
+}
+
+// ── App-down health alerts ───────────────────────────────────────────────────
+
+pub(crate) fn health_alert_enabled() -> bool {
+    read_porta_config()["health_alert_enabled"].as_bool().unwrap_or(true)
+}
+
+/// Consecutive failed probes before an app counts as down. Clamped so a
+/// hand-edited config can't disable debouncing entirely (1) or push the alert
+/// so far out it never fires (10 rounds ≈ 5 minutes at the 30s poll).
+pub(crate) fn health_alert_threshold() -> u32 {
+    read_porta_config()["health_alert_threshold"]
+        .as_u64()
+        .map(|n| n.clamp(1, 10) as u32)
+        .unwrap_or(crate::health_alert::DEFAULT_THRESHOLD)
 }
 
 #[tauri::command]
-pub fn set_cf_api_token(token: String) {
+pub fn get_health_alert_enabled() -> bool {
+    health_alert_enabled()
+}
+
+#[tauri::command]
+pub fn set_health_alert_enabled(enabled: bool) {
     let mut cfg = read_porta_config();
-    if token.trim().is_empty() {
-        if let Some(m) = cfg.as_object_mut() {
-            m.remove("cf_api_token");
-        }
-    } else {
-        cfg["cf_api_token"] = serde_json::json!(token);
-    }
+    cfg["health_alert_enabled"] = serde_json::json!(enabled);
+    write_porta_config(&cfg);
+}
+
+#[tauri::command]
+pub fn get_health_alert_threshold() -> u32 {
+    health_alert_threshold()
+}
+
+#[tauri::command]
+pub fn set_health_alert_threshold(rounds: u32) {
+    let mut cfg = read_porta_config();
+    cfg["health_alert_threshold"] = serde_json::json!(rounds.clamp(1, 10));
     write_porta_config(&cfg);
 }
 

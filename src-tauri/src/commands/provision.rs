@@ -16,6 +16,7 @@
 //!     Porta can't host honestly, so a machine without brew gets pointed at
 //!     brew.sh instead.
 
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -125,7 +126,7 @@ fn existing(paths: &[&str]) -> Option<String> {
 /// the user to read the whole transcript.
 #[tauri::command]
 pub async fn run_provision_step(app: AppHandle, step: String) -> Result<(), String> {
-    if running_jobs().lock().unwrap().contains_key(&step) {
+    if running_jobs().lock_or_recover().contains_key(&step) {
         return Err("That step is already running.".into());
     }
     let (program, argv) = resolve_step(&step)?;
@@ -196,7 +197,7 @@ pub async fn run_provision_step(app: AppHandle, step: String) -> Result<(), Stri
             .filter_map(|h| h.join().ok())
             .filter(|s| !s.trim().is_empty())
             .collect();
-        running_jobs().lock().unwrap().remove(&step);
+        running_jobs().lock_or_recover().remove(&step);
 
         if status.success() {
             Ok(())
@@ -227,7 +228,7 @@ enum PipeKind {
 /// SIGTERM to the parent.
 #[tauri::command]
 pub fn cancel_provision_step(step: String) -> Result<(), String> {
-    let pid = running_jobs().lock().unwrap().remove(&step);
+    let pid = running_jobs().lock_or_recover().remove(&step);
     match pid {
         Some(pid) => {
             crate::process_manager::signal_tree(pid, nix::sys::signal::Signal::SIGTERM);

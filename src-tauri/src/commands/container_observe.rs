@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -132,7 +133,7 @@ pub async fn containers_for_app(
 ) -> Result<Vec<ContainerInfo>, String> {
     // Look up the app to determine compose_file + root_dir.
     let (compose_file, root_dir) = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock_or_recover();
         let apps = db.list_apps().map_err(|e| e.to_string())?;
         let app = apps
             .into_iter()
