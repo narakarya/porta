@@ -4,6 +4,34 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-beta.32]
+
+### Added
+
+- **Nine themes and a separate accent picker, under Settings → Appearance.**
+  Porta Dark (unchanged), Dim and Midnight, plus Tokyo Night, Catppuccin
+  Mocha, Nord, Dracula, Gruvbox Dark and One Dark, each mapped onto Porta's
+  three surface and three ink steps rather than copied wholesale. The accent
+  is chosen independently, so any palette can carry any of the eight accents
+  — or follow whatever the theme ships with. Applies instantly, survives
+  restarts, and repaints open terminals too. All dark for now: a light theme
+  needs the hover overlays to become an invertible token first.
+- **`.env` comments are hidden by default, with a toggle to bring them back.**
+  A file with a long licence header or a block comment between every group
+  reads as prose rather than config. Comment and blank lines are now folded
+  away — in rows mode and raw mode both — behind a toolbar button badged with
+  how many are hidden. Nothing is rewritten: raw mode goes read-only while
+  they're stripped, so the file on disk keeps every comment it had.
+
+### Changed
+
+- **Colours resolve through design tokens instead of being spelled out.**
+  Around 1100 literals (`text-zinc-500`, `bg-blue-500/10`,
+  `rgba(96,165,250,0.30)`) across 89 files became the semantic utilities that
+  already existed, which is what makes the themes above a set of CSS vars
+  rather than a sweep through the whole app. Renders identically on the
+  default theme.
+
 ## [0.14.0-beta.31]
 
 ### Fixed
