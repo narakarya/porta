@@ -282,6 +282,14 @@ export function createBridgeScript(app: PortaBridgeApp, extensionId: string): st
       },
       list() { return Array.from(_commands.keys()); },
     },
+    deploy: {
+      /* Where the current app deploys, per environment. Read-only, and it
+         carries no credentials: an extension gets the host's identity, never a
+         way to connect without going through Porta. Requires the "hosts"
+         permission. NOTE: this block is inside the injected-script template
+         literal, so no backticks in here. */
+      targets() { return _call('deploy.targets', []); },
+    },
     storage: {
       get(key) { return _call('storage.get', [key]); },
       set(key, value) { return _call('storage.set', [key, value]); },
@@ -343,6 +351,7 @@ export function createMessageHandler(
   onSetTitle: (title: string) => void,
   onStorage: (method: "get" | "set" | "remove" | "keys", args: unknown[]) => Promise<unknown>,
   onTerminal: (method: "open" | "write" | "resize" | "close", args: unknown[]) => Promise<void>,
+  onDeployTargets: () => Promise<unknown>,
   onReady?: () => void,
   onInvokeResult?: (invokeId: string, error?: string) => void,
 ) {
@@ -423,6 +432,8 @@ export function createMessageHandler(
             throw new Error(`storage.${sub}: key must be a string`);
           }
           result = await onStorage(sub, args);
+        } else if (method === "deploy.targets") {
+          result = await onDeployTargets();
         } else if (method.startsWith("terminal.")) {
           const sub = method.slice("terminal.".length);
           if (sub !== "open" && sub !== "write" && sub !== "resize" && sub !== "close") {

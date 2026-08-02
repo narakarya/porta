@@ -2037,6 +2037,38 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
 
+// ── Deploy targets ───────────────────────────────────────────────────────────
+
+/** Which host an app deploys to, for one environment.
+ *
+ *  Core remembers the link; the deploying itself belongs to an extension. No
+ *  credentials cross this boundary — the host's identity, never a way to reach
+ *  it without going through Porta. */
+export interface DeployTargetView {
+  id: string;
+  appId: string;
+  env: string;
+  hostId: string;
+  hostLabel: string;
+  /** `user@hostname:port`, so the user can see which machine this names. */
+  hostAddress: string;
+}
+
+export const listDeployTargets = (appId: string): Promise<DeployTargetView[]> =>
+  isTauri ? invoke("list_deploy_targets", { appId }) : Promise.resolve([]);
+
+export const setDeployTarget = (
+  appId: string,
+  hostId: string,
+  env: string
+): Promise<DeployTargetView> =>
+  isTauri
+    ? invoke("set_deploy_target", { appId, hostId, env })
+    : Promise.resolve({ id: "mock", appId, env, hostId, hostLabel: "mock", hostAddress: "u@h:22" });
+
+export const deleteDeployTarget = (id: string): Promise<void> =>
+  isTauri ? invoke("delete_deploy_target", { id }) : Promise.resolve();
+
 // ── Tailnet host discovery ───────────────────────────────────────────────────
 
 /** A machine on the tailnet, offered as an importable SSH host. */

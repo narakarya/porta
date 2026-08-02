@@ -109,6 +109,8 @@ pub mod worktree;
 pub use worktree::*;
 
 mod ssh;
+pub mod deploy_targets;
+pub use deploy_targets::*;
 pub use ssh::*;
 
 mod system_metrics;

@@ -5,6 +5,7 @@ mod app_repo;
 mod service_repo;
 mod remote_repo;
 mod instance_repo;
+mod deploy_target_repo;
 mod ssh_forward_repo;
 mod ssh_repo;
 mod ssh_snippet_repo;
@@ -301,6 +302,31 @@ impl Database {
         // Remote OS detected on connect (added after the initial ssh_hosts table
         // shipped, so ALTER for existing installs; ignored if already present).
         let _ = self.conn.execute("ALTER TABLE ssh_hosts ADD COLUMN detected_os TEXT", []);
+
+        // Which SSH host an app deploys to, per environment.
+        //
+        // Core owns this link and nothing else about deploying. It describes the
+        // user's infrastructure rather than one extension's preferences, so if
+        // porta-kamal kept it in its own storage the vault and the deploy config
+        // would drift, and a second deploy extension could not see it at all.
+        //
+        // Deliberately no remote_path, restart_command or health_check — that is
+        // deploy semantics and belongs to whichever extension does the
+        // deploying, keyed off this row's stable id. And no last_deployed_at:
+        // core cannot verify a deploy happened, so a field only an extension
+        // writes would be a claim core is laundering.
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS app_deploy_targets (
+                id         TEXT PRIMARY KEY,
+                app_id     TEXT NOT NULL REFERENCES apps(id)      ON DELETE CASCADE,
+                host_id    TEXT NOT NULL REFERENCES ssh_hosts(id) ON DELETE CASCADE,
+                env        TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (app_id, env)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_deploy_targets_app
+                ON app_deploy_targets(app_id);
+        ")?;
 
         // Saved port-forward rules per SSH host (OpenSSH's -L, with -R/-D
         // reserved in `kind`). Deliberately has no status/pid column, unlike

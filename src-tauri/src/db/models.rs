@@ -682,6 +682,21 @@ pub enum SshAuth {
     Password,
 }
 
+/// Which SSH host an app deploys to, for one environment.
+///
+/// Core remembers the link and nothing more — the act of deploying belongs to
+/// an extension, which keys its own settings off this row's `id`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AppDeployTarget {
+    pub id: String,
+    pub app_id: String,
+    pub host_id: String,
+    /// Free text, one row per value: `production`, `staging`, whatever the user
+    /// calls it. Unique per app, so re-setting an environment replaces it.
+    pub env: String,
+    pub created_at: i64,
+}
+
 /// A saved command, typed into a session's shell on demand.
 ///
 /// There is no "run" plumbing behind this — running a snippet writes its text

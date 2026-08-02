@@ -12,6 +12,7 @@ import {
   terminalWrite,
   terminalResize,
   terminalClose,
+  listDeployTargets,
 } from "../../lib/commands";
 import {
   createBridgeScript,
@@ -215,6 +216,22 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     [extension.id],
   );
 
+  // Where this app deploys. Read-only and credential-free by construction: the
+  // command returns the host's label and user@host:port, never its auth method,
+  // key path or jump chain. An extension gets enough to name the machine and
+  // nothing that lets it reach the machine on its own — connecting stays a
+  // thing the user does, so a password prompt can never appear unbidden.
+  const handleDeployTargets = useCallback(async (): Promise<unknown> => {
+    if (!extension.permissions.includes("hosts")) {
+      throw new Error(`Extension '${extension.id}' does not have 'hosts' permission`);
+    }
+    if (!extension.enabled) {
+      throw new Error(`Extension '${extension.id}' is disabled`);
+    }
+    if (!app?.id) return [];
+    return listDeployTargets(app.id);
+  }, [extension.permissions, extension.id, extension.enabled, app?.id]);
+
   const handleTerminal = useCallback(
     async (method: "open" | "write" | "resize" | "close", args: unknown[]): Promise<void> => {
       if (!extension.permissions.includes("terminal")) {
@@ -326,6 +343,7 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       handleSetTitle,
       handleStorage,
       handleTerminal,
+      handleDeployTargets,
       handleReady,
       handleInvokeResult,
     );
@@ -339,7 +357,7 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
       }
       pending.clear();
     };
-  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage, handleTerminal, handleReady, handleInvokeResult]);
+  }, [handleShellRun, handleShellSpawn, handleToast, handleSetTitle, handleStorage, handleTerminal, handleDeployTargets, handleReady, handleInvokeResult]);
 
   useEffect(() => {
     const map = termUnlistenRef.current;
