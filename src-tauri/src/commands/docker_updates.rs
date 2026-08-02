@@ -1,8 +1,10 @@
 //! Docker image update detection + one-click update for managed apps.
 //!
-//! Scope: **Docker Hub public images only** for now. Other registries (GHCR,
-//! Quay, private) are detected and reported as `status: "skipped"` with a
-//! reason. Update detection works two ways depending on the tag:
+//! Scope: **any public image on an OCI Distribution registry** — Docker Hub,
+//! GHCR, Quay and anything else that implements the spec. Private images are
+//! reported with a message saying credentials are needed; Porta has no
+//! credential store for registries yet, so ECR and private GCR are out.
+//! Update detection works two ways depending on the tag:
 //!
 //! - **Mutable tags** (`latest`, `stable`, `edge`, `lts`, `nightly`, `main`,
 //!   `master`, `develop`, `dev`, `rolling`, `current`): compare local manifest
@@ -16,8 +18,11 @@
 //! are part of the run config (named volumes / bind mounts), so they survive
 //! container recreation automatically.
 //!
-//! Why anonymous bearer auth: Docker Hub gates manifest reads behind a token
-//! flow even for public images. The token is free, no account required.
+//! Why the bearer-challenge dance: most registries gate manifest reads behind
+//! a token even for public images. Rather than hardcode each one's auth
+//! endpoint, we make the request unauthenticated, and on a 401 follow the
+//! `WWW-Authenticate` header the registry itself advertises. The token is free
+//! and needs no account.
 
 use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
@@ -35,7 +40,6 @@ use crate::commands::volume_snapshot::{
 use crate::docker_manager::{docker_bin, resolve_compose_path, DockerManager};
 
 const DOCKER_HUB_REGISTRY: &str = "registry-1.docker.io";
-const DOCKER_HUB_AUTH: &str = "https://auth.docker.io/token";
 
 /// Tags whose meaning is "the current release" — we detect updates by
 /// comparing manifest digests, not by listing tags.
@@ -243,32 +247,162 @@ pub(crate) fn suggest_newer_tag(current: &str, all_tags: &[String]) -> Option<St
 
 // ── Registry HTTP ──────────────────────────────────────────────────────────
 
+/// A registry's token response.
+///
+/// Two separate optional fields rather than one with `#[serde(alias)]`: Docker
+/// Hub returns BOTH `token` and `access_token`, and an alias makes serde see
+/// that as the same field twice and reject the whole body as a duplicate.
 #[derive(Deserialize)]
 struct TokenResponse {
-    token: String,
+    token: Option<String>,
+    access_token: Option<String>,
 }
 
-async fn fetch_anonymous_token(
+impl TokenResponse {
+    fn into_token(self) -> Option<String> {
+        self.token.or(self.access_token).filter(|t| !t.is_empty())
+    }
+}
+
+/// The parts of a `WWW-Authenticate: Bearer …` challenge we need to mint a
+/// pull token. `realm` is the only required field — Docker Hub sends all
+/// three, GHCR omits `scope`, and some private registries omit `service`.
+#[derive(Debug, PartialEq)]
+pub(crate) struct BearerChallenge {
+    pub realm: String,
+    pub service: Option<String>,
+    pub scope: Option<String>,
+}
+
+/// Parse a `WWW-Authenticate` header into a bearer challenge.
+///
+/// This is what replaces the hardcoded Docker Hub auth endpoint: every OCI
+/// Distribution registry advertises where to get a token, so following the
+/// challenge works for Docker Hub, GHCR, quay.io and anything else compliant
+/// without a per-registry table.
+pub(crate) fn parse_bearer_challenge(header: &str) -> Option<BearerChallenge> {
+    let rest = header
+        .strip_prefix("Bearer ")
+        .or_else(|| header.strip_prefix("bearer "))?;
+
+    let mut realm = None;
+    let mut service = None;
+    let mut scope = None;
+    // Values are quoted and may contain commas (scopes are comma-separated),
+    // so split on commas that sit outside quotes.
+    let mut in_quotes = false;
+    let mut current = String::new();
+    let mut parts: Vec<String> = Vec::new();
+    for c in rest.chars() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(c);
+            }
+            ',' if !in_quotes => parts.push(std::mem::take(&mut current)),
+            _ => current.push(c),
+        }
+    }
+    if !current.trim().is_empty() {
+        parts.push(current);
+    }
+
+    for part in parts {
+        let Some((k, v)) = part.split_once('=') else { continue };
+        let v = v.trim().trim_matches('"').to_string();
+        match k.trim() {
+            "realm" => realm = Some(v),
+            "service" => service = Some(v),
+            "scope" => scope = Some(v),
+            _ => {}
+        }
+    }
+    realm.map(|realm| BearerChallenge { realm, service, scope })
+}
+
+/// Build the token URL for a challenge, forcing pull scope on `repo`.
+///
+/// The server's advertised scope is ignored on purpose: on a 401 for a tags
+/// listing, registries commonly echo back an empty or wrong scope, and asking
+/// for exactly what we need is both simpler and what the docker CLI does.
+pub(crate) fn token_url(challenge: &BearerChallenge, repo: &str) -> String {
+    let mut url = format!(
+        "{}?scope=repository:{}:pull",
+        challenge.realm,
+        urlencoding::encode(repo)
+    );
+    if let Some(service) = &challenge.service {
+        url.push_str(&format!("&service={}", urlencoding::encode(service)));
+    }
+    url
+}
+
+/// Send `build()`'s request; on a 401 carrying a bearer challenge, mint a token
+/// and send it again. Anonymous first, because public images on most registries
+/// need no token at all and the extra round trip is pure latency.
+async fn with_registry_auth<F>(
     client: &reqwest::Client,
     repo: &str,
-) -> Result<String, String> {
-    let url = format!(
-        "{}?service=registry.docker.io&scope=repository:{}:pull",
-        DOCKER_HUB_AUTH, repo
-    );
-    let resp = client
-        .get(&url)
+    build: F,
+) -> Result<reqwest::Response, String>
+where
+    F: Fn() -> reqwest::RequestBuilder,
+{
+    let first = build()
+        .send()
+        .await
+        .map_err(|e| format!("registry request failed: {}", e))?;
+    if first.status().as_u16() != 401 {
+        return Ok(first);
+    }
+
+    let challenge = first
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_bearer_challenge)
+        .ok_or_else(|| {
+            "the registry wants credentials Porta doesn't have — private registries aren't \
+             supported yet"
+                .to_string()
+        })?;
+
+    let token_resp = client
+        .get(token_url(&challenge, repo))
         .send()
         .await
         .map_err(|e| format!("auth request failed: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("auth status {}", resp.status()));
+    if !token_resp.status().is_success() {
+        // A 401/403 here means anonymous pull isn't allowed — a private image,
+        // or one on a registry that needs real credentials (ECR, private GCR).
+        return Err(if token_resp.status().as_u16() == 403 || token_resp.status().as_u16() == 401 {
+            "this image needs registry credentials — Porta can only check public images"
+                .to_string()
+        } else {
+            format!("auth status {}", token_resp.status())
+        });
     }
-    let body: TokenResponse = resp
-        .json()
+    // Include a slice of what actually came back. "error decoding response
+    // body" on its own is unactionable — the useful information is whether the
+    // registry sent an HTML error page, a differently-named token field, or
+    // nothing at all.
+    let raw = token_resp
+        .text()
         .await
-        .map_err(|e| format!("auth body parse: {}", e))?;
-    Ok(body.token)
+        .map_err(|e| format!("auth body read: {}", e))?;
+    let body: TokenResponse = serde_json::from_str(&raw).map_err(|e| {
+        format!("auth body parse: {} — registry said: {}", e, raw.chars().take(160).collect::<String>())
+    })?;
+
+    let token = body
+        .into_token()
+        .ok_or_else(|| "the registry returned no pull token".to_string())?;
+
+    build()
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("registry request failed: {}", e))
 }
 
 const MANIFEST_ACCEPT: &str = concat!(
@@ -280,18 +414,15 @@ const MANIFEST_ACCEPT: &str = concat!(
 
 async fn fetch_remote_digest(
     client: &reqwest::Client,
+    registry: &str,
     repo: &str,
     tag: &str,
-    token: &str,
 ) -> Result<Option<String>, String> {
-    let url = format!("https://{}/v2/{}/manifests/{}", DOCKER_HUB_REGISTRY, repo, tag);
-    let resp = client
-        .head(&url)
-        .bearer_auth(token)
-        .header("Accept", MANIFEST_ACCEPT)
-        .send()
-        .await
-        .map_err(|e| format!("manifest HEAD failed: {}", e))?;
+    let url = format!("https://{}/v2/{}/manifests/{}", registry, repo, tag);
+    let resp = with_registry_auth(client, repo, || {
+        client.head(&url).header("Accept", MANIFEST_ACCEPT)
+    })
+    .await?;
     if resp.status().as_u16() == 404 {
         return Ok(None);
     }
@@ -312,21 +443,13 @@ struct TagsListResponse {
 
 async fn fetch_tags(
     client: &reqwest::Client,
+    registry: &str,
     repo: &str,
-    token: &str,
 ) -> Result<Vec<String>, String> {
     // /tags/list pagination uses Link header; for the common case of <500 tags
     // a single hit at n=500 is enough. Larger repos can grow this later.
-    let url = format!(
-        "https://{}/v2/{}/tags/list?n=500",
-        DOCKER_HUB_REGISTRY, repo
-    );
-    let resp = client
-        .get(&url)
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|e| format!("tags list failed: {}", e))?;
+    let url = format!("https://{}/v2/{}/tags/list?n=500", registry, repo);
+    let resp = with_registry_auth(client, repo, || client.get(&url)).await?;
     if !resp.status().is_success() {
         return Err(format!("tags status {}", resp.status()));
     }
@@ -393,13 +516,6 @@ async fn check_one(
         Some(p) => p,
         None => return ImageUpdateInfo::error(image_ref, service_name, "invalid image ref".into()),
     };
-    if parsed.registry != DOCKER_HUB_REGISTRY {
-        return ImageUpdateInfo::skipped(
-            image_ref,
-            service_name,
-            "only Docker Hub is supported right now",
-        );
-    }
     if parsed.tag.ends_with("@digest") {
         return ImageUpdateInfo::skipped(
             image_ref,
@@ -408,14 +524,10 @@ async fn check_one(
         );
     }
 
-    let token = match fetch_anonymous_token(client, &parsed.repo).await {
-        Ok(t) => t,
-        Err(e) => return ImageUpdateInfo::error(image_ref, service_name, e),
-    };
-
     let locals = local_digests(image_ref);
 
-    let remote = match fetch_remote_digest(client, &parsed.repo, &parsed.tag, &token).await {
+    let remote = match fetch_remote_digest(client, &parsed.registry, &parsed.repo, &parsed.tag).await
+    {
         Ok(r) => r,
         Err(e) => return ImageUpdateInfo::error(image_ref, service_name, e),
     };
@@ -431,7 +543,7 @@ async fn check_one(
     // For semver-pinned tags, also surface a newer suggestion. For mutable
     // tags this is meaningless — `latest` doesn't have a "newer latest".
     let suggested_tag = if !is_mutable_tag(&parsed.tag) && parse_semver_tag(&parsed.tag).is_some() {
-        match fetch_tags(client, &parsed.repo, &token).await {
+        match fetch_tags(client, &parsed.registry, &parsed.repo).await {
             Ok(tags) => suggest_newer_tag(&parsed.tag, &tags),
             Err(_) => None,
         }
@@ -1467,6 +1579,86 @@ fn revert_compose_image_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hits real registries. Ignored by default so `cargo test` stays offline;
+    /// run with `--ignored` after touching the auth path — the unit tests above
+    /// cannot tell you whether a registry actually accepts what we send.
+    ///   cargo test --manifest-path src-tauri/Cargo.toml --lib live_registry -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_registry_digest_across_registries() {
+        let client = reqwest::Client::builder()
+            .user_agent("porta-test")
+            .build()
+            .expect("client");
+
+        for image in [
+            "nginx:1.27-alpine",                  // Docker Hub, official
+            "ghcr.io/astral-sh/uv:latest",        // GHCR, public
+        ] {
+            let parsed = parse_image_ref(image).expect(image);
+            let digest =
+                fetch_remote_digest(&client, &parsed.registry, &parsed.repo, &parsed.tag)
+                    .await
+                    .unwrap_or_else(|e| panic!("{image}: {e}"));
+            let digest = digest.unwrap_or_else(|| panic!("{image}: no digest header"));
+            assert!(digest.starts_with("sha256:"), "{image} -> {digest}");
+            println!("{image} -> {digest}");
+        }
+    }
+
+    #[test]
+    fn parses_a_docker_hub_challenge() {
+        let c = parse_bearer_challenge(
+            r#"Bearer realm="https://auth.docker.io/token",service="registry.docker.io""#,
+        )
+        .expect("challenge");
+        assert_eq!(c.realm, "https://auth.docker.io/token");
+        assert_eq!(c.service.as_deref(), Some("registry.docker.io"));
+    }
+
+    #[test]
+    fn parses_a_ghcr_challenge_without_scope() {
+        // GHCR sends realm + service only; requiring scope would reject it.
+        let c = parse_bearer_challenge(r#"Bearer realm="https://ghcr.io/token",service="ghcr.io""#)
+            .expect("challenge");
+        assert_eq!(c.realm, "https://ghcr.io/token");
+        assert_eq!(c.scope, None);
+    }
+
+    #[test]
+    fn a_scope_containing_commas_does_not_split_the_challenge() {
+        // Scopes are comma-separated inside ONE quoted value, so splitting on
+        // every comma would shred the neighbouring fields.
+        let c = parse_bearer_challenge(
+            r#"Bearer realm="https://r.example/token",service="r.example",scope="repository:a/b:pull,repository:c/d:pull""#,
+        )
+        .expect("challenge");
+        assert_eq!(c.realm, "https://r.example/token");
+        assert_eq!(c.service.as_deref(), Some("r.example"));
+        assert_eq!(c.scope.as_deref(), Some("repository:a/b:pull,repository:c/d:pull"));
+    }
+
+    #[test]
+    fn a_challenge_without_a_realm_is_unusable() {
+        assert!(parse_bearer_challenge(r#"Basic realm="registry""#).is_none());
+        assert!(parse_bearer_challenge(r#"Bearer service="x""#).is_none());
+    }
+
+    #[test]
+    fn token_url_asks_for_pull_on_the_repo_we_actually_want() {
+        let c = BearerChallenge {
+            realm: "https://ghcr.io/token".into(),
+            service: Some("ghcr.io".into()),
+            scope: Some("repository:someone/else:pull".into()),
+        };
+        let url = token_url(&c, "narakarya/porta");
+        // Our scope, not the one the server echoed back — registries commonly
+        // return an empty or unrelated scope on a 401.
+        assert!(url.contains("scope=repository:narakarya%2Fporta:pull"), "{url}");
+        assert!(url.contains("service=ghcr.io"), "{url}");
+        assert!(!url.contains("someone"), "{url}");
+    }
 
     #[test]
     fn digest_membership_not_first_entry() {
