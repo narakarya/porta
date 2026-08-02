@@ -4,6 +4,7 @@ import type { SshHost } from "../../lib/commands";
 import HostFormModal from "./HostFormModal";
 import ImportConfigModal from "./ImportConfigModal";
 import ForwardRows from "./ForwardRows";
+import ImportTailnetModal from "./ImportTailnetModal";
 import { OsIcon } from "./OsIcon";
 import { Spinner } from "../ui";
 import { SidebarHeader, SidebarBody, SidebarFooter, SidebarGroupHeader, SidebarAddButton } from "../layout/SidebarShell";
@@ -29,6 +30,7 @@ export default function HostVault() {
   const [editing, setEditing] = useState<SshHost | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importingTailnet, setImportingTailnet] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null); // right-click context menu
   const filterRef = useRef<HTMLDivElement | null>(null);
 
@@ -331,6 +333,12 @@ export default function HostVault() {
         >
           Import from ~/.ssh/config
         </button>
+        <button
+          onClick={() => setImportingTailnet(true)}
+          className="w-full px-2 py-1 text-[11px] text-ink-3 hover:text-ink-2 transition-colors"
+        >
+          Add from Tailscale
+        </button>
       </SidebarFooter>
 
       {/* Right-click / ⋯ context menu — single instance, cursor-anchored. */}
@@ -375,6 +383,7 @@ export default function HostVault() {
       {adding && <HostFormModal onClose={() => setAdding(false)} />}
       {editing && <HostFormModal host={editing} onClose={() => setEditing(null)} />}
       {importing && <ImportConfigModal onClose={() => setImporting(false)} />}
+      {importingTailnet && <ImportTailnetModal onClose={() => setImportingTailnet(false)} />}
     </>
   );
 }

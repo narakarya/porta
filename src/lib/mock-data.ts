@@ -12,6 +12,7 @@ import type {
   SshHost,
   SshPortForward,
   RemoteContainerReport,
+  TailscalePeer,
   SshSnippet,
 } from "./commands";
 
@@ -564,6 +565,33 @@ export function mockSftpRead(path: string): SftpFileContent {
     binary: false,
   };
 }
+
+/** Browser-dev stand-in for a tailnet peer list. The display names are
+ *  deliberately awkward — one has a typographic apostrophe, one is literally
+ *  "unknown" — because that is what real Tailscale returns. */
+export const mockTailscalePeers: TailscalePeer[] = [
+  {
+    label: "prod-web",
+    hostname: "prod-web.capybara-cardassian.ts.net",
+    os: "linux",
+    online: true,
+    alreadyInVault: false,
+  },
+  {
+    label: "unknown",
+    hostname: "unknown.capybara-cardassian.ts.net",
+    os: "macOS",
+    online: true,
+    alreadyInVault: true,
+  },
+  {
+    label: "Nasrul\u2019s Mac mini",
+    hostname: "aira-mac.capybara-cardassian.ts.net",
+    os: "macOS",
+    online: false,
+    alreadyInVault: false,
+  },
+];
 
 /** Browser-dev stand-in for a read-only remote Docker listing. */
 export const mockRemoteContainers: RemoteContainerReport[] = [

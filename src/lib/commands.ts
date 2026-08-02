@@ -28,6 +28,7 @@ import {
   mockSshConfigCandidates,
   mockSshForwards,
   mockRemoteContainers,
+  mockTailscalePeers,
   mockSftpListing,
   mockSftpRead,
   mockSshSnippets,
@@ -2035,6 +2036,28 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+// ── Tailnet host discovery ───────────────────────────────────────────────────
+
+/** A machine on the tailnet, offered as an importable SSH host. */
+export interface TailscalePeer {
+  /** Display name from Tailscale — free text, never an address. */
+  label: string;
+  /** MagicDNS name, or the IPv4 when MagicDNS is off. */
+  hostname: string;
+  os: string;
+  online: boolean;
+  alreadyInVault: boolean;
+}
+
+export const tailscalePeers = (): Promise<TailscalePeer[]> =>
+  isTauri ? invoke("tailscale_peers") : Promise.resolve([...mockTailscalePeers]);
+
+export const tailscaleImportHosts = (
+  hostnames: string[],
+  workspaceIds: string[]
+): Promise<SshHost[]> =>
+  isTauri ? invoke("tailscale_import_hosts", { hostnames, workspaceIds }) : Promise.resolve([]);
 
 // ── Remote Docker (read-only) ────────────────────────────────────────────────
 

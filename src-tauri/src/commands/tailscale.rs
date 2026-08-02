@@ -274,6 +274,153 @@ struct TsSelfJson {
     user_id: i64,
 }
 
+/// A machine on the tailnet, offered as an importable SSH host.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePeer {
+    /// Display name from Tailscale. Free text — it can contain spaces and
+    /// typographic apostrophes, so it is a label and never an address.
+    pub label: String,
+    /// What to actually connect to: the MagicDNS name, or the IPv4 when
+    /// MagicDNS is off.
+    pub hostname: String,
+    pub os: String,
+    pub online: bool,
+    /// The vault already has a host at this address.
+    pub already_in_vault: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct TsPeerJson {
+    #[serde(default, rename = "HostName")]
+    host_name: String,
+    #[serde(default, rename = "DNSName")]
+    dns_name: String,
+    #[serde(default, rename = "TailscaleIPs")]
+    ips: Vec<String>,
+    #[serde(default, rename = "OS")]
+    os: String,
+    #[serde(default, rename = "Online")]
+    online: bool,
+}
+
+/// The address to SSH to.
+///
+/// MagicDNS name in preference to the IP: tailnet IPs are stable in practice
+/// but the name is what survives a node being re-created, and it is what the
+/// user sees everywhere else in Tailscale. Falls back to the IPv4 — never the
+/// IPv6, which plenty of SSH configs and jump hosts still handle badly.
+pub(crate) fn peer_address(dns_name: &str, ips: &[String]) -> Option<String> {
+    let dns = dns_name.trim().trim_end_matches('.');
+    if !dns.is_empty() {
+        return Some(dns.to_string());
+    }
+    ips.iter()
+        .find(|ip| ip.contains('.') && !ip.contains(':'))
+        .cloned()
+}
+
+/// Peers on this tailnet, most connectable first.
+///
+/// Offline peers are listed rather than hidden: a machine that is asleep is
+/// still one the user wants in their vault, and silently dropping it would look
+/// like Tailscale had lost it.
+#[tauri::command]
+pub fn tailscale_peers(state: tauri::State<AppState>) -> Result<Vec<TailscalePeer>, String> {
+    let ts = find_tailscale().ok_or("Tailscale isn't installed.")?;
+    let out = std::process::Command::new(&ts)
+        .args(["status", "--json"])
+        .output()
+        .map_err(|e| format!("tailscale status: {e}"))?;
+    if !out.status.success() {
+        return Err("Tailscale isn't running, or you aren't logged in.".into());
+    }
+
+    #[derive(Deserialize)]
+    struct PeersEnvelope {
+        #[serde(default, rename = "Peer")]
+        peer: std::collections::HashMap<String, TsPeerJson>,
+    }
+    let parsed: PeersEnvelope = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("tailscale status parse: {e}"))?;
+
+    let existing: std::collections::HashSet<String> = state
+        .db
+        .lock_or_recover()
+        .list_ssh_hosts()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|h| h.hostname.to_lowercase())
+        .collect();
+
+    let mut peers: Vec<TailscalePeer> = parsed
+        .peer
+        .into_values()
+        .filter_map(|p| {
+            let hostname = peer_address(&p.dns_name, &p.ips)?;
+            Some(TailscalePeer {
+                label: if p.host_name.trim().is_empty() {
+                    hostname.split('.').next().unwrap_or(&hostname).to_string()
+                } else {
+                    p.host_name
+                },
+                already_in_vault: existing.contains(&hostname.to_lowercase()),
+                hostname,
+                os: p.os,
+                online: p.online,
+            })
+        })
+        .collect();
+
+    // Online first, then by label — an asleep machine is still listed, just not
+    // in the way of the ones you can reach right now.
+    peers.sort_by(|a, b| {
+        b.online
+            .cmp(&a.online)
+            .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+    });
+    Ok(peers)
+}
+
+/// Add the picked tailnet machines to the host vault.
+#[tauri::command]
+pub fn tailscale_import_hosts(
+    hostnames: Vec<String>,
+    workspace_ids: Vec<String>,
+    state: tauri::State<AppState>,
+) -> Result<Vec<crate::db::models::SshHost>, String> {
+    let wanted: std::collections::HashSet<String> =
+        hostnames.iter().map(|h| h.to_lowercase()).collect();
+    let peers = tailscale_peers(state.clone())?;
+
+    let db = state.db.lock_or_recover();
+    let mut imported = Vec::new();
+    for peer in peers
+        .into_iter()
+        .filter(|p| !p.already_in_vault && wanted.contains(&p.hostname.to_lowercase()))
+    {
+        let host = crate::db::models::SshHost {
+            id: uuid::Uuid::new_v4().to_string(),
+            label: peer.label.clone(),
+            group: None,
+            hostname: peer.hostname.clone(),
+            port: 22,
+            // Tailscale knows the machine, not who you are on it. The local
+            // username is the same guess ~/.ssh/config import makes.
+            username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+            auth: crate::db::models::SshAuth::Agent,
+            jump_host_id: None,
+            created_at: chrono::Utc::now().timestamp(),
+            last_used_at: None,
+            workspace_ids: workspace_ids.clone(),
+            detected_os: (!peer.os.trim().is_empty()).then(|| peer.os.clone()),
+        };
+        db.insert_ssh_host(&host).map_err(|e| e.to_string())?;
+        imported.push(host);
+    }
+    Ok(imported)
+}
+
 #[tauri::command]
 pub fn tailscale_status() -> TailscaleStatus {
     let ts = match find_tailscale() {
@@ -937,6 +1084,100 @@ pub fn spawn_tailscale_poller(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use super::{peer_address, TailscalePeer};
+    use serde::Deserialize as _;
+
+    #[test]
+    fn magicdns_name_wins_and_loses_its_trailing_dot() {
+        let ips = vec!["100.119.233.32".to_string(), "fd7a:115c:a1e0::7435".to_string()];
+        assert_eq!(
+            peer_address("aira-mac.capybara-cardassian.ts.net.", &ips).as_deref(),
+            Some("aira-mac.capybara-cardassian.ts.net")
+        );
+    }
+
+    #[test]
+    fn without_magicdns_it_falls_back_to_ipv4_never_ipv6() {
+        // IPv6 first in the list on purpose — plenty of ssh configs and jump
+        // hosts still handle a bare v6 literal badly.
+        let ips = vec!["fd7a:115c:a1e0::7435".to_string(), "100.119.233.32".to_string()];
+        assert_eq!(peer_address("", &ips).as_deref(), Some("100.119.233.32"));
+        assert_eq!(peer_address("   ", &ips).as_deref(), Some("100.119.233.32"));
+    }
+
+    #[test]
+    fn a_peer_with_no_usable_address_is_not_offered() {
+        assert_eq!(peer_address("", &[]), None);
+        assert_eq!(peer_address(".", &["fd7a:115c::1".to_string()]), None);
+    }
+
+    /// Locks the exact field names Tailscale uses. They are easy to get subtly
+    /// wrong (`DNSName`, not `DnsName`), and a rename would silently yield an
+    /// empty peer list rather than an error. Fixture is real `status --json`
+    /// output, trimmed.
+    #[test]
+    fn real_status_json_shape_parses() {
+        #[derive(serde::Deserialize)]
+        struct PeersEnvelope {
+            #[serde(default, rename = "Peer")]
+            peer: std::collections::HashMap<String, super::TsPeerJson>,
+        }
+        let raw = r#"{
+          "BackendState": "Running",
+          "Peer": {
+            "nodekey:aaa": {
+              "HostName": "Nasrul\u2019s Mac mini",
+              "DNSName": "aira-mac.capybara-cardassian.ts.net.",
+              "TailscaleIPs": ["100.119.233.32", "fd7a:115c:a1e0::7435:e920"],
+              "OS": "macOS",
+              "Online": false
+            },
+            "nodekey:bbb": {
+              "HostName": "unknown",
+              "DNSName": "unknown.capybara-cardassian.ts.net.",
+              "TailscaleIPs": ["100.122.125.36"],
+              "OS": "macOS",
+              "Online": true
+            }
+          }
+        }"#;
+        let parsed: PeersEnvelope = serde_json::from_str(raw).expect("parse");
+        assert_eq!(parsed.peer.len(), 2);
+
+        let mac = &parsed.peer["nodekey:aaa"];
+        // The display name carries a typographic apostrophe — proof it must
+        // never be used as an address.
+        assert!(mac.host_name.contains('\u{2019}'));
+        assert_eq!(
+            peer_address(&mac.dns_name, &mac.ips).as_deref(),
+            Some("aira-mac.capybara-cardassian.ts.net")
+        );
+        assert!(!mac.online);
+        assert_eq!(mac.os, "macOS");
+        assert!(parsed.peer["nodekey:bbb"].online);
+    }
+
+    #[test]
+    fn online_peers_sort_ahead_of_sleeping_ones() {
+        let mk = |label: &str, online: bool| TailscalePeer {
+            label: label.into(),
+            hostname: format!("{label}.ts.net"),
+            os: "linux".into(),
+            online,
+            already_in_vault: false,
+        };
+        let mut peers = vec![mk("zulu", true), mk("alpha", false), mk("beta", true)];
+        peers.sort_by(|a, b| {
+            b.online
+                .cmp(&a.online)
+                .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+        });
+        let order: Vec<&str> = peers.iter().map(|p| p.label.as_str()).collect();
+        // An asleep machine is still listed — just not ahead of one you can
+        // actually reach.
+        assert_eq!(order, vec!["beta", "zulu", "alpha"]);
+    }
+
     use super::*;
 
     #[test]

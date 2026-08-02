@@ -386,6 +386,8 @@ pub fn run() {
             commands::ssh_close,
             commands::ssh_trust_host,
             commands::ssh_provide_secret,
+            commands::tailscale_peers,
+            commands::tailscale_import_hosts,
             commands::ssh_remote_containers,
             commands::ssh_sftp_home,
             commands::ssh_sftp_list,
