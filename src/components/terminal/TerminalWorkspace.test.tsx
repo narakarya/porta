@@ -631,6 +631,31 @@ describe("terminalState contract (commands.ts)", () => {
   });
 });
 
+// Both close paths reach the prompt through `await import(
+// "@tauri-apps/plugin-dialog")`, so `confirm` is raised some macrotasks after
+// the click event itself — and `userEvent.click` only awaits about two of them
+// before resolving. Asserting `confirmDialog` was called directly after the
+// click therefore came down to whether module resolution happened to land
+// inside that window: it always did in isolation, and missed roughly one run
+// in three under the contention of a full parallel suite. (Measured: the tab's
+// pane is already `running` at click time in every case, so the tab-busy state
+// was never what was unsettled — the dialog import was.)
+//
+// So wait for the far end of the chain — once `terminalClose` has fired, the
+// whole confirm→close sequence has necessarily run — and then assert the
+// ordering these tests actually claim in their names: asked *before* killed.
+async function expectConfirmedBeforeClosing(paneId?: string) {
+  await vi.waitFor(() =>
+    paneId
+      ? expect(terminalClose).toHaveBeenCalledWith(paneId)
+      : expect(terminalClose).toHaveBeenCalled(),
+  );
+  expect(confirmDialog).toHaveBeenCalled();
+  expect(confirmDialog.mock.invocationCallOrder[0]).toBeLessThan(
+    terminalClose.mock.invocationCallOrder[0],
+  );
+}
+
 describe("closing a busy tab", () => {
   beforeEach(() => {
     usePortaStore.setState({ terminalTabs: {}, terminalActiveTab: {} });
@@ -659,8 +684,7 @@ describe("closing a busy tab", () => {
     seedRunning();
     await userEvent.click(screen.getByTitle("Close tab (⌘W)"));
 
-    expect(confirmDialog).toHaveBeenCalled();
-    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalled());
+    await expectConfirmedBeforeClosing();
   });
 
   it("leaves the session alone when the user declines", async () => {
@@ -726,8 +750,7 @@ describe("closing a busy tab", () => {
     const closeButtons = screen.getAllByTitle("Close tab (⌘W)");
     await userEvent.click(closeButtons[1]);
 
-    expect(confirmDialog).toHaveBeenCalled();
-    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalledWith(bgPaneId));
+    await expectConfirmedBeforeClosing(bgPaneId);
   });
 });
 
@@ -775,8 +798,7 @@ describe("closing a busy pane", () => {
     const closeButtons = screen.getAllByTitle("Close pane");
     await userEvent.click(closeButtons[1]);
 
-    expect(confirmDialog).toHaveBeenCalled();
-    await vi.waitFor(() => expect(terminalClose).toHaveBeenCalledWith(pane2Id));
+    await expectConfirmedBeforeClosing(pane2Id);
   });
 
   it("leaves a running pane alone when the user declines", async () => {
