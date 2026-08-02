@@ -150,9 +150,22 @@ fn snapshot_volumes_with_names(
             ));
         }
 
-        let size_bytes = std::fs::metadata(&archive_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        // `tar` exiting 0 is not proof the archive landed: the write goes to a
+        // bind-mounted host path, and anything that leaves it missing or empty
+        // used to be recorded as a valid entry with `size_bytes: 0`. Rollback
+        // then wiped a real volume to restore from nothing.
+        let size_bytes = match std::fs::metadata(&archive_path) {
+            Ok(m) if m.len() > 0 => m.len(),
+            _ => {
+                let _ = std::fs::remove_file(&archive_path);
+                return Err(format!(
+                    "snapshot of volume `{}` produced no archive at {} — refusing to record a \
+                     snapshot that cannot be restored from",
+                    docker_name,
+                    archive_path.display()
+                ));
+            }
+        };
 
         entries.push(VolumeSnapshotEntry {
             volume: local_name.clone(),
@@ -188,6 +201,44 @@ pub fn restore_volume_snapshot(entry: &VolumeSnapshotEntry) -> Result<(), String
     //
     // `find . -mindepth 1 -delete` removes everything inside the volume
     // without removing the mount point itself.
+    // Verify the archive BEFORE destroying anything. The wipe below is
+    // irreversible, and a restore that fails after it leaves the volume empty —
+    // which is precisely what "rollback" is supposed to prevent.
+    match std::fs::metadata(&entry.archive_path) {
+        Ok(m) if m.len() > 0 => {}
+        Ok(_) => {
+            return Err(format!(
+                "snapshot archive {} is empty — refusing to wipe `{}`",
+                entry.archive_path, entry.docker_volume
+            ))
+        }
+        Err(e) => {
+            return Err(format!(
+                "snapshot archive {} is unreadable ({e}) — refusing to wipe `{}`",
+                entry.archive_path, entry.docker_volume
+            ))
+        }
+    }
+    let listable = Command::new(docker_bin())
+        .args([
+            "run",
+            "--rm",
+            "-v",
+            &format!("{}:/backup:ro", archive_dir_str),
+            "alpine:3",
+            "sh",
+            "-c",
+            &format!("tar -tzf /backup/{}", archive_file_str),
+        ])
+        .output()
+        .map_err(|e| format!("docker run to verify the archive: {}", e))?;
+    if !listable.status.success() {
+        return Err(format!(
+            "snapshot archive {} is corrupt — refusing to wipe `{}`",
+            entry.archive_path, entry.docker_volume
+        ));
+    }
+
     let wipe_status = Command::new(docker_bin())
         .args([
             "run",

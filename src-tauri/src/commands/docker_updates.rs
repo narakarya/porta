@@ -1302,6 +1302,9 @@ async fn rollback_compose(
     snapshot: Option<&VolumeSnapshotResult>,
 ) {
     emit_phase(app, id, "rolling_back");
+    // Volumes whose restore failed after the wipe — they are empty now, and the
+    // final message must say so rather than claiming the rollback worked.
+    let mut failed_volumes: Vec<String> = Vec::new();
     emit_log(app, id, "Reverting compose file to original image tags…");
     if let Err(e) = revert_compose_image_tags(resolved, tag_replacements) {
         emit_log(app, id, &format!("revert compose file failed: {} (continuing rollback)", e));
@@ -1326,6 +1329,7 @@ async fn rollback_compose(
                 ));
                 if let Err(e) = restore_volume_snapshot(entry) {
                     emit_log(app, id, &format!("restore failed for `{}`: {}", entry.docker_volume, e));
+                    failed_volumes.push(entry.docker_volume.clone());
                 }
             }
         }
@@ -1339,7 +1343,21 @@ async fn rollback_compose(
         ])
         .current_dir(work_dir)
         .output();
-    emit_log(app, id, "Rollback complete. Original images are running.");
+
+    // Saying "Rollback complete" after a restore failed is the worst possible
+    // outcome: the volume was wiped before the restore was attempted, so the
+    // user is told they are back to normal while their data is gone. Name the
+    // volumes instead.
+    if failed_volumes.is_empty() {
+        emit_log(app, id, "Rollback complete. Original images are running.");
+    } else {
+        emit_log(app, id, &format!(
+            "Rollback INCOMPLETE. The original images are running, but these volumes could not \
+             be restored and may be empty: {}. Their snapshot archives are still on disk — \
+             restore them by hand before using this app.",
+            failed_volumes.join(", ")
+        ));
+    }
     emit_phase(app, id, "error");
 }
 
@@ -1364,6 +1382,9 @@ async fn rollback_docker(
     emit_log(app, id, "Stopping failed container…");
     let _ = state.docker.stop_and_wait(id, 5_000);
 
+    // Same contract as rollback_compose: a restore that fails leaves the volume
+    // already wiped, so the closing message must not claim success.
+    let mut failed_volumes: Vec<String> = Vec::new();
     if opts.restore_on_rollback {
         if let Some(snap) = snapshot {
             emit_phase(app, id, "restoring");
@@ -1376,6 +1397,7 @@ async fn rollback_docker(
                     emit_log(app, id, &format!(
                         "restore failed for `{}`: {}", entry.docker_volume, e
                     ));
+                    failed_volumes.push(entry.docker_volume.clone());
                 }
             }
         }
@@ -1384,8 +1406,15 @@ async fn rollback_docker(
     emit_log(app, id, "Restarting with the original image…");
     if let Err(e) = crate::commands::app_lifecycle::start_app_inner(state, app, id.to_string()) {
         emit_log(app, id, &format!("rollback restart failed: {}", e));
-    } else {
+    } else if failed_volumes.is_empty() {
         emit_log(app, id, "Rollback complete. Original image is running.");
+    } else {
+        emit_log(app, id, &format!(
+            "Rollback INCOMPLETE. The original image is running, but these volumes could not be \
+             restored and may be empty: {}. Their snapshot archives are still on disk — restore \
+             them by hand before using this app.",
+            failed_volumes.join(", ")
+        ));
     }
     emit_phase(app, id, "error");
 }
