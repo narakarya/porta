@@ -4,6 +4,75 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.3]
+
+### Security
+
+- **Extension panels are sandboxed. Before this, any installed extension could
+  call every Porta command.** They render as `srcDoc` iframes and carried no
+  `sandbox` attribute, so they inherited the main window's origin — and with
+  `withGlobalTauri` set, that made `window.parent.__TAURI__.core.invoke(...)`
+  reachable from extension code. An extension could read or delete your SSH host
+  vault, touch files, or spawn processes, with the message bridge and its
+  permission checks bypassed entirely. Extensions install from arbitrary GitHub
+  URLs, so this was worth closing regardless of whether anything abused it.
+
+  One visible consequence: sandboxed frames have a null origin and cannot use
+  `localStorage`. **Git Manager will forget your theme choice** and start on the
+  default until it moves to Porta's extension storage — every one of its uses is
+  already inside a `try/catch`, so nothing else about it changes. Kamal is
+  unaffected.
+
+### Added
+
+- **Read-only Docker view for a remote host**, on the SSH session's Docker tab.
+  Shows what is running there and what its registries have that is newer, with
+  a major-version bump called out differently from a patch — "17.0 available" on
+  a Postgres reads like routine maintenance otherwise. There is no remote start,
+  stop, pull or prune, deliberately: Porta's Docker actions assume the daemon is
+  this laptop's, and the ones that would still work against a server are the
+  destructive unscoped ones. Updating a remote stack is a command you copy.
+
+- **Update checks now cover any public OCI registry**, not just Docker Hub.
+  GHCR, Quay and the rest were previously reported as skipped, which is most of
+  what production actually runs. Private images say so rather than failing
+  obscurely — Porta has no registry credential store, so ECR and private GCR are
+  still out of reach.
+
+- **Add machines from your tailnet to the host vault.** Porta reads the peer list
+  Tailscale already has and connects by MagicDNS name. Offline machines are
+  listed but not pre-selected. The username is a guess (your local one), since
+  Tailscale knows the machine and not who you are on it.
+
+### Fixed
+
+- **Cancelling a slow connect now actually cancels it.** The backend registered
+  a session only after the whole handshake, so Cancel on a jump-chained or slow
+  host threw the session away in the UI while the connection completed anyway —
+  leaving a live transport and auto-started port forwards holding real ports,
+  with nothing able to close them short of quitting Porta.
+
+- **⌘S in the remote file editor no longer bypasses the Save button's guards.**
+  It could write an empty buffer over a binary file, and it fired for editors in
+  session tabs you had switched away from.
+
+- **A rollback that fails to restore a volume no longer reports success.** The
+  restore wipes the volume before extracting, so a missing, empty or corrupt
+  archive left it empty while the log said "Rollback complete". The archive is
+  now proven readable before anything is destroyed, and a failed restore names
+  the volumes. Relatedly, a snapshot that produced no archive is now a failed
+  snapshot rather than a valid entry of zero bytes.
+
+- **Port forwards survive closing one of several tabs to the same host.** They
+  belong to the host, so they are re-bound on a surviving session instead of
+  being killed with whichever tab opened them.
+
+- **Deleting a host now removes its saved password from the Keychain.** Nothing
+  had ever called that path, so every host ever deleted left its secret behind.
+
+- Closing a session tab with unsaved remote edits asks first, and says so if the
+  edits are lost anyway.
+
 ## [0.15.0-beta.2]
 
 ### Added
