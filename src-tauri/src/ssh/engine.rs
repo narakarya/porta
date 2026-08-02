@@ -515,6 +515,18 @@ impl SshManager {
             .cloned()
     }
 
+    /// Forget a host's remembered password or key passphrase.
+    ///
+    /// Best-effort on purpose: host ids are UUIDs and never reused, so a
+    /// Keychain entry left behind by a failure is inert clutter rather than a
+    /// credential some future host could pick up — and refusing to delete the
+    /// host over a Keychain hiccup would be the worse trade.
+    pub fn forget_secret(&self, host_id: &str) {
+        if let Err(e) = self.secrets.delete(host_id) {
+            eprintln!("ssh: could not remove the Keychain entry for {host_id}: {e}");
+        }
+    }
+
     /// Start `forward` on a live session. Returns the actually-bound local port
     /// (which differs from the rule's when that is 0).
     pub async fn start_forward(
@@ -1420,6 +1432,21 @@ mod tests {
         map.insert("s1".to_string(), placeholder_session());
         map.insert("s2".to_string(), placeholder_session());
         assert!(heir_session(&map, "s1").is_none());
+    }
+
+    #[test]
+    fn forgetting_a_host_clears_its_stored_secret() {
+        // Deleting a host used to leave its remembered password in the macOS
+        // Keychain forever — `SecretStore::delete` had no call site at all
+        // outside its own test.
+        let store = Arc::new(crate::ssh::keychain::MemoryStore::new());
+        store.set("h1", "hunter2").unwrap();
+        let m = SshManager::new(store.clone());
+
+        m.forget_secret("h1");
+        assert_eq!(store.get("h1").unwrap(), None);
+        // A host that never stored one must not turn into an error.
+        m.forget_secret("never-had-one");
     }
 
     #[test]

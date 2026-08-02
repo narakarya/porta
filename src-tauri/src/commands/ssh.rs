@@ -65,6 +65,9 @@ pub async fn ssh_delete_host(
     for f in &forwards {
         manager.stop_forward_if_running(&app, &f.id).await;
     }
+    // The remembered password/passphrase goes with the host. Nothing called
+    // this before, so every host ever deleted left its secret in the Keychain.
+    manager.forget_secret(&id);
     state
         .db
         .lock_or_recover()
