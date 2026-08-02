@@ -4,6 +4,27 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.4]
+
+### Added
+
+- **Apps can record which host they deploy to, per environment.** Set it in the
+  app's settings; Porta remembers the link and nothing else. The deploying
+  itself stays with the Kamal extension — what it previously could not do was
+  find out *where* an app goes, because the host vault and the deploy config had
+  no way to refer to each other.
+
+  Extensions read it through `portaBridge.deploy.targets()` behind a new `hosts`
+  permission: read-only, scoped to the current app, and credential-free. An
+  extension gets the host's label and `user@host:port` — never its auth method,
+  key path or jump chain — so it can name the machine and cannot reach it on its
+  own. Connecting stays something you start, which means a password prompt can
+  never appear at a moment you didn't ask for one.
+
+  There is no Deploy button in Porta itself, and there won't be. A verb named
+  Deploy in the core app is one fuzzy command-palette match away from changing
+  production with nothing on screen showing which machine it hit.
+
 ## [0.15.0-beta.3]
 
 ### Security

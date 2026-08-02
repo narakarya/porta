@@ -3873,7 +3873,7 @@ dependencies = [
 
 [[package]]
 name = "porta"
-version = "0.15.0-beta.3"
+version = "0.15.0-beta.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
