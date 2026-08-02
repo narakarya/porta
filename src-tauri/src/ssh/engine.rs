@@ -179,6 +179,56 @@ pub(crate) struct Transport {
 }
 
 impl Transport {
+    /// Run one command on the far side and collect stdout.
+    ///
+    /// Time-boxed and size-capped: this is used for `docker ps` and friends,
+    /// and a host that never answers — or answers with a gigabyte — must not
+    /// hang or exhaust the app. stderr is dropped; every caller here wants the
+    /// structured stdout and reports its own error when parsing fails.
+    pub(crate) async fn exec(&self, command: &str, timeout_secs: u64) -> Result<String, String> {
+        const MAX_OUTPUT: usize = 4 * 1024 * 1024;
+
+        let run = async {
+            let mut ch = self
+                .target
+                .channel_open_session()
+                .await
+                .map_err(|e| format!("open exec channel: {e}"))?;
+            ch.exec(true, command)
+                .await
+                .map_err(|e| format!("exec: {e}"))?;
+
+            let mut out = Vec::new();
+            let mut status = None;
+            while let Some(msg) = ch.wait().await {
+                match msg {
+                    russh::ChannelMsg::Data { data } => {
+                        if out.len() < MAX_OUTPUT {
+                            out.extend_from_slice(&data);
+                        }
+                    }
+                    russh::ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
+                    russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+                    _ => {}
+                }
+            }
+            // A non-zero exit with empty stdout is the "command not found" /
+            // "permission denied" case, and returning an empty string there
+            // would read as "no containers" instead of "this didn't run".
+            if out.is_empty() {
+                if let Some(code) = status.filter(|c| *c != 0) {
+                    return Err(format!("`{command}` exited {code} with no output"));
+                }
+            }
+            Ok::<String, String>(String::from_utf8_lossy(&out).into_owned())
+        };
+
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), run).await {
+            Ok(r) => r,
+            Err(_) => Err(format!("`{command}` did not finish within {timeout_secs}s")),
+        }
+    }
+
     /// Open a `direct-tcpip` channel to `host:port` on the far side.
     ///
     /// The only way anything reaches the inner `Handle` — which keeps the field
@@ -489,6 +539,18 @@ impl SshManager {
             }
         }
         stopped
+    }
+
+    /// The session's transport, for callers that run their own commands on it.
+    pub async fn transport_for(&self, session_id: &str) -> Result<Arc<Transport>, String> {
+        self.sessions
+            .lock()
+            .await
+            .get(session_id)
+            .ok_or("That session isn't connected any more.")?
+            .transport
+            .clone()
+            .ok_or_else(|| "That session hasn't finished connecting yet.".to_string())
     }
 
     /// The session's SFTP channel, opening it on first use.

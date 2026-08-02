@@ -11,6 +11,7 @@ import type {
   SshConfigCandidate,
   SshHost,
   SshPortForward,
+  RemoteContainerReport,
   SshSnippet,
 } from "./commands";
 
@@ -563,6 +564,70 @@ export function mockSftpRead(path: string): SftpFileContent {
     binary: false,
   };
 }
+
+/** Browser-dev stand-in for a read-only remote Docker listing. */
+export const mockRemoteContainers: RemoteContainerReport[] = [
+  {
+    name: "shop-api-1",
+    image: "ghcr.io/narakarya/api:1.4.2",
+    status: "Up 3 days",
+    state: "running",
+    project: "shop",
+    update: {
+      image: "ghcr.io/narakarya/api:1.4.2",
+      service_name: "shop",
+      repo: "narakarya/api",
+      tag: "1.4.2",
+      status: "ok",
+      message: null,
+      local_digest: "sha256:aaa",
+      remote_digest: "sha256:bbb",
+      has_digest_update: true,
+      suggested_tag: "1.5.0",
+    },
+    major_bump: false,
+  },
+  {
+    name: "shop-db-1",
+    image: "postgres:16.2",
+    status: "Up 3 days",
+    state: "running",
+    project: "shop",
+    update: {
+      image: "postgres:16.2",
+      service_name: "shop",
+      repo: "library/postgres",
+      tag: "16.2",
+      status: "ok",
+      message: null,
+      local_digest: "sha256:ccc",
+      remote_digest: "sha256:ccc",
+      has_digest_update: false,
+      suggested_tag: "17.0",
+    },
+    major_bump: true,
+  },
+  {
+    name: "shop-cache-1",
+    image: "redis:7-alpine",
+    status: "Up 3 days",
+    state: "running",
+    project: "shop",
+    update: {
+      image: "redis:7-alpine",
+      service_name: "shop",
+      repo: "library/redis",
+      tag: "7-alpine",
+      status: "ok",
+      message: null,
+      local_digest: "sha256:ddd",
+      remote_digest: "sha256:ddd",
+      has_digest_update: false,
+      suggested_tag: null,
+    },
+    major_bump: false,
+  },
+];
 
 export const mockSshSnippets: SshSnippet[] = [
   {

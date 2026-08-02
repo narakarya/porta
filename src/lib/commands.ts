@@ -27,6 +27,7 @@ import {
   mockInstances,
   mockSshConfigCandidates,
   mockSshForwards,
+  mockRemoteContainers,
   mockSftpListing,
   mockSftpRead,
   mockSshSnippets,
@@ -2034,6 +2035,31 @@ export const sshUpdateHost = (host: SshHost): Promise<void> =>
 
 export const sshDeleteHost = (id: string): Promise<void> =>
   isTauri ? invoke("ssh_delete_host", { id }) : Promise.resolve();
+
+// ── Remote Docker (read-only) ────────────────────────────────────────────────
+
+/** A container on the remote host, plus what its registry says.
+ *
+ *  Read-only: there is deliberately no remote start/stop/pull/prune command to
+ *  pair with this. Porta's Docker actions assume the daemon is the laptop's —
+ *  Caddy dials 127.0.0.1, snapshots bind-mount local paths — and the ones that
+ *  would still "work" against a server are the destructive unscoped ones. */
+export interface RemoteContainerReport {
+  name: string;
+  image: string;
+  /** Human status line, e.g. "Up 3 days". */
+  status: string;
+  /** Machine-readable: "running", "exited", … */
+  state: string;
+  /** Compose project, when the container carries the label. */
+  project: string | null;
+  update: ImageUpdateInfo;
+  /** The suggested tag crosses a major version. */
+  major_bump: boolean;
+}
+
+export const sshRemoteContainers = (sessionId: string): Promise<RemoteContainerReport[]> =>
+  isTauri ? invoke("ssh_remote_containers", { sessionId }) : Promise.resolve([...mockRemoteContainers]);
 
 // ── SFTP (remote file browsing) ──────────────────────────────────────────────
 

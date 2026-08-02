@@ -237,6 +237,60 @@ pub async fn ssh_connect(
     Ok(session_id)
 }
 
+// ── Remote Docker (read-only) ────────────────────────────────────────────────
+
+/// A remote container plus whatever the registry says about its image.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteContainerReport {
+    #[serde(flatten)]
+    pub container: crate::ssh::remote_docker::RemoteContainer,
+    pub update: crate::commands::docker_updates::ImageUpdateInfo,
+    /// The suggested tag crosses a major version. Rendered differently on
+    /// purpose: "17.0 available" on a Postgres reads like a patch unless the
+    /// UI says otherwise, and that is the upgrade that breaks a stack.
+    pub major_bump: bool,
+}
+
+/// What is running on the far side, and what is newer in its registry.
+///
+/// Read-only by construction: there is no remote start/stop/pull/prune command
+/// anywhere in this file, so there is nothing for a stray click to reach.
+#[tauri::command]
+pub async fn ssh_remote_containers(
+    session_id: String,
+    manager: State<'_, SshManager>,
+) -> Result<Vec<RemoteContainerReport>, String> {
+    let transport = manager.transport_for(&session_id).await?;
+    let containers = crate::ssh::remote_docker::list_containers(&transport).await?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("porta")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::with_capacity(containers.len());
+    for container in containers {
+        // The digests come from the REMOTE daemon — comparing against this
+        // laptop's images would report an update for anything the user happens
+        // not to have pulled here.
+        let update = crate::commands::docker_updates::check_ref(
+            &client,
+            &container.image,
+            container.project.clone(),
+            container.digests.clone(),
+        )
+        .await;
+        let major_bump = update
+            .suggested_tag
+            .as_deref()
+            .is_some_and(|next| crate::commands::docker_updates::is_major_bump(&update.tag, next));
+        out.push(RemoteContainerReport { container, update, major_bump });
+    }
+    Ok(out)
+}
+
 // ── SFTP ─────────────────────────────────────────────────────────────────────
 
 #[tauri::command]

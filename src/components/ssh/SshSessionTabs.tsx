@@ -5,7 +5,17 @@ import SshTerminal from "./SshTerminal";
 import SshConnectingOverlay from "./SshConnectingOverlay";
 import SnippetBar from "./SnippetBar";
 import SftpBrowser from "./SftpBrowser";
+import RemoteDockerPanel from "./RemoteDockerPanel";
 import { confirmDialog } from "../../lib/confirm";
+
+type ViewKind = "terminal" | "files" | "docker";
+
+/** The per-session view toggle. Docker is read-only — see RemoteDockerPanel. */
+const VIEWS: { key: ViewKind; label: string }[] = [
+  { key: "terminal", label: "Terminal" },
+  { key: "files", label: "Files" },
+  { key: "docker", label: "Docker" },
+];
 
 const STATUS_DOT: Record<SshSession["status"], string> = {
   connected: "bg-ok",
@@ -27,7 +37,7 @@ export default function SshSessionTabs() {
   // Per session, not one shared value: with a single toggle, switching to a
   // second tab carried "files" over to it, and a session that isn't connected
   // renders no Files pane at all — so the tab looked empty.
-  const [views, setViews] = useState<Record<string, "terminal" | "files">>({});
+  const [views, setViews] = useState<Record<string, ViewKind>>({});
 
   // Closing a tab tears down the session, and with it any remote file open in
   // its editor. Ask before throwing away edits the user can't get back.
@@ -43,7 +53,7 @@ export default function SshSessionTabs() {
     disconnect(id);
   }
   const view = (id: string) => views[id] ?? "terminal";
-  const setView = (id: string, v: "terminal" | "files") =>
+  const setView = (id: string, v: ViewKind) =>
     setViews((prev) => ({ ...prev, [id]: v }));
 
   if (sessions.length === 0) {
@@ -98,7 +108,7 @@ export default function SshSessionTabs() {
             when it lived among the tabs. */}
         {activeHostId && (
           <div className="shrink-0 flex items-center gap-px p-0.5 rounded-md bg-white/[0.04]">
-            {(["terminal", "files"] as const).map((v) => (
+            {VIEWS.map(({ key: v, label }) => (
               <button
                 key={v}
                 onClick={() => active && setView(active, v)}
@@ -108,7 +118,7 @@ export default function SshSessionTabs() {
                     : "text-ink-3 hover:text-ink-2"
                 }`}
               >
-                {v === "terminal" ? "Terminal" : "Files"}
+                {label}
               </button>
             ))}
           </div>
@@ -176,17 +186,21 @@ export default function SshSessionTabs() {
               {/* Sibling, not a replacement: unmounting the terminal would drop
                   the data listener registered on its mount, and the session's
                   output would vanish while the user was in Files. */}
-              {view(s.id) === "files" && (
+              {view(s.id) !== "terminal" && (
                 <div className="absolute inset-0 bg-surface-0">
                   {s.status === "connected" ? (
-                    <SftpBrowser sessionId={s.id} active={active === s.id} />
+                    view(s.id) === "files" ? (
+                      <SftpBrowser sessionId={s.id} active={active === s.id} />
+                    ) : (
+                      <RemoteDockerPanel sessionId={s.id} active={active === s.id} />
+                    )
                   ) : (
                     // Say why rather than rendering nothing — a blank pane
                     // reads as a broken feature.
                     <div className="h-full flex items-center justify-center px-6 text-center">
                       <p className="text-[12.5px] text-ink-3">
-                        This session isn't connected, so there's nothing to browse. Reconnect to
-                        open its files.
+                        This session isn't connected, so there's nothing to show. Reconnect to
+                        use this view.
                       </p>
                     </div>
                   )}

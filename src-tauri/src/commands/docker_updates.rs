@@ -178,6 +178,22 @@ fn is_mutable_tag(tag: &str) -> bool {
 ///   `16-alpine`    → ([16],     "-alpine")
 ///   `1.25`         → ([1,25],   "")
 ///   `latest`       → None
+/// True when moving `from` to `to` crosses a major version.
+///
+/// A major bump on a database or a broker is a different decision from a patch,
+/// and a remote report that renders them identically invites exactly the
+/// upgrade that breaks a production stack. Only the leading component is
+/// compared: a tag with no numeric version can't be judged, so it isn't.
+pub(crate) fn is_major_bump(from: &str, to: &str) -> bool {
+    match (parse_semver_tag(from), parse_semver_tag(to)) {
+        (Some((a, _)), Some((b, _))) => match (a.first(), b.first()) {
+            (Some(x), Some(y)) => y > x,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn parse_semver_tag(tag: &str) -> Option<(Vec<u64>, String)> {
     let bytes = tag.as_bytes();
     let mut i = 0;
@@ -512,6 +528,22 @@ async fn check_one(
     image_ref: &str,
     service_name: Option<String>,
 ) -> ImageUpdateInfo {
+    let installed = local_digests(image_ref);
+    check_ref(client, image_ref, service_name, installed).await
+}
+
+/// Check one image ref against its registry, comparing against the digests
+/// already present *wherever it runs*.
+///
+/// Split out from [`check_one`] so a remote host can supply its own daemon's
+/// digests: the registry half is identical, and only the "what is installed"
+/// half differs between this laptop and a server reached over SSH.
+pub(crate) async fn check_ref(
+    client: &reqwest::Client,
+    image_ref: &str,
+    service_name: Option<String>,
+    installed: Vec<String>,
+) -> ImageUpdateInfo {
     let parsed = match parse_image_ref(image_ref) {
         Some(p) => p,
         None => return ImageUpdateInfo::error(image_ref, service_name, "invalid image ref".into()),
@@ -524,7 +556,7 @@ async fn check_one(
         );
     }
 
-    let locals = local_digests(image_ref);
+    let locals = installed;
 
     let remote = match fetch_remote_digest(client, &parsed.registry, &parsed.repo, &parsed.tag).await
     {
@@ -1605,6 +1637,19 @@ mod tests {
             assert!(digest.starts_with("sha256:"), "{image} -> {digest}");
             println!("{image} -> {digest}");
         }
+    }
+
+    #[test]
+    fn major_bumps_are_distinguished_from_ordinary_ones() {
+        assert!(is_major_bump("16.2", "17.0"), "postgres major");
+        assert!(is_major_bump("v1.9.4", "v2.0.0"));
+        assert!(!is_major_bump("1.4.2", "1.5.0"), "minor is not major");
+        assert!(!is_major_bump("16.2", "16.3"));
+        // Suffixed tags still compare on the leading number.
+        assert!(is_major_bump("7-alpine", "8-alpine"));
+        // Nothing numeric to compare — refuse to guess rather than warn wrongly.
+        assert!(!is_major_bump("latest", "stable"));
+        assert!(!is_major_bump("16.2", "latest"));
     }
 
     #[test]
