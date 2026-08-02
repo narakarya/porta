@@ -374,6 +374,18 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
         key={`${extension.id}-${reloadKey}`}
         ref={iframeRef}
         srcDoc={srcDoc}
+        // `allow-scripts` WITHOUT `allow-same-origin`, deliberately. A srcDoc
+        // iframe carrying no sandbox attribute inherits this window's origin,
+        // and since tauri.conf.json sets withGlobalTauri, that let any
+        // installed extension reach `window.parent.__TAURI__.core.invoke` and
+        // call every Porta command directly — read the SSH host vault, delete
+        // hosts, spawn processes — with the message bridge below bypassed
+        // entirely. Adding allow-same-origin back restores exactly that hole.
+        //
+        // The trade: a null-origin frame cannot use localStorage. Extensions
+        // persist through the host:storage bridge calls, which is the
+        // supported path.
+        sandbox="allow-scripts"
         title={extension.name}
         aria-hidden="true"
         tabIndex={-1}
@@ -408,6 +420,8 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
           key={`${extension.id}-${reloadKey}`}
           ref={iframeRef}
           srcDoc={srcDoc}
+          // Same reasoning as the headless frame above — see that comment.
+          sandbox="allow-scripts"
           className="flex-1 w-full border-0 bg-surface-0"
           title={extension.name}
         />
