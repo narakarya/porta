@@ -437,6 +437,26 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
 
     try {
       await cmd.sshConnect(hostId, sessionId);
+      // Reconcile against what the backend actually has running. Auto-started
+      // forwards announce themselves, but an event that lands before its
+      // listener is attached would otherwise leave a live forward rendered as
+      // stopped, with a Start button that then reports "already running".
+      const running = await cmd.sshRunningForwards(sessionId);
+      if (running.length) {
+        const runtime = { ...get().forwardRuntime };
+        for (const id of running) {
+          if (!runtime[id]) {
+            runtime[id] = {
+              state: "listening",
+              local_port: 0,
+              active_conns: 0,
+              capped: false,
+              error: null,
+            };
+          }
+        }
+        set({ forwardRuntime: runtime });
+      }
     } catch (e) {
       // `ssh_connect` returns a real reason on every failure path ("connect:
       // Connection refused", "authentication failed", "host key not trusted",

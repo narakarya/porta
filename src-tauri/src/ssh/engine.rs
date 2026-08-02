@@ -251,6 +251,9 @@ struct Session {
     /// exists once `connect()` has authenticated. Starting a forward against a
     /// placeholder is a real error, not a panic.
     transport: Option<Arc<Transport>>,
+    /// Which host this session is to. Needed to find a sibling session that can
+    /// take over a forward when this one closes.
+    host_id: String,
     /// SFTP channel, opened on first browse and shared afterwards.
     ///
     /// `OnceCell` rather than `Option`: two browse calls arriving together must
@@ -271,6 +274,9 @@ struct Session {
 /// flight.
 struct RunningForward {
     session_id: String,
+    /// The rule itself, kept so the forward can be restarted on another session
+    /// to the same host instead of dying with the tab that happened to open it.
+    forward: SshPortForward,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -389,7 +395,7 @@ impl SshManager {
         // Tell each forward's row it is gone. The frontend used to blank the
         // whole host's runtime state itself, which was wrong the moment a
         // second session to that host had forwards of its own still running.
-        for id in self.abort_session_forwards(session_id).await {
+        for id in self.abort_session_forwards(app, session_id).await {
             crate::ssh::forward::emit_stopped(app, &id, None);
         }
         self.take_or_tombstone(session_id).await;
@@ -425,19 +431,64 @@ impl SshManager {
     /// Abort every forward riding on one session's transport. Returns the ids,
     /// so the caller can tell the UI they are gone — an aborted task cannot
     /// emit its own terminal event.
-    pub async fn abort_session_forwards(&self, session_id: &str) -> Vec<String> {
+    pub async fn abort_session_forwards(&self, app: &AppHandle, session_id: &str) -> Vec<String> {
+        // Lock order is forwards-then-sessions everywhere; see start_forward.
         let mut map = self.forwards.lock().await;
-        let doomed: Vec<String> = map
+        let owned: Vec<String> = map
             .iter()
             .filter(|(_, r)| r.session_id == session_id)
             .map(|(id, _)| id.clone())
             .collect();
-        for id in &doomed {
-            if let Some(r) = map.remove(id) {
-                r.task.abort();
+        if owned.is_empty() {
+            return owned;
+        }
+
+        // A forward belongs to the HOST, not to the tab that happened to open
+        // it. With two tabs on one host, closing either used to kill the shared
+        // forward outright; hand it to the surviving session instead.
+        let heir = {
+            let sessions = self.sessions.lock().await;
+            heir_session(&sessions, session_id)
+                .and_then(|(id, sess)| sess.transport.clone().map(|t| (id.clone(), t)))
+        };
+
+        let mut stopped = Vec::new();
+        for id in owned {
+            let Some(previous) = map.remove(&id) else { continue };
+            previous.task.abort();
+
+            let Some((heir_id, transport)) = heir.clone() else {
+                stopped.push(id);
+                continue;
+            };
+            // A re-homed forward re-binds. With local_port 0 that means a new
+            // ephemeral port, which the listener announces itself — so the row
+            // stays correct without anything here telling it.
+            match crate::ssh::forward::spawn_local_forward(
+                app.clone(),
+                previous.forward.clone(),
+                transport,
+            )
+            .await
+            {
+                Ok((_, task)) => {
+                    map.insert(
+                        id,
+                        RunningForward {
+                            session_id: heir_id,
+                            forward: previous.forward,
+                            task,
+                        },
+                    );
+                }
+                // Re-binding can fail — the old listener may not have released
+                // the port yet. Report it as stopped rather than pretending.
+                Err(e) => {
+                    crate::ssh::forward::emit_stopped(app, &id, Some(e));
+                }
             }
         }
-        doomed
+        stopped
     }
 
     /// The session's SFTP channel, opening it on first use.
@@ -496,8 +547,13 @@ impl SshManager {
         // Re-check both facts that could have changed while the bind was in
         // flight: the session may have ended (the listener would then accept
         // into a dead tunnel), and a concurrent start may have won the race.
-        let session_gone = !self.sessions.lock().await.contains_key(session_id);
+        //
+        // `forwards` is taken FIRST and held across the `sessions` check, and
+        // every other path takes them in that same order. Checking sessions and
+        // then reaching for forwards left a window where a concurrent close
+        // swept the map before this insert landed, orphaning the listener.
         let mut running = self.forwards.lock().await;
+        let session_gone = !self.sessions.lock().await.contains_key(session_id);
         if session_gone || running.contains_key(&forward.id) {
             task.abort();
             return Err(if session_gone {
@@ -507,9 +563,10 @@ impl SshManager {
             });
         }
         running.insert(
-            forward.id,
+            forward.id.clone(),
             RunningForward {
                 session_id: session_id.to_string(),
+                forward,
                 task,
             },
         );
@@ -974,6 +1031,7 @@ impl SshManager {
                     trust_tx: None,
                     secret_tx: None,
                     transport: Some(transport.clone()),
+                    host_id: host.id.clone(),
                     sftp: Arc::new(tokio::sync::OnceCell::new()),
                 },
             );
@@ -1068,7 +1126,7 @@ impl SshManager {
             // diagnostic, since the client connects and then hangs forever
             // instead of failing. Their rows are told explicitly: an aborted
             // task can't emit its own terminal event.
-            for id in manager2.abort_session_forwards(&sid2).await {
+            for id in manager2.abort_session_forwards(&app2, &sid2).await {
                 crate::ssh::forward::emit_stopped(&app2, &id, None);
             }
             sessions2.lock().await.remove(&sid2);
@@ -1105,6 +1163,24 @@ async fn try_agent_auth(
     false
 }
 
+/// Another live session to the same host as `dying`, if there is one.
+///
+/// Deterministic by session id rather than map order: with three tabs open,
+/// which one inherits a forward should not change between runs.
+fn heir_session<'a>(
+    sessions: &'a HashMap<String, Session>,
+    dying: &str,
+) -> Option<(&'a String, &'a Session)> {
+    let host = &sessions.get(dying)?.host_id;
+    if host.is_empty() {
+        return None;
+    }
+    sessions
+        .iter()
+        .filter(|(id, s)| id.as_str() != dying && &s.host_id == host)
+        .min_by_key(|(id, _)| id.as_str())
+}
+
 /// Build a `ssh:status` payload. `hop` is the label of the host the phase
 /// applies to, present only while walking a jump chain — the overlay uses it to
 /// distinguish "authenticating on the bastion" from "authenticating on the box
@@ -1122,6 +1198,7 @@ fn placeholder_session() -> Session {
         trust_tx: None,
         secret_tx: None,
         transport: None,
+        host_id: String::new(),
         sftp: Arc::new(tokio::sync::OnceCell::new()),
     }
 }
@@ -1291,6 +1368,58 @@ mod tests {
              abort the NEXT connect that happened to reuse the id"
         );
         assert!(m.sessions.lock().await.is_empty());
+    }
+
+    fn session_on(host: &str) -> Session {
+        Session {
+            host_id: host.into(),
+            ..placeholder_session()
+        }
+    }
+
+    #[test]
+    fn a_forward_finds_a_sibling_session_on_the_same_host() {
+        // Two tabs on one host: closing either must hand the forward over, not
+        // kill it — the rule belongs to the host, not to the tab.
+        let mut map = HashMap::new();
+        map.insert("s2".to_string(), session_on("h1"));
+        map.insert("s1".to_string(), session_on("h1"));
+        map.insert("s3".to_string(), session_on("other-host"));
+
+        let (heir, _) = heir_session(&map, "s1").expect("sibling on the same host");
+        assert_eq!(heir, "s2");
+    }
+
+    #[test]
+    fn a_lone_session_has_no_heir() {
+        let mut map = HashMap::new();
+        map.insert("s1".to_string(), session_on("h1"));
+        map.insert("s2".to_string(), session_on("other-host"));
+        assert!(heir_session(&map, "s1").is_none());
+    }
+
+    #[test]
+    fn heir_choice_is_stable_not_map_order() {
+        // HashMap iteration order is randomised per process; picking the first
+        // match would move the forward to a different tab between runs.
+        let mut map = HashMap::new();
+        for id in ["s9", "s4", "s7", "s2"] {
+            map.insert(id.to_string(), session_on("h1"));
+        }
+        map.insert("s1".to_string(), session_on("h1"));
+        for _ in 0..8 {
+            assert_eq!(heir_session(&map, "s1").expect("heir").0, "s2");
+        }
+    }
+
+    #[test]
+    fn a_placeholder_never_inherits() {
+        // A session parked on a trust prompt has no host yet and no transport;
+        // handing it a forward would bind a listener onto nothing.
+        let mut map = HashMap::new();
+        map.insert("s1".to_string(), placeholder_session());
+        map.insert("s2".to_string(), placeholder_session());
+        assert!(heir_session(&map, "s1").is_none());
     }
 
     #[test]
