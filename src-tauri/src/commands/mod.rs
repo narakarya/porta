@@ -109,6 +109,7 @@ pub mod worktree;
 pub use worktree::*;
 
 mod ssh;
+pub mod docker_credentials;
 pub mod deploy_targets;
 pub use deploy_targets::*;
 pub use ssh::*;

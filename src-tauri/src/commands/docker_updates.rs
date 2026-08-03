@@ -1,9 +1,12 @@
 //! Docker image update detection + one-click update for managed apps.
 //!
-//! Scope: **any public image on an OCI Distribution registry** — Docker Hub,
-//! GHCR, Quay and anything else that implements the spec. Private images are
-//! reported with a message saying credentials are needed; Porta has no
-//! credential store for registries yet, so ECR and private GCR are out.
+//! Scope: **any image on an OCI Distribution registry** — Docker Hub, GHCR,
+//! Quay and anything else that implements the spec. Private images work when
+//! the user is logged in: Porta borrows whatever `docker login` stored rather
+//! than keeping registry credentials of its own, so ECR and GCR come along too
+//! as long as their credential helper is configured the usual way. An image
+//! Porta cannot check says which of "not logged in" and "logged in without
+//! access" applies.
 //! Update detection works two ways depending on the tag:
 //!
 //! - **Mutable tags** (`latest`, `stable`, `edge`, `lts`, `nightly`, `main`,
@@ -390,6 +393,7 @@ pub(crate) fn token_url(challenge: &BearerChallenge, repo: &str) -> String {
 /// need no token at all and the extra round trip is pure latency.
 async fn with_registry_auth<F>(
     client: &reqwest::Client,
+    registry: &str,
     repo: &str,
     build: F,
 ) -> Result<reqwest::Response, String>
@@ -415,19 +419,38 @@ where
                 .to_string()
         })?;
 
-    let token_resp = client
-        .get(token_url(&challenge, repo))
+    // Borrow whatever `docker login` already stored for this registry. Fetched
+    // at the moment it is needed and never cached — Porta keeps no credential
+    // store of its own, so there is no second place for a token to leak from.
+    let mut token_req = client.get(token_url(&challenge, repo));
+    let have_credential =
+        match crate::commands::docker_credentials::credential_for(registry) {
+            Some(c) => {
+                token_req = token_req.basic_auth(c.username, Some(c.secret));
+                true
+            }
+            None => false,
+        };
+
+    let token_resp = token_req
         .send()
         .await
         .map_err(|e| format!("auth request failed: {}", e))?;
     if !token_resp.status().is_success() {
         // A 401/403 here means anonymous pull isn't allowed — a private image,
         // or one on a registry that needs real credentials (ECR, private GCR).
-        return Err(if token_resp.status().as_u16() == 403 || token_resp.status().as_u16() == 401 {
-            "this image needs registry credentials — Porta can only check public images"
-                .to_string()
-        } else {
-            format!("auth status {}", token_resp.status())
+        let denied = matches!(token_resp.status().as_u16(), 401 | 403);
+        return Err(match (denied, have_credential) {
+            // Logged in and still refused: the account cannot pull this, which
+            // is a different problem from not being logged in — say which.
+            (true, true) => format!(
+                "your `docker login` for {registry} doesn't have pull access to this image"
+            ),
+            (true, false) => format!(
+                "this image is private — run `docker login {registry}` and Porta will use those \
+                 credentials"
+            ),
+            _ => format!("auth status {}", token_resp.status()),
         });
     }
     // Include a slice of what actually came back. "error decoding response
@@ -495,7 +518,7 @@ async fn fetch_remote_digest_uncached(
     tag: &str,
 ) -> Result<Option<String>, String> {
     let url = format!("https://{}/v2/{}/manifests/{}", registry, repo, tag);
-    let resp = with_registry_auth(client, repo, || {
+    let resp = with_registry_auth(client, registry, repo, || {
         client.head(&url).header("Accept", MANIFEST_ACCEPT)
     })
     .await?;
@@ -525,7 +548,7 @@ async fn fetch_tags(
     // /tags/list pagination uses Link header; for the common case of <500 tags
     // a single hit at n=500 is enough. Larger repos can grow this later.
     let url = format!("https://{}/v2/{}/tags/list?n=500", registry, repo);
-    let resp = with_registry_auth(client, repo, || client.get(&url)).await?;
+    let resp = with_registry_auth(client, registry, repo, || client.get(&url)).await?;
     if !resp.status().is_success() {
         return Err(format!("tags status {}", resp.status()));
     }
