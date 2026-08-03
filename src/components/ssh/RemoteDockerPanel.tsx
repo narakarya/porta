@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { usePortaStore } from "../../store";
-import * as cmd from "../../lib/commands";
 import type { RemoteContainerReport } from "../../lib/commands";
 import { Spinner } from "../ui";
+
+/** "3m ago" for the last successful read, so a cached list never passes for a
+ *  live one. */
+function agoLabel(at: number | null): string {
+  if (!at) return "";
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (secs < 45) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
 
 type Props = { sessionId: string; active: boolean };
 
@@ -18,28 +28,19 @@ export default function RemoteDockerPanel({ sessionId, active }: Props) {
   const notifyError = usePortaStore((s) => s.notifyError);
   const notify = usePortaStore((s) => s.notify);
 
-  const [rows, setRows] = useState<RemoteContainerReport[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // State lives in the store, not here: this panel unmounts every time the user
+  // switches to the Terminal tab, and each mount used to cost a `docker ps`
+  // over SSH plus one registry round trip per distinct image.
+  const pane = usePortaStore((s) => s.remoteDocker[sessionId]);
+  const loadRemoteDocker = usePortaStore((s) => s.loadRemoteDocker);
+  const rows = pane?.rows ?? null;
+  const loading = pane?.loading ?? false;
+  const error = pane?.error ?? null;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setRows(await cmd.sshRemoteContainers(sessionId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionId]);
-
-  // Only on demand. Every call is `docker ps` plus a registry round trip per
-  // distinct image, which is not something to run because a tab happened to
-  // render.
   useEffect(() => {
-    if (active && rows === null && !loading && !error) load();
-  }, [active, rows, loading, error, load]);
+    // Cached unless the user asks: the store no-ops when rows are already in.
+    if (active) loadRemoteDocker(sessionId).catch(() => {});
+  }, [active, sessionId, loadRemoteDocker]);
 
   const projects = useMemo(() => {
     const groups = new Map<string, RemoteContainerReport[]>();
@@ -77,8 +78,12 @@ export default function RemoteDockerPanel({ sessionId, active }: Props) {
           Docker on this host
           <span className="ml-2 text-[11px] text-ink-3">read-only</span>
         </span>
+        {pane?.fetchedAt && !loading && (
+          // A cached list must not read as a live one.
+          <span className="shrink-0 text-[10.5px] text-ink-3">{agoLabel(pane.fetchedAt)}</span>
+        )}
         <button
-          onClick={load}
+          onClick={() => loadRemoteDocker(sessionId, true)}
           disabled={loading}
           className="shrink-0 px-2 py-1 text-[11.5px] text-ink-3 hover:text-ink disabled:opacity-40 transition-colors"
         >

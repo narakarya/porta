@@ -407,7 +407,9 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
         // transport — and now that forwards die with the pump, their rows would
         // have kept claiming to be listening on a port that is already free.
         get().setSessionStatus(sessionId, "disconnected");
-        const lost = get().sftpForgetSession(sessionId);
+        get().forgetRemoteDocker(sessionId);
+        get().forgetRemoteDocker(sessionId);
+    const lost = get().sftpForgetSession(sessionId);
         if (lost) {
           get().notify({
             kind: "error",
@@ -475,6 +477,7 @@ export const createSshSlice: StateCreator<AllSlices, [], [], SshSlice> = (set, g
     // The same warning the ssh:exit path raises. Dropping this return value
     // meant the deliberate close — the one the user triggers by hand — was the
     // silent one, while an involuntary drop got a message.
+    get().forgetRemoteDocker(sessionId);
     const lost = get().sftpForgetSession(sessionId);
     if (lost) {
       get().notify({

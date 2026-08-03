@@ -178,6 +178,38 @@ fn is_mutable_tag(tag: &str) -> bool {
 ///   `16-alpine`    → ([16],     "-alpine")
 ///   `1.25`         → ([1,25],   "")
 ///   `latest`       → None
+/// How long a registry answer stays good.
+///
+/// Short on purpose. A digest for a given tag rarely changes, but "rarely" is
+/// not "never" — mutable tags like `latest` are re-pushed, and a cache that
+/// outlived the user's attention span would tell them their freshly-pushed
+/// image isn't there. Five minutes kills the repeated round trips from opening
+/// a panel twice without ever being the reason someone sees stale news.
+const REGISTRY_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+struct CachedDigest {
+    digest: Option<String>,
+    at: std::time::Instant,
+}
+
+/// Registry answers, keyed `registry/repo:tag`.
+///
+/// Process-lifetime and unbounded by design: entries are one small string each,
+/// and the key space is the set of images the user actually runs — tens, not
+/// thousands. A cap here would cost more code than it saves memory.
+fn digest_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, CachedDigest>> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, CachedDigest>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Drop everything cached. Called when the user explicitly asks to refresh —
+/// that click means "tell me the truth now", not "tell me what you remember".
+pub(crate) fn clear_digest_cache() {
+    digest_cache().lock_or_recover().clear();
+}
+
 /// True when moving `from` to `to` crosses a major version.
 ///
 /// A major bump on a database or a broker is a different decision from a patch,
@@ -429,6 +461,34 @@ const MANIFEST_ACCEPT: &str = concat!(
 );
 
 async fn fetch_remote_digest(
+    client: &reqwest::Client,
+    registry: &str,
+    repo: &str,
+    tag: &str,
+) -> Result<Option<String>, String> {
+    let key = format!("{registry}/{repo}:{tag}");
+    if let Some(hit) = digest_cache()
+        .lock_or_recover()
+        .get(&key)
+        .filter(|c| c.at.elapsed() < REGISTRY_TTL)
+    {
+        return Ok(hit.digest.clone());
+    }
+    let fresh = fetch_remote_digest_uncached(client, registry, repo, tag).await?;
+    digest_cache().lock_or_recover().insert(
+        key,
+        CachedDigest {
+            digest: fresh.clone(),
+            at: std::time::Instant::now(),
+        },
+    );
+    Ok(fresh)
+}
+
+/// The actual network call. Errors are deliberately NOT cached — a failed
+/// lookup is usually transient (offline, rate limit), and remembering it would
+/// make the next attempt lie about a registry that had since come back.
+async fn fetch_remote_digest_uncached(
     client: &reqwest::Client,
     registry: &str,
     repo: &str,

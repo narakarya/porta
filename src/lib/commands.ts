@@ -2113,8 +2113,13 @@ export interface RemoteContainerReport {
   major_bump: boolean;
 }
 
-export const sshRemoteContainers = (sessionId: string): Promise<RemoteContainerReport[]> =>
-  isTauri ? invoke("ssh_remote_containers", { sessionId }) : Promise.resolve([...mockRemoteContainers]);
+export const sshRemoteContainers = (
+  sessionId: string,
+  refresh = false
+): Promise<RemoteContainerReport[]> =>
+  isTauri
+    ? invoke("ssh_remote_containers", { sessionId, refresh })
+    : Promise.resolve([...mockRemoteContainers]);
 
 // ── SFTP (remote file browsing) ──────────────────────────────────────────────
 

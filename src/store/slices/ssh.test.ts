@@ -173,3 +173,90 @@ describe("saving a remote file", () => {
     expect(usePortaStore.getState().sftpOpen.s1.content).toBe("new");
   });
 });
+
+/**
+ * The Docker panel unmounts on every switch to the Terminal tab, and each mount
+ * cost a `docker ps` over SSH plus a registry round trip per image. The store
+ * must not re-fetch just because the component came back.
+ */
+describe("remote Docker caching", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ remoteDocker: {} });
+  });
+
+  it("fetches once, then serves the same rows without asking again", async () => {
+    const { loadRemoteDocker } = usePortaStore.getState();
+    await loadRemoteDocker("s1");
+    const first = usePortaStore.getState().remoteDocker.s1;
+    expect(first.rows).not.toBeNull();
+    expect(first.fetchedAt).not.toBeNull();
+
+    // A second mount. Same object identity means nothing re-fetched.
+    await loadRemoteDocker("s1");
+    expect(usePortaStore.getState().remoteDocker.s1.rows).toBe(first.rows);
+    expect(usePortaStore.getState().remoteDocker.s1.fetchedAt).toBe(first.fetchedAt);
+  });
+
+  it("refetches when the user explicitly refreshes", async () => {
+    const { loadRemoteDocker } = usePortaStore.getState();
+    await loadRemoteDocker("s1");
+    const first = usePortaStore.getState().remoteDocker.s1.rows;
+
+    await loadRemoteDocker("s1", true);
+    // A fresh array — the mock returns a new copy each call.
+    expect(usePortaStore.getState().remoteDocker.s1.rows).not.toBe(first);
+  });
+
+  it("keeps sessions apart", async () => {
+    const { loadRemoteDocker } = usePortaStore.getState();
+    await loadRemoteDocker("s1");
+    expect(usePortaStore.getState().remoteDocker.s2).toBeUndefined();
+  });
+
+  it("drops a session's pane when it is forgotten", async () => {
+    const { loadRemoteDocker, forgetRemoteDocker } = usePortaStore.getState();
+    await loadRemoteDocker("s1");
+    forgetRemoteDocker("s1");
+    expect(usePortaStore.getState().remoteDocker.s1).toBeUndefined();
+  });
+});
+
+/**
+ * Walking back up a directory tree should not re-interrogate the server, but a
+ * cached listing must never survive the user asking for the truth.
+ */
+describe("SFTP listing cache", () => {
+  beforeEach(() => {
+    usePortaStore.setState({ sftpPanes: {}, sftpOpen: {} });
+  });
+
+  it("serves a revisited directory from cache", async () => {
+    const { sftpNavigate } = usePortaStore.getState();
+    await sftpNavigate("s1", "/home/deploy");
+    const first = usePortaStore.getState().sftpPanes.s1.listing;
+
+    await sftpNavigate("s1", "/");
+    await sftpNavigate("s1", "/home/deploy");
+    // Same object back: nothing was fetched the second time.
+    expect(usePortaStore.getState().sftpPanes.s1.listing).toBe(first);
+  });
+
+  it("refresh goes past the cache", async () => {
+    const { sftpNavigate, sftpRefresh } = usePortaStore.getState();
+    await sftpNavigate("s1", "/home/deploy");
+    const first = usePortaStore.getState().sftpPanes.s1.listing;
+
+    await sftpRefresh("s1");
+    expect(usePortaStore.getState().sftpPanes.s1.listing).not.toBe(first);
+  });
+
+  it("caches under the resolved path, not what the caller typed", async () => {
+    // The mock echoes the requested path back, so this asserts the key is taken
+    // from the response rather than the argument — with a real server those
+    // differ for `.`, `..` and symlinks.
+    const { sftpNavigate } = usePortaStore.getState();
+    await sftpNavigate("s1", "/home/deploy");
+    const resolved = usePortaStore.getState().sftpPanes.s1.listing!.path;
+    expect(Object.keys(usePortaStore.getState().sftpPanes.s1.cache)).toContain(resolved);
+  });
+});

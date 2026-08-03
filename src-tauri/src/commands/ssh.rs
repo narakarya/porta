@@ -259,8 +259,15 @@ pub struct RemoteContainerReport {
 #[tauri::command]
 pub async fn ssh_remote_containers(
     session_id: String,
+    refresh: bool,
     manager: State<'_, SshManager>,
 ) -> Result<Vec<RemoteContainerReport>, String> {
+    // An explicit Refresh means "tell me the truth now". Reusing a cached
+    // digest there would make the button look broken to anyone who just pushed
+    // an image and came here to confirm it.
+    if refresh {
+        crate::commands::docker_updates::clear_digest_cache();
+    }
     let transport = manager.transport_for(&session_id).await?;
     let containers = crate::ssh::remote_docker::list_containers(&transport).await?;
 

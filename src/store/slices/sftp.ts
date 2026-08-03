@@ -15,7 +15,17 @@ export interface SftpPane {
   error: string | null;
   /** Bumped per navigation; a resolution with a stale seq is discarded. */
   navSeq: number;
+  /** Recently-seen listings by absolute path, so walking back up a tree is
+   *  instant instead of another round trip. */
+  cache: Record<string, { listing: SftpListing; at: number }>;
 }
+
+/** How long a cached directory stays usable.
+ *
+ *  Short: a remote directory is someone else's to change, and a listing that
+ *  outlives the user's sense of "I just looked" would show files that are gone.
+ *  Long enough that clicking into a folder and back is free. */
+const LISTING_TTL_MS = 30_000;
 
 export interface SftpOpenFile extends SftpFileContent {
   /** Editor buffer — diverges from `content` while there are unsaved edits. */
@@ -32,6 +42,7 @@ const emptyPane = (): SftpPane => ({
   loading: false,
   error: null,
   navSeq: 0,
+  cache: {},
 });
 
 export interface SftpSlice {
@@ -57,16 +68,37 @@ export const createSftpSlice: StateCreator<AllSlices, [], [], SftpSlice> = (set,
   const setPane = (id: string, patch: Partial<SftpPane>) =>
     set({ sftpPanes: { ...get().sftpPanes, [id]: { ...pane(id), ...patch } } });
 
-  async function load(sessionId: string, path: string) {
+  async function load(sessionId: string, path: string, force = false) {
     // Capture the sequence before the await. Clicking through directories
     // faster than the server answers would otherwise let an earlier listing
     // land last and overwrite the directory the user is actually looking at.
     const seq = pane(sessionId).navSeq + 1;
+
+    const hit = pane(sessionId).cache[path];
+    if (!force && hit && Date.now() - hit.at < LISTING_TTL_MS) {
+      // Paint from cache and stop — no spinner, no round trip.
+      setPane(sessionId, {
+        navSeq: seq,
+        loading: false,
+        error: null,
+        cwd: hit.listing.path,
+        listing: hit.listing,
+      });
+      return;
+    }
+
     setPane(sessionId, { navSeq: seq, loading: true, error: null, cwd: path });
     try {
       const listing = await cmd.sftpList(sessionId, path);
       if (pane(sessionId).navSeq !== seq) return;
-      setPane(sessionId, { listing, cwd: listing.path, loading: false });
+      setPane(sessionId, {
+        listing,
+        cwd: listing.path,
+        loading: false,
+        // Key on the RESOLVED path: the caller may have passed `.` or a
+        // symlink, and caching under that would never be hit again.
+        cache: { ...pane(sessionId).cache, [listing.path]: { listing, at: Date.now() } },
+      });
     } catch (e) {
       if (pane(sessionId).navSeq !== seq) return;
       setPane(sessionId, {
@@ -97,8 +129,9 @@ export const createSftpSlice: StateCreator<AllSlices, [], [], SftpSlice> = (set,
 
     sftpNavigate: async (sessionId, path) => load(sessionId, path),
     sftpRefresh: async (sessionId) => {
+      // Refresh means the user wants the truth, so it goes past the cache.
       const cwd = pane(sessionId).cwd;
-      if (cwd) await load(sessionId, cwd);
+      if (cwd) await load(sessionId, cwd, true);
     },
 
     sftpOpenFile: async (sessionId, entry) => {
@@ -149,6 +182,13 @@ export const createSftpSlice: StateCreator<AllSlices, [], [], SftpSlice> = (set,
           return;
         }
         patch({ saving: false, content: open.draft, mtime: outcome.mtime });
+        // The directory holding this file now has a different mtime and size,
+        // so its cached listing is a lie. Drop it rather than let Files show
+        // stale numbers for a file the user just saved.
+        const dir = open.path.replace(/\/[^/]+$/, "") || "/";
+        const cache = { ...pane(sessionId).cache };
+        delete cache[dir];
+        setPane(sessionId, { cache });
       } catch (e) {
         patch({ saving: false, error: e instanceof Error ? e.message : String(e) });
       }
