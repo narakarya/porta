@@ -4,6 +4,36 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.5]
+
+### Added
+
+- **Update checks now work for private images.** Porta borrows whatever
+  `docker login` already stored rather than keeping registry credentials of its
+  own, following the Docker CLI's own resolution order — a per-registry helper,
+  then the global credential store, then an inline blob. That brings private
+  GHCR, ECR and GCR along too, as long as their credential helper is set up the
+  usual way. Nothing new to configure in Porta, and no second place for a token
+  to live.
+
+  An image Porta still can't check now says which problem it is: not logged in
+  to that registry, or logged in without access to that particular image.
+
+### Changed
+
+- **Switching between the Terminal and Docker tabs no longer re-interrogates the
+  host.** The Docker panel was throwing its results away every time it was
+  hidden, so coming back cost a `docker ps` over SSH plus a registry round trip
+  per image — against a production host, for numbers it already had.
+
+  Registry answers are cached for five minutes and remote directory listings for
+  thirty seconds, so walking a tree and coming back is free. Failed lookups are
+  never cached: those are usually transient, and remembering one would keep
+  reporting a registry as broken after it recovered.
+
+  Refresh still means what it says — it goes past both caches. The Docker header
+  shows how old its numbers are, so a cached list can't pass for a live one.
+
 ## [0.15.0-beta.4]
 
 ### Added
