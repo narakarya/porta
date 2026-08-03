@@ -109,6 +109,46 @@ fn client_config() -> Arc<russh::client::Config> {
     })
 }
 
+/// Turn a failed TCP connect into something the user can act on.
+///
+/// russh hands back the raw io error, so the UI was showing
+/// `connect: No route to host (os error 65)`. The errno is the least useful
+/// part: what the user needs is which of "the machine is off", "nothing is
+/// listening", and "the name doesn't resolve" they are looking at, because
+/// those need three different responses.
+fn explain_connect_error(host: &str, port: u16, e: &russh::Error) -> String {
+    let io = match e {
+        russh::Error::IO(io) => io,
+        other => return format!("connect to {host}:{port}: {other}"),
+    };
+    match io.kind() {
+        // EHOSTUNREACH / ENETUNREACH. The name resolved but the packets have
+        // nowhere to go — overwhelmingly a machine that is asleep, or one on a
+        // network this laptop isn't currently joined to.
+        std::io::ErrorKind::HostUnreachable | std::io::ErrorKind::NetworkUnreachable => format!(
+            "No route to {host}. The machine is probably asleep or off — or it's on a network \
+             this Mac isn't on right now (Tailscale or VPN down?)."
+        ),
+        std::io::ErrorKind::ConnectionRefused => format!(
+            "{host}:{port} refused the connection. Something answered, but not SSH — check that \
+             sshd is running and listening on port {port}."
+        ),
+        std::io::ErrorKind::TimedOut => format!(
+            "{host}:{port} didn't answer in time. Usually a firewall dropping the packets rather \
+             than refusing them."
+        ),
+        // Resolution failures arrive as a generic io error on macOS, so match
+        // the text rather than a kind that doesn't exist.
+        _ if io.to_string().contains("nodename nor servname")
+            || io.to_string().contains("Name or service not known") =>
+        {
+            format!("Couldn't resolve {host}. Check the hostname, and that any DNS it depends on \
+                     (MagicDNS, a VPN resolver) is up.")
+        }
+        _ => format!("connect to {host}:{port}: {io}"),
+    }
+}
+
 /// Resolve `host`'s ProxyJump chain into connect order: outermost bastion
 /// first, `host` itself last. A chain that loops or runs past [`MAX_JUMPS`] is
 /// an error rather than a hang — `jump_host_id` is user-editable and nothing
@@ -1025,7 +1065,7 @@ impl SshManager {
                 .await
                 .map_err(|e| {
                     Self::emit(app, session_id, "status", phase("error", hop));
-                    format!("connect: {e}")
+                    explain_connect_error(&node.hostname, node.port, &e)
                 })?,
             };
 
@@ -1509,6 +1549,54 @@ mod tests {
         assert_eq!(store.get("h1").unwrap(), None);
         // A host that never stored one must not turn into an error.
         m.forget_secret("never-had-one");
+    }
+
+    /// The errno the user actually reported. If macOS's 65 doesn't map to
+    /// `HostUnreachable` on this toolchain, the friendly message is dead code
+    /// and they keep seeing the raw errno.
+    #[test]
+    fn macos_errnos_map_to_the_kinds_the_explainer_matches_on() {
+        use std::io::ErrorKind;
+        let cases = [
+            (65, ErrorKind::HostUnreachable),  // EHOSTUNREACH — "No route to host"
+            (51, ErrorKind::NetworkUnreachable), // ENETUNREACH
+            (61, ErrorKind::ConnectionRefused), // ECONNREFUSED
+            (60, ErrorKind::TimedOut),          // ETIMEDOUT
+        ];
+        for (errno, expected) in cases {
+            let kind = std::io::Error::from_raw_os_error(errno).kind();
+            assert_eq!(kind, expected, "errno {errno} mapped to {kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_dead_host_is_explained_rather_than_numbered() {
+        let e = russh::Error::IO(std::io::Error::from_raw_os_error(65));
+        let msg = explain_connect_error("nas.tailnet.ts.net", 22, &e);
+        assert!(msg.contains("No route to nas.tailnet.ts.net"), "{msg}");
+        // The point of the change: name the likely cause, not the errno.
+        assert!(msg.contains("asleep"), "{msg}");
+        assert!(!msg.contains("os error"), "{msg}");
+    }
+
+    #[test]
+    fn refused_and_unreachable_read_differently() {
+        // These need different actions from the user, so they must not share
+        // wording: one means "start sshd", the other means "wake the machine".
+        let refused = explain_connect_error(
+            "box",
+            2222,
+            &russh::Error::IO(std::io::Error::from_raw_os_error(61)),
+        );
+        assert!(refused.contains("sshd"), "{refused}");
+        assert!(refused.contains("2222"), "{refused}");
+
+        let timed_out = explain_connect_error(
+            "box",
+            22,
+            &russh::Error::IO(std::io::Error::from_raw_os_error(60)),
+        );
+        assert!(timed_out.contains("firewall"), "{timed_out}");
     }
 
     #[test]
