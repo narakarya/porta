@@ -4,6 +4,58 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.6]
+
+### Changed
+
+- **The publish panel rests at four lines instead of thirteen.** With a tunnel
+  live it used to stack a Connected badge, the URL, an amber "Accessible hosts"
+  list, a green "Reachable" bar, an amber drift banner with its own Reconnect,
+  the mode toggle, the tunnel picker, the hostname field and its two lines of
+  helper text, a second amber host list repeating the first, an Access hint, the
+  alias-domain block, an auto-start checkbox, and a Disconnect/Reconnect row.
+  Four of those reported status, two reported the same hosts, and two were
+  Reconnect.
+
+  Status is now one strip: provider, public URL, reachability, local→public
+  routing, the tunnel it rides on, and the two conditions that need you. The
+  configuration folds behind Settings while a tunnel is live, and opens by
+  itself on an app with nothing published or after a failed Connect. Auto-start
+  and the public alias domain moved into an Advanced fold whose summary line
+  names anything you've set, so folding never hides a non-default. Amber now
+  means "act on this" and nothing else.
+
+  Nothing was taken away. Reconnect deliberately stays enabled with no pending
+  changes — restarting a wedged connector is a real use for it — and a Revert
+  now sits beside it.
+
+- **Filtering the app list hides workspaces that don't match.** Searching a name
+  used to leave every workspace header standing above an empty group. Matching
+  workspaces now expand even when collapsed, the header count follows the
+  matches, and an empty search says so instead of going blank.
+
+### Fixed
+
+- **One app's settings could be shown against another app's data.** The Config
+  tab was keyed by section only, so switching apps while it stayed open reused
+  the same form — carrying its entire unsaved draft onto the next app's saved
+  values. In the tunnel panel that meant a neighbouring hostname sitting beside
+  the app's real live URL, with a Reconnect that would have applied it.
+
+- **The tunnel hostname is no longer auto-filled from a neighbour's DNS route.**
+  One named tunnel usually fronts every app in a workspace, so its route list is
+  mostly other apps' hostnames. When nothing matched this app, Porta adopted the
+  first route anyway; that read as unapplied config and offered to repoint the
+  running tunnel at it. With no match, the field is now simply left alone.
+
+- **The live host list stopped describing an edit as if it were live.** It read
+  the hostname you were typing before the one that was saved, so it could
+  contradict the public URL displayed directly above it.
+
+- **A failed connection to a host says what went wrong.** `No route to host (os
+  error 65)` is now the three answers that actually differ: asleep or off this
+  network, nothing listening on the port, or a firewall swallowing the attempt.
+
 ## [0.15.0-beta.5]
 
 ### Added
