@@ -1,40 +1,56 @@
 import { type TunnelPublicHost } from "../AppConfigContext";
 
-/** Amber host list used for both "This app will expose" (configured hosts) and
- *  "Accessible hosts" (live hosts). Renders nothing when the list is empty. */
+/**
+ * The hosts a Connect/Reconnect would publish, listed under the hostname field.
+ *
+ * Two things changed with mockup 32. It is no longer amber — amber now means
+ * "you need to act", and a list of hostnames is information, not a warning. And
+ * it renders in exactly one place: this panel used to be paired with an
+ * identical amber "Accessible hosts" list in the live status, and in the steady
+ * state the two said the same thing while a draft edit made them silently
+ * disagree. Live hosts belong to TunnelStatusStrip; this one is always the
+ * staged config.
+ */
 export default function TunnelPublicHostsPanel({
   hosts,
-  title = "This app will expose",
+  drifted = false,
 }: {
   hosts: TunnelPublicHost[];
-  title?: string;
+  /** Tints the list when these hosts differ from what's actually running. */
+  drifted?: boolean;
 }) {
   if (hosts.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-lg bg-warn-bg border border-[rgba(251,191,36,0.15)] overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[rgba(251,191,36,0.1)]">
-        <p className="text-[10px] text-ink-2 font-medium">{title}</p>
-        <span className="text-[9px] uppercase tracking-wider text-warn leading-none">
-          {hosts.length} {hosts.length === 1 ? "host" : "hosts"}
-        </span>
-      </div>
-      <ul className="px-3 py-2 space-y-1">
-        {hosts.map(({ host, kind }) => (
-          <li key={host} className="flex items-center gap-2 font-mono text-[11px] text-warn min-w-0">
-            {/* Filled dot for the primary host, hollow for extras / port bindings. */}
-            <span
-              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                kind === "primary"
-                  ? "bg-warn"
-                  : "border border-[rgba(251,191,36,0.5)] bg-transparent"
-              }`}
-              aria-label={kind === "primary" ? "primary" : kind}
-            />
-            <span className="truncate" title={host}>{host}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <ul className="mt-2.5 pt-2 border-t border-subtle space-y-1">
+      {hosts.map(({ host, kind }) => (
+        <li
+          key={host}
+          className={`flex items-center gap-2 font-mono text-[11.5px] min-w-0 ${
+            drifted ? "text-warn" : "text-ink-2"
+          }`}
+        >
+          {/* Filled dot for the primary host, hollow for extras / port bindings. */}
+          <span
+            className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+              kind === "primary"
+                ? drifted ? "bg-warn" : "bg-accent"
+                : `border ${drifted ? "border-warn/60" : "border-accent/60"} bg-transparent`
+            }`}
+            aria-label={kind === "primary" ? "primary" : kind}
+          />
+          <span className="truncate" title={host}>{host}</span>
+          <span className="ml-auto shrink-0 font-sans text-[10px] text-ink-3">
+            {drifted && kind === "primary"
+              ? "will publish"
+              : kind === "primary"
+                ? "primary"
+                : kind === "binding"
+                  ? "port binding"
+                  : "extra subdomain"}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

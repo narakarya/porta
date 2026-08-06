@@ -45,10 +45,13 @@ features. Non-negotiables:
   domains/tabs never disposes an xterm/PTY or drops listeners.
 - **SSH (Hosts)** — the v0.10.0 SSH client stays fully functional.
 - **Tunnel / Publish** — the existing Cloudflare tunnel + DNS + quick/named tunnel
-  flows must keep working, AND get the improved UI/UX from mockup **`11` (v2)**:
-  local→public routing hero (copy/open/QR), Quick-vs-Named mode switch with
-  descriptions, public hostnames list (primary/alias + Add), and access control
-  (Public / Password / CF Access). Wire to the real tunnel state/commands.
+  flows must keep working, AND get the improved UI/UX from mockup **`32` (v3)**,
+  which supersedes `11`: one live-status strip (routing hero + copy/open/QR +
+  reachability) instead of four stacked status boxes, the config form behind a
+  Settings disclosure while live, a single host list that belongs to one context
+  (live vs staged), one Reconnect, and Advanced (alias domain / Host rewrite /
+  auto-start) folded with a summary of non-defaults. Every existing capability
+  survives; only *when* each is on screen changes. Wire to real tunnel state.
 - General: every redesigned surface must be wired to real state/commands; a mockup
   that currently shows placeholder data must be connected before it's "done".
 
@@ -67,8 +70,8 @@ Because the scope is large, implement **phase by phase**, validating each increm
 
 ## Mockup index
 
-> Where a **v2** exists it supersedes v1 — use **`11` (tunnel/publish)** over `09`,
-> and **`12` (logs)** over `10`.
+> Later revisions supersede earlier ones — use **`32` (tunnel/publish v3)** over `11`
+> and `09`, and **`12` (logs)** over `10`.
 
 | # | File | Surface |
 |---|------|---------|
@@ -104,3 +107,4 @@ Because the scope is large, implement **phase by phase**, validating each increm
 | 29 | porta_backup_snapshots | backup / snapshots |
 | 30 | porta_phoenix_packages | phoenix packages |
 | 31 | porta_redesign_friendly_architecture | Tokens→Primitives→Features→Shell |
+| 32 | porta_tunnel_v3 | **tunnel / publish (v3 — progressive disclosure)** |

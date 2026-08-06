@@ -1,16 +1,19 @@
-import TunnelStatusBadge from "../../../shared/TunnelStatusBadge";
 import { useAppConfig } from "../AppConfigContext";
 
-/** Provider segmented toggle (Cloudflare / Tailscale) plus the status badge for
- *  the currently-selected provider. Switching only changes the form selection —
- *  a live tunnel is never torn down here (see handleConnect). */
+/** Provider segmented toggle (Cloudflare / Tailscale). Switching only changes
+ *  the form selection — a live tunnel is never torn down here (see
+ *  handleConnect).
+ *
+ *  The status badge that used to sit beside it is gone: TunnelStatusStrip is
+ *  the section's one status surface, and a second badge next to the picker
+ *  could contradict it while the user browsed the other provider's config. */
 export default function TunnelProviderToggle() {
   const c = useAppConfig();
 
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-        <label className="text-[12px] font-medium text-ink-2">Provider</label>
+        <label className="text-[11px] font-medium text-ink-2">Provider</label>
         {(() => {
           // Status-dot color reflects "is this provider ready to
           // Connect right now?" — green when fully set up, amber
@@ -83,16 +86,6 @@ export default function TunnelProviderToggle() {
           );
         })()}
       </div>
-
-      {/* Status badge — reflects the SELECTED provider, so the
-          Tailscale tab reads "Disconnected" even while Cloudflare
-          is live underneath (and vice versa). */}
-      <TunnelStatusBadge
-        tunnelActive={c.selectedIsLive}
-        tunnelUrl={c.selectedIsLive ? c.app.tunnel_url : null}
-        provider={c.tunnelProvider}
-        className="mt-4"
-      />
     </div>
   );
 }

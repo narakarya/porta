@@ -1,0 +1,534 @@
+<!doctype html><html><head><meta charset="utf-8"><title>porta_tunnel_v3</title><style>
+:root{
+  --font-sans: system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --font-mono: ui-monospace,SFMono-Regular,Menlo,'JetBrains Mono',monospace;
+  --border: rgba(255,255,255,.085); --border-strong: rgba(255,255,255,.20);
+  --border-accent: rgba(96,165,250,.4); --border-warning: rgba(251,191,36,.4); --border-danger: rgba(248,113,113,.4);
+  --surface-0:#0d0d0f; --surface-1:#151517; --surface-2:#1b1c1f; --surface-input:#141416;
+  --bg-accent:rgba(96,165,250,.16); --text-accent:#93c5fd; --fill-accent:#60a5fa;
+  --text-primary:#e7e7ea; --text-secondary:#b6b6bb; --text-muted:#78787d;
+  --text-success:#4ade80; --bg-success:rgba(74,222,128,.15); --fill-success:#4ade80;
+  --text-warning:#fbbf24; --bg-warning:rgba(251,191,36,.15); --fill-warning:#fbbf24;
+  --text-danger:#f87171; --bg-danger:rgba(248,113,113,.15); --fill-danger:#f87171;
+  --paper:#0a0a0c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--text-primary);font-family:var(--font-sans);padding:28px 24px 80px;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+.page{max-width:1180px;margin:0 auto}
+h1{font-size:20px;margin:0 0 6px;letter-spacing:-.01em}
+.lede{font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0 0 4px;max-width:78ch}
+.lede b{color:var(--text-primary);font-weight:600}
+.rules{margin:18px 0 30px;padding:14px 16px;border:0.5px solid var(--edge,var(--border));border-radius:10px;background:var(--surface-1)}
+.rules h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin:0 0 9px}
+.rules ol{margin:0;padding-left:18px}
+.rules li{font-size:12.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:5px}
+.rules li b{color:var(--text-primary);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(560px,1fr));gap:26px;align-items:start}
+.state{border:0.5px solid var(--border);border-radius:12px;background:linear-gradient(180deg,#0f0f11,#0c0c0e);overflow:hidden}
+.state>header{padding:12px 15px 11px;border-bottom:0.5px solid var(--border)}
+.state h3{font-size:13px;margin:0 0 3px;font-weight:600;display:flex;align-items:center;gap:8px}
+.state h3 .n{font-size:10px;font-family:var(--font-mono);color:var(--text-muted);border:0.5px solid var(--border);border-radius:5px;padding:1px 5px}
+.state .why{font-size:11.5px;color:var(--text-muted);line-height:1.55;margin:0}
+.state .why em{color:var(--text-warning);font-style:normal}
+.stage{padding:18px 16px;background:var(--surface-0)}
+
+/* ── the panel itself ───────────────────────────────────────────── */
+.panel{border:0.5px solid var(--border);border-radius:12px;background:var(--surface-1);overflow:hidden}
+.sec-head{padding:12px 14px 11px}
+.sec-head .t{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--text-secondary)}
+.sec-head .s{font-size:11.5px;color:var(--text-muted);margin-top:3px}
+.body{padding:0 14px 14px;display:flex;flex-direction:column;gap:11px}
+
+/* live strip — the single status surface */
+.strip{border:0.5px solid rgba(74,222,128,.28);border-radius:10px;background:rgba(74,222,128,.05);overflow:hidden}
+.strip.warn{border-color:var(--border-warning);background:rgba(251,191,36,.05)}
+.strip.busy{border-color:var(--border);background:var(--surface-2)}
+.strip-top{display:flex;align-items:center;gap:8px;padding:9px 12px 0}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;letter-spacing:.03em;padding:2px 8px;border-radius:20px;background:var(--bg-success);color:var(--text-success)}
+.pill.warn{background:var(--bg-warning);color:var(--text-warning)}
+.pill.idle{background:rgba(255,255,255,.06);color:var(--text-muted)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.strip-url{display:flex;align-items:center;gap:9px;padding:7px 12px 3px}
+.strip-url .u{font-family:var(--font-mono);font-size:13px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;color:var(--text-muted);border:0.5px solid transparent;flex:none}
+.iconbtn:hover{color:var(--text-primary);border-color:var(--border);background:var(--surface-2)}
+.strip-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:0 12px 10px;font-size:11px;color:var(--text-muted)}
+.strip-meta .mono{font-family:var(--font-mono);color:var(--text-secondary)}
+.strip-meta .sep{opacity:.4}
+.strip-note{display:flex;align-items:flex-start;gap:8px;padding:9px 12px;border-top:0.5px solid var(--border-warning);background:rgba(251,191,36,.07);font-size:11.5px;color:var(--text-warning);line-height:1.5}
+.strip-note .act{margin-left:auto;flex:none}
+
+/* disclosure */
+.disc{border:0.5px solid var(--border);border-radius:10px;background:var(--surface-2);overflow:hidden}
+.disc-head{display:flex;align-items:center;gap:8px;padding:9px 12px;font-size:12px;color:var(--text-secondary)}
+.disc-head .chev{color:var(--text-muted);transition:transform .15s}
+.disc-head .badge{margin-left:auto;font-size:10px;color:var(--text-muted);font-family:var(--font-mono)}
+.disc.open>.disc-head{border-bottom:0.5px solid var(--border);color:var(--text-primary)}
+.disc.open .chev{transform:rotate(90deg)}
+.disc-body{padding:12px;display:flex;flex-direction:column;gap:12px}
+
+/* form bits */
+.f-label{font-size:11px;font-weight:500;color:var(--text-secondary);display:block;margin-bottom:5px}
+.f-hint{font-size:10.5px;color:var(--text-muted);margin:5px 0 0;line-height:1.5}
+.input{width:100%;border:0.5px solid var(--border);border-radius:8px;background:var(--surface-input);padding:7px 10px;font-family:var(--font-mono);font-size:12px;color:var(--text-primary)}
+.input.ph{color:var(--text-muted)}
+.select{display:flex;align-items:center;gap:8px}
+.select .input{display:flex;align-items:center;justify-content:space-between;font-family:var(--font-sans)}
+.seg{display:inline-flex;padding:2px;border-radius:9px;background:var(--surface-0);border:0.5px solid var(--border)}
+.seg>span{padding:5px 13px;border-radius:7px;font-size:12px;font-weight:500;color:var(--text-secondary);display:inline-flex;align-items:center;gap:6px}
+.seg>span.on{background:var(--surface-2);color:var(--text-primary);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mode{border:0.5px solid var(--border);border-radius:9px;padding:9px 11px;background:var(--surface-1)}
+.mode.on{border:1.5px solid var(--border-accent);background:rgba(96,165,250,.06)}
+.mode .mt{font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
+.mode.on .mt{color:var(--text-accent)}
+.mode .md{font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.45}
+.check{display:flex;align-items:flex-start;gap:8px}
+.box{width:13px;height:13px;border-radius:4px;border:1px solid var(--border-strong);background:var(--surface-0);flex:none;margin-top:1px}
+.box.on{background:var(--fill-accent);border-color:var(--fill-accent);display:flex;align-items:center;justify-content:center;color:#0a0a0c}
+.check .ct{font-size:11.5px;color:var(--text-secondary);line-height:1.5}
+.check .cd{font-size:10.5px;color:var(--text-muted);margin-top:2px;line-height:1.45}
+.row{display:flex;align-items:center;gap:8px}
+.btn{padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:500;border:0.5px solid var(--border);background:var(--surface-2);color:var(--text-secondary);display:inline-flex;align-items:center;gap:7px}
+.btn.pri{background:var(--fill-accent);border-color:var(--fill-accent);color:#0a0a0c}
+.btn.warnpri{background:var(--fill-warning);border-color:var(--fill-warning);color:#0a0a0c}
+.btn.ghost{background:transparent}
+.btn.small{padding:4px 10px;font-size:11px;border-radius:7px}
+.btn.dis{opacity:.4}
+.spin{width:11px;height:11px;border-radius:50%;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.hostlist{border-top:0.5px solid var(--border);margin-top:2px}
+.hostlist li{list-style:none;display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);padding:5px 0}
+.hostlist li .k{margin-left:auto;font-family:var(--font-sans);font-size:10px;color:var(--text-muted)}
+.hostlist ul{margin:0;padding:6px 0 0}
+.diff{font-family:var(--font-mono);font-size:11px;line-height:1.6}
+.diff .was{color:var(--text-muted);text-decoration:line-through}
+.diff .now{color:var(--text-warning)}
+.err{border:0.5px solid var(--border-danger);background:var(--bg-danger);border-radius:9px;padding:9px 11px;font-family:var(--font-mono);font-size:11px;color:var(--text-danger);white-space:pre-wrap;position:relative}
+.err .cp{position:absolute;top:6px;right:6px}
+.step{display:flex;gap:10px;border:0.5px solid var(--border);border-radius:9px;padding:11px 12px;background:var(--surface-2)}
+.step .num{width:19px;height:19px;border-radius:50%;background:var(--bg-accent);color:var(--text-accent);font-size:10.5px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.step .st{font-size:12px;font-weight:500}
+.step .sb{font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.5}
+.step code{display:block;margin-top:7px;font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);background:var(--surface-0);border:0.5px solid var(--border);border-radius:6px;padding:5px 8px}
+.callout{font-size:11px;color:var(--text-muted);line-height:1.55;border-left:2px solid var(--border);padding-left:9px}
+.tally{display:flex;gap:22px;margin:22px 0 8px;flex-wrap:wrap}
+.tally div{font-size:12px;color:var(--text-secondary)}
+.tally b{display:block;font-size:22px;color:var(--text-primary);font-weight:650;letter-spacing:-.02em}
+.tally .down{color:var(--text-success)}
+</style></head><body>
+<h2 class="sr-only">Tunnel section v3 — a single live-status strip replaces four stacked status boxes, the configuration form moves behind a Settings disclosure while a tunnel is live, the duplicated host panels collapse into one context-appropriate list, and the two competing Reconnect buttons become one. Shown across nine states: idle, named setup, live at rest, live with extra hosts, live with drifted config, unreachable, connecting, connect error, and first-run setup steps.</h2>
+<div class="page">
+
+<h1>Tunnel section — v3 (progressive disclosure)</h1>
+<p class="lede">Supersedes <b>09</b> and <b>11</b>. The shipped panel stacks <b>13 blocks in one column</b> while a tunnel is live: a Connected badge, the URL, an amber “Accessible hosts” list, a green “Reachable” bar, an amber drift banner with its own Reconnect, the mode toggle, the tunnel picker, the hostname field with two lines of helper text, a second amber host list saying the same thing as the first, an Access hint, the alias-domain block with a checkbox, an auto-start checkbox, and a Disconnect/Reconnect row. Four of those blocks report status, two report the same hosts, and two are Reconnect.</p>
+<p class="lede">v3 keeps every feature and every command. It changes <b>when</b> each one is on screen.</p>
+
+<div class="rules">
+  <h2>Rules this design holds to</h2>
+  <ol>
+    <li><b>One status surface.</b> Provider, live URL, reachability, and routing collapse into a single strip. Nothing else on the panel reports status.</li>
+    <li><b>The host list appears once, and belongs to a context.</b> In the strip it means <i>what is live right now</i>; inside Settings it means <i>what Connect would change it to</i>. Never both at once — that pairing is what made a stale field look like a live one.</li>
+    <li><b>Settings are collapsed while a tunnel is live.</b> The resting state of a working tunnel is four lines, not a form. Opening Settings is one click and nothing is hidden behind a mode change.</li>
+    <li><b>One Reconnect.</b> It lives in the Settings footer, next to the edits that need it. The strip states the drift and links to it — it does not offer a second button that does the same thing.</li>
+    <li><b>Amber means “you need to act”.</b> Informational host lists lose their amber; it now only marks drift, unreachable, and setup-required.</li>
+    <li><b>Advanced stays folded.</b> Alias domain, Host rewrite, and auto-start sit under one Advanced disclosure with a summary of what is set, so a non-default is never invisible.</li>
+  </ol>
+</div>
+
+<div class="tally">
+  <div><b>13 → 4</b>blocks visible when live &amp; settled</div>
+  <div><b class="down">4 → 1</b>status surfaces</div>
+  <div><b class="down">2 → 1</b>host lists on screen</div>
+  <div><b class="down">2 → 1</b>Reconnect buttons</div>
+</div>
+
+<div class="grid">
+
+  <!-- ═══ A · live, settled ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">A</span> Live · settings match</h3>
+      <p class="why">The state a working app sits in for weeks. Everything the user came to check is on the first four lines; the form that used to fill the panel is one click away.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head">
+          <div class="t">Public tunnel</div>
+          <div class="s">Expose this app to the internet via a secure tunnel.</div>
+        </div>
+        <div class="body">
+
+          <div class="strip">
+            <div class="strip-top">
+              <span class="pill"><span class="dot"></span>LIVE</span>
+              <span style="font-size:11px;color:var(--text-muted)">Cloudflare · reachable</span>
+              <span style="margin-left:auto"><span class="btn ghost small">Disconnect</span></span>
+            </div>
+            <div class="strip-url">
+              <span class="u">https://tgr-bwi-26.nasrulgunawan.com</span>
+              <span class="iconbtn" title="Copy"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5H3.8A1.3 1.3 0 0 0 2.5 4.8v6.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+              <span class="iconbtn" title="Open"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M9 3h4v4M13 3 7.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 10v2.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+              <span class="iconbtn" title="QR code"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M9 9h2v2H9zM12 12h1.5v1.5H12z" fill="currentColor"/></svg></span>
+            </div>
+            <div class="strip-meta">
+              <span class="mono">localhost:4000</span>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style="opacity:.55"><path d="M3 8h9M9 5l3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="mono">public</span>
+              <span class="sep">·</span>
+              <span>tunnel <span class="mono">porta-narakarya</span></span>
+            </div>
+          </div>
+
+          <div class="disc">
+            <div class="disc-head">
+              <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Settings
+              <span class="badge">named · 1 host</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <p class="callout" style="margin-top:12px">Four blocks. The old panel showed thirteen here — the twelve-line form underneath was visible whether or not the user came to edit anything.</p>
+    </div>
+  </section>
+
+  <!-- ═══ B · settings open ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">B</span> Live · Settings opened</h3>
+      <p class="why">The whole form, unchanged in capability. Host list here means “what Connect would publish”, and it is the only host list on screen because the strip’s copy is not duplicated.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head"><div class="t">Public tunnel</div></div>
+        <div class="body">
+
+          <div class="strip">
+            <div class="strip-top">
+              <span class="pill"><span class="dot"></span>LIVE</span>
+              <span style="font-size:11px;color:var(--text-muted)">Cloudflare · reachable</span>
+              <span style="margin-left:auto"><span class="btn ghost small">Disconnect</span></span>
+            </div>
+            <div class="strip-url"><span class="u">https://tgr-bwi-26.nasrulgunawan.com</span>
+              <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5H3.8A1.3 1.3 0 0 0 2.5 4.8v6.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+              <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M9 3h4v4M13 3 7.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+            <div class="strip-meta"><span class="mono">localhost:4000</span><span class="sep">·</span><span>tunnel <span class="mono">porta-narakarya</span></span></div>
+          </div>
+
+          <div class="disc open">
+            <div class="disc-head">
+              <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Settings
+            </div>
+            <div class="disc-body">
+
+              <div>
+                <span class="f-label">Provider</span>
+                <div class="seg"><span class="on"><span class="dot" style="color:var(--fill-success)"></span>Cloudflare</span><span><span class="dot" style="color:var(--fill-warning)"></span>Tailscale</span></div>
+              </div>
+
+              <div class="modes">
+                <div class="mode"><div class="mt">Quick</div><div class="md">Ephemeral <span style="font-family:var(--font-mono)">*.trycloudflare.com</span>. Zero setup.</div></div>
+                <div class="mode on"><div class="mt">Named <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5l3 3 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div class="md">Persistent, your own domain + DNS.</div></div>
+              </div>
+
+              <div>
+                <span class="f-label">Cloudflare tunnel</span>
+                <div class="select"><div class="input">porta-narakarya <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="opacity:.6"><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="iconbtn" title="Refresh"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 1 1-1.6-3.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 2.5V5h-2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+              </div>
+
+              <div>
+                <span class="f-label">Hostname</span>
+                <input class="input" value="tgr-bwi-26.nasrulgunawan.com" readonly>
+                <p class="f-hint">DNS route auto-created on Connect. Type a subdomain and press Tab to append <span style="font-family:var(--font-mono)">.nasrulgunawan.com</span>.</p>
+                <div class="hostlist">
+                  <ul>
+                    <li><span class="dot" style="color:var(--fill-accent)"></span>tgr-bwi-26.nasrulgunawan.com<span class="k">primary</span></li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="disc">
+                <div class="disc-head">
+                  <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  Advanced
+                  <span class="badge">auto-start off · no alias</span>
+                </div>
+              </div>
+
+              <div class="row" style="padding-top:2px">
+                <span class="btn dis">Reconnect</span>
+                <span style="font-size:11px;color:var(--text-muted)">No changes to apply.</span>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ C · drift ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">C</span> Live · edited but not applied <em>(the bug you hit)</em></h3>
+      <p class="why">The strip keeps saying what is actually running. The edit is stated as a before→after inside Settings, where the single Reconnect lives. No second banner, no second button, and no host list that quietly shows the staged value as if it were live.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head"><div class="t">Public tunnel</div></div>
+        <div class="body">
+
+          <div class="strip warn">
+            <div class="strip-top">
+              <span class="pill"><span class="dot"></span>LIVE</span>
+              <span style="font-size:11px;color:var(--text-muted)">Cloudflare · reachable</span>
+              <span style="margin-left:auto"><span class="btn ghost small">Disconnect</span></span>
+            </div>
+            <div class="strip-url"><span class="u">https://tgr-bwi-26.nasrulgunawan.com</span>
+              <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5H3.8A1.3 1.3 0 0 0 2.5 4.8v6.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+            </div>
+            <div class="strip-meta"><span class="mono">localhost:4000</span><span class="sep">·</span><span>tunnel <span class="mono">porta-narakarya</span></span></div>
+            <div class="strip-note">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:1px"><path d="M8 5.5V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".9" fill="currentColor"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/></svg>
+              <span>Running with the previous settings — your edits below aren’t applied yet.</span>
+              <span class="act"><span class="btn ghost small">Review</span></span>
+            </div>
+          </div>
+
+          <div class="disc open">
+            <div class="disc-head">
+              <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Settings
+              <span class="badge" style="color:var(--text-warning)">1 unapplied change</span>
+            </div>
+            <div class="disc-body">
+
+              <div>
+                <span class="f-label">Hostname</span>
+                <input class="input" value="events.narakarya.com" readonly style="border-color:var(--border-warning)">
+                <p class="f-hint diff" style="margin-top:7px">running <span class="was">tgr-bwi-26.nasrulgunawan.com</span> → on reconnect <span class="now">events.narakarya.com</span></p>
+                <div class="hostlist">
+                  <ul>
+                    <li style="color:var(--text-warning)"><span class="dot"></span>events.narakarya.com<span class="k">will publish</span></li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="row" style="padding-top:2px">
+                <span class="btn warnpri">Reconnect</span>
+                <span class="btn ghost">Revert</span>
+                <span style="font-size:11px;color:var(--text-muted)">Reconnect drops the current URL.</span>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <p class="callout" style="margin-top:12px"><b>Revert</b> is new and cheap: the drift that started this was a field auto-filled from a neighbouring app’s DNS route, and the old panel offered no way back other than retyping the value you could no longer see.</p>
+    </div>
+  </section>
+
+  <!-- ═══ D · idle ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">D</span> Not published</h3>
+      <p class="why">An app with no tunnel shows one sentence and one button. Provider and mode only appear once the user has said they want to publish — they are not a wall to read past on every unrelated visit to the config tab.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head">
+          <div class="t">Public tunnel</div>
+          <div class="s">Expose this app to the internet via a secure tunnel.</div>
+        </div>
+        <div class="body">
+          <div class="strip busy">
+            <div class="strip-top" style="padding-bottom:9px">
+              <span class="pill idle"><span class="dot"></span>NOT PUBLISHED</span>
+              <span style="font-size:11px;color:var(--text-muted)"><span class="mono" style="font-family:var(--font-mono)">localhost:4000</span> is only reachable on this machine</span>
+              <span style="margin-left:auto"><span class="btn pri small">Publish…</span></span>
+            </div>
+          </div>
+          <div class="disc">
+            <div class="disc-head">
+              <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Settings
+              <span class="badge">cloudflare · named</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="callout" style="margin-top:12px">“Publish…” opens Settings with the provider/mode choice focused — the same controls as state B, reached deliberately.</p>
+    </div>
+  </section>
+
+  <!-- ═══ E · multi-host ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">E</span> Live · several public hosts</h3>
+      <p class="why">Extra subdomains and port bindings are the one case where a host list earns space in the strip. It stays folded, with the count on the summary line, and it lists what is <i>live</i> — never a staged edit.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head"><div class="t">Public tunnel</div></div>
+        <div class="body">
+          <div class="strip">
+            <div class="strip-top">
+              <span class="pill"><span class="dot"></span>LIVE</span>
+              <span style="font-size:11px;color:var(--text-muted)">Cloudflare · reachable</span>
+              <span style="margin-left:auto"><span class="btn ghost small">Disconnect</span></span>
+            </div>
+            <div class="strip-url"><span class="u">https://app.klien-a.id</span>
+              <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5H3.8A1.3 1.3 0 0 0 2.5 4.8v6.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+              <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M9 3h4v4M13 3 7.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </div>
+            <div class="strip-meta"><span class="mono">localhost:3000</span><span class="sep">·</span><span>tunnel <span class="mono">porta-narakarya</span></span></div>
+            <div style="border-top:0.5px solid var(--border);padding:8px 12px">
+              <div class="disc-head" style="padding:0;font-size:11.5px">
+                <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Also serving
+                <span class="badge">3 hosts</span>
+              </div>
+              <ul style="margin:7px 0 0;padding:0">
+                <li style="list-style:none;display:flex;gap:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);padding:3px 0"><span class="dot" style="color:var(--fill-success)"></span>staging.klien-a.id<span style="margin-left:auto;font-family:var(--font-sans);font-size:10px;color:var(--text-muted)">extra subdomain</span></li>
+                <li style="list-style:none;display:flex;gap:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);padding:3px 0"><span class="dot" style="color:var(--fill-success)"></span>ws.klien-a.id<span style="margin-left:auto;font-family:var(--font-sans);font-size:10px;color:var(--text-muted)">port 4001</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="disc">
+            <div class="disc-head">
+              <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Settings<span class="badge">named · 3 hosts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ F · unreachable ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">F</span> Live · endpoint not reachable</h3>
+      <p class="why">The repair action attaches to the status that reported the problem, instead of opening a fourth coloured box below three others.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head"><div class="t">Public tunnel</div></div>
+        <div class="body">
+          <div class="strip warn">
+            <div class="strip-top">
+              <span class="pill warn"><span class="dot"></span>LIVE · UNREACHABLE</span>
+              <span style="font-size:11px;color:var(--text-muted)">Cloudflare</span>
+              <span style="margin-left:auto"><span class="btn ghost small">Disconnect</span></span>
+            </div>
+            <div class="strip-url"><span class="u">https://tgr-bwi-26.nasrulgunawan.com</span></div>
+            <div class="strip-note">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:1px"><path d="M8 5.5V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".9" fill="currentColor"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/></svg>
+              <span>The tunnel endpoint doesn’t answer — that’s the tunnel, not your app. Usually the DNS record for this hostname is missing.</span>
+              <span class="act"><span class="btn warnpri small">Repair DNS</span></span>
+            </div>
+          </div>
+          <div class="disc"><div class="disc-head"><svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Settings<span class="badge">named · 1 host</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ G · connecting ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">G</span> Connecting</h3>
+      <p class="why">The strip holds its shape through the transition, so nothing below it reflows while the connector comes up.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head"><div class="t">Public tunnel</div></div>
+        <div class="body">
+          <div class="strip busy">
+            <div class="strip-top">
+              <span class="pill idle"><span class="spin" style="border-top-color:var(--text-muted)"></span>CONNECTING</span>
+              <span style="font-size:11px;color:var(--text-muted)">Cloudflare · starting connector…</span>
+              <span style="margin-left:auto"><span class="btn ghost small dis">Cancel</span></span>
+            </div>
+            <div class="strip-url"><span class="u" style="color:var(--text-muted)">tgr-bwi-26.nasrulgunawan.com</span></div>
+            <div class="strip-meta"><span class="mono">localhost:4000</span><span class="sep">·</span><span>creating DNS route</span></div>
+          </div>
+          <div class="disc"><div class="disc-head"><svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Settings<span class="badge">named · 1 host</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ H · error ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">H</span> Connect failed</h3>
+      <p class="why">Failure replaces the strip rather than stacking under it, and Settings auto-opens because the fix is almost always a field in there.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head"><div class="t">Public tunnel</div></div>
+        <div class="body">
+          <div class="err">failed to create DNS route for events.narakarya.com:
+zone "narakarya.com" not found in this Cloudflare account
+            <span class="cp"><span class="btn ghost small">Copy</span></span>
+          </div>
+          <div class="row"><span class="btn pri">Try again</span><span style="font-size:11px;color:var(--text-muted)">Nothing is published right now.</span></div>
+          <div class="disc open">
+            <div class="disc-head"><svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Settings</div>
+            <div class="disc-body">
+              <div>
+                <span class="f-label">Hostname</span>
+                <input class="input" value="events.narakarya.com" readonly style="border-color:var(--border-danger)">
+                <p class="f-hint">The domain must already be a zone in the Cloudflare account you logged in with.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ I · setup ═══ -->
+  <section class="state">
+    <header>
+      <h3><span class="n">I</span> First run · cloudflared missing</h3>
+      <p class="why">Setup steps survive as-is — they were the one part of the panel that already showed a single thing at a time. They now render <i>instead of</i> the strip, not above a form the user can’t use yet.</p>
+    </header>
+    <div class="stage">
+      <div class="panel">
+        <div class="sec-head">
+          <div class="t">Public tunnel</div>
+          <div class="s">Two one-time steps before this app can be published.</div>
+        </div>
+        <div class="body">
+          <div class="step">
+            <span class="num">1</span>
+            <div style="min-width:0">
+              <div class="st">Install cloudflared</div>
+              <div class="sb">Porta couldn’t find the cloudflared CLI on your machine.</div>
+              <code>brew install cloudflared</code>
+              <div class="row" style="margin-top:9px"><span class="btn pri small">Install with Homebrew</span><span class="btn ghost small">Copy</span></div>
+            </div>
+          </div>
+          <div class="step" style="opacity:.5">
+            <span class="num" style="background:rgba(255,255,255,.06);color:var(--text-muted)">2</span>
+            <div><div class="st">Log in to Cloudflare</div><div class="sb">Opens your browser once for the OAuth flow.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<p class="callout" style="max-width:78ch;margin-top:34px">Nothing here removes a capability. Provider switch, quick/named, tunnel picker + refresh, hostname with base-completion, Cloudflare Access, public alias domain, Host-header rewrite, auto-start, connect/disconnect/reconnect, DNS repair, and the error copy button all survive — Advanced holds the three that were rarely touched, and its summary line names any non-default so nothing set is invisible.</p>
+
+</div></body></html>

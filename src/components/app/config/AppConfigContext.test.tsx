@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { usePortaStore } from "../../../store";
 import { makeApp, makeWorkspace } from "../../../test/fixtures";
-import { useAppConfigDraft } from "./AppConfigContext";
+import { useAppConfigDraft, pickBestHostname } from "./AppConfigContext";
 import type { App } from "../../../types";
 
 // The one invariant worth pinning: **a form nobody has touched is not dirty.**
@@ -182,5 +182,84 @@ describe("useAppConfigDraft — edits that save would normalize away", () => {
     const { result } = draft(makeApp({ basic_auth_enabled: true, basic_auth_username: "admin", basic_auth_password_set: true }));
     act(() => result.current.setBasicAuthUsername("root"));
     expect(result.current.isDirty).toBe(true);
+  });
+});
+
+describe("pickBestHostname — shared named tunnel", () => {
+  // One tunnel usually fronts every app in a workspace, so its DNS routes are
+  // mostly OTHER apps' hostnames. Adopting one of those into an empty field is
+  // worse than adopting nothing: it reads as drift and the Reconnect it offers
+  // would repoint the live tunnel at another app's hostname.
+  const routes = ["events.narakarya.com", "tgr-bwi-26.nasrulgunawan.com", "admin.narakarya.com"];
+
+  it("takes the route whose leftmost label is the app's subdomain", () => {
+    const app = makeApp({ name: "touring webhook", subdomain: "tgr-bwi-26" });
+    expect(pickBestHostname(routes, app)).toBe("tgr-bwi-26.nasrulgunawan.com");
+  });
+
+  it("falls back to the app's slugified name", () => {
+    const app = makeApp({ name: "events", subdomain: null });
+    expect(pickBestHostname(routes, app)).toBe("events.narakarya.com");
+  });
+
+  it("returns nothing when no route identifies as this app", () => {
+    const app = makeApp({ name: "billing", subdomain: "billing" });
+    expect(pickBestHostname(routes, app)).toBeNull();
+  });
+
+  it("does not adopt a lone unrelated route", () => {
+    // The old single-route shortcut returned it unconditionally.
+    const app = makeApp({ name: "billing", subdomain: "billing" });
+    expect(pickBestHostname(["events.narakarya.com"], app)).toBeNull();
+  });
+});
+
+describe("useAppConfigDraft — live tunnel vs the draft form", () => {
+  // A live named tunnel. The panel shows two things at once: what's running
+  // (the strip) and what's staged (the form). Every bug in this area has been
+  // one of them borrowing the other's data.
+  const liveApp = () =>
+    makeApp({
+      tunnel_active: true,
+      tunnel_provider: "cloudflare",
+      tunnel_name: "porta-narakarya",
+      tunnel_custom_hostname: "tgr-bwi-26.nasrulgunawan.com",
+      tunnel_url: "https://tgr-bwi-26.nasrulgunawan.com",
+    });
+
+  it("keeps Settings folded on a live tunnel and open on an unpublished app", () => {
+    expect(draft(liveApp()).result.current.tunnelSettingsOpen).toBe(false);
+    expect(draft(makeApp({ tunnel_active: false })).result.current.tunnelSettingsOpen).toBe(true);
+  });
+
+  it("reports live hosts from the saved config, not the edited field", () => {
+    // The regression: editing the hostname used to rewrite the "what's live"
+    // list, so it disagreed with the live URL right above it.
+    const { result } = draft(liveApp());
+    act(() => result.current.setTunnelHostname("events.narakarya.com"));
+    expect(result.current.liveTunnelHosts.map((h) => h.host)).toEqual([
+      "tgr-bwi-26.nasrulgunawan.com",
+    ]);
+    // The staged list is where the edit belongs.
+    expect(result.current.configuredTunnelHosts.map((h) => h.host)).toEqual([
+      "events.narakarya.com",
+    ]);
+  });
+
+  it("flags drift only while the draft actually differs", () => {
+    const { result } = draft(liveApp());
+    expect(result.current.liveTunnelConfigDrifted).toBe(false);
+    act(() => result.current.setTunnelHostname("events.narakarya.com"));
+    expect(result.current.liveTunnelConfigDrifted).toBe(true);
+  });
+
+  it("puts the draft back with revertTunnelDraft", () => {
+    const { result } = draft(liveApp());
+    act(() => result.current.setTunnelHostname("events.narakarya.com"));
+    act(() => result.current.revertTunnelDraft());
+    expect(result.current.tunnelHostname).toBe("tgr-bwi-26.nasrulgunawan.com");
+    expect(result.current.tunnelName).toBe("porta-narakarya");
+    expect(result.current.tunnelMode).toBe("named");
+    expect(result.current.liveTunnelConfigDrifted).toBe(false);
   });
 });

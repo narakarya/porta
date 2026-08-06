@@ -34,11 +34,17 @@ function slugify(s: string): string {
 }
 
 /** Score a hostname against the app: leftmost-label exact match wins, then
- * inclusion. Lets us auto-pick the most "obvious" route for the user instead
- * of just grabbing the first one. */
+ * inclusion.
+ *
+ * Only ever returns a route that identifies as THIS app. One named tunnel
+ * commonly fronts every app in a workspace, so its route list is mostly other
+ * apps' hostnames — the old positional fallbacks (single route, else the first
+ * one) silently adopted a neighbour's hostname into an empty field, which then
+ * read as config drift and offered a Reconnect that would repoint the running
+ * tunnel at the wrong app. No match now means no guess: the field stays empty
+ * and the placeholder/base-completion below it does the helping instead. */
 export function pickBestHostname(hostnames: string[], app: App): string | null {
   if (hostnames.length === 0) return null;
-  if (hostnames.length === 1) return hostnames[0];
   const candidates = [
     app.subdomain?.trim().toLowerCase(),
     slugify(app.name),
@@ -52,7 +58,7 @@ export function pickBestHostname(hostnames: string[], app: App): string | null {
     const partial = hostnames.find((h) => h.toLowerCase().includes(cand));
     if (partial) return partial;
   }
-  return hostnames[0];
+  return null;
 }
 
 export type TunnelPublicHost = { host: string; kind: "primary" | "extra" | "binding" };
@@ -308,6 +314,26 @@ export function useAppConfigDraft(
   // "Repair DNS route" state for the unreachable-tunnel hint.
   const [dnsRepairing, setDnsRepairing] = useState(false);
   const [dnsRepairError, setDnsRepairError] = useState<string | null>(null);
+  // Progressive disclosure (mockup 32). A live tunnel's resting state is the
+  // status strip alone — the form only unfolds when the user goes looking for
+  // it. An app with nothing published opens on the form, since configuring is
+  // the only thing to do there.
+  const [tunnelSettingsOpen, setTunnelSettingsOpen] = useState(!app.tunnel_active);
+  const [tunnelAdvancedOpen, setTunnelAdvancedOpen] = useState(false);
+  // Put the draft back to what's persisted. Pairs with the drift notice: the
+  // edit that caused it is often one the user didn't make deliberately, and
+  // without this the only way back is retyping a value they can no longer see.
+  function revertTunnelDraft() {
+    setTunnelMode(app.tunnel_name ? "named" : "quick");
+    setTunnelName(app.tunnel_name ?? "");
+    setTunnelHostname(app.tunnel_custom_hostname ?? "");
+  }
+  // A failed Connect is almost always fixed by a field in the form, so unfold
+  // it rather than making the user discover the disclosure while reading an
+  // error.
+  useEffect(() => {
+    if (tunnelError && !app.tunnel_active) setTunnelSettingsOpen(true);
+  }, [tunnelError, app.tunnel_active]);
 
   function copyCmd(cmd: string) {
     navigator.clipboard.writeText(cmd).then(() => {
@@ -971,16 +997,22 @@ export function useAppConfigDraft(
     () => buildTunnelPublicHosts(tunnelHostname, app.extra_subdomains ?? [], app.port_bindings ?? []),
     [tunnelHostname, app.extra_subdomains, app.port_bindings],
   );
+  // What the RUNNING connector serves — persisted fields only. Reading the
+  // draft hostname here made the panel report an edit the tunnel hadn't picked
+  // up yet, so the live URL above it and the host list below it disagreed.
+  // Draft edits belong to `configuredTunnelHosts` and the drift banner.
   const liveTunnelHosts = useMemo(() => {
-    if (!selectedIsLive || tunnelProvider !== "cloudflare" || tunnelMode !== "named") return [];
-    const liveHostname = tunnelHostname.trim() || app.tunnel_custom_hostname?.trim() || "";
-    return buildTunnelPublicHosts(liveHostname, app.extra_subdomains ?? [], app.port_bindings ?? []);
+    if (!selectedIsLive || app.tunnel_provider !== "cloudflare" || !app.tunnel_name) return [];
+    return buildTunnelPublicHosts(
+      app.tunnel_custom_hostname?.trim() ?? "",
+      app.extra_subdomains ?? [],
+      app.port_bindings ?? [],
+    );
   }, [
     selectedIsLive,
-    tunnelProvider,
-    tunnelMode,
+    app.tunnel_provider,
+    app.tunnel_name,
     app.tunnel_custom_hostname,
-    tunnelHostname,
     app.extra_subdomains,
     app.port_bindings,
   ]);
@@ -1197,6 +1229,9 @@ export function useAppConfigDraft(
     tunnelReachable, setTunnelReachable,
     tunnelBusy, setTunnelBusy,
     dnsRepairing, dnsRepairError, repairDns,
+    tunnelSettingsOpen, setTunnelSettingsOpen,
+    tunnelAdvancedOpen, setTunnelAdvancedOpen,
+    revertTunnelDraft,
     copyCmd, handleConnect, handleDisconnect, refreshTailscale, refreshTunnels,
     saving, setSaving, saveError, setSaveError, savedAt, setSavedAt,
     portNum, portValid, SUBDOMAIN_RE, DOMAIN_RE,

@@ -1,34 +1,60 @@
 import psl from "psl";
 import SetupCard from "../../../shared/SetupCard";
 import CreateTunnelCard from "../../../shared/CreateTunnelCard";
-import Field from "../../../shared/Field";
 import CloudflareAccessPanel from "../../CloudflareAccessPanel";
 import { RefreshIcon, Spinner } from "../../../ui";
 import { useAppConfig, pickBestHostname } from "../AppConfigContext";
 import TunnelPublicHostsPanel from "./TunnelPublicHostsPanel";
-import PublicAliasDomainField from "./PublicAliasDomainField";
 
-/** The Cloudflare provider branch: Quick/Named mode toggle, the named-tunnel
+/** The Cloudflare provider branch: Quick/Named mode choice, the named-tunnel
  *  setup steps (install / login / create), the tunnel picker + hostname field,
- *  Cloudflare Access, and the public alias domain. */
+ *  and Cloudflare Access.
+ *
+ *  The public alias domain moved out to the Advanced disclosure (mockup 32) —
+ *  it is a wildcard-routing edge case and was sitting between the hostname and
+ *  the connect button at full weight. */
 export default function CloudflareTunnelForm() {
   const c = useAppConfig();
 
+  const MODES = [
+    { key: "quick" as const, title: "Quick", desc: "Ephemeral trycloudflare.com URL. Zero setup." },
+    { key: "named" as const, title: "Named", desc: "Persistent, your own domain + DNS." },
+  ];
+
   return (
-    <Field label="Mode">
-      <div className="flex gap-1 bg-surface-1 border border-subtle rounded-lg p-1 mb-2">
-        {(["quick", "named"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => c.setTunnelMode(m)}
-            className={`flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors ${
-              c.tunnelMode === m ? "bg-surface-2 text-ink" : "text-ink-3 hover:text-ink-2"
-            }`}
-          >
-            {m === "quick" ? "Quick (random URL)" : "Named (custom domain)"}
-          </button>
-        ))}
+    <div className="flex flex-col gap-3">
+      {/* Mode as two described cards, not a bare segmented control: "Quick" vs
+          "Named" is a real fork (throwaway URL vs your own DNS) and the labels
+          alone never said which one costs setup. */}
+      <div>
+        <span className="text-[11px] font-medium text-ink-2 block mb-1.5">Mode</span>
+        <div className="grid grid-cols-2 gap-2">
+          {MODES.map((m) => {
+            const on = c.tunnelMode === m.key;
+            return (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => c.setTunnelMode(m.key)}
+                className={`text-left px-3 py-2 rounded-lg border transition-colors ${
+                  on
+                    ? "border-accent bg-accent-bg"
+                    : "border-subtle bg-surface-1 hover:bg-white/[0.04]"
+                }`}
+              >
+                <span className={`flex items-center gap-1.5 text-[12px] ${on ? "text-accent" : "text-ink-2"}`}>
+                  {m.title}
+                  {on && (
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                      <path d="M3.5 8.5l3 3 6-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span className="block text-[10.5px] text-ink-3 mt-0.5 leading-snug">{m.desc}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {c.tunnelMode === "named" && (() => {
@@ -46,7 +72,7 @@ export default function CloudflareTunnelForm() {
           !c.tunnelsLoading;
 
         return (
-          <div className="flex flex-col gap-3 mt-2">
+          <div className="flex flex-col gap-3">
             {/* Step 1 — install cloudflared */}
             {needsInstall && (
               <SetupCard
@@ -223,9 +249,24 @@ export default function CloudflareTunnelForm() {
                               }
                             }
                           }}
-                          className="input-base font-mono text-[12px]"
+                          className={`input-base font-mono text-[12px] ${
+                            c.liveTunnelConfigDrifted ? "border-[var(--warning-border)]" : ""
+                          }`}
                           placeholder={placeholder}
                         />
+                        {/* Say the change out loud. The drift banner used to
+                            report only that *something* diverged, while the
+                            field showed the new value and the live URL showed
+                            the old one — leaving the user to work out which
+                            was which. */}
+                        {c.liveTunnelConfigDrifted && c.app.tunnel_custom_hostname && (
+                          <p className="text-[10.5px] font-mono mt-1.5 leading-relaxed">
+                            <span className="text-ink-3">running </span>
+                            <span className="text-ink-3 line-through">{c.app.tunnel_custom_hostname}</span>
+                            <span className="text-ink-3"> → on reconnect </span>
+                            <span className="text-warn">{c.tunnelHostname.trim()}</span>
+                          </p>
+                        )}
                         <p className="text-[10px] text-ink-3 mt-1">
                           DNS route auto-created on Connect (domain must be in your Cloudflare zone).
                           {dominantBase && (
@@ -237,7 +278,10 @@ export default function CloudflareTunnelForm() {
                       </>
                     );
                   })()}
-                  <TunnelPublicHostsPanel hosts={c.configuredTunnelHosts} />
+                  <TunnelPublicHostsPanel
+                    hosts={c.configuredTunnelHosts}
+                    drifted={c.liveTunnelConfigDrifted}
+                  />
                 </div>
 
                 {/* Cloudflare Access (Zero Trust) — login wall in
@@ -249,15 +293,11 @@ export default function CloudflareTunnelForm() {
                   liveHostname={c.tunnelHostname}
                   cfToken={c.cfApiToken && c.cfApiToken.length > 0 ? c.cfApiToken : null}
                 />
-
-                {/* Public alias domain — wildcard hostname pattern
-                    Caddy also routes to this app. */}
-                <PublicAliasDomainField />
               </>
             )}
           </div>
         );
       })()}
-    </Field>
+    </div>
   );
 }

@@ -1,69 +1,26 @@
-import { setTunnelConfig } from "../../../../lib/commands";
 import { useAppConfig } from "../AppConfigContext";
 
-/** Shared footer for both providers: the tunnel error box, the auto-start
- *  toggle (persists immediately), the "other provider still connected" warning,
- *  and the Connect / Disconnect / Reconnect button row. */
+/** Action row at the bottom of the Settings disclosure (mockup 32).
+ *
+ * This is the **only** Reconnect in the section. The panel used to carry two —
+ * one in a floating drift banner and one down here — so the same action showed
+ * up twice with different styling depending on which one noticed the drift
+ * first. The drift notice now lives in the status strip and points here; the
+ * button sits next to the fields that need it.
+ *
+ * Disconnect is not here either: stopping what's running belongs to the status
+ * strip, next to the thing it stops. The auto-start toggle and the error box
+ * moved out too — to Advanced and to the section body respectively. */
 export default function TunnelFooter() {
   const c = useAppConfig();
 
+  const namedIncomplete =
+    c.tunnelProvider === "cloudflare" &&
+    c.tunnelMode === "named" &&
+    (!c.tunnelName.trim() || !c.tunnelHostname.trim());
+
   return (
     <>
-      {c.tunnelError && !c.selectedIsLive && (
-        <div className="relative px-3 py-2 pr-14 rounded-lg bg-bad-bg border border-[var(--danger-border)] text-[11px] text-bad font-mono whitespace-pre-wrap break-words">
-          {c.tunnelError}
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(c.tunnelError!).then(() => {
-                c.setTunnelErrorCopied(true);
-                setTimeout(() => c.setTunnelErrorCopied(false), 1500);
-              });
-            }}
-            className={`absolute top-1.5 right-1.5 px-2 py-0.5 text-[10px] font-sans font-medium rounded transition-colors ${
-              c.tunnelErrorCopied ? "bg-ok-bg text-ok" : "bg-[var(--danger-border)] hover:bg-[rgba(248,113,113,0.32)] text-bad"
-            }`}
-          >
-            {c.tunnelErrorCopied ? "Copied!" : "Copy"}
-          </button>
-        </div>
-      )}
-
-      {/* Auto-start toggle: persists along with provider config. Only
-          meaningful when a provider is set — hide otherwise to reduce
-          noise on apps that aren't using tunnels. */}
-      <label className="flex items-start gap-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={c.tunnelAutoStart}
-          onChange={async (e) => {
-            const next = e.target.checked;
-            c.setTunnelAutoStart(next);
-            // Persist immediately so a subsequent "app start" picks
-            // up the new value without requiring a Connect click.
-            try {
-              await setTunnelConfig(
-                c.app.id,
-                c.tunnelProvider,
-                c.tunnelMode === "named" ? (c.tunnelName.trim() || null) : null,
-                c.tunnelMode === "named" ? (c.tunnelHostname.trim() || null) : null,
-                next,
-              );
-            } catch {
-              // Revert on failure — config didn't actually persist.
-              c.setTunnelAutoStart(!next);
-            }
-          }}
-          className="mt-0.5 rounded border-strong bg-surface-2 text-accent focus:ring-[rgba(96,165,250,0.45)] focus:ring-offset-0"
-        />
-        <div>
-          <p className="text-[12px] text-ink-2">Auto-start with app</p>
-          <p className="text-[10px] text-ink-3 mt-0.5">
-            When this app starts, the tunnel connects automatically using the settings above.
-          </p>
-        </div>
-      </label>
-
       {c.otherProviderLive && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warn-bg border border-[var(--warning-border)]">
           <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-warn shrink-0" />
@@ -75,50 +32,57 @@ export default function TunnelFooter() {
         </div>
       )}
 
-      <div className="flex gap-2">
-        {/* Render Connect when busy connecting OR not yet active.
-            Render Disconnect only when truly active and not in the
-            middle of a connecting flow — keeps the spinner+label
-            visible during the whole connect, even after the
-            backend's optimistic event briefly arrives. */}
+      <div className="flex items-center gap-2 flex-wrap">
         {c.selectedIsLive && c.tunnelBusy !== "connecting" ? (
           <>
             <button
-              onClick={c.handleDisconnect}
-              disabled={c.tunnelBusy !== null}
-              className="px-4 py-2 text-[13px] font-medium text-ink-2 bg-surface-2 hover:bg-white/[0.12] rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-            >
-              {c.tunnelBusy === "disconnecting" && (
-                <span className="inline-block h-3 w-3 rounded-full border-2 border-strong border-t-ink animate-spin" />
-              )}
-              {c.tunnelBusy === "disconnecting" ? "Disconnecting…" : "Disconnect"}
-            </button>
-            {/* Reconnect without the disconnect-then-remember-to-reconnect
-                dance. The backend already tears its own connector down, so
-                this is one click, not two. */}
-            <button
+              type="button"
               onClick={c.handleConnect}
-              disabled={
-                c.tunnelBusy !== null ||
-                (c.tunnelProvider === "cloudflare" && c.tunnelMode === "named" && (!c.tunnelName.trim() || !c.tunnelHostname.trim()))
+              // Deliberately NOT gated on drift. Restarting a wedged connector
+              // with the settings unchanged is a real use for this button, and
+              // the mockup's disabled-when-settled state would have taken it
+              // away. Drift only changes how loudly it asks to be pressed.
+              disabled={c.tunnelBusy !== null || namedIncomplete}
+              title={
+                c.liveTunnelConfigDrifted
+                  ? "Restart the tunnel with the settings above"
+                  : "Restart the connector with the same settings"
               }
-              title="Restart the tunnel with the settings above"
               className={`px-4 py-2 text-[13px] font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2 ${
                 c.liveTunnelConfigDrifted
-                  ? "text-white bg-accent hover:brightness-110 border border-[var(--accent-border)]"
-                  : "text-ink-2 bg-surface-2 hover:bg-white/[0.12]"
+                  ? "text-[#0a0a0c] bg-warn hover:brightness-110"
+                  : "text-ink-2 bg-surface-2"
               }`}
             >
               Reconnect
             </button>
+            {c.liveTunnelConfigDrifted ? (
+              <>
+                <button
+                  type="button"
+                  onClick={c.revertTunnelDraft}
+                  disabled={c.tunnelBusy !== null}
+                  className="px-3 py-2 text-[13px] font-medium text-ink-2 rounded-lg hover:bg-white/[0.06] disabled:opacity-50 transition-colors"
+                >
+                  Revert
+                </button>
+                <span className="text-[11px] text-ink-3">Reconnect drops the current URL.</span>
+              </>
+            ) : (
+              <span className="text-[11px] text-ink-3">
+                No pending changes — restarts the connector.
+              </span>
+            )}
           </>
         ) : (
           <button
+            type="button"
             onClick={c.handleConnect}
             disabled={
               c.tunnelBusy !== null ||
-              (c.tunnelProvider === "cloudflare" && c.tunnelMode === "named" && (!c.tunnelName.trim() || !c.tunnelHostname.trim())) ||
-              (c.tunnelProvider === "tailscale" && (!c.tsStatus || !c.tsStatus.installed || !c.tsStatus.running || !c.tsStatus.logged_in))
+              namedIncomplete ||
+              (c.tunnelProvider === "tailscale" &&
+                (!c.tsStatus || !c.tsStatus.installed || !c.tsStatus.running || !c.tsStatus.logged_in))
             }
             className="px-4 py-2 text-[13px] font-medium text-white bg-accent hover:brightness-110 border border-[var(--accent-border)] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
           >
