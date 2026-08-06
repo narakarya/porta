@@ -263,6 +263,22 @@ export default function Sidebar() {
     return m;
   }, [apps]);
 
+  // Normalized filter term — drives both the app rows and which workspace
+  // groups stay on screen at all.
+  const query = filterQuery.trim().toLowerCase();
+
+  // Same grouping, narrowed by the filter. While filtering, a workspace with no
+  // hit is dropped entirely instead of leaving an empty header behind.
+  const matchesByWs = useMemo(() => {
+    if (!query) return appsByWs;
+    const m = new Map<string | null, typeof apps>();
+    for (const [wsId, list] of appsByWs) {
+      const hits = list.filter((a) => a.name.toLowerCase().includes(query));
+      if (hits.length > 0) m.set(wsId, hits);
+    }
+    return m;
+  }, [appsByWs, query]);
+
   // Keep the actionable rows, not only the workspace totals: the aggregate
   // badge is useful for discovery, but each app row also needs to identify
   // which app (and, for Compose, how many images) actually has an update.
@@ -440,12 +456,11 @@ export default function Sidebar() {
   // App rows shown under a workspace header. Clicking one opens the app in the
   // workbench (content-forward main). Status/port are baked into the row.
   function renderApps(wsId: string | null) {
-    const q = filterQuery.trim().toLowerCase();
-    const list = (appsByWs.get(wsId) ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
+    const list = matchesByWs.get(wsId) ?? [];
     // Drag is only meaningful over the unfiltered group (indices must line up
     // with the full group order the store reorders). While an app is being
     // dragged, keep even empty groups mounted so they're valid drop targets.
-    const dragEnabled = !q;
+    const dragEnabled = !query;
     const dragActive = appDraggingId !== null;
     if (list.length === 0 && !dragActive) return null;
     const overHere = dragActive && appDragOver?.wsId === wsId ? appDragOver.index : null;
@@ -707,10 +722,16 @@ export default function Sidebar() {
             className="flex flex-col gap-0.5"
           >
             {workspaces.map((w, i) => {
+              const hits = matchesByWs.get(w.id) ?? [];
+              // Filtering hides whole workspaces that hold no match — an empty
+              // header is noise, not information.
+              if (query && hits.length === 0) return null;
               const count = activeCount(w.id);
               const updCount = updateCount(w.id);
-              const collapsed = collapsedWorkspaces.has(w.id);
-              const totalCount = (appsByWs.get(w.id) ?? []).length;
+              // A collapsed group would swallow its own hits, so filtering
+              // force-expands every workspace that survived.
+              const collapsed = query ? false : collapsedWorkspaces.has(w.id);
+              const totalCount = hits.length;
               const isSelected = activeDomain === "workspaces" && selectedWorkspaceId === w.id;
               const isGhost = draggingItem?.type === "ws" && draggingItem.index === i;
               const srcIdx = draggingItem?.type === "ws" ? draggingItem.index : null;
@@ -737,7 +758,9 @@ export default function Sidebar() {
                       role: "button",
                       tabIndex: 0,
                       "data-wsrow": i,
-                      onMouseDown: () => handleMouseDown("ws", i),
+                      // Reorder indices line up with the full workspace list,
+                      // which the filter no longer renders — so no drag here.
+                      onMouseDown: () => { if (!query) handleMouseDown("ws", i); },
                       onClick: () => { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); },
                       onKeyDown: (e) => { if (e.key === "Enter") { selectWorkspace(w.id); selectApp(null); setActiveDomain("workspaces"); } },
                       onContextMenu: (e) => handleRightClick(e, w),
@@ -772,10 +795,15 @@ export default function Sidebar() {
                   {showLineAfter && (
                     <div className="absolute -bottom-px left-1 right-1 h-0.5 rounded-full bg-accent z-20 pointer-events-none" />
                   )}
-                  {!collapsedWorkspaces.has(w.id) && renderApps(w.id)}
+                  {!collapsed && renderApps(w.id)}
                 </div>
               );
             })}
+            {query && !workspaces.some((w) => matchesByWs.has(w.id)) && (
+              <div className="px-2 py-3 text-[12px] text-ink-3 text-center">
+                No apps match “{filterQuery.trim()}”
+              </div>
+            )}
           </div>
         )}
 
