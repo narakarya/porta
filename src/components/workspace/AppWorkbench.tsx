@@ -1360,13 +1360,20 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
         )}
 
         {/* Config (mockup 20) — app settings inline, not a full-screen modal.
-            Mounted only while active (like the old modal); keyed by section so
-            a deep-link re-seeds the sub-nav. */}
+            Mounted only while active (like the old modal).
+
+            The key carries the **app id** as well as the section. It used to be
+            the section alone, so switching apps while the Config tab stayed
+            open reused the same component instance — and with it the whole
+            ~35-field draft, which then rendered on top of the next app's saved
+            values. The visible damage was one app's tunnel hostname showing up
+            in another app's form, next to that app's real live URL, with the
+            footer offering to Reconnect and apply it. */}
         {tab === "config" && (
           <div className="h-full">
             <Suspense fallback={null}>
               <AppConfigTab
-                key={configSection ?? "general"}
+                key={`${app.id}:${configSection ?? "general"}`}
                 app={app}
                 workspace={workspaces.find((w) => w.id === app.workspace_id) ?? null}
                 initialSection={configSection}
