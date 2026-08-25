@@ -4,6 +4,26 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.8]
+
+### Fixed
+
+- **Selecting terminal output copied nothing when tmux mouse mode was on.**
+  `set -g mouse on` in `~/.porta/tmux.conf` is the usual way to get the wheel
+  scrolling tmux's history, and it quietly takes copying away: mouse reporting
+  means xterm forwards every drag to tmux instead of selecting text itself, so
+  there is no selection for ⌘C or copy-on-select to find, and tmux's own
+  selection sits in a paste buffer nothing outside tmux can read. The selection
+  highlighted, and the clipboard never changed — which is what beta.7's ⌘C fix
+  could not reach.
+
+  tmux now pipes the selection to `pbcopy` as the drag ends, with word and line
+  copies on double- and triple-click. The bindings do nothing while mouse mode
+  is off, and are appended to an existing `tmux.conf` only when it has no
+  `MouseDragEnd1Pane` binding of its own, so a config you have edited stays
+  yours. Holding ⌥ while dragging still forces xterm's own selection if you
+  prefer that.
+
 ## [0.15.0-beta.7]
 
 ### Fixed
