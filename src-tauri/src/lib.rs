@@ -252,6 +252,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state)
         .manage(commands::container_observe::LogStreams::default())
         .manage(commands::access_log::AccessLogStreams::default())

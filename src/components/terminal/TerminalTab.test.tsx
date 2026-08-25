@@ -92,6 +92,19 @@ const { MockTerminal, terminalInstances } = vi.hoisted(() => {
       this.writes.push(data);
     }
     refresh() {}
+    // Clipboard routing (src/lib/terminalClipboard.ts) registers a key handler
+    // and reads the selection off the pane.
+    keyHandler: ((event: KeyboardEvent) => boolean) | null = null;
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.keyHandler = handler;
+    }
+    selection = "";
+    getSelection() {
+      return this.selection;
+    }
+    get element(): HTMLElement | undefined {
+      return this.container;
+    }
     dispose() {}
   }
   const terminalInstances: InstanceType<typeof MockTerminal>[] = [];

@@ -57,14 +57,22 @@ pub fn setup_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     // (start command, ports, env values) with no undo at all. `useTextFieldUndo`
     // in the frontend supplies it; keep these menu items out so it keeps
     // receiving the keystroke.
+    //
+    // Cut/Copy/Paste are custom items rather than predefined ones for the same
+    // reason, one level further on: they own ⌘X/⌘C/⌘V, so macOS runs the native
+    // `copy:`/`paste:` actions instead of letting the webview see the keys. The
+    // native actions work on a *DOM* selection, and the terminal's selection
+    // lives on xterm's canvas — so ⌘C over a selected block of shell output
+    // copied nothing at all. These forward to the frontend, which knows whether
+    // a terminal pane or an ordinary input has focus.
     let edit_menu = Submenu::with_items(
         app,
         "Edit",
         true,
         &[
-            &PredefinedMenuItem::cut(app, None)?,
-            &PredefinedMenuItem::copy(app, None)?,
-            &PredefinedMenuItem::paste(app, None)?,
+            &MenuItem::with_id(app, "edit-cut", "Cut", true, Some("CmdOrCtrl+X"))?,
+            &MenuItem::with_id(app, "edit-copy", "Copy", true, Some("CmdOrCtrl+C"))?,
+            &MenuItem::with_id(app, "edit-paste", "Paste", true, Some("CmdOrCtrl+V"))?,
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
@@ -101,6 +109,17 @@ pub fn setup_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
             }
             "open-settings" => {
                 let _ = app.emit("menu://open-settings", ());
+            }
+            // Handled in the frontend: terminal panes copy/paste through the
+            // clipboard plugin, everything else through the focused element.
+            "edit-cut" => {
+                let _ = app.emit("menu://edit-cut", ());
+            }
+            "edit-copy" => {
+                let _ = app.emit("menu://edit-copy", ());
+            }
+            "edit-paste" => {
+                let _ = app.emit("menu://edit-paste", ());
             }
             _ => {}
         }

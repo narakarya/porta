@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { sshWrite, sshResize, isTauri } from "../../lib/commands";
+import { registerTerminalPane } from "../../lib/terminalClipboard";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {
@@ -121,6 +122,10 @@ export default function SshTerminal({ sessionId, visible }: Props) {
     fitRef.current = fitAddon;
     terminals.set(sessionId, term);
 
+    const unregisterClipboard = registerTerminalPane(term, (text) => {
+      sshWrite(sessionId, Array.from(new TextEncoder().encode(text))).catch(console.error);
+    });
+
     // Forward keyboard input to the remote shell.
     term.onData((data) => {
       sshWrite(sessionId, Array.from(new TextEncoder().encode(data))).catch(console.error);
@@ -172,6 +177,7 @@ export default function SshTerminal({ sessionId, visible }: Props) {
       unlistenData?.();
       unlistenExit?.();
       terminals.delete(sessionId);
+      unregisterClipboard();
       term.dispose();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

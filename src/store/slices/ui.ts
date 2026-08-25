@@ -120,6 +120,12 @@ export interface UiSlice {
    * beta endpoint (a fixed `beta`-tagged latest.json) instead of stable.
    */
   betaUpdates: boolean;
+  /**
+   * Copy a terminal selection to the clipboard the moment the drag ends, the
+   * way a log viewer does. Persisted; on by default because a selection in a
+   * read-only scrollback is almost always made in order to copy it.
+   */
+  terminalCopyOnSelect: boolean;
   /** Who initiated the current check — lets the toast stay quiet for checks
    *  started from the sidebar popover (the popover shows progress itself). */
   updaterCheckSource: "popover" | "menu" | "background";
@@ -175,6 +181,7 @@ export interface UiSlice {
   setHealthAlertEnabled: (enabled: boolean) => Promise<void>;
   setHealthAlertThreshold: (rounds: number) => Promise<void>;
   setBetaUpdates: (enabled: boolean) => void;
+  setTerminalCopyOnSelect: (enabled: boolean) => void;
   openExtensionSidebar: (appId: string, extensions: ExtensionInfo[], focusExtensionId?: string) => void;
   closeExtensionSidebar: () => void;
   cacheAppExtensions: (appId: string, extensions: ExtensionInfo[]) => void;
@@ -203,6 +210,7 @@ let extensionFocusNonce = 0;
 const LS_PLACEMENT = "porta.terminal.placement";
 const LS_PANEL_HEIGHT = "porta.terminal.panelHeight";
 const LS_BETA_UPDATES = "porta.updater.betaUpdates";
+const LS_COPY_ON_SELECT = "porta.terminal.copyOnSelect";
 
 function loadPlacement(): TerminalPlacement {
   if (typeof localStorage === "undefined") return "modal";
@@ -213,6 +221,12 @@ function loadPlacement(): TerminalPlacement {
 function loadBetaUpdates(): boolean {
   if (typeof localStorage === "undefined") return false;
   return localStorage.getItem(LS_BETA_UPDATES) === "true";
+}
+
+// Defaults to on: only an explicit "false" turns it off.
+function loadCopyOnSelect(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(LS_COPY_ON_SELECT) !== "false";
 }
 
 function loadPanelHeight(): number {
@@ -289,6 +303,7 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
   updaterInfo: null,
   updaterError: null,
   betaUpdates: loadBetaUpdates(),
+  terminalCopyOnSelect: loadCopyOnSelect(),
   updaterCheckSource: "background",
   theme: loadThemeId(),
   accent: loadAccentId(),
@@ -361,6 +376,13 @@ export const createUiSlice: StateCreator<AllSlices, [], [], UiSlice> = (set, get
       localStorage.setItem(LS_BETA_UPDATES, String(enabled));
     }
     set({ betaUpdates: enabled });
+  },
+
+  setTerminalCopyOnSelect: (enabled) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(LS_COPY_ON_SELECT, String(enabled));
+    }
+    set({ terminalCopyOnSelect: enabled });
   },
 
   openExtensionSidebar: (appId, extensions, focusExtensionId) =>

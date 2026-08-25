@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { terminalOpen, terminalWrite, terminalResize, isTauri } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import { getTheme, terminalTheme } from "../../lib/theme";
+import { registerTerminalPane } from "../../lib/terminalClipboard";
 import "@xterm/xterm/css/xterm.css";
 
 const SCROLLBACK_LINES = 100_000;
@@ -149,6 +150,12 @@ export default function TerminalTab({
 
     // True only while the reattach backlog is being parsed — see `openSession`.
     let replayingBacklog = false;
+
+    // Pasted text takes the same route as typing, so bracketed paste and the
+    // shell's own line editing behave exactly as they would from the keyboard.
+    const unregisterClipboard = registerTerminalPane(term, (text) => {
+      terminalWrite(appId, Array.from(new TextEncoder().encode(text))).catch(console.error);
+    });
 
     // Forward keyboard input to the PTY shell.
     term.onData((data) => {
@@ -328,6 +335,7 @@ export default function TerminalTab({
         statsTimerRef.current = null;
       }
       registerSearchRef.current?.(null);
+      unregisterClipboard();
       ro.disconnect();
       term.textarea?.removeEventListener("focus", focusListener);
       unlistenData?.();

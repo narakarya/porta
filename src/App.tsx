@@ -26,6 +26,7 @@ import { ExtensionHostProvider } from "./components/extension/ExtensionHostManag
 import UiGallery from "./components/ui/UiGallery";
 import { deriveInstanceApp } from "./lib/instance-app";
 import { useTextFieldUndo } from "./hooks/useTextFieldUndo";
+import { installClipboardMenuBridge } from "./lib/terminalClipboard";
 
 type Page = "main" | "settings";
 
@@ -215,7 +216,11 @@ export default function App() {
       listen("menu://check-for-updates", () => { void checkForUpdate({ silent: false }); }),
       listen("menu://open-settings", () => setPage("settings")),
     ];
-    return () => { unlisten.forEach((p) => void p.then((un) => un())); };
+    const uninstallClipboard = installClipboardMenuBridge();
+    return () => {
+      unlisten.forEach((p) => void p.then((un) => un()));
+      uninstallClipboard();
+    };
   }, []);
 
   // Auto-start Caddy silently if installed but not running

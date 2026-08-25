@@ -37,12 +37,14 @@ function ThemePreview({ theme, accent }: { theme: Theme; accent: string }) {
 }
 
 export default function AppearanceSection() {
-  const { theme, accent, setTheme, setAccent } = usePortaStore(
+  const { theme, accent, setTheme, setAccent, copyOnSelect, setCopyOnSelect } = usePortaStore(
     useShallow((s) => ({
       theme: s.theme,
       accent: s.accent,
       setTheme: s.setTheme,
       setAccent: s.setAccent,
+      copyOnSelect: s.terminalCopyOnSelect,
+      setCopyOnSelect: s.setTerminalCopyOnSelect,
     })),
   );
 
@@ -130,6 +132,27 @@ export default function AppearanceSection() {
             );
           })}
         </div>
+      </section>
+
+      {/* ── Terminal ────────────────────────────────────────────────────── */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-[13px] font-medium text-ink-2">Terminal</h3>
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={copyOnSelect}
+            onChange={(e) => setCopyOnSelect(e.target.checked)}
+            className="mt-0.5 accent-accent"
+          />
+          <span>
+            <span className="text-[12px] text-ink">Copy on select</span>
+            <span className="block text-[11px] text-ink-3 mt-0.5">
+              Selecting output puts it on the clipboard straight away, the way a
+              log viewer does. ⌘C still works either way; turn this off if you
+              would rather keep whatever is already on the clipboard.
+            </span>
+          </span>
+        </label>
       </section>
 
       {/* ── Live sample ─────────────────────────────────────────────────── */}
