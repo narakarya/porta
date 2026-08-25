@@ -4,6 +4,33 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.7]
+
+### Fixed
+
+- **⌘C over a terminal selection copied nothing.** macOS gives the Edit menu's
+  predefined Copy item the ⌘C key equivalent, so the keystroke was consumed by
+  the menu and turned into the native `copy:` action before the webview ever
+  saw it. That action works on a DOM selection, and xterm paints its selection
+  on a canvas — so there was nothing for it to copy, from either the shortcut
+  or the menu item. Cut, Copy and Paste are now Porta's own menu items: they
+  ask the frontend, which copies the terminal's selection through the clipboard
+  plugin when a pane has focus and falls back to the focused field otherwise.
+  ⌃⇧C / ⌃⇧V work inside a pane too, and ⌃C still means SIGINT. Both the app
+  terminal and SSH sessions are covered.
+
+### Changed
+
+- **Tidewave updated to 0.9.** Dev-only dependency; nothing in a packaged
+  build changes.
+
+### Added
+
+- **Copy on select in the terminal.** Selecting output puts it on the clipboard
+  as the drag ends, the way a log viewer behaves, so reading a line out of a
+  build no longer needs a second keystroke. On by default; the switch is in
+  Settings → Appearance → Terminal.
+
 ## [0.15.0-beta.6]
 
 ### Changed
