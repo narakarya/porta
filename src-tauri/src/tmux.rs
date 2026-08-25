@@ -141,7 +141,77 @@ fn config_path() -> PathBuf {
              set -g default-terminal \"xterm-256color\"\n",
         );
     }
+    let _ = ensure_clipboard_bindings(&path);
     path
+}
+
+/// Marks the block below so the migration recognises its own work.
+const CLIPBOARD_MARKER: &str = "# porta:clipboard";
+
+/// Makes a mouse selection reach the macOS clipboard on configs that turn tmux's
+/// mouse mode on.
+///
+/// `set -g mouse on` is the usual way to get the wheel scrolling tmux's history,
+/// and it is the one option that quietly breaks copying: it turns on SGR mouse
+/// reporting, so xterm.js forwards every drag to tmux instead of selecting text
+/// itself. The pane then has no xterm selection for ⌘C or copy-on-select to
+/// find, and tmux's own selection lands in a paste buffer nothing outside tmux
+/// can read — selecting output looks like it works and copies nothing. Piping
+/// the selection through `pbcopy` as the drag ends closes that gap. The bindings
+/// are inert while mouse mode is off, so they cost nothing on a default config.
+///
+/// Appended rather than written: the file belongs to the user once it exists.
+/// Any existing `MouseDragEnd1Pane` binding — theirs or a previous run's —
+/// means the question is already answered, so nothing is added.
+fn ensure_clipboard_bindings(path: &Path) -> std::io::Result<()> {
+    let Some(next) = with_clipboard_bindings(&std::fs::read_to_string(path)?) else {
+        return Ok(());
+    };
+    std::fs::write(path, next)?;
+
+    // A server that is already up read the old file at startup; without this the
+    // bindings only arrive after every session has been torn down.
+    if let Some(bin) = binary() {
+        let _ = Command::new(bin)
+            .arg("-L")
+            .arg(socket())
+            .arg("source-file")
+            .arg(path)
+            .output();
+    }
+    Ok(())
+}
+
+/// `config` with the clipboard block appended, or `None` when it already has a
+/// mouse-copy binding to respect.
+fn with_clipboard_bindings(config: &str) -> Option<String> {
+    if config.contains("MouseDragEnd1Pane") {
+        return None;
+    }
+
+    let block = format!(
+        "\n{CLIPBOARD_MARKER} — selecting with the mouse copies to the macOS clipboard.\n\
+         # With `set -g mouse on`, drags go to tmux rather than to the terminal\n\
+         # emulator, so tmux is the only thing that can see the selection. These\n\
+         # do nothing while mouse mode is off. Delete this block to keep\n\
+         # selections in tmux's own paste buffer instead.\n\
+         bind -T copy-mode    MouseDragEnd1Pane send -X copy-pipe-and-cancel pbcopy\n\
+         bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel pbcopy\n\
+         bind -T copy-mode    DoubleClick1Pane  send -X select-word \\; send -X copy-pipe-no-clear pbcopy\n\
+         bind -T copy-mode-vi DoubleClick1Pane  send -X select-word \\; send -X copy-pipe-no-clear pbcopy\n\
+         bind -T copy-mode    TripleClick1Pane  send -X select-line \\; send -X copy-pipe-no-clear pbcopy\n\
+         bind -T copy-mode-vi TripleClick1Pane  send -X select-line \\; send -X copy-pipe-no-clear pbcopy\n\
+         # Word and line copies from a pane that is not in copy-mode yet.\n\
+         bind -T root DoubleClick1Pane copy-mode -H \\; send -X select-word \\; send -X copy-pipe-no-clear pbcopy\n\
+         bind -T root TripleClick1Pane copy-mode -H \\; send -X select-line \\; send -X copy-pipe-no-clear pbcopy\n"
+    );
+
+    let mut next = config.to_string();
+    if !next.ends_with('\n') {
+        next.push('\n');
+    }
+    next.push_str(&block);
+    Some(next)
 }
 
 /// A `tmux` invocation against Porta's socket and config.
@@ -470,6 +540,34 @@ pub fn attach_command(session: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn clipboard_bindings_are_appended_to_an_existing_config() {
+        let existing = "set -g status off\nset -g mouse on\n";
+        let next = with_clipboard_bindings(existing).expect("should append");
+        assert!(next.starts_with(existing), "the user's own config must survive");
+        assert!(next.contains("MouseDragEnd1Pane"));
+        assert!(next.contains(CLIPBOARD_MARKER));
+    }
+
+    #[test]
+    fn a_config_without_a_trailing_newline_does_not_glue_lines_together() {
+        let next = with_clipboard_bindings("set -g mouse on").expect("should append");
+        assert!(next.contains("set -g mouse on\n"));
+    }
+
+    #[test]
+    fn an_existing_mouse_copy_binding_is_left_alone() {
+        let mine = "bind -T copy-mode MouseDragEnd1Pane send -X copy-selection\n";
+        assert!(with_clipboard_bindings(mine).is_none());
+    }
+
+    #[test]
+    fn appending_twice_adds_the_block_once() {
+        let once = with_clipboard_bindings("set -g mouse on\n").expect("should append");
+        assert!(with_clipboard_bindings(&once).is_none());
+    }
+
     use super::*;
 
     #[test]
