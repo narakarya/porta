@@ -10,6 +10,7 @@ import {
   uninstallExtension,
 } from "../../lib/commands";
 import type { ExtensionInfo } from "../../lib/commands";
+import { invalidateExtensionBundle } from "../app/ExtensionPanel";
 
 export default function ExtensionsSection() {
   const [extensions, setExtensions] = useState<ExtensionInfo[]>([]);
@@ -53,6 +54,7 @@ export default function ExtensionsSection() {
     setInstalling(true);
     try {
       const ext = await installExtensionFromFolder(selected);
+      invalidateExtensionBundle();
       setExtensions((prev) => {
         const filtered = prev.filter((e) => e.id !== ext.id);
         return [...filtered, ext].sort((a, b) => a.name.localeCompare(b.name));
@@ -71,6 +73,7 @@ export default function ExtensionsSection() {
     setError(null);
     try {
       const ext = await installExtensionFromGithub(url);
+      invalidateExtensionBundle();
       setExtensions((prev) => {
         const filtered = prev.filter((e) => e.id !== ext.id);
         return [...filtered, ext].sort((a, b) => a.name.localeCompare(b.name));
@@ -90,6 +93,7 @@ export default function ExtensionsSection() {
     setNotice(null);
     try {
       const ext = await updateExtension(id);
+      invalidateExtensionBundle();
       setExtensions((prev) =>
         prev.map((e) => (e.id === ext.id ? ext : e)).sort((a, b) => a.name.localeCompare(b.name)),
       );
@@ -123,6 +127,7 @@ export default function ExtensionsSection() {
       setUpdatingAll({ index: i + 1, total: updatable.length });
       try {
         const updated = await updateExtension(ext.id);
+        invalidateExtensionBundle();
         if (updated.version !== ext.version) bumped.push(`${updated.name} → v${updated.version}`);
         setExtensions((prev) =>
           prev.map((e) => (e.id === updated.id ? updated : e)).sort((a, b) => a.name.localeCompare(b.name)),
@@ -166,6 +171,7 @@ export default function ExtensionsSection() {
   const handleUninstall = async (id: string) => {
     try {
       await uninstallExtension(id);
+      invalidateExtensionBundle();
       setExtensions((prev) => prev.filter((e) => e.id !== id));
     } catch (e) {
       setError(String(e));

@@ -77,7 +77,13 @@ pub enum SpawnEvent {
 
 /// Read an extension file by its absolute path.
 /// Restricted to files within the extensions directory.
-#[tauri::command]
+///
+/// `(async)` on a synchronous body puts this on Tauri's thread pool instead of
+/// the IPC handler's thread, which on macOS is the UI thread. It matters
+/// because opening an extension panel reads its whole bundle through here —
+/// git-manager is ~390 KB across ten files — and doing that inline froze the
+/// window for the duration of every open.
+#[tauri::command(async)]
 pub fn read_extension_file(path: String) -> Result<String, String> {
     let p = std::path::Path::new(&path);
     let canonical = p.canonicalize().map_err(|e| format!("Cannot resolve path: {}", e))?;

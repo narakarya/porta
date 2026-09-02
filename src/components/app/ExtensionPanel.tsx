@@ -90,37 +90,92 @@ async function inlineExternalAssets(html: string, mainPath: string): Promise<str
 
   let out = html;
 
-  // <link rel="stylesheet" href="X"> → <style>...</style>
+  // Collect every tag to replace first, then read all of their files at once.
+  // These were awaited one after another, so a bundle of ten assets cost ten
+  // serial IPC round-trips before the panel could show anything.
+  const jobs: Array<{ tag: string; href: string; wrap: (body: string) => string }> = [];
+
   const linkRe = /<link\b([^>]*?)\brel=["']stylesheet["']([^>]*)>/gi;
-  const linkTags = [...html.matchAll(linkRe)];
-  for (const m of linkTags) {
+  for (const m of html.matchAll(linkRe)) {
     const hrefMatch = m[0].match(/\bhref=["']([^"']+)["']/i);
     if (!hrefMatch || !isInlineable(hrefMatch[1])) continue;
-    try {
-      const css = await readExtensionFile(dir + hrefMatch[1]);
-      out = out.replace(m[0], `<style data-inlined-from="${hrefMatch[1]}">\n${css}\n</style>`);
-    } catch {
-      // Leave the original tag in place; user-facing failure will be no
-      // styles applied, which is what they'd see anyway without this fix.
-    }
+    const href = hrefMatch[1];
+    jobs.push({
+      tag: m[0],
+      href,
+      wrap: (css) => `<style data-inlined-from="${href}">\n${css}\n</style>`,
+    });
   }
 
-  // <script src="X"></script> → <script>...</script>
   const scriptRe = /<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)><\/script>/gi;
-  const scriptTags = [...html.matchAll(scriptRe)];
-  for (const m of scriptTags) {
+  for (const m of html.matchAll(scriptRe)) {
     const src = m[2];
     if (!isInlineable(src)) continue;
-    try {
-      const js = await readExtensionFile(dir + src);
-      out = out.replace(m[0], `<script data-inlined-from="${src}">\n${js}\n</script>`);
-    } catch {
-      // Same: leave the tag; iframe will hit the asset-protocol wall and
-      // the extension won't activate, but at least it won't be silent.
-    }
+    jobs.push({
+      tag: m[0],
+      href: src,
+      wrap: (js) => `<script data-inlined-from="${src}">\n${js}\n</script>`,
+    });
   }
 
+  // A failed read leaves the original tag in place. For CSS that means no
+  // styles; for JS the iframe hits the (disabled) asset protocol and the
+  // extension won't activate — the same outcome as before this inlining
+  // existed, and not silent.
+  const bodies = await Promise.all(
+    jobs.map((j) => readExtensionFile(dir + j.href).catch(() => null)),
+  );
+  jobs.forEach((j, i) => {
+    const body = bodies[i];
+    if (body !== null) out = out.replace(j.tag, j.wrap(body));
+  });
+
   return out;
+}
+
+// ── Inlined-bundle cache ────────────────────────────────────────────────────
+// Assembling the srcdoc is the expensive half of opening a panel: one IPC read
+// per asset (git-manager is ~390 KB across ten files) plus a string rebuild per
+// tag. None of it depends on which app the panel is for — only the small bridge
+// script does — so the result is cached per extension build and reused across
+// every app and every reopen. Keying on the version means an update lands on a
+// fresh entry on its own; the panel's Reload button clears the entry so a
+// developer editing an extension in place still gets a real re-read.
+const inlinedBundles = new Map<string, Promise<string>>();
+
+const bundleKey = (mainPath: string, version: string) => `${mainPath}@${version}`;
+
+/** Drop cached bundles so the next mount re-reads from disk. */
+export function invalidateExtensionBundle(mainPath?: string) {
+  if (!mainPath) {
+    inlinedBundles.clear();
+    return;
+  }
+  for (const key of [...inlinedBundles.keys()]) {
+    if (key.startsWith(`${mainPath}@`)) inlinedBundles.delete(key);
+  }
+}
+
+/** Exposed for tests — the component path always goes through the effect. */
+export const __loadInlinedBundleForTest = (mainPath: string, version: string) =>
+  loadInlinedBundle(mainPath, version);
+
+function loadInlinedBundle(mainPath: string, version: string): Promise<string> {
+  const key = bundleKey(mainPath, version);
+  const hit = inlinedBundles.get(key);
+  if (hit) return hit;
+  // Cache the promise, not the result, so two panels opening at once (the
+  // headless host and the modal) share one read instead of racing.
+  const pending = (async () => {
+    const rawHtml = await readExtensionFile(mainPath);
+    return inlineExternalAssets(rawHtml, mainPath);
+  })();
+  inlinedBundles.set(key, pending);
+  // A failed load must not be cached — the next open should try again.
+  pending.catch(() => {
+    if (inlinedBundles.get(key) === pending) inlinedBundles.delete(key);
+  });
+  return pending;
 }
 
 export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleChange, onToast, headless = false, onReady, registerInvoker }: Props) {
@@ -147,12 +202,11 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     setLoadError(null);
     (async () => {
       try {
-        const rawHtml = await readExtensionFile(extension.main_path);
-        if (cancelled) return;
-        // Inline external <link> stylesheets and <script src> bundles
-        // first, so the resulting srcDoc is self-contained and doesn't
-        // depend on the (disabled) asset protocol for relative fetches.
-        const inlined = await inlineExternalAssets(rawHtml, extension.main_path);
+        // Inlined so the srcDoc is self-contained and doesn't depend on the
+        // (disabled) asset protocol for relative fetches. Cached per extension
+        // build — see `loadInlinedBundle` — so this is an IPC round-trip only
+        // on the first open.
+        const inlined = await loadInlinedBundle(extension.main_path, extension.version);
         if (cancelled) return;
         // `baseHref` is still useful for *any* surviving relative URL
         // (e.g. images referenced from the inlined CSS); they'll fail
@@ -169,7 +223,7 @@ export default function ExtensionPanel({ app, extension, reloadKey = 0, onTitleC
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extension.main_path, extension.id, reloadKey]);
+  }, [extension.main_path, extension.id, extension.version, reloadKey, app.id]);
 
   const handleShellRun = useCallback(
     (cmd: string, opts: { cwd?: string; timeout?: number }) =>

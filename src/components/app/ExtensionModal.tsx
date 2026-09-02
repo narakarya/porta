@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import ExtensionPanel from "./ExtensionPanel";
+import ExtensionPanel, { invalidateExtensionBundle } from "./ExtensionPanel";
 import { ExtensionIcon } from "../extension/ExtensionIcon";
 import type { ExtensionInfo } from "../../types/extension";
 import type { App } from "../../types";
@@ -23,10 +23,13 @@ export default function ExtensionModal({ app, extension, onClose }: Props) {
   }, []);
 
   const handleReload = useCallback(() => {
+    // Reload means "pick up what is on disk now", so the cached bundle has to
+    // go — otherwise this only re-boots the iframe with the same old assets.
+    invalidateExtensionBundle(extension.main_path);
     setTitle(extension.name);
     setReloadKey((key) => key + 1);
     handleToast("Extension reloaded", "success");
-  }, [extension.name, handleToast]);
+  }, [extension.name, extension.main_path, handleToast]);
 
   // Esc to close
   useEffect(() => {
