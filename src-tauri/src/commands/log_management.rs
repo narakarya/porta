@@ -79,10 +79,17 @@ pub fn spawn_log_rotation_task() {
         // Tiny initial delay so we don't fight with app spawn at boot.
         tokio::time::sleep(std::time::Duration::from_secs(15)).await;
         loop {
-            let max = current_max_log_bytes();
-            if let Err(e) = rotate_all(&logs_dir(), max) {
-                eprintln!("[log_rotation] sweep failed: {e}");
-            }
+            // `rotate_all` reads and rewrites whole log files through blocking
+            // `std::fs` calls — tens of MB of synchronous I/O at a 25 MB cap.
+            // On a runtime worker that stalls every async Tauri command
+            // scheduled behind it; on the blocking pool it stalls nothing.
+            let _ = tokio::task::spawn_blocking(|| {
+                let max = current_max_log_bytes();
+                if let Err(e) = rotate_all(&logs_dir(), max) {
+                    eprintln!("[log_rotation] sweep failed: {e}");
+                }
+            })
+            .await;
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
