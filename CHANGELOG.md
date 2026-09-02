@@ -4,6 +4,24 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.10]
+
+### Changed
+
+- **Opening an extension panel is no longer a freeze.** Every open rebuilt the
+  panel's document from scratch — one IPC read per asset, awaited one after
+  another (Git Manager is ~390 KB across ten files), then a string rebuild per
+  tag — and the command doing the reading was synchronous, so all of it ran on
+  the thread that draws the window. None of that work depends on which app the
+  panel was opened for, so it is now assembled once per extension build and
+  reused for every app and every reopen, the reads run in parallel, and they no
+  longer run on the UI thread. Reload in the panel header and any
+  install/update/uninstall still force a fresh read from disk.
+
+  Switching apps still starts the extension over — that is the panel host
+  giving each app its own instance, and carrying state across a switch needs
+  the extension itself to take part.
+
 ## [0.15.0-beta.9]
 
 ### Fixed
