@@ -622,6 +622,94 @@ mod tests {
         assert!(!starts_with_timestamp("12:3"));
         assert!(!starts_with_timestamp("2026-07-2"));
     }
+
+    mod tailing {
+        use super::super::drain_log;
+        use std::sync::{Arc, Mutex};
+
+        fn collector() -> (Arc<Mutex<Vec<String>>>, impl Fn(String) + Send + Sync + 'static) {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&seen);
+            (seen, move |line: String| sink.lock().unwrap().push(line))
+        }
+
+        #[test]
+        fn emits_only_newly_appended_lines() {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join("a.log");
+            std::fs::write(&p, "one\ntwo\n").unwrap();
+
+            let (seen, on_log) = collector();
+            let mut offset = 0;
+            let mut pending = Vec::new();
+            drain_log(&p, &mut offset, &mut pending, &on_log);
+            assert_eq!(*seen.lock().unwrap(), vec!["one", "two"]);
+
+            // Nothing new: nothing emitted.
+            drain_log(&p, &mut offset, &mut pending, &on_log);
+            assert_eq!(seen.lock().unwrap().len(), 2);
+        }
+
+        /// The freeze: rotation shrinks the file, and the tailer used to restart
+        /// at 0 and re-emit every retained line as a live event — a quarter of a
+        /// million `app:log:` emits into the webview per sweep, per app.
+        #[test]
+        fn rotation_does_not_replay_the_retained_tail() {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join("a.log");
+            let mut body = String::new();
+            for i in 0..2_000 {
+                body.push_str(&format!("line {i:06}\n"));
+            }
+            std::fs::write(&p, &body).unwrap();
+
+            let (seen, on_log) = collector();
+            let mut offset = 0;
+            let mut pending = Vec::new();
+            // Drain in passes — one call reads at most 1 MB.
+            for _ in 0..40 {
+                drain_log(&p, &mut offset, &mut pending, &on_log);
+            }
+            let before = seen.lock().unwrap().len();
+            assert_eq!(before, 2_000);
+
+            crate::log_rotation::rotate_log(&p, 4_000).unwrap();
+            assert!(std::fs::metadata(&p).unwrap().len() < offset);
+
+            drain_log(&p, &mut offset, &mut pending, &on_log);
+            assert_eq!(
+                seen.lock().unwrap().len(),
+                before,
+                "rotation replayed lines the UI had already been sent"
+            );
+
+            // A line written after the rotation still comes through.
+            let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+            std::io::Write::write_all(&mut f, b"fresh\n").unwrap();
+            drop(f);
+            drain_log(&p, &mut offset, &mut pending, &on_log);
+            assert_eq!(seen.lock().unwrap().last().unwrap(), "fresh");
+        }
+
+        /// A wipe is not a rotation: its contents are genuinely new and must be
+        /// emitted, which is what `LogStart::Wipe` relies on for a restart.
+        #[test]
+        fn a_wiped_log_is_read_from_the_top() {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join("a.log");
+            std::fs::write(&p, "old one\nold two\n").unwrap();
+
+            let (seen, on_log) = collector();
+            let mut offset = 0;
+            let mut pending = Vec::new();
+            drain_log(&p, &mut offset, &mut pending, &on_log);
+            seen.lock().unwrap().clear();
+
+            std::fs::write(&p, "brand new run\n").unwrap();
+            drain_log(&p, &mut offset, &mut pending, &on_log);
+            assert_eq!(*seen.lock().unwrap(), vec!["brand new run"]);
+        }
+    }
 }
 
 // ── tmux-hosted app processes ───────────────────────────────────────────────
@@ -743,38 +831,83 @@ struct TmuxApp {
     missing_ticks: u8,
 }
 
+/// Was this file's current content produced by `log_rotation::rotate_log`?
+///
+/// Leaves the cursor wherever it lands; every caller seeks explicitly next.
+fn starts_with_rotation_header(file: &mut File) -> bool {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let prefix = crate::log_rotation::ROTATION_HEADER_PREFIX.as_bytes();
+    if file.seek(SeekFrom::Start(0)).is_err() {
+        return false;
+    }
+    let mut head = vec![0u8; prefix.len()];
+    file.read_exact(&mut head).is_ok() && head == prefix
+}
+
+/// Tail poll cadence while a log is actively producing output.
+const TAIL_POLL_ACTIVE: Duration = Duration::from_millis(200);
+
+/// Cadence a quiet log backs off to.
+///
+/// A dev server spends nearly all of its life printing nothing, and one tailer
+/// thread per hosted app waking five times a second forever — to `stat` a file
+/// that has not changed — is battery burned on output that is not coming. The
+/// first byte that does arrive resets the tick to `TAIL_POLL_ACTIVE`, so the
+/// only cost is up to this much extra latency on the first line of a burst;
+/// every line after it streams at the active rate.
+const TAIL_POLL_IDLE: Duration = Duration::from_secs(1);
+
+/// Consecutive empty passes before backing off — one second of silence.
+const TAIL_IDLE_PASSES: u32 = 5;
+
 /// Read everything appended to `path` since `offset`, emitting whole lines.
 ///
 /// Returns the new offset and keeps any trailing partial line in `pending` for
 /// the next pass, so a line split across two writes is never delivered twice or
 /// truncated. A file that *shrank* was truncated in place by
-/// `log_rotation::rotate_log` or `clear_log_file` — the only correct response is
-/// to start over from the top rather than seek past the new end.
+/// `log_rotation::rotate_log` or `clear_log_file`; which of the two it was
+/// decides where to resume — see the `len < *offset` branch.
+/// Returns whether anything was actually read, which is what lets the caller
+/// back its poll rate off while a log is quiet.
 fn drain_log(
     path: &Path,
     offset: &mut u64,
     pending: &mut Vec<u8>,
     on_log: &(impl Fn(String) + Send + Sync + 'static),
-) {
+) -> bool {
     use std::io::{Read as _, Seek as _, SeekFrom};
-    let Ok(mut file) = File::open(path) else { return };
-    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
-    if len < *offset {
-        *offset = 0;
-        pending.clear();
-    }
+    let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return false };
+    // Fast path, and overwhelmingly the common one: nothing appended since the
+    // last pass. Costs a single `stat` — no open, no read, no close — which
+    // matters because this runs on a timer for every hosted app, all day.
     if len == *offset {
-        return;
+        return false;
+    }
+    let Ok(mut file) = File::open(path) else { return false };
+    if len < *offset {
+        pending.clear();
+        // A rotation kept the *tail*, so every line still in the file has
+        // already been emitted; restarting at 0 replays the whole retained log
+        // as live events. At a 25 MB cap that is a quarter-million `app:log:`
+        // emits into the webview in one burst — per app, on every sweep — which
+        // is what froze the window. Resume at the new EOF instead. A wipe
+        // (`clear_log_file`, or a fresh run's `LogStart::Wipe`) writes no
+        // rotation header and its contents genuinely are new, so that case
+        // still starts from the top.
+        *offset = if starts_with_rotation_header(&mut file) { len } else { 0 };
+        if len == *offset {
+            return false;
+        }
     }
     if file.seek(SeekFrom::Start(*offset)).is_err() {
-        return;
+        return false;
     }
     // Cap one pass so a log that grew by hundreds of MB while Porta was away
     // doesn't get slurped into memory in a single read; the next tick picks up
     // where this one stopped.
     let want = (len - *offset).min(1 << 20) as usize;
     let mut buf = vec![0u8; want];
-    let Ok(n) = file.read(&mut buf) else { return };
+    let Ok(n) = file.read(&mut buf) else { return false };
     buf.truncate(n);
     *offset += n as u64;
     pending.extend_from_slice(&buf);
@@ -788,6 +921,7 @@ fn drain_log(
         }
         on_log(String::from_utf8_lossy(&line[..end]).into_owned());
     }
+    n > 0
 }
 
 /// Follow `path` and forward each appended line to `on_log`.
@@ -796,8 +930,10 @@ fn drain_log(
 /// log-filter process owns the file and Porta reads it back, which is what lets
 /// a re-adopted app resume streaming without having been its parent. Polling
 /// rather than watching: the file changes in bursts a few times a second at
-/// most, and a 200 ms tick costs a `stat` while an fsevents watcher would need
-/// its own lifecycle across rotation's in-place truncate.
+/// most, and a tick costs a `stat` while an fsevents watcher would need its own
+/// lifecycle across rotation's in-place truncate.
+///
+/// The tick backs off while the log is quiet — see `TAIL_POLL_IDLE`.
 fn spawn_log_tail(
     path: std::path::PathBuf,
     start_offset: u64,
@@ -808,8 +944,13 @@ fn spawn_log_tail(
     thread::spawn(move || {
         let mut offset = start_offset;
         let mut pending = Vec::new();
+        let mut quiet_passes = 0u32;
         loop {
-            drain_log(&path, &mut offset, &mut pending, on_log.as_ref());
+            if drain_log(&path, &mut offset, &mut pending, on_log.as_ref()) {
+                quiet_passes = 0;
+            } else {
+                quiet_passes = quiet_passes.saturating_add(1);
+            }
             if stop.load(Ordering::Relaxed) {
                 // One last pass: the lines an app printed as it died are the
                 // interesting ones, and they land after the pane is already gone.
@@ -817,7 +958,11 @@ fn spawn_log_tail(
                 drain_log(&path, &mut offset, &mut pending, on_log.as_ref());
                 return;
             }
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(if quiet_passes >= TAIL_IDLE_PASSES {
+                TAIL_POLL_IDLE
+            } else {
+                TAIL_POLL_ACTIVE
+            });
         }
     });
 }

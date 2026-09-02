@@ -8,15 +8,37 @@ use std::path::{Path, PathBuf};
 
 pub const DEFAULT_MAX_LOG_BYTES: u64 = 5 * 1024 * 1024; // 5 MB per app
 
+/// First bytes `rotate_log` writes. `process_manager`'s tailer matches on this
+/// to tell a rotation (the tail was kept, and every line in it has already been
+/// emitted) from a wipe (the file is genuinely new content).
+pub const ROTATION_HEADER_PREFIX: &str = "── Porta log rotated";
+
+/// Fraction of the cap a rotation leaves behind: rotate at `max_bytes`, trim
+/// down to `max_bytes / RETAIN_DIVISOR`.
+///
+/// Trimming back to exactly `max_bytes` is what made this pathological. The
+/// file ended a rotation sitting *on* the cap, so the next line an app printed
+/// pushed it over again and the 60 s sweep rewrote the whole file — for six
+/// apps at a 25 MB cap that is 2.6 MB/s of disk writes, indefinitely, and a
+/// shrink every minute that made every tailer replay its entire log to the UI.
+/// Leaving half the cap free means a rotation only recurs once the app has
+/// produced `max_bytes / 2` of genuinely new output, which bounds write
+/// amplification at ~1x: Porta rewrites about one byte per byte the app logs.
+const RETAIN_DIVISOR: u64 = 2;
+
 #[derive(Debug, Default, serde::Serialize)]
 pub struct RotateSummary {
     pub files_rotated: u32,
     pub bytes_freed: u64,
 }
 
-/// If `path` is larger than `max_bytes`, keep only the last `max_bytes`
-/// (snapped to the next line boundary) and rewrite the file in place.
-/// Returns bytes freed (0 if no rotation needed).
+/// If `path` is larger than `max_bytes`, keep only the last
+/// `max_bytes / RETAIN_DIVISOR` bytes (snapped to the next line boundary) and
+/// rewrite the file in place. Returns bytes freed (0 if no rotation needed).
+///
+/// Note the asymmetry between the trigger and the amount kept: it is what
+/// stops a rotated file from immediately qualifying for rotation again. See
+/// `RETAIN_DIVISOR`.
 pub fn rotate_log(path: &Path, max_bytes: u64) -> std::io::Result<u64> {
     let metadata = std::fs::metadata(path)?;
     let size = metadata.len();
@@ -24,11 +46,13 @@ pub fn rotate_log(path: &Path, max_bytes: u64) -> std::io::Result<u64> {
         return Ok(0);
     }
 
-    // Read the tail of the file.
-    let skip = size - max_bytes;
+    // Read the tail of the file. `.max(1)` only matters for absurdly small
+    // caps in tests — `set_max_log_bytes` clamps to 64 KB.
+    let keep = (max_bytes / RETAIN_DIVISOR).max(1);
+    let skip = size - keep;
     let mut file = std::fs::File::open(path)?;
     file.seek(SeekFrom::Start(skip))?;
-    let mut tail: Vec<u8> = Vec::with_capacity(max_bytes as usize);
+    let mut tail: Vec<u8> = Vec::with_capacity(keep as usize);
     file.read_to_end(&mut tail)?;
     drop(file);
 
@@ -38,7 +62,7 @@ pub fn rotate_log(path: &Path, max_bytes: u64) -> std::io::Result<u64> {
     }
 
     let header = format!(
-        "── Porta log rotated (was {} bytes, kept last {} bytes) ──\n",
+        "{ROTATION_HEADER_PREFIX} (was {} bytes, kept last {} bytes) ──\n",
         size,
         tail.len()
     );
@@ -184,6 +208,46 @@ mod tests {
         // Final size should be near (but not exceeding by much) the cap +
         // header length.
         assert!(std::fs::metadata(&p).unwrap().len() < original);
+    }
+
+    /// The regression that mattered: rotating left the file sitting *on* the
+    /// cap, so it qualified again on the very next sweep and the whole file got
+    /// rewritten every 60 seconds forever (2.6 MB/s across six apps).
+    #[test]
+    fn rotate_leaves_headroom_so_it_does_not_immediately_requalify() {
+        let dir = tmpdir();
+        let p = dir.path().join("a.log");
+        let mut f = std::fs::File::create(&p).unwrap();
+        for i in 0..10_000 {
+            writeln!(f, "line {i:06}").unwrap();
+        }
+        drop(f);
+        let cap = 40_000;
+
+        assert!(rotate_log(&p, cap).unwrap() > 0);
+        let after = std::fs::metadata(&p).unwrap().len();
+        assert!(after < cap, "rotated file must land under the cap, got {after}");
+
+        // Second sweep with nothing appended: nothing to do.
+        assert_eq!(rotate_log(&p, cap).unwrap(), 0);
+        assert_eq!(std::fs::metadata(&p).unwrap().len(), after);
+
+        // And a trickle of new output still does not re-trigger it.
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+        writeln!(f, "one more line").unwrap();
+        drop(f);
+        assert_eq!(rotate_log(&p, cap).unwrap(), 0);
+    }
+
+    #[test]
+    fn rotated_file_starts_with_the_shared_header_prefix() {
+        let dir = tmpdir();
+        let p = dir.path().join("a.log");
+        std::fs::write(&p, vec![b'x'; 4096]).unwrap();
+        rotate_log(&p, 100).unwrap();
+        let after = std::fs::read_to_string(&p).unwrap();
+        // `process_manager`'s tailer keys off this to tell rotation from a wipe.
+        assert!(after.starts_with(ROTATION_HEADER_PREFIX));
     }
 
     #[test]
