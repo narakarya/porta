@@ -4,6 +4,46 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.9]
+
+### Fixed
+
+- **Porta froze for minutes at a time, and wrote 2.6 MB/s to disk around the
+  clock.** Both came from the same place: log rotation trimmed an oversized log
+  back to *exactly* the size cap, so the file finished every rotation sitting on
+  the limit and the next line an app printed put it over again. The 60-second
+  sweep then rewrote the whole file — six apps at a 25 MB cap meant 150 MB of
+  writes a minute, indefinitely. macOS recorded 137 GB from Porta in a single
+  day.
+
+  Worse, every rewrite shrank the file, and the log tailer read any shrink as
+  "start over from the top". A rotation keeps the *tail*, so every line still in
+  the file had already been sent to the window — and was sent again, a quarter
+  of a million `app:log:` events per app pushed through in one burst, every
+  minute. That is what locked the UI solid.
+
+  Rotation now trims to half the cap, so a rotated file has real headroom and
+  only rotates again once the app has genuinely produced more output; write
+  amplification drops from unbounded to roughly 1×. The tailer tells a rotation
+  (resume at the new end — those lines are already on screen) from a wipe (read
+  from the top; that content is new). Logs already sitting at the cap are
+  trimmed down by the first sweep after upgrading.
+
+### Changed
+
+- **Live per-app CPU/memory tiles are gone.** They cost a SQLite query, a full
+  process-tree walk and one `docker stats` subprocess per running container,
+  every two seconds, for as long as Porta was open — including the many hours
+  it sits in the tray with no window to draw them in. Host-level metrics in the
+  Activity view are unaffected; those are sampled on demand.
+- **Porta idles quieter.** The per-app log tailer polled five times a second
+  forever; it now backs off to once a second while an app is printing nothing
+  and snaps back on the first byte, and a pass with no new output costs a single
+  `stat` instead of an open/read/close.
+- The log-rotation sweep runs on the blocking pool rather than a runtime worker,
+  so tens of megabytes of synchronous file I/O can no longer stall async
+  commands queued behind it.
+
 ## [0.15.0-beta.8]
 
 ### Fixed
