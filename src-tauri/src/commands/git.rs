@@ -617,8 +617,8 @@ pub fn spawn_git_poller(app: tauri::AppHandle) {
 /// pure reverse-proxy (those have no folder at all).
 fn repo_roots(app: &tauri::AppHandle) -> Vec<(String, String)> {
     let state = app.state::<AppState>();
-    // Hold the DB lock only for the call itself, as `spawn_metrics_poller` does — the
-    // loop below must not block start/stop commands.
+    // Hold the DB lock only for the call itself — the loop below must not
+    // block start/stop commands.
     //
     // A panic elsewhere poisons the mutex. Recover the guard rather than let it
     // kill this detached thread — a dead poller is silent and permanent.

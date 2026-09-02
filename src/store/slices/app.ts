@@ -6,8 +6,6 @@ import * as cmd from "../../lib/commands";
 import { startMockProcess, stopMockProcess, killMockProcess } from "../../lib/mock-data";
 
 export const MAX_LOG_LINES = 10000;
-/** Rolling metric samples kept per app (~5 min at the 2s poll cadence). */
-export const METRIC_HISTORY = 150;
 const MAX_TUNNEL_LOG_LINES = 500;
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -50,15 +48,6 @@ export interface AppSlice {
    * `app:tunnel:log:{id}` / `instance:tunnel:log:{id}` events. Capped ring
    * buffer (`MAX_TUNNEL_LOG_LINES`). */
   appTunnelLogs: Record<string, string[]>;
-  appMetrics: Record<string, { cpu: number; mem_mb: number }>;
-  /** Rolling metric samples per app, capped at `METRIC_HISTORY` points.
-   *
-   * Lives here rather than inside the workbench's LiveMetrics because that
-   * component unmounts on every tab switch, so the sparklines restarted from
-   * an empty buffer each time you came back. Fed by the same `app:metrics:{id}`
-   * subscription as `appMetrics`, so history accrues whether or not anyone is
-   * looking, and is cleared on stop so two runs never share one line. */
-  appMetricHistory: Record<string, { cpu: number[]; mem: number[] }>;
   /** Git state per app, fed by the `app:git:{id}` event. Absent for non-repos. */
   appGit: Record<string, GitStatus>;
   /** Last `git status` failure per app, from `app:git-error:{id}`. Empty string clears it. */
@@ -143,8 +132,6 @@ export const createAppSlice: StateCreator<AllSlices, [], [], AppSlice> = (set, g
   appTunnelErrors: {},
   tunnelConnecting: {},
   appTunnelLogs: {},
-  appMetrics: {},
-  appMetricHistory: {},
   appGit: {},
   appGitError: {},
   instances: {},

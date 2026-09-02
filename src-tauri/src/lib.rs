@@ -21,7 +21,6 @@ pub mod idle_sleep;
 pub mod log_rotation;
 pub mod porta_config;
 pub mod menu;
-pub mod metrics;
 pub mod secrets;
 pub mod setup;
 pub mod ssh;
@@ -267,7 +266,6 @@ pub fn run() {
             tray::setup_tray(app)?;
             menu::setup_app_menu(app)?;
             auto_start::spawn_auto_start(app);
-            metrics::spawn_metrics_poller(app.handle().clone());
             commands::spawn_git_poller(app.handle().clone());
             commands::spawn_tailscale_poller(app.handle().clone());
             commands::spawn_backup_scheduler(app.handle().clone());

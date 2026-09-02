@@ -8,7 +8,7 @@ import { isDockerRuntimeUnavailable } from "../../lib/docker-errors";
 import { confirmRemoveInstance } from "../../lib/confirm";
 import { detectLogRemedy } from "../../lib/log-remedies";
 import { openExternalUrl, openInFinder, getExtensionsForApp, detectAppTags, startInstanceTunnel, stopInstanceTunnel, killPortHolder, detectAppListenPorts } from "../../lib/commands";
-import { Button, Tabs, StatusDot, Badge, Card, Popover, Skeleton, type Status, type TabItem } from "../ui";
+import { Button, Tabs, StatusDot, Badge, Card, Popover, type Status, type TabItem } from "../ui";
 import TerminalWorkspace from "../terminal/TerminalWorkspace";
 import AppAccessPopover, { type LocalDestination } from "./AppAccessPopover";
 import GitBadge from "../app/GitBadge";
@@ -57,27 +57,6 @@ const TABS: TabItem[] = [
   { id: "config", label: "Config", icon: <svg {...I}><path d="M3.5 4.5h9M3.5 8h9M3.5 11.5h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="6" cy="4.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="10.5" cy="8" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/><circle cx="6" cy="11.5" r="1.5" fill="var(--surface-0)" stroke="currentColor" strokeWidth="1.3"/></svg> },
 ];
 
-// Stable empty array so a metric-less app doesn't hand Sparkline a fresh
-// reference on every render.
-const EMPTY_SAMPLES: number[] = [];
-
-/** A rolling sparkline that fills its width, normalised against its own peak. */
-function Sparkline({ points, className = "" }: { points: number[]; className?: string }) {
-  if (points.length < 2) return <div className="h-6" />;
-  const w = 100;
-  const h = 24;
-  const peak = Math.max(...points, 1);
-  const step = w / (points.length - 1);
-  const d = points
-    .map((p, i) => `${(i * step).toFixed(1)},${(h - (p / peak) * (h - 2) - 1).toFixed(1)}`)
-    .join(" ");
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none" className={className} aria-hidden>
-      <polyline points={d} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 /**
  * Copy-to-clipboard affordance with a brief confirmation. The Overview's URL
  * and domain rows only opened their target — copying meant selecting the text
@@ -106,82 +85,6 @@ function CopyButton({ value, label, className = "" }: { value: string; label: st
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><rect x="4" y="4" width="6.5" height="6.5" rx="1.3" stroke="currentColor" strokeWidth="1.1"/><path d="M8 3.4V2.8A1.3 1.3 0 0 0 6.7 1.5H2.8A1.3 1.3 0 0 0 1.5 2.8v3.9A1.3 1.3 0 0 0 2.8 8h.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
       )}
     </button>
-  );
-}
-
-/** One metric tile (mockup 17): small label, large value, rolling sparkline. */
-function MetricTile({ label, value, points, sparkClass }: {
-  label: string;
-  value: ReactNode;
-  points: number[];
-  sparkClass: string;
-}) {
-  return (
-    <div className="rounded-lg border border-subtle bg-surface-1 px-3 py-2.5">
-      <div className="text-[11px] text-ink-2">{label}</div>
-      <div className="text-[18px] font-medium text-ink leading-tight">{value}</div>
-      <div className="mt-1.5 h-6">
-        <Sparkline points={points} className={sparkClass} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * Live per-app metrics panel.
- *
- * Both the latest sample and the rolling history come from the store, which
- * subscribes to `app:metrics:{id}` for every app once at startup. This used to
- * own a component-local subscription and its own buffers — so every tab switch
- * unmounted it, threw the history away, and restarted the sparklines from a
- * blank tile, which read as the metrics constantly resetting.
- */
-function LiveMetrics({ appId, running }: { appId: string; running: boolean }) {
-  const sample = usePortaStore((s) => s.appMetrics[appId] ?? null);
-  const history = usePortaStore((s) => s.appMetricHistory[appId]);
-  const cpuHist = history?.cpu ?? EMPTY_SAMPLES;
-  const memHist = history?.mem ?? EMPTY_SAMPLES;
-
-  if (!running) {
-    return (
-      <div className="rounded-lg border border-subtle bg-surface-1 px-4 py-6 text-center text-[12px] text-ink-3">
-        No live metrics (app stopped)
-      </div>
-    );
-  }
-
-  // Running but the first sample hasn't landed yet — shimmer the tiles.
-  if (!sample) {
-    return (
-      <div className="grid grid-cols-2 gap-2">
-        {[0, 1].map((i) => (
-          <div key={i} className="rounded-lg border border-subtle bg-surface-1 px-3 py-2.5 space-y-2">
-            <Skeleton className="h-3 w-10" />
-            <Skeleton className="h-5 w-16" />
-            <Skeleton className="h-6 w-full" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {/* Fixed 2 decimals — the raw value jitters between 1 and 4 characters,
-          which resized the tile on every 2s sample. */}
-      <MetricTile
-        label="CPU"
-        value={<>{sample.cpu.toFixed(2)}<span className="text-[11px] text-ink-3 ml-0.5">%</span></>}
-        points={cpuHist}
-        sparkClass="text-accent"
-      />
-      <MetricTile
-        label="Memory"
-        value={<>{sample.mem_mb}<span className="text-[11px] text-ink-3 ml-0.5">MB</span></>}
-        points={memHist}
-        sparkClass="text-ok"
-      />
-    </div>
   );
 }
 
@@ -1104,9 +1007,7 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
           {/* Right column — the live/at-a-glance half. */}
           <div className="space-y-6 min-w-0">
             <section>
-              <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Live metrics</div>
-              <LiveMetrics appId={app.id} running={running} />
-              <div className="mt-2 flex gap-2">
+              <div className="flex gap-2">
                 {secondary.map((s) => (
                   <button
                     key={s.id}

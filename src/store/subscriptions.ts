@@ -4,7 +4,7 @@ import * as cmd from "../lib/commands";
 import type { GitStatus, AppInstance } from "../lib/commands";
 import { isDockerRuntimeUnavailable } from "../lib/docker-errors";
 import { registerPoll } from "../lib/poll-scheduler";
-import { MAX_LOG_LINES, METRIC_HISTORY } from "./slices/app";
+import { MAX_LOG_LINES } from "./slices/app";
 import type { AllSlices } from "./index";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -180,9 +180,6 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
       // race and momentarily flips us to "stopped".
       listen(`app:starting:${app.id}`, () => {
         set((s) => ({
-          // A new run gets a new line — splicing the previous process's samples
-          // onto this one's would draw a cliff that never happened.
-          appMetricHistory: { ...s.appMetricHistory, [app.id]: { cpu: [], mem: [] } },
           apps: s.apps.map((a) =>
             a.id === app.id ? { ...a, status: "starting" as const, auto_slept: false } : a
           ),
@@ -297,25 +294,6 @@ export function subscribeToAppEvents(get: GetFn, set: SetFn): () => void {
         set((s) => ({
           portConflicts: { ...s.portConflicts, [app.id]: true },
         }));
-      }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
-
-      // Metrics — latest sample plus the rolling history the sparklines draw.
-      // History is accumulated here, not in the workbench tile, so switching
-      // tabs (which unmounts the tile) no longer wipes the line.
-      listen<{ cpu: number; mem_mb: number }>(`app:metrics:${app.id}`, (e) => {
-        set((s) => {
-          const prev = s.appMetricHistory[app.id] ?? { cpu: [], mem: [] };
-          return {
-            appMetrics: { ...s.appMetrics, [app.id]: e.payload },
-            appMetricHistory: {
-              ...s.appMetricHistory,
-              [app.id]: {
-                cpu: [...prev.cpu, e.payload.cpu].slice(-METRIC_HISTORY),
-                mem: [...prev.mem, e.payload.mem_mb].slice(-METRIC_HISTORY),
-              },
-            },
-          };
-        });
       }).then((fn) => cancelled ? fn() : unlisteners.push(fn));
 
       // Git status — emitted by the Rust poller every 15s per repo app. A status
