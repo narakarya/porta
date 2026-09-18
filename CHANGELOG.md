@@ -4,6 +4,19 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.11]
+
+### Fixed
+
+- **Updating one Docker app no longer shows up on another.** The workbench's
+  image badge was reused across apps, so an in-flight update (and its progress
+  popover, which can't be closed mid-update) followed you to whichever app you
+  opened next. Progress is now tracked per app and survives switching away.
+- **Checking for image updates no longer stalls the app.** The check ran
+  `docker image inspect` inline for every Docker app at once, tying up the
+  runtime; it and the stop/start/rollback steps of an update now run off it,
+  and registry requests time out instead of leaving "Checking…" forever.
+
 ## [0.15.0-beta.10]
 
 ### Changed
