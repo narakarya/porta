@@ -9,6 +9,7 @@ import {
 } from "../../lib/commands";
 import { usePortaStore } from "../../store";
 import { useShallow } from "zustand/react/shallow";
+import { create } from "zustand";
 import Tooltip from "../shared/Tooltip";
 import { detectLevel, LEVEL_CLS, stripAnsi } from "../../lib/log-utils";
 
@@ -50,6 +51,36 @@ export type UpdatePhase =
   | "done"
   | "error";
 
+interface UpdateProgress {
+  updating: boolean;
+  phase: UpdatePhase;
+  logLines: string[];
+}
+
+const IDLE_PROGRESS: UpdateProgress = { updating: false, phase: "idle", logLines: [] };
+
+// In-flight update progress, keyed by app id. It lives outside the component
+// because the badge instance doesn't own the update: the workbench and the grid
+// card each render one, and switching apps remounts it. Keeping phase/log in
+// component state leaked one app's running update into whichever app the badge
+// showed next, and lost the progress of the real one.
+const useUpdateProgress = create<{
+  byApp: Record<string, UpdateProgress>;
+  patch: (id: string, fn: (p: UpdateProgress) => UpdateProgress) => void;
+  clear: (id: string) => void;
+}>((set) => ({
+  byApp: {},
+  patch: (id, fn) =>
+    set((s) => ({ byApp: { ...s.byApp, [id]: fn(s.byApp[id] ?? IDLE_PROGRESS) } })),
+  clear: (id) =>
+    set((s) => {
+      if (!(id in s.byApp)) return s;
+      const next = { ...s.byApp };
+      delete next[id];
+      return { byApp: next };
+    }),
+}));
+
 const RISK_RANK: Record<RiskLevel, number> = { safe: 0, caution: 1, danger: 2 };
 function maxRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
   return RISK_RANK[a] >= RISK_RANK[b] ? a : b;
@@ -57,14 +88,14 @@ function maxRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
 
 export default function DockerUpdateBadge({ app, prominent = false }: Props) {
   const [state, setState] = useState<CheckState>({ kind: "idle" });
-  const [updating, setUpdating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<PopoverPos | null>(null);
   // Live progress state — populated by Tauri events emitted from
   // update_docker_app / update_compose_app while the update runs.
-  const [phase, setPhase] = useState<UpdatePhase>("idle");
-  const [logLines, setLogLines] = useState<string[]>([]);
+  const { updating, phase, logLines } = useUpdateProgress((s) => s.byApp[app.id] ?? IDLE_PROGRESS);
+  const patchProgress = useUpdateProgress((s) => s.patch);
+  const clearProgress = useUpdateProgress((s) => s.clear);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const popoverElRef = useRef<HTMLDivElement | null>(null);
   const imageConfigKeyRef = useRef<string | null>(null);
@@ -136,34 +167,6 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, updating, phase]);
 
-  useEffect(() => {
-    if (!updating) return;
-    let unlistens: Array<() => void> = [];
-    let cancelled = false;
-    (async () => {
-      const { listen } = await import("../../lib/tauri-event");
-      const u1 = await listen<string>(`app:update-phase:${app.id}`, (e) => {
-        setPhase(e.payload as UpdatePhase);
-      });
-      const u2 = await listen<string>(`app:update-log:${app.id}`, (e) => {
-        setLogLines((prev) => {
-          const next = [...prev, e.payload];
-          return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
-        });
-      });
-      if (cancelled) {
-        u1();
-        u2();
-      } else {
-        unlistens = [u1, u2];
-      }
-    })();
-    return () => {
-      cancelled = true;
-      unlistens.forEach((fn) => fn());
-    };
-  }, [updating, app.id]);
-
   if (app.kind !== "docker" && app.kind !== "compose") return null;
 
   // `keepOpen` is set for the in-dialog refresh: it re-checks without flipping
@@ -185,23 +188,38 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
     }
   }
 
+  // Everything below is captured by id and writes to the progress store, so it
+  // keeps working if the user navigates to another app mid-update.
   async function runUpdate(replacements: [string, string][], options?: UpdateOptions) {
-    setLogLines([]);
-    setPhase("idle");
-    setUpdating(true);
+    const id = app.id;
+    const appendLog = (line: string) =>
+      patchProgress(id, (p) => {
+        const next = [...p.logLines, line];
+        return { ...p, logLines: next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next };
+      });
+    patchProgress(id, () => ({ updating: true, phase: "idle", logLines: [] }));
+    // Subscribe before invoking so the first phase/log events aren't missed.
+    const { listen } = await import("../../lib/tauri-event");
+    const unlistens = await Promise.all([
+      listen<string>(`app:update-phase:${id}`, (e) =>
+        patchProgress(id, (p) => ({ ...p, phase: e.payload as UpdatePhase })),
+      ),
+      listen<string>(`app:update-log:${id}`, (e) => appendLog(e.payload)),
+    ]);
     try {
-      await updateAppImages(app.id, replacements, options);
-      setPhase("done");
+      await updateAppImages(id, replacements, options);
+      patchProgress(id, (p) => ({ ...p, phase: "done" }));
       await new Promise((r) => setTimeout(r, 1200));
-      await refreshApp(app.id);
-      setImageUpdateCache(app.id, []);
+      await refreshApp(id);
+      setImageUpdateCache(id, []);
+      clearProgress(id);
       setState({ kind: "idle" });
       setOpen(false);
     } catch (e) {
-      setPhase("error");
-      setLogLines((prev) => [...prev, `error: ${e instanceof Error ? e.message : String(e)}`]);
+      patchProgress(id, (p) => ({ ...p, updating: false, phase: "error" }));
+      appendLog(`error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setUpdating(false);
+      unlistens.forEach((fn) => fn());
     }
   }
 
@@ -216,7 +234,8 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
   const imageLabel =
     app.docker_image || (app.kind === "compose" ? "docker compose" : "—");
   const statusText =
-    state.kind === "checking" ? "Checking for updates…"
+    updating ? "Updating…"
+    : state.kind === "checking" ? "Checking for updates…"
     : state.kind === "error" ? "Couldn't check for updates"
     : state.kind === "ready" && hasAny ? `${updates.length} update${updates.length > 1 ? "s" : ""} available`
     : state.kind === "ready" ? "Up to date"
@@ -276,7 +295,7 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
           }
           title={`${updates.length} image${updates.length > 1 ? "s" : ""} can be updated`}
         >
-          ↑ {updates.length} update{updates.length > 1 ? "s" : ""}
+          {updating ? "Updating…" : `↑ ${updates.length} update${updates.length > 1 ? "s" : ""}`}
         </button>
       ) : prominent ? (
         <button
@@ -343,10 +362,7 @@ export default function DockerUpdateBadge({ app, prominent = false }: Props) {
                 setOpen(false);
                 // Reset progress state so reopening lands on the updates list
                 // instead of the previous error/done view.
-                if (phase === "error" || phase === "done") {
-                  setPhase("idle");
-                  setLogLines([]);
-                }
+                if (phase === "error" || phase === "done") clearProgress(app.id);
               }}
               onUpdate={runUpdate}
             />

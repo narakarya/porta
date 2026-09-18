@@ -998,7 +998,9 @@ export default function AppWorkbench({ app, instance, parentApp, onExitInstance 
               <section>
                 <div className="text-[10px] uppercase tracking-[0.09em] text-ink-3 mb-2 px-0.5">Docker image</div>
                 <div className="rounded-lg border border-subtle bg-surface-1 px-3 py-2.5">
-                  <DockerUpdateBadge app={app} prominent />
+                  {/* Keyed for the same reason as GitBadge above: an unkeyed
+                      instance carried one app's check/popover state into the next. */}
+                  <DockerUpdateBadge key={app.id} app={app} prominent />
                 </div>
               </section>
             )}

@@ -33,7 +33,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::app_state::AppState;
 use crate::commands::volume_snapshot::{
@@ -611,7 +611,14 @@ async fn check_one(
     image_ref: &str,
     service_name: Option<String>,
 ) -> ImageUpdateInfo {
-    let installed = local_digests(image_ref);
+    // `docker image inspect` blocks for as long as the daemon takes to answer
+    // (seconds when Docker Desktop is busy). The poller checks every app at
+    // once, so running it inline pins one runtime worker per app and stalls
+    // every other async command behind it.
+    let owned = image_ref.to_string();
+    let installed = tokio::task::spawn_blocking(move || local_digests(&owned))
+        .await
+        .unwrap_or_default();
     check_ref(client, image_ref, service_name, installed).await
 }
 
@@ -766,7 +773,13 @@ pub async fn check_app_image_updates(
             .ok_or_else(|| format!("app {} not found", id))?
     };
 
-    let client = reqwest::Client::new();
+    // Bounded so an unreachable registry reports an error instead of leaving
+    // the badge on "Checking…" forever.
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
 
     if app.is_docker() {
         let Some(image) = app.docker_image.as_deref().filter(|s| !s.trim().is_empty()) else {
@@ -949,7 +962,11 @@ async fn update_docker_app(
     if was_running {
         emit_phase(&app, &id, "stopping");
         emit_log(&app, &id, &format!("Stopping container porta-{}…", id));
-        state.docker.stop_and_wait(&id, 10_000).ok();
+        let (h, sid) = (app.clone(), id.clone());
+        let _ = tokio::task::spawn_blocking(move || {
+            h.state::<AppState>().docker.stop_and_wait(&sid, 10_000).ok();
+        })
+        .await;
     }
 
     emit_phase(&app, &id, "pulling");
@@ -978,7 +995,14 @@ async fn update_docker_app(
     if was_running {
         emit_phase(&app, &id, "starting");
         emit_log(&app, &id, "Restarting container with new image…");
-        if let Err(e) = crate::commands::app_lifecycle::start_app_inner(&state, &app, id.clone()) {
+        let (h, sid) = (app.clone(), id.clone());
+        let started = tokio::task::spawn_blocking(move || {
+            let st = h.state::<AppState>();
+            crate::commands::app_lifecycle::start_app_inner(&st, &h, sid)
+        })
+        .await
+        .unwrap_or_else(|e| Err(format!("start task join: {}", e)));
+        if let Err(e) = started {
             emit_phase(&app, &id, "error");
             emit_log(&app, &id, &format!("start failed: {}", e));
             if opts.auto_rollback {
@@ -1518,7 +1542,36 @@ fn is_provisionally_ok(s: &ContainerState) -> bool {
 /// Roll back a failed compose update: revert the compose file tags, force
 /// recreate affected services, and (optionally) restore volume contents.
 #[allow(clippy::too_many_arguments)]
+/// Every step here (`compose down`, volume restore, `compose up`) blocks on the
+/// docker CLI, so the whole body runs on a blocking thread.
+#[allow(clippy::too_many_arguments)]
 async fn rollback_compose(
+    app: &tauri::AppHandle,
+    id: &str,
+    resolved: &str,
+    project: &str,
+    work_dir: &std::path::Path,
+    tag_replacements: &[(String, String)],
+    opts: &UpdateOptions,
+    snapshot: Option<&VolumeSnapshotResult>,
+) {
+    let app = app.clone();
+    let (id, resolved, project) = (id.to_string(), resolved.to_string(), project.to_string());
+    let work_dir = work_dir.to_path_buf();
+    let tag_replacements = tag_replacements.to_vec();
+    let opts = opts.clone();
+    let snapshot = snapshot.cloned();
+    let _ = tokio::task::spawn_blocking(move || {
+        rollback_compose_blocking(
+            &app, &id, &resolved, &project, &work_dir,
+            &tag_replacements, &opts, snapshot.as_ref(),
+        )
+    })
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rollback_compose_blocking(
     app: &tauri::AppHandle,
     id: &str,
     resolved: &str,
@@ -1607,7 +1660,11 @@ async fn rollback_docker(
         let _ = persist_docker_image(state, id, original_image);
     }
     emit_log(app, id, "Stopping failed container…");
-    let _ = state.docker.stop_and_wait(id, 5_000);
+    let (h, sid) = (app.clone(), id.to_string());
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = h.state::<AppState>().docker.stop_and_wait(&sid, 5_000);
+    })
+    .await;
 
     // Same contract as rollback_compose: a restore that fails leaves the volume
     // already wiped, so the closing message must not claim success.
@@ -1620,7 +1677,11 @@ async fn rollback_docker(
                     "Restoring `{}` from snapshot {}…",
                     entry.docker_volume, snap.timestamp,
                 ));
-                if let Err(e) = restore_volume_snapshot(entry) {
+                let owned = entry.clone();
+                let restored = tokio::task::spawn_blocking(move || restore_volume_snapshot(&owned))
+                    .await
+                    .unwrap_or_else(|e| Err(format!("restore task join: {}", e)));
+                if let Err(e) = restored {
                     emit_log(app, id, &format!(
                         "restore failed for `{}`: {}", entry.docker_volume, e
                     ));
@@ -1631,7 +1692,14 @@ async fn rollback_docker(
     }
 
     emit_log(app, id, "Restarting with the original image…");
-    if let Err(e) = crate::commands::app_lifecycle::start_app_inner(state, app, id.to_string()) {
+    let (h, sid) = (app.clone(), id.to_string());
+    let restarted = tokio::task::spawn_blocking(move || {
+        let st = h.state::<AppState>();
+        crate::commands::app_lifecycle::start_app_inner(&st, &h, sid)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("start task join: {}", e)));
+    if let Err(e) = restarted {
         emit_log(app, id, &format!("rollback restart failed: {}", e));
     } else if failed_volumes.is_empty() {
         emit_log(app, id, "Rollback complete. Original image is running.");
