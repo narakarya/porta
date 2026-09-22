@@ -49,7 +49,7 @@ pub fn find_free_port(starting_at: u16, max_tries: u16) -> Option<u16> {
 /// Look up the listener on `port`. Returns None when the port is free or when
 /// `lsof` isn't reachable. macOS-only — uses `lsof -F pcn` machine-readable
 /// output (one record per line, prefixed with the field type).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn who_uses_port(port: u16) -> Option<PortHolder> {
     let out = Command::new("lsof")
         .args([

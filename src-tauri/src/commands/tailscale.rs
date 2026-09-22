@@ -7,6 +7,21 @@ use tauri::{Emitter, Manager};
 use crate::app_state::AppState;
 use crate::db::{models::Route, Database};
 
+/// Upper bound for one Tailscale CLI round-trip. Status calls answer in well
+/// under a second; `serve`/`funnel` changes need a daemon round-trip but still
+/// finish in a few seconds. Anything longer is the CLI wedged (see
+/// `crate::subprocess`), and the caller must get an error, not a hang.
+const TS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Every Tailscale CLI invocation goes through here so none of them can block
+/// a thread indefinitely. Same result shape as `Command::output()`.
+fn ts_output(bin: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
+    crate::subprocess::output_with_timeout(
+        std::process::Command::new(bin).args(args),
+        TS_TIMEOUT,
+    )
+}
+
 /// Categorize a Tailscale CLI error message into an actionable hint. Callers
 /// already have the raw stderr; this adds a one-line suggestion so the UI can
 /// render a direct fix button without re-parsing on the frontend.
@@ -110,13 +125,17 @@ pub fn static_alias_routes(db: &Database) -> Vec<Route> {
 /// Re-hydrate `active_serves` from the tailscaled daemon on Porta startup.
 /// Matches existing serve entries (by upstream port) to apps so Disconnect
 /// works without requiring a fresh start_tailscale_serve call first.
-pub fn reconcile_on_startup(db: &Database) {
+///
+/// Runs on its own thread from `setup` — never on the main thread and never
+/// before the window exists. Each CLI call is bounded by `TS_TIMEOUT`, but
+/// that is still up to 30s of waiting when Tailscale is wedged, and the app
+/// must not be invisible for that long. The DB lock is taken only after the
+/// CLI has answered, so a slow Tailscale never holds up other startup work.
+pub fn reconcile_on_startup(db: &Mutex<Database>) {
     let Some(ts) = find_tailscale() else {
         return;
     };
-    let Ok(out) = std::process::Command::new(&ts)
-        .args(["serve", "status", "--json"])
-        .output()
+    let Ok(out) = ts_output(&ts, &["serve", "status", "--json"])
     else {
         return;
     };
@@ -126,7 +145,7 @@ pub fn reconcile_on_startup(db: &Database) {
     let Some(web) = value.get("Web").and_then(|w| w.as_object()) else {
         return;
     };
-    let Ok(apps) = db.list_apps() else {
+    let Ok(apps) = db.lock_or_recover().list_apps() else {
         return;
     };
 
@@ -184,10 +203,7 @@ fn candidate_paths() -> Vec<String> {
     ];
     // Whatever `which` returns also goes on the list (deduped) in case the user
     // installed to a non-standard prefix.
-    if let Ok(o) = std::process::Command::new("which")
-        .arg("tailscale")
-        .output()
-    {
+    if let Ok(o) = ts_output("which", &["tailscale"]) {
         if o.status.success() {
             let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if !p.is_empty() && !out.contains(&p) {
@@ -207,42 +223,54 @@ fn find_tailscale() -> Option<String> {
         }
     }
     // First-time (or stale cache): try each candidate, prefer one whose status
-    // actually reports Running. Falls back to first-found if none are Running.
+    // actually reports Running. Otherwise the first one that at least answered.
+    // A candidate that timed out or failed to spawn is never chosen while
+    // another exists: picking a wedged CLI would turn every later call into a
+    // TS_TIMEOUT wait. Only when nothing answers do we fall back to the first
+    // path on disk, so the UI says "installed, but erroring" rather than
+    // "not installed".
     let candidates = candidate_paths();
-    let mut fallback: Option<String> = candidates.first().cloned();
+    let mut answered: Option<String> = None;
     for path in &candidates {
-        if let Ok(out) = std::process::Command::new(path)
-            .args(["status", "--json"])
-            .output()
-        {
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-                let state = v.get("BackendState").and_then(|s| s.as_str()).unwrap_or("");
-                if state == "Running" {
-                    *active_binary().lock_or_recover() = Some(path.clone());
-                    return Some(path.clone());
-                }
-                // Still a real Tailscale binary even if not Running — keep as fallback.
-                if !state.is_empty() {
-                    fallback = Some(path.clone());
-                }
+        let Ok(out) = ts_output(path, &["status", "--json"]) else {
+            continue;
+        };
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+            let state = v.get("BackendState").and_then(|s| s.as_str()).unwrap_or("");
+            if state == "Running" {
+                *active_binary().lock_or_recover() = Some(path.clone());
+                return Some(path.clone());
+            }
+            // Still a real Tailscale binary even if not Running.
+            if !state.is_empty() && answered.is_none() {
+                answered = Some(path.clone());
             }
         }
     }
+    let fallback = answered.or_else(|| candidates.first().cloned());
     if let Some(ref p) = fallback {
         *active_binary().lock_or_recover() = Some(p.clone());
     }
     fallback
 }
 
+/// Forget the cached binary so the next call re-probes every candidate. Called
+/// when the cached one stops answering (timeout, spawn failure): the
+/// alternative is paying TS_TIMEOUT on every call until restart.
+fn forget_active_binary() {
+    *active_binary().lock_or_recover() = None;
+}
+
 /// Cached binary choice so subsequent start/stop calls hit the same daemon
-/// the status check validated. Cleared on status errors so a re-pick happens
-/// if the preferred binary goes away.
+/// the status check validated. Cleared on status errors (see
+/// `forget_active_binary`) so a re-pick happens if the preferred binary goes
+/// away or stops answering.
 fn active_binary() -> &'static Mutex<Option<String>> {
     static T: OnceLock<Mutex<Option<String>>> = OnceLock::new();
     T.get_or_init(|| Mutex::new(None))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_tailscale() -> bool {
     find_tailscale().is_some()
 }
@@ -325,12 +353,10 @@ pub(crate) fn peer_address(dns_name: &str, ips: &[String]) -> Option<String> {
 /// Offline peers are listed rather than hidden: a machine that is asleep is
 /// still one the user wants in their vault, and silently dropping it would look
 /// like Tailscale had lost it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tailscale_peers(state: tauri::State<AppState>) -> Result<Vec<TailscalePeer>, String> {
     let ts = find_tailscale().ok_or("Tailscale isn't installed.")?;
-    let out = std::process::Command::new(&ts)
-        .args(["status", "--json"])
-        .output()
+    let out = ts_output(&ts, &["status", "--json"])
         .map_err(|e| format!("tailscale status: {e}"))?;
     if !out.status.success() {
         return Err("Tailscale isn't running, or you aren't logged in.".into());
@@ -383,7 +409,7 @@ pub fn tailscale_peers(state: tauri::State<AppState>) -> Result<Vec<TailscalePee
 }
 
 /// Add the picked tailnet machines to the host vault.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tailscale_import_hosts(
     hostnames: Vec<String>,
     workspace_ids: Vec<String>,
@@ -421,7 +447,7 @@ pub fn tailscale_import_hosts(
     Ok(imported)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tailscale_status() -> TailscaleStatus {
     let ts = match find_tailscale() {
         Some(p) => p,
@@ -436,12 +462,10 @@ pub fn tailscale_status() -> TailscaleStatus {
         }
     };
 
-    let out = match std::process::Command::new(&ts)
-        .args(["status", "--json"])
-        .output()
-    {
+    let out = match ts_output(&ts, &["status", "--json"]) {
         Ok(o) => o,
         Err(e) => {
+            forget_active_binary();
             return TailscaleStatus {
                 installed: true,
                 running: false,
@@ -521,18 +545,14 @@ fn parse_web_entries(value: &serde_json::Value, funnel: bool) -> Vec<TailscaleSe
     entries
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_tailscale_serves() -> Result<Vec<TailscaleServeEntry>, String> {
     let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
     // `serve status --json` returns BOTH serve and funnel entries; funnel flag is
     // encoded via the separate `funnel status --json` call — we merge the two.
-    let serve_out = std::process::Command::new(&ts)
-        .args(["serve", "status", "--json"])
-        .output()
+    let serve_out = ts_output(&ts, &["serve", "status", "--json"])
         .map_err(|e| e.to_string())?;
-    let funnel_out = std::process::Command::new(&ts)
-        .args(["funnel", "status", "--json"])
-        .output()
+    let funnel_out = ts_output(&ts, &["funnel", "status", "--json"])
         .ok();
 
     let serve_value: serde_json::Value =
@@ -663,8 +683,9 @@ pub async fn start_tailscale_serve(
         // Apply the serve/funnel config. `--bg` persists it in the tailscaled daemon.
         // Funnel exposes publicly; serve is tailnet-only. Same flag surface otherwise.
         let subcommand = if use_funnel { "funnel" } else { "serve" };
-        let out = std::process::Command::new(&ts)
-            .args([
+        let out = ts_output(
+            &ts,
+            &[
                 subcommand,
                 "--bg",
                 "--https",
@@ -672,9 +693,9 @@ pub async fn start_tailscale_serve(
                 "--set-path",
                 "/",
                 &upstream,
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
+            ],
+        )
+        .map_err(|e| e.to_string())?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -745,16 +766,17 @@ pub fn stop_tailscale_for_switch(id: &str, app_handle: &tauri::AppHandle) {
     };
     if tailnet_port != 0 {
         let subcommand = if was_funnel { "funnel" } else { "serve" };
-        let _ = std::process::Command::new(&ts)
-            .args([
+        let _ = ts_output(
+            &ts,
+            &[
                 subcommand,
                 "--https",
                 &tailnet_port.to_string(),
                 "--set-path",
                 "/",
                 "off",
-            ])
-            .output();
+            ],
+        );
     }
     let had_alias = static_aliases().lock_or_recover().remove(id).is_some();
     if had_alias {
@@ -790,16 +812,17 @@ pub async fn stop_tailscale_serve(id: String, app_handle: tauri::AppHandle) -> R
 
         if tailnet_port != 0 {
             let subcommand = if was_funnel { "funnel" } else { "serve" };
-            let out = std::process::Command::new(&ts)
-                .args([
+            let out = ts_output(
+                &ts,
+                &[
                     subcommand,
                     "--https",
                     &tailnet_port.to_string(),
                     "--set-path",
                     "/",
                     "off",
-                ])
-                .output();
+                ],
+            );
             // Best-effort: ignore "no such serve entry" style errors so Disconnect is
             // always idempotent from the user's perspective.
             if let Ok(o) = out {
@@ -914,7 +937,7 @@ pub async fn check_tunnel_reachable(url: String) -> bool {
 /// reset_tailscale_serves this leaves manually-configured entries the user set
 /// up outside Porta alone — safer default when the user just wants to
 /// disconnect their apps without nuking their whole serve config.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_all_porta_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(), String> {
     let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
 
@@ -927,16 +950,17 @@ pub fn stop_all_porta_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(
 
     for (id, port, was_funnel) in &tracked {
         let subcommand = if *was_funnel { "funnel" } else { "serve" };
-        let _ = std::process::Command::new(&ts)
-            .args([
+        let _ = ts_output(
+            &ts,
+            &[
                 subcommand,
                 "--https",
                 &port.to_string(),
                 "--set-path",
                 "/",
                 "off",
-            ])
-            .output();
+            ],
+        );
         // Clear from map regardless of result — if the daemon no longer knows
         // about this entry, we still want to forget it so the UI doesn't
         // claim it's active.
@@ -963,16 +987,12 @@ pub fn stop_all_porta_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(
 
 /// Wipe ALL Tailscale Serve and Funnel config from the daemon. Used from the
 /// global Settings page as an escape hatch when state gets weird.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reset_tailscale_serves(app_handle: tauri::AppHandle) -> Result<(), String> {
     let ts = find_tailscale().ok_or_else(|| "tailscale not installed".to_string())?;
     // Best-effort both — `reset` on one doesn't clear the other.
-    let _ = std::process::Command::new(&ts)
-        .args(["serve", "reset"])
-        .output();
-    let _ = std::process::Command::new(&ts)
-        .args(["funnel", "reset"])
-        .output();
+    let _ = ts_output(&ts, &["serve", "reset"]);
+    let _ = ts_output(&ts, &["funnel", "reset"]);
 
     // Collect app IDs we need to notify about, under lock, then release before emit.
     let ids: Vec<String> = {

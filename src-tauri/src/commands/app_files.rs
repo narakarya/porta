@@ -50,7 +50,7 @@ pub fn save_file(path: String, contents: String) -> Result<(), String> {
 /// For a directory this is almost never what the user means: "open the project
 /// folder" should land you *inside* it, not in its parent with it highlighted.
 /// `open_in_finder` below does that, so directories go through there.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
     std::process::Command::new("open")
         .args(["-R", &path])
@@ -62,7 +62,7 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
 /// Open a path in Finder. A directory opens as a window showing its contents;
 /// a file falls back to reveal-in-parent (opening a file would launch whatever
 /// app owns it, which is not what a Finder action promises).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_in_finder(path: String) -> Result<(), String> {
     let is_dir = std::path::Path::new(&path).is_dir();
     let mut cmd = std::process::Command::new("open");
@@ -78,7 +78,7 @@ pub fn open_in_finder(path: String) -> Result<(), String> {
 /// Open an https/http URL in the user's default browser. Tauri WebView's
 /// `window.open` no-ops for external URLs without scope config; shell out to
 /// macOS `open` directly. Scheme-locked to avoid being a generic exec wedge.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_external_url(url: String) -> Result<(), String> {
     let trimmed = url.trim();
     if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
@@ -588,7 +588,7 @@ pub fn create_config_from_template(
     create_from_template_at(&source, &target)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_in_editor(root_dir: String) -> Result<(), String> {
     // macOS apps launched via Finder/Dock don't inherit shell PATH,
     // so we also check common install locations for editor CLIs.

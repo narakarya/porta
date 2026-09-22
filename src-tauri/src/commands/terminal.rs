@@ -205,7 +205,7 @@ fn utf8_locale_overrides(
 /// Ctrl-C) while auto-running a command like `claude`. Using the PTY write
 /// path (rather than `zsh -c`) is what lets the user see the command typed in
 /// and interact with its TUI afterwards.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_open(
     app: tauri::AppHandle,
     app_id: String,
@@ -579,7 +579,7 @@ pub fn terminal_signal(app_id: String, signal: String) -> Result<bool, String> {
 /// directly, racing only the reader thread's own EOF-triggered `take_fd`
 /// (see the comment there for why that race is safe: `take_fd` is
 /// idempotent and whichever of the two gets here first owns the real fd).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_close(app_id: String) -> Result<(), String> {
     let handle = terminals().lock_or_recover().remove(&app_id);
     if let Some(h) = handle {

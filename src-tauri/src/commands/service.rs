@@ -87,7 +87,7 @@ pub fn update_service(
         .ok_or_else(|| "Service not found after update".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_service(id: String, state: State<AppState>) -> Result<(), String> {
     let container_name = format!("porta-{}", id);
     let _ = std::process::Command::new(find_docker())
@@ -102,7 +102,7 @@ pub fn reorder_services(state: State<AppState>, ids: Vec<String>) -> Result<(), 
     state.db.lock_or_recover().reorder_services(&ids).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn start_service(
     id: String,
     state: State<AppState>,
@@ -286,7 +286,7 @@ pub fn start_service(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_service(id: String, state: State<AppState>) -> Result<(), String> {
     let container_name = format!("porta-{}", id);
 

@@ -720,7 +720,7 @@ pub fn kill_pid(pid: u32) -> Result<(), String> {
 /// dials, a browser's lingering half-closed sockets, Porta's own health
 /// probes — and this command SIGKILLed those bystanders. Killing Caddy (or
 /// Porta itself) mid-stop is how "stop one app" turned into "everything died".
-#[tauri::command]
+#[tauri::command(async)]
 pub fn kill_port_holder(port: u16) -> Result<u32, String> {
     let output = std::process::Command::new("lsof")
         .args(["-nP", "-ti", &format!("tcp:{}", port), "-sTCP:LISTEN"])

@@ -24,6 +24,7 @@ pub mod menu;
 pub mod secrets;
 pub mod setup;
 pub mod ssh;
+pub mod subprocess;
 pub mod sync;
 pub mod tmux;
 pub mod tray;
@@ -215,10 +216,6 @@ pub fn run() {
         }
     }
 
-    // Re-hydrate Tailscale Serve tracking from tailscaled so Disconnect works
-    // after a Porta restart. No-op if tailscale isn't installed/running.
-    commands::reconcile_on_startup(&db);
-
     let state = AppState {
         db: Arc::new(Mutex::new(db)),
         processes: ProcessManager::new(),
@@ -267,6 +264,14 @@ pub fn run() {
             menu::setup_app_menu(app)?;
             auto_start::spawn_auto_start(app);
             commands::spawn_git_poller(app.handle().clone());
+            // Re-hydrate Tailscale Serve tracking from tailscaled so Disconnect
+            // works after a Porta restart. No-op if tailscale isn't installed.
+            // Off the main thread: this shells out to the Tailscale CLI, and a
+            // wedged CLI once kept the window from ever appearing (v0.15.0-beta.11).
+            {
+                let db = app.state::<AppState>().db.clone();
+                std::thread::spawn(move || commands::reconcile_on_startup(&db));
+            }
             commands::spawn_tailscale_poller(app.handle().clone());
             commands::spawn_backup_scheduler(app.handle().clone());
             commands::spawn_log_rotation_task();

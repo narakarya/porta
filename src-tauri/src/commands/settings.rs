@@ -249,7 +249,7 @@ pub struct TmuxStatus {
     pub socket: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_tmux_status() -> TmuxStatus {
     let cfg = read_porta_config();
     let installed = crate::tmux::available();

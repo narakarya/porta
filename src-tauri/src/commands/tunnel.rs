@@ -1341,7 +1341,7 @@ fn start_tunnel_blocking(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_tunnel(id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     // Named tunnel member? Drop it and reconcile the shared connector: the other
     // members keep serving, or the connector tears down if this was the last.
