@@ -4,6 +4,28 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.12]
+
+### Fixed
+
+- **Porta no longer hangs at launch when the Tailscale CLI stops answering.**
+  On startup Porta asked `tailscale status` which serves to re-adopt, on the
+  main thread and before the window existed, with no time limit. The App
+  Store `Tailscale` binary can sit there forever (it starts its own app loop
+  instead of printing), and one release build did exactly that for four days
+  with no window, while every relaunch left another hung process behind.
+  Every Tailscale call is now cut off after 15 seconds and the child killed,
+  the startup re-adopt runs on its own thread after the window is up, a
+  binary that timed out is skipped in favour of one that answers, and a
+  cached binary that stops answering is re-probed instead of paid for on
+  every call.
+- **Commands that shell out no longer run on the UI thread.** Tailscale
+  status, serve lists, tailnet peers, service start/stop, terminal open/close,
+  reveal-in-Finder / open-in-editor, port lookups and tunnel stop all ran
+  synchronously on the thread that draws the window, so a slow `docker`,
+  `tmux` or `tailscale` froze the whole app for the duration. They now run on
+  the worker pool; nothing changes on the frontend side.
+
 ## [0.15.0-beta.11]
 
 ### Fixed
