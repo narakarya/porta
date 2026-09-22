@@ -4,6 +4,29 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-beta.13]
+
+### Fixed
+
+- **Docker and Compose apps that survived a restart show up as running
+  again.** Compose stacks could sit Up for days while Porta showed them
+  stopped, with no way to stop them from the UI. At launch Porta asked
+  `docker` about each app and treated "no answer" the same as "container
+  gone" — and since Porta usually starts at login before OrbStack is up, the
+  answer was routinely "no daemon". Nothing ever corrected it afterwards.
+  Docker and Compose apps are now reconciled once the daemon actually
+  answers, in both directions: a stack that is Up becomes running (and can be
+  stopped), an app whose container is gone becomes stopped. If the daemon
+  cannot be reached, statuses are left alone and checked again for up to
+  15 minutes. Auto-start uses that result rather than the stale snapshot,
+  and starts process-backed apps first so a slow OrbStack does not hold them
+  up.
+- **An OrbStack restart no longer marks every Docker app as exited.** The
+  per-container watcher treated an unreachable daemon as the container
+  having died. It now only does so when the daemon says the container is
+  gone, and every docker query gives up after 15 seconds instead of hanging
+  on a wedged daemon.
+
 ## [0.15.0-beta.12]
 
 ### Fixed
