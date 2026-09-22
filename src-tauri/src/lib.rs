@@ -155,49 +155,31 @@ pub fn run() {
 
     let docker_mgr = docker_manager::DockerManager::new();
 
-    // Mark apps as stopped if their recorded PID/container is no longer alive.
+    // Mark process apps as stopped if their recorded PID is no longer alive.
     // This fixes stale "running" state after Porta crashes or is force-quit.
-    // For docker apps whose containers are still running, adopt them so stop/metrics work.
+    //
+    // Docker and Compose apps are deliberately NOT judged here. Doing so
+    // meant shelling out to `docker` on the main thread before the window
+    // existed, and — worse — treating "docker did not answer" as "container
+    // gone": a Porta launched at login before OrbStack was up wrote `stopped`
+    // over every Docker/Compose app whose containers were still Up, and
+    // nothing ever corrected it. They are reconciled once the daemon answers,
+    // in `auto_start::adopt_docker_apps`, off the main thread.
     if let Ok(apps) = db.list_apps() {
         for app in apps.iter().filter(|a| a.status == "running") {
-            let alive = if app.is_compose() {
-                // Any container still running under this compose project means it's alive.
-                let project = docker_manager::DockerManager::compose_project(&app.id);
-                std::process::Command::new(docker_manager::docker_bin())
-                    .args(["ps", "-q", "-f", &format!("label=com.docker.compose.project={}", project)])
-                    .output()
-                    .ok()
-                    .map(|o| !o.stdout.is_empty())
-                    .unwrap_or(false)
-            } else if app.is_static() || app.is_proxy() {
+            if app.is_docker() || app.is_compose() {
+                continue;
+            }
+            let alive = if app.is_static() || app.is_proxy() {
                 // No process to check — Caddy serves these as long as it's up.
                 // Keep them flagged "running" across Porta restarts.
                 true
-            } else if app.is_docker() {
-                let name = docker_manager::DockerManager::container_name(&app.id);
-                std::process::Command::new(docker_manager::docker_bin())
-                    .args(["inspect", "-f", "{{.State.Running}}", &name])
-                    .output()
-                    .ok()
-                    .and_then(|o| {
-                        if o.status.success() {
-                            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .map(|s| s == "true")
-                    .unwrap_or(false)
             } else {
                 app.pid.is_some_and(|pid| {
                     kill(Pid::from_raw(pid as i32), None).is_ok()
                 })
             };
-            if alive {
-                if app.is_docker() || app.is_compose() {
-                    docker_mgr.adopt(&app.id);
-                }
-            } else {
+            if !alive {
                 db.update_app_status(&app.id, "stopped", None).ok();
             }
         }

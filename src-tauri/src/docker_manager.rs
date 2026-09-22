@@ -9,6 +9,49 @@ use std::time::Duration;
 
 use crate::process_manager::{log_file_path, stream_child_output, SharedLogWriter};
 
+/// Upper bound for one docker CLI query (`ps`, `inspect`, `info`). These
+/// answer in milliseconds when the daemon is up and fail fast when it is
+/// down; the case this guards is a daemon that accepts the connection and
+/// then never replies, which OrbStack does while it is under memory pressure
+/// or restarting its VM.
+const DOCKER_QUERY_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Run a docker CLI query with a deadline. Same shape as `Command::output()`;
+/// `Err(TimedOut)` when the daemon never answered.
+fn docker_output(args: &[&str]) -> std::io::Result<std::process::Output> {
+    crate::subprocess::output_with_timeout(
+        Command::new(docker_bin()).args(args),
+        DOCKER_QUERY_TIMEOUT,
+    )
+}
+
+/// `docker inspect` stderr for a container the daemon has no record of, as
+/// opposed to a daemon that could not be reached at all.
+fn container_is_gone(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("no such object") || lower.contains("no such container")
+}
+
+/// Parse `docker ps --format '{{.Names}}\t{{.Label "com.docker.compose.project"}}'`
+/// into the set of Porta app ids that own a running container.
+fn parse_running_app_ids(ps_output: &str) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    for line in ps_output.lines() {
+        let mut cols = line.split('\t');
+        let name = cols.next().unwrap_or("").trim();
+        let project = cols.next().unwrap_or("").trim();
+        // A compose container is named `porta-<id>-<service>-<n>`, so only
+        // the project label identifies its app; a plain Docker app's
+        // container is exactly `porta-<id>` and carries no project label.
+        if let Some(id) = project.strip_prefix("porta-") {
+            ids.insert(id.to_string());
+        } else if let Some(id) = name.strip_prefix("porta-") {
+            ids.insert(id.to_string());
+        }
+    }
+    ids
+}
+
 /// Locate the `docker` CLI. GUI apps on macOS don't inherit the user's shell
 /// PATH, so we fall back to known install locations for Docker Desktop and
 /// OrbStack.
@@ -118,11 +161,34 @@ impl DockerManager {
     /// ready after login, so auto-start code should gate on this instead of
     /// only checking for the binary.
     pub fn is_engine_ready() -> bool {
-        Command::new(docker_bin())
-            .args(["info", "--format", "{{.ServerVersion}}"])
-            .output()
+        docker_output(&["info", "--format", "{{.ServerVersion}}"])
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    /// Which Porta apps have a container running right now, by app id — a
+    /// `porta-<id>` container for a Docker app, or any container whose compose
+    /// project is `porta-<id>` for a Compose app.
+    ///
+    /// One `docker ps` for every app rather than an `inspect` per app, and
+    /// `Err` when the daemon cannot be asked at all (not installed, not up
+    /// yet after login, wedged). Callers must treat `Err` as "unknown", never
+    /// as "nothing is running": the old per-app check collapsed the two, so a
+    /// Porta launched at login before OrbStack was up wrote `stopped` over
+    /// every Docker and Compose app whose containers were in fact still Up,
+    /// and they never showed as running again.
+    pub fn running_app_ids() -> std::io::Result<HashSet<String>> {
+        let out = docker_output(&[
+            "ps",
+            "--format",
+            "{{.Names}}\t{{.Label \"com.docker.compose.project\"}}",
+        ])?;
+        if !out.status.success() {
+            return Err(std::io::Error::other(
+                String::from_utf8_lossy(&out.stderr).trim().to_string(),
+            ));
+        }
+        Ok(parse_running_app_ids(&String::from_utf8_lossy(&out.stdout)))
     }
 
     /// Start a docker-backed app. Spawns `docker run -d`, then attaches a log
@@ -269,37 +335,54 @@ impl DockerManager {
         let stopping = Arc::clone(&self.stopping);
         let name_for_watcher = name.clone();
         let app_id_str = app_id.to_string();
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(2));
-            let out = Command::new(docker_bin())
-                .args([
+        thread::spawn(move || {
+            let mut daemon_unreachable_logged = false;
+            loop {
+                thread::sleep(Duration::from_secs(2));
+                let out = docker_output(&[
                     "inspect",
                     "-f",
                     "{{.State.Running}} {{.State.ExitCode}}",
                     &name_for_watcher,
-                ])
-                .output();
-            match out {
-                Ok(o) if o.status.success() => {
-                    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    if s.starts_with("false") {
-                        let exit_code: i32 = s
-                            .split_whitespace()
-                            .nth(1)
-                            .and_then(|x| x.parse().ok())
-                            .unwrap_or(-1);
+                ]);
+                match out {
+                    Ok(o) if o.status.success() => {
+                        daemon_unreachable_logged = false;
+                        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        if s.starts_with("false") {
+                            let exit_code: i32 = s
+                                .split_whitespace()
+                                .nth(1)
+                                .and_then(|x| x.parse().ok())
+                                .unwrap_or(-1);
+                            active.lock_or_recover().remove(&app_id_str);
+                            let intentional = stopping.lock_or_recover().remove(&app_id_str);
+                            on_exit(exit_code, intentional);
+                            return;
+                        }
+                    }
+                    Ok(o) if container_is_gone(&String::from_utf8_lossy(&o.stderr)) => {
+                        // The daemon answered and does not know the container:
+                        // rm'd externally, or removed by our own stop path.
                         active.lock_or_recover().remove(&app_id_str);
                         let intentional = stopping.lock_or_recover().remove(&app_id_str);
-                        on_exit(exit_code, intentional);
+                        on_exit(-1, intentional);
                         return;
                     }
-                }
-                _ => {
-                    // Container vanished (rm'd externally, docker stopped, etc.)
-                    active.lock_or_recover().remove(&app_id_str);
-                    let intentional = stopping.lock_or_recover().remove(&app_id_str);
-                    on_exit(-1, intentional);
-                    return;
+                    Ok(_) | Err(_) => {
+                        // The daemon could not be asked (OrbStack restarting,
+                        // socket gone, CLI wedged past its timeout). The
+                        // container is most likely still there — OrbStack
+                        // keeps them across its own restarts — so this is not
+                        // an exit. Keep polling; the next answer decides.
+                        if !daemon_unreachable_logged {
+                            eprintln!(
+                                "docker watcher for {}: daemon unreachable, keeping the container's status until it answers",
+                                name_for_watcher
+                            );
+                            daemon_unreachable_logged = true;
+                        }
+                    }
                 }
             }
         });
@@ -768,6 +851,52 @@ fn parse_docker_mem(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn running_ids_come_from_the_compose_label_or_the_container_name() {
+        // Real `docker ps` output on the machine this was diagnosed on: a
+        // plain Docker app, three compose stacks (one with two services), and
+        // containers Porta does not own.
+        let ps = "\
+porta-ce10b1a4-1344-4de8-823a-0964d4a37fa6\t
+porta-bbea4ac0-c284-4bd5-92a7-c6989883cd9d-plausible-db-1\tporta-bbea4ac0-c284-4bd5-92a7-c6989883cd9d
+porta-bbea4ac0-c284-4bd5-92a7-c6989883cd9d-plausible-1\tporta-bbea4ac0-c284-4bd5-92a7-c6989883cd9d
+porta-38aef251-83cc-400c-a26e-6f2e721417dc-nocodb-1\tporta-38aef251-83cc-400c-a26e-6f2e721417dc
+autobase-console-ui\tautobase
+lume-wordpress-database-1\tlume-wordpress
+buildx_buildkit_event-organizer0\t
+";
+        let ids = parse_running_app_ids(ps);
+        let mut got: Vec<&str> = ids.iter().map(String::as_str).collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                "38aef251-83cc-400c-a26e-6f2e721417dc",
+                "bbea4ac0-c284-4bd5-92a7-c6989883cd9d",
+                "ce10b1a4-1344-4de8-823a-0964d4a37fa6",
+            ]
+        );
+    }
+
+    #[test]
+    fn running_ids_is_empty_for_empty_ps_output() {
+        assert!(parse_running_app_ids("").is_empty());
+        assert!(parse_running_app_ids("\n").is_empty());
+    }
+
+    #[test]
+    fn a_missing_container_is_told_apart_from_a_missing_daemon() {
+        assert!(container_is_gone("Error: No such object: porta-abc"));
+        assert!(container_is_gone("Error response from daemon: No such container: porta-abc"));
+        assert!(!container_is_gone(
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
+        ));
+        assert!(!container_is_gone(
+            "failed to connect to the docker API at unix:///Users/me/.orbstack/run/docker.sock"
+        ));
+        assert!(!container_is_gone(""));
+    }
 
     #[test]
     fn parse_mem_units() {
