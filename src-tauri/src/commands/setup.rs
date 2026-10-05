@@ -91,7 +91,9 @@ fn all_domains(state: &AppState) -> Result<Vec<String>, String> {
     Ok(domains)
 }
 
-pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
+/// Porta's own Caddy routes (apps, tailnet aliases, worktree instances) and
+/// the domains its certificate must cover.
+fn porta_routes_and_domains(state: &AppState) -> Result<(Vec<Route>, Vec<String>), String> {
     let db = state.db.lock_or_recover();
     let workspaces = db.list_workspaces().map_err(|e| e.to_string())?;
     let apps = db.list_apps().map_err(|e| e.to_string())?;
@@ -140,13 +142,52 @@ pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
         }
     }
     drop(db);
+    Ok((routes, domains))
+}
 
-    // Regenerate certs if mkcert is available — ensures new custom domains get covered
+/// Porta's routes merged with the external ones other tools dropped into
+/// `<porta_dir>/external/` (see `crate::external_routes`).
+fn merged_routes(state: &AppState) -> Result<(Vec<Route>, Vec<String>, crate::external_routes::Loaded, crate::external_routes::Merged), String> {
+    let (routes, domains) = porta_routes_and_domains(state)?;
+    let external = crate::external_routes::load();
+    let merged = crate::external_routes::merge(&routes, &external.routes);
+    Ok((routes, domains, external, merged))
+}
+
+pub(crate) fn sync_caddy(state: &AppState) -> Result<(), String> {
+    let (mut routes, domains, external, merged) = merged_routes(state)?;
+    crate::external_routes::log_if_changed(&external.warnings, &merged.conflicts);
+    // After Porta's own: Caddy runs the first matching route, so Porta's
+    // specific hosts keep winning over an external `*.host`.
+    routes.extend(merged.routes);
+
+    // Regenerate certs when their SAN set changes — new custom domains or
+    // external routes get covered, an unchanged set doesn't re-run mkcert.
     if crate::setup::certs_exist() {
-        crate::setup::generate_certs(&domains).ok();
+        if let Err(e) = crate::setup::ensure_certs(&domains) {
+            eprintln!("[porta] cert regeneration failed: {e}");
+        }
     }
 
     state.caddy.reload(&routes).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct ExternalRoutesView {
+    pub dir: String,
+    pub routes: Vec<crate::external_routes::ExternalEntry>,
+    pub warnings: Vec<String>,
+}
+
+/// Read-only view of the routes other tools (Kodera, …) hand to Porta.
+#[tauri::command]
+pub fn list_external_routes(state: State<AppState>) -> Result<ExternalRoutesView, String> {
+    let (_, _, external, merged) = merged_routes(&state)?;
+    Ok(ExternalRoutesView {
+        dir: crate::external_routes::external_dir().to_string_lossy().into_owned(),
+        routes: merged.entries,
+        warnings: external.warnings,
+    })
 }
 
 #[tauri::command]

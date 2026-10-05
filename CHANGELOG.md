@@ -4,6 +4,27 @@ All notable changes to Porta are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Other tools can serve their `.test` domains through Porta.** A tool that
+  runs dev apps itself (Kodera first) drops a JSON file into
+  `~/.porta/external/`, e.g.
+  `{"version":1,"source":"Kodera","routes":[{"host":"shop.test","subdomains":true,"port":4010}]}`,
+  and Porta picks it up within a couple of seconds: Caddy proxies the host
+  (and `*.host` with `subdomains`) to `127.0.0.1:<port>` exactly like
+  Porta's own apps, websockets included, and the `*.test` certificate gains
+  the matching names. Porta's own apps win a shared host; broken files or
+  entries are skipped and logged, never breaking Porta's config. Settings →
+  Setup lists them under "External (Kodera)".
+
+### Changed
+
+- **Caddy syncs no longer re-run mkcert every time.** The certificate is
+  regenerated only when its list of names changes (a domain or an external
+  route came or went); "Regenerate SSL Certs" still forces it.
+
 ## [0.15.0-beta.13]
 
 ### Fixed

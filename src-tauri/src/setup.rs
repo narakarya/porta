@@ -433,6 +433,66 @@ pub fn install_mkcert_ca() -> Result<()> {
 /// (*.uq.test) so the cert covers the root domain and all its subdomains.
 /// Also re-runs `mkcert -install` to ensure the CA is trusted before generating.
 pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
+    generate_cert_names(&desired_cert_names(workspace_domains))
+}
+
+/// The certificate's SAN list: `*.test`, `localhost`, apex + wildcard for each
+/// workspace/custom domain, then the names external tools' routes need (see
+/// [`crate::external_routes`]): `host`, plus `*.host` when it routes
+/// subdomains. Order is kept stable; duplicates are dropped.
+pub fn cert_names(workspace_domains: &[String], external: &[String]) -> Vec<String> {
+    let mut names: Vec<String> = vec!["*.test".into(), "localhost".into()];
+    // For each workspace domain add both apex and wildcard:
+    //   uq.test        → covers the root domain itself
+    //   *.uq.test      → covers api.uq.test, app.uq.test, etc.
+    for domain in workspace_domains {
+        names.push(domain.clone());
+        names.push(format!("*.{}", domain));
+    }
+    names.extend(external.iter().cloned());
+    let mut seen = std::collections::HashSet::new();
+    names.retain(|n| seen.insert(n.clone()));
+    names
+}
+
+/// SANs for these domains plus every valid external route right now.
+fn desired_cert_names(workspace_domains: &[String]) -> Vec<String> {
+    let external = crate::external_routes::load();
+    cert_names(workspace_domains, &crate::external_routes::cert_names(&external.routes))
+}
+
+/// Sidecar recording the SANs `test.pem` was last generated with, so a sync
+/// can tell whether the cert needs regenerating without parsing it.
+fn cert_sans_file() -> std::path::PathBuf {
+    crate::porta_dir().join("certs").join("test.sans")
+}
+
+/// Does a cert generated with `current` (the sidecar's lines) already carry
+/// exactly the `desired` SANs? Order-insensitive.
+fn sans_match(current: &str, desired: &[String]) -> bool {
+    let have: std::collections::BTreeSet<&str> =
+        current.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let want: std::collections::BTreeSet<&str> = desired.iter().map(String::as_str).collect();
+    have == want
+}
+
+/// Regenerate the cert only when its SAN set would change (a domain or an
+/// external route came or went). Returns whether it regenerated. Without the
+/// sidecar (certs made by an older Porta) it regenerates once.
+pub fn ensure_certs(workspace_domains: &[String]) -> Result<bool> {
+    let desired = desired_cert_names(workspace_domains);
+    let certs_dir = crate::porta_dir().join("certs");
+    let up_to_date = certs_dir.join("test.pem").exists()
+        && certs_dir.join("test-key.pem").exists()
+        && std::fs::read_to_string(cert_sans_file()).is_ok_and(|s| sans_match(&s, &desired));
+    if up_to_date {
+        return Ok(false);
+    }
+    generate_cert_names(&desired)?;
+    Ok(true)
+}
+
+fn generate_cert_names(names: &[String]) -> Result<()> {
     let mkcert = mkcert_path()
         .ok_or_else(|| anyhow::anyhow!("mkcert not found"))?;
     let certs_dir = crate::porta_dir().join("certs");
@@ -446,19 +506,9 @@ pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
 
     let cert_file = certs_dir.join("test.pem");
     let key_file = certs_dir.join("test-key.pem");
-
-    // Assemble the SAN list once — we may run mkcert more than once (retry).
-    let mut names: Vec<String> = vec!["*.test".into(), "localhost".into()];
-    // For each workspace domain add both apex and wildcard:
-    //   uq.test        → covers the root domain itself
-    //   *.uq.test      → covers api.uq.test, app.uq.test, etc.
-    let mut seen = std::collections::HashSet::new();
-    for domain in workspace_domains {
-        if seen.insert(domain.clone()) {
-            names.push(domain.clone());
-            names.push(format!("*.{}", domain));
-        }
-    }
+    // A stale sidecar must not outlive a failed run: drop it first, write it
+    // back only once mkcert succeeded.
+    let _ = std::fs::remove_file(cert_sans_file());
 
     // Retry guards against a rare transient read of the CAROOT key; with CAROOT
     // pinned to Porta's own data dir (see caroot_dir) the persistent macOS-TCC
@@ -469,9 +519,10 @@ pub fn generate_certs(workspace_domains: &[String]) -> Result<()> {
         let out = mkcert_command(&mkcert)?
             .arg("-cert-file").arg(&cert_file)
             .arg("-key-file").arg(&key_file)
-            .args(&names)
+            .args(names)
             .output()?;
         if out.status.success() {
+            let _ = std::fs::write(cert_sans_file(), names.join("\n") + "\n");
             return Ok(());
         }
         last_err = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -495,6 +546,25 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
     use std::path::Path;
+
+    #[test]
+    fn cert_names_add_external_names_after_domains_without_duplicates() {
+        let names = cert_names(
+            &["uq.test".into(), "uq.test".into()],
+            &["shop.test".into(), "*.shop.test".into(), "uq.test".into()],
+        );
+        assert_eq!(names, vec!["*.test", "localhost", "uq.test", "*.uq.test", "shop.test", "*.shop.test"]);
+    }
+
+    #[test]
+    fn sans_match_ignores_order_and_blank_lines() {
+        let want: Vec<String> = vec!["*.test".into(), "localhost".into(), "shop.test".into()];
+        assert!(sans_match("localhost\n*.test\n\nshop.test\n", &want));
+        // Grown or shrunk sets both need a new cert.
+        assert!(!sans_match("localhost\n*.test\n", &want));
+        assert!(!sans_match("localhost\n*.test\nshop.test\nold.test\n", &want));
+        assert!(!sans_match("", &want));
+    }
 
     #[test]
     fn dev_caddy_command_runs_with_init_config_and_isolated_xdg() {

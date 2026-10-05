@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { startCaddy, reloadCaddy, caddyStatusCheck, regenerateCerts, getLaunchAtLogin, setLaunchAtLogin } from "../../lib/commands";
 import { yieldToFrame } from "../../lib/ui";
 import { Spinner } from "../ui";
+import ExternalRoutesCard from "./ExternalRoutesCard";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -120,6 +121,9 @@ export default function SetupSection({ onOpenWizard }: SetupSectionProps) {
           <p className="text-[11px] text-bad mt-2">{caddyError}</p>
         )}
       </div>
+
+      {/* Routes other tools (Kodera, …) hand to Porta; hidden when none. */}
+      <ExternalRoutesCard />
 
       {/* Launch at Login */}
       {isTauri && (

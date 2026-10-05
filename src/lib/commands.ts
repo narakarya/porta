@@ -4,6 +4,7 @@ import type {
   UpdateAppParams,
   DetectResult,
   SetupStatus,
+  ExternalRoutesView,
   Workspace,
   Service,
   AddServiceParams,
@@ -1622,6 +1623,16 @@ export const importPortaConfig = (
 
 export const regenerateCerts = (): Promise<void> =>
   isTauri ? invoke("regenerate_certs") : Promise.resolve();
+
+// ── External routes (other tools' .test domains) ─────────────────────────────
+
+export const listExternalRoutes = (): Promise<ExternalRoutesView> =>
+  isTauri
+    ? invoke("list_external_routes")
+    : Promise.resolve({ dir: "~/.porta/external", routes: [], warnings: [] });
+
+/** Fired by the backend when a file in the external routes dir changes. */
+export const EXTERNAL_ROUTES_CHANGED = "external-routes:changed";
 
 // ── Service Templates ────────────────────────────────────────────────────────
 

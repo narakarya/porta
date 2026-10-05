@@ -9,6 +9,7 @@ pub mod commands;
 pub mod db;
 pub mod dns;
 pub mod extensions;
+pub mod external_routes;
 pub mod port_check;
 pub mod port_scanner;
 pub mod process_manager;
@@ -261,6 +262,7 @@ pub fn run() {
             wake_server::spawn(app.handle().clone());
             idle_sleep::spawn_idle_watcher(app.handle().clone());
             commands::startup_caddy_sync(app.handle());
+            external_routes::spawn_watcher(app.handle().clone());
             // Load installed extensions into AppState
             {
                 let s = app.state::<AppState>();
@@ -354,6 +356,7 @@ pub fn run() {
             commands::list_available_commands,
             commands::detect_app_tags,
             commands::regenerate_certs,
+            commands::list_external_routes,
             commands::terminal_open,
             commands::terminal_write,
             commands::terminal_resize,

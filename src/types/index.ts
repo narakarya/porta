@@ -189,6 +189,23 @@ export interface SetupStatus {
   tmux_installed: boolean;
 }
 
+/** A route another tool (Kodera, …) hands to Porta via `~/.porta/external/<tool>.json`. */
+export interface ExternalRoute {
+  source: string;
+  file: string;
+  host: string;
+  subdomains: boolean;
+  port: number;
+  /** Host patterns Porta didn't route because a Porta app (or an earlier tool) owns them. */
+  skipped: string[];
+}
+
+export interface ExternalRoutesView {
+  dir: string;
+  routes: ExternalRoute[];
+  warnings: string[];
+}
+
 export type AddAppParams = {
   workspace_id: string | null;
   name: string;
